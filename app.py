@@ -292,7 +292,7 @@ def initialize():
             ('bonus_fixed', 'INTEGER NOT NULL DEFAULT 0'),
             ('min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
         ])
-        ensure_columns('promo_redemptions', [('consumed_at', 'TEXT')])
+        ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         ensure_columns('ton_deposit_orders', [('promo_code', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('withdrawals', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -1861,10 +1861,11 @@ def redeem_promocode():
         promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not promo or not promo['active']:
             return error('Промокод не найден или отключён.', 404)
-        if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
+        prior=db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',(code,session['uid'])).fetchone()
+        reusable=bool(prior and promo['reward_type']=='deposit_bonus' and prior['deactivated_at'] and not prior['consumed_at'])
+        if prior and not reusable:return error('Вы уже активировали этот промокод.',409)
+        if not reusable and promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
             return error('Лимит активаций этого промокода исчерпан.', 409)
-        if db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (code, session['uid'])).fetchone():
-            return error('Вы уже активировали этот промокод.', 409)
         inventory_id = None
         if promo['reward_type'] == 'balance':
             amount = max(0, int(promo['amount']))
@@ -1898,15 +1899,18 @@ def redeem_promocode():
                                f'{promo["gift_name"]} · X{multiplier:g}')
         elif promo['reward_type'] == 'deposit_bonus':
             if db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
-                             AND consumed_at IS NULL""",(session['uid'],)).fetchone():
+                             AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
                 return error('У вас уже есть активный промокод на пополнение.',409)
             reward=dict(type='deposit_bonus',code=code,bonus_percent=float(promo['bonus_percent'] or 0),
                         bonus_fixed=int(promo['bonus_fixed'] or 0)/100,min_deposit=int(promo['min_deposit'] or 0)/100)
         else:
             return error('Награда промокода настроена неверно.', 500)
-        db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
-                   (code, session['uid'], promo['reward_type'], int(promo['amount'] or 0), inventory_id))
-        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+        if reusable:
+            db.execute('UPDATE promo_redemptions SET deactivated_at=NULL WHERE code=? AND user_id=?',(code,session['uid']))
+        else:
+            db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
+                       (code, session['uid'], promo['reward_type'], int(promo['amount'] or 0), inventory_id))
+            db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
         log_event(db,session['uid'],'promo_redeem',code=code,reward_type=promo['reward_type'],reward=reward)
         db.commit()
         return jsonify(ok=True, reward=reward, user=profile())
@@ -1925,10 +1929,28 @@ def deposit_bonus_status():
     with connect() as db:
         row=db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
                            JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'
-                           AND r.consumed_at IS NULL ORDER BY r.created_at DESC LIMIT 1""",(session['uid'],)).fetchone()
+                           AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                           ORDER BY r.created_at DESC LIMIT 1""",(session['uid'],)).fetchone()
     if not row:return jsonify(active=False)
     return jsonify(active=True,code=row['code'],bonus_percent=float(row['bonus_percent'] or 0),
                    bonus_fixed=int(row['bonus_fixed'] or 0)/100,min_deposit=int(row['min_deposit'] or 0)/100)
+
+
+@app.post('/api/deposit-bonus/remove')
+@login_required
+def remove_deposit_bonus():
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute("""SELECT code FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
+                          AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone()
+        if row:
+            db.execute("""UPDATE promo_redemptions SET deactivated_at=CURRENT_TIMESTAMP WHERE user_id=?
+                          AND code=? AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],row['code']))
+            log_event(db,session['uid'],'deposit_promo_removed',code=row['code'])
+        db.commit()
+    finally:db.close()
+    return jsonify(ok=True,active=False)
 
 
 @app.get('/api/admin/promocodes')
@@ -2489,7 +2511,8 @@ def create_ton_deposit():
         db.execute("UPDATE ton_deposit_orders SET status='expired' WHERE user_id=? AND status='pending'", (session['uid'],))
         promo=db.execute("""SELECT r.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
                             JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'
-                            AND r.consumed_at IS NULL ORDER BY r.created_at DESC LIMIT 1""",(session['uid'],)).fetchone()
+                            AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                            ORDER BY r.created_at DESC LIMIT 1""",(session['uid'],)).fetchone()
         promo_code=promo['code'] if promo else ''
         db.execute('INSERT INTO ton_deposit_orders(id,user_id,wallet_address,recipient_wallet,amount,amount_nano,created_unix,promo_code) VALUES(?,?,?,?,?,?,?,?)',
                    (order_id, session['uid'], wallet_address, settings['recipient_wallet'], amount, amount_nano, created,promo_code))

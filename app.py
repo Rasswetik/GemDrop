@@ -1156,7 +1156,20 @@ def upgrade_target(gift_id):
 
 def upgrade_chance(source_price,target_price):
     if source_price<1 or target_price<=source_price:return 0
-    return max(100,min(8000,round(9000*source_price/target_price)))
+    numerator=upgrade_rtp_basis_points()*source_price
+    if numerator<100*target_price or numerator>8000*target_price:return 0
+    return round(numerator/target_price)
+
+
+def upgrade_rtp_basis_points():
+    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9000))
+    except (TypeError,ValueError):return 9000
+
+
+@app.get('/api/upgrade/settings')
+@login_required
+def upgrade_settings():
+    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80)
 
 
 @app.get('/api/upgrade/preview')
@@ -1167,13 +1180,13 @@ def upgrade_preview():
     target=upgrade_target(request.args.get('gift_id'))
     with connect() as db:
         source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
-    if not source or source['promo_locked']:return error('Выберите доступный подарок из инвентаря.')
+    if not source:return error('Выберите доступный подарок из инвентаря.')
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
     chance=upgrade_chance(int(source['floor_price'] or 0),target['price'])
-    if not chance:return error('Целевой подарок должен стоить дороже вашего.')
+    if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
     return jsonify(source=inventory_item(source),target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
-                   probability=chance/10000,rtp=90)
+                   probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
 
 
 @app.post('/api/upgrade/spin')
@@ -1196,21 +1209,30 @@ def upgrade_spin():
             return jsonify(**json.loads(previous['result_json']),user=profile())
         source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
                           (source_id,session['uid'])).fetchone()
-        if not source or source['promo_locked']:return error('Подарок недоступен для апгрейда.',409)
+        if not source:return error('Подарок недоступен для апгрейда.',409)
         source_price=int(source['floor_price'] or 0)
         chance=upgrade_chance(source_price,target['price'])
-        if not chance:return error('Целевой подарок должен стоить дороже вашего.')
+        if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
         if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
         won=secrets.randbelow(10000)<chance
         awarded=None
+        wager=bool(source['promo_locked'])
+        wager_target=round(target['price']*float(source['promo_wager_multiplier'] or 0)) if wager else 0
+        wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)) if wager else 0
         if won:
-            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
-                           (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
+            cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                             promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
+                             VALUES(?,?,?,?,?,'upgrade',?,?,?,?,?)''',
+                           (session['uid'],target['id'],target['name'],target['image_url'],target['price'],
+                            int(wager),float(source['promo_wager_multiplier'] or 0) if wager else 0,
+                            wager_target,wager_progress,source['promo_code'] or ''))
             awarded=cur.lastrowid
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
-                    target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100),
+                    target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
+                                promo_locked=wager,wager_multiplier=float(source['promo_wager_multiplier'] or 0) if wager else 0,
+                                wager_target=wager_target/100,wager_progress=wager_progress/100),
                     awarded_inventory_id=awarded)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
@@ -1220,7 +1242,7 @@ def upgrade_spin():
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
-                  target_price=target['price']/100,chance=chance/100,won=won)
+                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager)
         result['new_level']=increase_turnover(db,session['uid'],source_price)
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
@@ -2039,8 +2061,34 @@ def admin_user(user_id):
             return error('Пользователь не найден.', 404)
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (user_id,)).fetchall()
+        level=level_number(db,int(user['turnover_cents'] or 0))
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
-                             balance=user['balance']/100), items=[inventory_item(x) for x in items])
+                             balance=user['balance']/100,level=level,
+                             turnover=user['turnover_cents']/100),items=[inventory_item(x) for x in items])
+
+
+@app.post('/api/admin/users/<int:user_id>/level')
+@admin_required
+def admin_user_level(user_id):
+    data=request.get_json(silent=True) or {}
+    try:level=int(data.get('level'))
+    except (ValueError,TypeError):return error('Уровень должен быть от 1 до 20.')
+    if not 1<=level<=20:return error('Уровень должен быть от 1 до 20.')
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        user=db.execute('SELECT turnover_cents FROM users WHERE id=?'+(' FOR UPDATE' if DATABASE_URL else ''),(user_id,)).fetchone()
+        row=db.execute('SELECT required_turnover FROM levels WHERE level=?',(level,)).fetchone()
+        if not user:return error('Пользователь не найден.',404)
+        if not row:return error('Уровень не найден.',404)
+        old=level_number(db,int(user['turnover_cents'] or 0))
+        db.execute('UPDATE users SET turnover_cents=? WHERE id=?',(row['required_turnover'],user_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],user_id,'level_set',f'{old} → {level}'))
+        log_event(db,user_id,'admin_level',previous_level=old,new_level=level,admin_id=session['uid'])
+        db.commit()
+    finally:db.close()
+    return jsonify(ok=True,level=level,turnover=row['required_turnover']/100)
 
 
 @app.get('/api/admin/users/<int:user_id>/activity')
@@ -2278,7 +2326,8 @@ def admin_transactions():
 @app.get('/api/admin/rtp')
 @admin_required
 def admin_rtp_get():
-    return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2), mode='global')
+    return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100,mode='global')
 
 
 @app.post('/api/admin/rtp')
@@ -2288,18 +2337,23 @@ def admin_rtp_set():
     try:
         percent = float(data.get('rtp'))
         promo_percent = float(data.get('promo_rtp', promo_game_rtp()*100))
+        upgrade_percent = float(data.get('upgrade_rtp',upgrade_rtp_basis_points()/100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
-    if not 97 <= percent <= 99.9:
+    if not math.isfinite(percent) or not 97 <= percent <= 99.9:
         return error('Для честной сетки Mines с минимумом 1.01x общий RTP должен быть от 97 до 99.9%.')
-    if not 89 <= promo_percent <= 96.9:
+    if not math.isfinite(promo_percent) or not 89 <= promo_percent <= 96.9:
         return error('RTP промо-отыгрыша должен быть от 89 до 96.9%.')
     if promo_percent >= percent:
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
+    if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
+        return error('RTP апгрейда должен быть от 1 до 100%.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
+                                    'upgrade_rtp_bp':round(upgrade_percent*100),
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
-    return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2))
+    return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100)
 
 
 def ton_settings():

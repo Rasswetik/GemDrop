@@ -15,6 +15,10 @@ services:
         generateValue: true
       - key: ADMIN_IDS
         value: '5257227756'
+      - key: TON_DEPOSIT_WALLET
+        sync: false
+      - key: TON_NETWORK
+        value: mainnet
       - key: DATA_DIR
         value: /opt/render/project/src/data
     disk:

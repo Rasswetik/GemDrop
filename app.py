@@ -10,10 +10,10 @@ import sqlite3
 import tempfile
 import time
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Lock
 from urllib.parse import parse_qsl
 
 import requests
@@ -30,6 +30,10 @@ BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN')
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
+PORTAL_AUTH = os.environ.get('PORTAL_AUTH', '').strip()
+TON_DEPOSIT_WALLET = os.environ.get('TON_DEPOSIT_WALLET', '').strip()
+TON_NETWORK = os.environ.get('TON_NETWORK', 'mainnet').strip().lower()
+TONCENTER_API_KEY = os.environ.get('TONCENTER_API_KEY', '').strip()
 app = Flask(__name__)
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
@@ -65,7 +69,7 @@ class PostgreSQL:
             sql = sql.replace('BEGIN IMMEDIATE', 'BEGIN').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
-        returning = bool(re.match(r'INSERT INTO inventory\b', sql))
+        returning = bool(re.match(r'INSERT INTO (?:inventory|ton_deposits|withdrawals)\b', sql))
         if returning:
             sql += ' RETURNING id'
         cursor = self.connection.execute(sql, params)
@@ -164,12 +168,30 @@ def initialize():
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS ton_deposits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL, amount_nano TEXT NOT NULL, invoice_id TEXT NOT NULL UNIQUE,
+            wallet_address TEXT NOT NULL DEFAULT '', tx_boc TEXT NOT NULL DEFAULT '',
+            tx_hash TEXT UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS ton_deposits_user ON ton_deposits(user_id,id DESC);
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, inventory_id INTEGER,
+            gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
         columns = {row['name'] for row in db.execute('PRAGMA table_info(rounds)')}
         if 'prize_inventory_id' not in columns:
             db.execute('ALTER TABLE rounds ADD COLUMN prize_inventory_id INTEGER')
         if 'lost_cell' not in columns:
             db.execute('ALTER TABLE rounds ADD COLUMN lost_cell INTEGER')
+        if 'rtp_bps' not in columns:
+            db.execute('ALTER TABLE rounds ADD COLUMN rtp_bps INTEGER NOT NULL DEFAULT 9700')
+        if not db.execute("SELECT 1 FROM app_documents WHERE name='game_settings'").fetchone():
+            db.execute('INSERT INTO app_documents(name,payload) VALUES(?,?)',
+                       ('game_settings', json.dumps({'rtp_bps': 9700}, ensure_ascii=False)))
 
 
 initialize()
@@ -381,9 +403,38 @@ def prize_for(amount, gifts=None):
     return max(eligible, key=lambda x: (x[0], str(x[1].get('id', ''))))[1] if eligible else None
 
 
+def game_settings():
+    settings = read_document('game_settings') or {}
+    try:
+        rtp_bps = int(settings.get('rtp_bps', 9700))
+    except (TypeError, ValueError):
+        rtp_bps = 9700
+    return {'rtp_bps': max(8000, min(10000, rtp_bps))}
+
+
 def payout_for(row, opened_count):
-    return round(row['bet'] * 0.97 * math.comb(25, opened_count) /
+    rtp_bps = int(row.get('rtp_bps', 9700) if isinstance(row, dict) else row['rtp_bps'] if 'rtp_bps' in row.keys() else 9700)
+    return round(row['bet'] * (rtp_bps / 10000) * math.comb(25, opened_count) /
                  math.comb(25-row['mines'], opened_count))
+
+
+def portal_log(message, level='info'):
+    try:
+        logs = read_document('portal_logs') or []
+        logs.append({'time': datetime.now(timezone.utc).isoformat(), 'level': level, 'message': str(message)[:500]})
+        save_document('portal_logs', logs[-160:])
+    except Exception:
+        app.logger.exception('Could not persist Portal log')
+
+
+def portal_auth_key(candidate=''):
+    candidate = str(candidate or '').strip()
+    if candidate:
+        return candidate
+    if PORTAL_AUTH:
+        return PORTAL_AUTH
+    stored = read_document('portal_auth')
+    return str(stored.get('key', '') if isinstance(stored, dict) else '').strip()
 
 
 def inventory_item(row):
@@ -416,7 +467,8 @@ def round_view(row, reveal=False):
     if not row:
         return None
     opened = json.loads(row['opened'])
-    factor = 0.97 * math.comb(25, len(opened)) / math.comb(25-row['mines'], len(opened)) if opened else 1
+    rtp = (row['rtp_bps'] if 'rtp_bps' in row.keys() else 9700) / 10000
+    factor = rtp * math.comb(25, len(opened)) / math.comb(25-row['mines'], len(opened)) if opened else 1
     amount = payout_for(row, len(opened)) if opened else row['bet']
     prize = prize_for(amount) if opened and row['state'] == 'active' else None
     owned = None
@@ -427,7 +479,8 @@ def round_view(row, reveal=False):
     return dict(id=row['id'], bet=row['bet']/100, mines=row['mines'], opened=opened, state=row['state'],
                 multiplier=round(factor, 2), potential=amount/100,
                 positions=json.loads(row['positions']) if reveal or row['state'] != 'active' else [],
-                payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'])
+                payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'],
+                rtp=(row['rtp_bps'] if 'rtp_bps' in row.keys() else 9700)/100)
 
 
 @app.get('/api/game/ladder')
@@ -444,11 +497,17 @@ def ladder():
         gifts = read_catalog()['gifts']
     except (OSError, ValueError):
         gifts = []
-    # Snapshot for the UI. The award is always checked anew on the server.
-    dummy = {'bet': bet, 'mines': mines}
-    return jsonify(levels=[dict(step=step, multiplier=round(0.97*math.comb(25, step)/math.comb(25-mines, step), 2),
-                                amount=payout_for(dummy, step)/100, prize=prize_for(payout_for(dummy, step), gifts))
-                           for step in range(1, 26-mines)])
+    # Snapshot for the UI. Keep an active round on the RTP it started with.
+    settings = game_settings()
+    with connect() as db:
+        current = active_round(db, session['uid'])
+    rtp_bps = (current['rtp_bps'] if current and current['mines'] == mines and current['bet'] == bet
+               else settings['rtp_bps'])
+    dummy = {'bet': bet, 'mines': mines, 'rtp_bps': rtp_bps}
+    return jsonify(rtp=rtp_bps/100, levels=[dict(
+        step=step, multiplier=round((rtp_bps/10000)*math.comb(25, step)/math.comb(25-mines, step), 4),
+        amount=payout_for(dummy, step)/100, prize=prize_for(payout_for(dummy, step), gifts))
+        for step in range(1, 26-mines)])
 
 
 def parse_amount(value):
@@ -466,6 +525,13 @@ def index():
 @app.get('/health')
 def health():
     return jsonify(status='ok')
+
+
+@app.get('/api/game/settings')
+@login_required
+def public_game_settings():
+    settings = game_settings()
+    return jsonify(rtp=settings['rtp_bps']/100)
 
 
 @app.get('/api/me')
@@ -496,7 +562,9 @@ def start():
         if not updated.rowcount:
             return error('Недостаточно средств. Баланс может пополнить администратор.')
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
-        db.execute('INSERT INTO rounds(user_id,bet,mines,positions) VALUES(?,?,?,?)', (session['uid'], bet, mines, json.dumps(positions)))
+        rtp_bps = game_settings()['rtp_bps']
+        db.execute('INSERT INTO rounds(user_id,bet,mines,positions,rtp_bps) VALUES(?,?,?,?,?)',
+                   (session['uid'], bet, mines, json.dumps(positions), rtp_bps))
         row = active_round(db, session['uid'])
         db.commit()
         return jsonify(round=round_view(row), user=profile())
@@ -556,12 +624,26 @@ def cashout():
         db.close()
 
 
+def normalized_catalog_gifts():
+    content = read_catalog()
+    gifts = []
+    for raw in content.get('gifts', []):
+        gift = dict(raw)
+        try:
+            if gift.get('price_ton') is not None:
+                gift['price_ton'] = f"{Decimal(str(gift['price_ton'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}"
+        except (InvalidOperation, ValueError, TypeError):
+            gift['price_ton'] = None
+        gifts.append(gift)
+    return content, gifts
+
+
 @app.get('/api/catalog')
 @login_required
 def catalog():
     try:
-        content = read_catalog()
-        return jsonify(gifts=content.get('gifts', []), updated_at=content.get('updated_at'))
+        content, gifts = normalized_catalog_gifts()
+        return jsonify(gifts=gifts, updated_at=content.get('updated_at'))
     except (OSError, ValueError):
         return error('Каталог повреждён.', 500)
 
@@ -580,6 +662,159 @@ def inventory():
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (session['uid'],)).fetchall()
     return jsonify(items=[inventory_item(item) for item in items])
+
+
+@app.post('/api/inventory/<int:item_id>/sell')
+@login_required
+def sell_inventory(item_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
+                          (item_id, session['uid'])).fetchone()
+        if not item:
+            return error('Подарок уже продан или не найден.', 404)
+        amount = max(0, int(item['floor_price']))
+        removed = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid']))
+        if not removed.rowcount:
+            return error('Подарок уже продан.', 409)
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
+        db.commit()
+        return jsonify(ok=True, credited=amount/100, user=profile())
+    finally:
+        db.close()
+
+
+def extract_portal_models(payload):
+    if isinstance(payload, dict):
+        items = payload.get('results') or payload.get('nfts') or payload.get('items') or payload.get('data') or []
+        if isinstance(items, dict):
+            items = items.get('items') or items.get('results') or items.get('nfts') or []
+    else:
+        items = payload if isinstance(payload, list) else []
+    models, seen = [], set()
+    for nft in items if isinstance(items, list) else []:
+        if not isinstance(nft, dict):
+            continue
+        model = nft.get('model') or nft.get('model_name')
+        for attr in nft.get('attributes') or []:
+            if isinstance(attr, dict) and str(attr.get('type') or attr.get('trait_type') or '').casefold() == 'model':
+                model = attr.get('name') or attr.get('value') or model
+                break
+        if not model or str(model).casefold() in seen:
+            continue
+        seen.add(str(model).casefold())
+        image = next((safe_image(nft.get(k)) for k in ('image_url','photo_url','preview_url','image','png_url') if safe_image(nft.get(k))), '')
+        raw_price = next((nft.get(k) for k in ('price','floor_price','floorPrice') if nft.get(k) is not None), None)
+        try:
+            price = f"{Decimal(str(raw_price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}" if raw_price is not None else None
+        except (InvalidOperation, TypeError, ValueError):
+            price = None
+        models.append({'name': str(model)[:100], 'image_url': image, 'price_ton': price})
+        if len(models) >= 40:
+            break
+    return models
+
+
+def portal_short_name(name):
+    # Portals filter endpoints traditionally use a normalized collection key.
+    return re.sub(r"[\s'’\-]+", '', str(name or '')).casefold()[:120]
+
+
+def extract_portal_floor_models(payload, short_name):
+    root = payload.get('floor_prices', payload) if isinstance(payload, dict) else {}
+    if not isinstance(root, dict):
+        return []
+    collection = root.get(short_name)
+    if collection is None:
+        # Be tolerant of capitalization / API response key differences.
+        collection = next((value for key, value in root.items()
+                           if str(key).casefold() == short_name.casefold()), None)
+    if not isinstance(collection, dict):
+        return []
+    raw_models = collection.get('models') or []
+    parsed = []
+    if isinstance(raw_models, dict):
+        iterable = []
+        for name, value in raw_models.items():
+            if isinstance(value, dict):
+                value = dict(value, name=value.get('name') or name)
+            else:
+                value = {'name': name, 'price': value}
+            iterable.append(value)
+    elif isinstance(raw_models, list):
+        iterable = raw_models
+    else:
+        iterable = []
+    seen = set()
+    for model in iterable:
+        if not isinstance(model, dict):
+            continue
+        name = model.get('name') or model.get('model') or model.get('value')
+        if not name or str(name).casefold() in seen:
+            continue
+        seen.add(str(name).casefold())
+        raw_price = next((model.get(k) for k in ('price','floor_price','floorPrice','value_ton')
+                          if model.get(k) is not None), None)
+        try:
+            price = f"{Decimal(str(raw_price)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}" if raw_price is not None else None
+        except (InvalidOperation, TypeError, ValueError):
+            price = None
+        image = next((safe_image(model.get(k)) for k in ('image_url','photo_url','preview_url','image','png_url')
+                      if safe_image(model.get(k))), '')
+        parsed.append({'name': str(name)[:100], 'image_url': image, 'price_ton': price})
+        if len(parsed) >= 40:
+            break
+    return parsed
+
+
+@app.get('/api/inventory/<int:item_id>/models')
+@login_required
+def inventory_models(item_id):
+    with connect() as db:
+        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
+                          (item_id, session['uid'])).fetchone()
+    if not item:
+        return error('Подарок не найден.', 404)
+    key = portal_auth_key()
+    name = item['gift_name']
+    short_name = portal_short_name(name)
+    # Try both the current domain and the legacy domain/parameter names. Portal
+    # has changed API shapes over time; this keeps the preview resilient while
+    # withdrawal itself remains intentionally disabled.
+    nft_attempts = [
+        ('https://portal-market.com/api/nfts/search',
+         {'offset': 0, 'limit': 60, 'sort_by': 'price asc', 'filter_by_collections': name, 'status': 'listed'}),
+        ('https://portal-market.com/api/nfts/search',
+         {'gift_name': name, 'limit': 60, 'sort': 'price_asc'}),
+        ('https://portals-market.com/api/nfts/search',
+         {'offset': 0, 'limit': 60, 'sort_by': 'price asc', 'filter_by_collections': name, 'status': 'listed'}),
+    ]
+    for url, params in nft_attempts:
+        try:
+            response = requests.get(url, params=params, headers=portal_headers(key), timeout=(5, 12))
+            if response.status_code in (404, 405):
+                continue
+            response.raise_for_status()
+            models = extract_portal_models(response.json())
+            if models:
+                return jsonify(models=models, withdrawal_enabled=False)
+        except (requests.RequestException, ValueError):
+            continue
+    for domain in ('https://portal-market.com', 'https://portals-market.com'):
+        try:
+            response = requests.get(f'{domain}/api/collections/filters',
+                                    params={'short_names': short_name}, headers=portal_headers(key), timeout=(5, 12))
+            if response.status_code in (404, 405):
+                continue
+            response.raise_for_status()
+            models = extract_portal_floor_models(response.json(), short_name)
+            if models:
+                return jsonify(models=models, withdrawal_enabled=False)
+        except (requests.RequestException, ValueError):
+            continue
+    return jsonify(models=[], withdrawal_enabled=False, unavailable=True,
+                   message='Portal пока не вернул модели этой коллекции. Сам вывод ещё отключён.')
 
 
 @app.get('/api/referrals/me')
@@ -623,8 +858,12 @@ def admin_user(user_id):
             return error('Пользователь не найден.', 404)
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (user_id,)).fetchall()
+        deposits_total = db.execute('SELECT COALESCE(SUM(amount),0) FROM deposits WHERE user_id=?', (user_id,)).fetchone()[0]
+        wagered = db.execute('SELECT COALESCE(SUM(bet),0) FROM rounds WHERE user_id=?', (user_id,)).fetchone()[0]
+        payouts = db.execute("SELECT COALESCE(SUM(payout),0) FROM rounds WHERE user_id=? AND state='won'", (user_id,)).fetchone()[0]
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
-                             balance=user['balance']/100), items=[inventory_item(x) for x in items])
+                             balance=user['balance']/100), items=[inventory_item(x) for x in items],
+                   stats={'deposits': deposits_total/100, 'wagered': wagered/100, 'cash_payouts': payouts/100})
 
 
 @app.post('/api/admin/users/<int:user_id>/balance')
@@ -721,6 +960,42 @@ def admin_remove_inventory(user_id, item_id):
     return jsonify(ok=True)
 
 
+@app.get('/api/admin/game/settings')
+@admin_required
+def admin_game_settings():
+    settings = game_settings()
+    return jsonify(rtp=settings['rtp_bps']/100)
+
+
+@app.post('/api/admin/game/settings')
+@admin_required
+def admin_save_game_settings():
+    data = request.get_json(silent=True) or {}
+    try:
+        rtp = Decimal(str(data.get('rtp')))
+        rtp_bps = int((rtp * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return error('RTP должен быть числом от 80 до 100%.')
+    if not 8000 <= rtp_bps <= 10000:
+        return error('RTP можно установить от 80 до 100%.')
+    save_document('game_settings', {'rtp_bps': rtp_bps})
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'rtp_set', str(rtp_bps)))
+    return jsonify(ok=True, rtp=rtp_bps/100)
+
+
+@app.get('/api/admin/withdrawals')
+@admin_required
+def admin_withdrawals():
+    with connect() as db:
+        rows = db.execute('''SELECT w.*,u.name,u.username FROM withdrawals w
+                             LEFT JOIN users u ON u.id=w.user_id ORDER BY w.id DESC LIMIT 200''').fetchall()
+    return jsonify(items=[dict(id=r['id'], user_id=r['user_id'], user=r['name'] or '', username=r['username'] or '',
+                               gift_name=r['gift_name'], model=r['model'], status=r['status'], created_at=r['created_at'])
+                          for r in rows])
+
+
 def safe_image(value):
     if isinstance(value, str) and value.startswith('https://') and len(value) < 1000:
         return value
@@ -738,7 +1013,9 @@ def portal_headers(key):
 
 
 def fetch_portal_catalog(key, progress=None):
+    key = portal_auth_key(key)
     previous = read_catalog()['gifts']
+    portal_log('Начата загрузка каталога Portal Market')
     previous_by_id = {str(gift.get('id')): gift for gift in previous}
     gifts, seen = [], set()
     offset = 0
@@ -776,7 +1053,7 @@ def fetch_portal_catalog(key, progress=None):
             raw = next((item[k] for k in ('floor_price', 'floorPrice', 'price') if item.get(k) is not None), None)
             try:
                 price = Decimal(str(raw))
-                price = str(price) if price.is_finite() and price >= 0 else None
+                price = f"{price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}" if price.is_finite() and price >= 0 else None
             except InvalidOperation:
                 price = None
             img = next((safe_image(item.get(k)) for k in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(k))), '')
@@ -787,6 +1064,7 @@ def fetch_portal_catalog(key, progress=None):
             gifts.append(gift)
         if progress:
             progress(len(gifts))
+        portal_log(f'Страница {page + 1}: получено {len(items)} коллекций, всего {len(gifts)}')
         if not items or not added:
             break
         offset += len(items)
@@ -807,10 +1085,12 @@ def fetch_portal_catalog(key, progress=None):
     save_catalog(document)
     if mapping:
         refresh_inventory_images(mapping)
-    return dict(count=len(gifts), matched=sum(bool(g.get('image_match')) for g in gifts), retained=len(retained))
+    result = dict(count=len(gifts), matched=sum(bool(g.get('image_match')) for g in gifts), retained=len(retained))
+    portal_log(f"Каталог сохранён: {result['count']} коллекций, PNG сопоставлено: {result['matched']}")
+    return result
 
 
-portal_job_lock = __import__('threading').Lock()
+portal_job_lock = Lock()
 
 
 def portal_job(key):
@@ -818,14 +1098,17 @@ def portal_job(key):
         result = fetch_portal_catalog(key, lambda count: save_document('portal_job',
                      dict(state='running', count=count, updated=time.time())))
         save_document('portal_job', dict(state='done', updated=time.time(), **result))
+        portal_log(f"Импорт завершён: {result.get('count', 0)} коллекций")
     except requests.HTTPError as exc:
         status = exc.response.status_code
         message = ('Ключ Portal истёк или отклонён. Обновите Authorization из Portal либо очистите поле для публичного каталога.'
                    if status in (401, 403) else f'Portal вернул HTTP {status}. Каталог сохранён; повторите позже.')
         save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+        portal_log(message, 'error')
     except (requests.RequestException, ValueError, OSError) as exc:
         message = str(exc) if isinstance(exc, ValueError) else 'Portal не ответил вовремя. Старые подарки сохранены. Повторите загрузку.'
         save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+        portal_log(message, 'error')
     finally:
         portal_job_lock.release()
 
@@ -836,6 +1119,10 @@ def portal_import():
     key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
     if len(key) > 8000 or '\n' in key or '\r' in key:
         return error('Некорректный ключ Portal.')
+    if key:
+        save_document('portal_auth', {'key': key, 'updated_at': datetime.now(timezone.utc).isoformat()})
+        portal_log('Authorization Portal обновлён администратором')
+    key = portal_auth_key(key)
     if not portal_job_lock.acquire(blocking=False):
         return jsonify(ok=True, state='running'), 202
     save_document('portal_job', dict(state='running', count=0, updated=time.time()))
@@ -850,6 +1137,18 @@ def portal_job_status():
     if job.get('state') == 'running' and time.time() - job.get('updated', 0) > 120:
         job = dict(state='error', error='Загрузка прервалась при перезапуске сервера. Повторите импорт.')
     return jsonify(job)
+
+
+@app.get('/api/admin/portal/status')
+@admin_required
+def portal_status():
+    try:
+        content, gifts = normalized_catalog_gifts()
+    except (OSError, ValueError):
+        content, gifts = {}, []
+    job = read_document('portal_job') or {'state': 'idle'}
+    return jsonify(job=job, logs=(read_document('portal_logs') or [])[-120:], gifts=gifts,
+                   count=len(gifts), updated_at=content.get('updated_at'), auth_saved=bool(portal_auth_key()))
 
 
 @app.post('/api/admin/portal/images/refresh')
@@ -869,6 +1168,169 @@ def refresh_portal_images():
     except (requests.RequestException, ValueError, OSError) as exc:
         app.logger.warning('Gift image refresh failed: %s', type(exc).__name__)
         return error('Не удалось сопоставить изображения. Старый каталог сохранён.', 502)
+
+
+@app.get('/tonconnect-manifest.json')
+def tonconnect_manifest():
+    base = WEBAPP_URL or request.url_root.rstrip('/')
+    return jsonify(url=base + '/', name='GemDrop',
+                   iconUrl=base + '/static/img/tonconnect-icon.png')
+
+
+def ton_network_code():
+    return '-3' if TON_NETWORK == 'testnet' else '-239'
+
+
+@app.post('/api/deposit/intent')
+@login_required
+def ton_deposit_intent():
+    if not TON_DEPOSIT_WALLET:
+        return error('TON_DEPOSIT_WALLET не настроен на сервере.', 503)
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, TypeError, InvalidOperation):
+        return error('Введите сумму с точностью до 0.01 TON.')
+    if not 10 <= amount <= 10000000:
+        return error('Пополнение от 0.10 до 100 000 TON.')
+    wallet = str(data.get('wallet_address') or '')[:180]
+    invoice = secrets.token_urlsafe(18)
+    amount_nano = str(amount * 10_000_000)
+    with connect() as db:
+        cur = db.execute('''INSERT INTO ton_deposits(user_id,amount,amount_nano,invoice_id,wallet_address)
+                            VALUES(?,?,?,?,?)''', (session['uid'], amount, amount_nano, invoice, wallet))
+        deposit_id = cur.lastrowid
+        if not deposit_id:
+            row = db.execute('SELECT id FROM ton_deposits WHERE invoice_id=?', (invoice,)).fetchone()
+            deposit_id = row['id']
+    return jsonify(id=deposit_id, invoice_id=invoice, recipient=TON_DEPOSIT_WALLET,
+                   amount=amount/100, amount_nano=amount_nano, network=ton_network_code())
+
+
+@app.post('/api/deposit/<int:deposit_id>/submitted')
+@login_required
+def ton_deposit_submitted(deposit_id):
+    data = request.get_json(silent=True) or {}
+    boc = str(data.get('boc') or '')[:20000]
+    wallet = str(data.get('wallet_address') or '')[:180]
+    with connect() as db:
+        row = db.execute('SELECT * FROM ton_deposits WHERE id=? AND user_id=?',
+                         (deposit_id, session['uid'])).fetchone()
+        if not row:
+            return error('Пополнение не найдено.', 404)
+        if row['status'] != 'confirmed':
+            db.execute("UPDATE ton_deposits SET status='submitted',tx_boc=?,wallet_address=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                       (boc, wallet or row['wallet_address'], deposit_id))
+    return jsonify(ok=True)
+
+
+def same_ton_address(a, b, address_book):
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    for raw, info in (address_book or {}).items():
+        friendly = info.get('user_friendly') if isinstance(info, dict) else None
+        if a in (raw, friendly) and b in (raw, friendly):
+            return True
+    return False
+
+
+def confirm_ton_deposit(deposit_id, uid):
+    if not TON_DEPOSIT_WALLET:
+        return None
+    with connect() as db:
+        dep = db.execute('SELECT * FROM ton_deposits WHERE id=? AND user_id=?', (deposit_id, uid)).fetchone()
+    if not dep or dep['status'] == 'confirmed' or not dep['wallet_address']:
+        return dep
+    try:
+        created = datetime.fromisoformat(str(dep['created_at']).replace('Z', '+00:00'))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        start_utime = int(created.timestamp()) - 30
+        base = 'https://testnet.toncenter.com' if TON_NETWORK == 'testnet' else 'https://toncenter.com'
+        headers = {'Accept': 'application/json'}
+        if TONCENTER_API_KEY:
+            headers['X-API-Key'] = TONCENTER_API_KEY
+        response = requests.get(base + '/api/v3/transactions',
+                                params={'account': TON_DEPOSIT_WALLET, 'start_utime': start_utime,
+                                        'limit': 50, 'sort': 'desc'},
+                                headers=headers, timeout=(4, 8))
+        response.raise_for_status()
+        payload = response.json()
+        book = payload.get('address_book') or {}
+        txs = payload.get('transactions') or []
+        match = None
+        for tx in txs:
+            msg = tx.get('in_msg') or {}
+            desc = tx.get('description') or {}
+            if desc.get('aborted') or msg.get('bounced'):
+                continue
+            if str(msg.get('value') or '') != str(dep['amount_nano']):
+                continue
+            if not same_ton_address(str(msg.get('source') or ''), dep['wallet_address'], book):
+                continue
+            tx_hash = str(tx.get('hash') or '')
+            if not tx_hash:
+                continue
+            with connect() as check_db:
+                used = check_db.execute('SELECT id FROM ton_deposits WHERE tx_hash=? AND id<>?',
+                                        (tx_hash, deposit_id)).fetchone()
+            if not used:
+                match = tx_hash
+                break
+        if not match:
+            return dep
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            current = db.execute('SELECT * FROM ton_deposits WHERE id=? AND user_id=?', (deposit_id, uid)).fetchone()
+            if not current or current['status'] == 'confirmed':
+                db.commit()
+                return current
+            if db.execute('SELECT 1 FROM ton_deposits WHERE tx_hash=? AND id<>?', (match, deposit_id)).fetchone():
+                db.commit()
+                return current
+            referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (uid,)).fetchone()
+            referrer = referral['referrer_id'] if referral else None
+            bonus = current['amount'] // 10 if referrer else 0
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (current['amount'], uid))
+            if referrer:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
+            db.execute('''INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
+                          VALUES(?,?,?,?,0,?)''', (uid, current['amount'], referrer, bonus, 'ton:' + match))
+            db.execute("UPDATE ton_deposits SET status='confirmed',tx_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                       (match, deposit_id))
+            db.commit()
+        finally:
+            db.close()
+    except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
+        app.logger.info('TON confirmation pending for %s: %s', deposit_id, type(exc).__name__)
+    with connect() as db:
+        return db.execute('SELECT * FROM ton_deposits WHERE id=? AND user_id=?', (deposit_id, uid)).fetchone()
+
+
+@app.get('/api/deposit/<int:deposit_id>')
+@login_required
+def ton_deposit_status(deposit_id):
+    dep = confirm_ton_deposit(deposit_id, session['uid'])
+    if not dep:
+        return error('Пополнение не найдено.', 404)
+    return jsonify(status=dep['status'], amount=dep['amount']/100, user=profile() if dep['status'] == 'confirmed' else None)
+
+
+@app.post('/api/deposits/reconcile')
+@login_required
+def reconcile_deposits():
+    with connect() as db:
+        rows = db.execute("SELECT id FROM ton_deposits WHERE user_id=? AND status IN ('pending','submitted') ORDER BY id DESC LIMIT 1",
+                          (session['uid'],)).fetchall()
+    confirmed = 0
+    for row in rows:
+        dep = confirm_ton_deposit(row['id'], session['uid'])
+        if dep and dep['status'] == 'confirmed':
+            confirmed += 1
+    return jsonify(ok=True, confirmed=confirmed, user=profile())
 
 
 WELCOME_TEXT = (
@@ -900,8 +1362,7 @@ def telegram_webhook():
         db = connect()
         try:
             db.execute('BEGIN IMMEDIATE')
-            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)',
-                              (update_id,)).rowcount:
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)', (update_id,)).rowcount:
                 db.commit()
                 return jsonify(ok=True)
             is_new = db.execute('''INSERT OR IGNORE INTO users(id,name,username,balance)
@@ -910,28 +1371,22 @@ def telegram_webhook():
                                  str(sender.get('username') or '')[:80])).rowcount
             if is_new and len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
                 referrer = int(command[1][4:])
-                if uid != referrer and db.execute('SELECT 1 FROM users WHERE id=?',
-                                                 (referrer,)).fetchone():
-                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
-                               (uid, referrer))
+                if uid != referrer and db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
+                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid, referrer))
             db.commit()
         finally:
             db.close()
-        button = {'inline_keyboard': [[{'text': '🎮 Играть',
-                                       'web_app': {'url': WEBAPP_URL + '/'}}]]}
-        response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-                                 json={'chat_id': chat['id'], 'text': WELCOME_TEXT,
-                                       'parse_mode': 'HTML', 'reply_markup': button}, timeout=12)
-        response.raise_for_status()
-        if not response.json().get('ok'):
-            raise ValueError('Telegram rejected sendMessage')
-        return jsonify(ok=True)
-    except (ValueError, KeyError, requests.RequestException, sqlite3.Error) as exc:
+        button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': WEBAPP_URL + '/'}}]]}
+        # Telegram can execute Bot API methods returned directly from a webhook response.
+        # This avoids waiting for a second outbound HTTPS call before acknowledging the update.
+        return jsonify(method='sendMessage', chat_id=chat['id'], text=WELCOME_TEXT,
+                       parse_mode='HTML', reply_markup=button)
+    except (ValueError, KeyError, sqlite3.Error) as exc:
         app.logger.warning('Telegram update failed: %s', type(exc).__name__)
         if isinstance(update.get('update_id'), int):
             with connect() as db:
                 db.execute('DELETE FROM bot_updates WHERE update_id=?', (update['update_id'],))
-        return error('Не удалось отправить сообщение.', 502)
+        return error('Не удалось обработать сообщение.', 500)
 
 
 def configure_bot():
@@ -946,7 +1401,8 @@ def configure_bot():
         response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                  json={'url': WEBAPP_URL + '/telegram/webhook',
                                        'secret_token': WEBHOOK_SECRET,
-                                       'allowed_updates': ['message']}, timeout=12)
+                                       'allowed_updates': ['message'],
+                                       'max_connections': 20}, timeout=12)
         response.raise_for_status()
         if not response.json().get('ok'):
             raise ValueError('setWebhook rejected')

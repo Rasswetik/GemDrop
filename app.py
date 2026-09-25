@@ -31,6 +31,10 @@ WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_UR
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 GAME_RTP_DEFAULT = 0.97
+MIN_BET_CENTS = 10
+MAX_BET_CENTS = 30000  # 300 TON
+MIN_MINES = 1
+MAX_MINES = 20
 app = Flask(__name__)
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
@@ -487,7 +491,7 @@ def ladder():
         bet = parse_amount(request.args.get('bet', '0.1'))
     except (ValueError, InvalidOperation, TypeError):
         return error('Неверные параметры.')
-    if not (1 <= mines <= 20 and 10 <= bet <= 100000):
+    if not (MIN_MINES <= mines <= MAX_MINES and MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
         return error('Неверные параметры.')
     try:
         gifts = read_catalog()['gifts']
@@ -536,8 +540,8 @@ def start():
         bet = parse_amount(data.get('bet'))
     except (ValueError, InvalidOperation, TypeError):
         return error('Укажите корректную ставку и число мин.')
-    if not (1 <= mines <= 20 and 10 <= bet <= 100000):
-        return error('Ставка от 0.10 до 1000, мин от 1 до 20.')
+    if not (MIN_MINES <= mines <= MAX_MINES and MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON, мин от 1 до 20.')
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -850,14 +854,23 @@ def admin_remove_inventory(user_id, item_id):
 @app.get('/api/admin/withdrawals')
 @admin_required
 def admin_withdrawals():
+    view = request.args.get('view', 'pending').strip().lower()
+    if view not in {'pending', 'completed'}:
+        return error('Неизвестный раздел выводов.')
+    where = "w.status='pending'" if view == 'pending' else "w.status IN ('approved','rejected')"
     with connect() as db:
-        rows = db.execute('''SELECT w.*,u.name AS user_name,u.username
-                             FROM withdrawals w JOIN users u ON u.id=w.user_id
-                             WHERE w.status='pending' ORDER BY w.id DESC LIMIT 200''').fetchall()
+        rows = db.execute(f'''SELECT w.*,u.name AS user_name,u.username,
+                                     au.name AS admin_name,au.username AS admin_username
+                              FROM withdrawals w
+                              JOIN users u ON u.id=w.user_id
+                              LEFT JOIN users au ON au.id=w.admin_id
+                              WHERE {where}
+                              ORDER BY w.id DESC LIMIT 300''').fetchall()
     return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], user_name=x['user_name'],
                                username=x['username'], gift_name=x['gift_name'], image_url=x['image_url'],
-                               price_ton=x['floor_price']/100, created_at=x['created_at']) for x in rows])
-
+                               price_ton=x['floor_price']/100, status=x['status'], admin_id=x['admin_id'],
+                               admin_name=x['admin_name'], admin_username=x['admin_username'],
+                               created_at=x['created_at'], processed_at=x['processed_at']) for x in rows])
 
 @app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
 @admin_required
@@ -871,6 +884,8 @@ def approve_withdrawal(withdrawal_id):
             return error('Заявка не найдена или уже обработана.', 404)
         db.execute("UPDATE withdrawals SET status='approved',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
                    (session['uid'], withdrawal_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], row['user_id'], 'withdrawal_approved', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_approved', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
         notify_user_async(row['user_id'], f'✅ Вывод подарка «{row["gift_name"]}» завершён.')
@@ -895,6 +910,8 @@ def reject_withdrawal(withdrawal_id):
                     row['floor_price'], row['source'], row['round_id']))
         db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
                    (session['uid'], withdrawal_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], row['user_id'], 'withdrawal_rejected', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_rejected', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
         notify_user_async(row['user_id'], f'↩️ Вывод подарка «{row["gift_name"]}» отклонён. Подарок возвращён в инвентарь.')
@@ -906,27 +923,23 @@ def reject_withdrawal(withdrawal_id):
 @app.get('/api/admin/transactions')
 @admin_required
 def admin_transactions():
+    # Funding/balance adjustment history for the admin UI. Game audit rows stay in DB.
     term = request.args.get('q', '').strip()[:80]
-    kind = request.args.get('kind', '').strip()[:60]
     params = []
-    where = []
+    where = ["t.kind IN ('deposit','admin_balance','referral_bonus','ton_deposit')"]
     if term:
         where.append('(CAST(t.user_id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?)')
         params.extend([f'%{term}%', f'%{term}%', f'%{term}%'])
-    if kind:
-        where.append('t.kind=?')
-        params.append(kind)
-    clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+    clause = ' WHERE ' + ' AND '.join(where)
     with connect() as db:
         rows = db.execute('''SELECT t.*,u.name,u.username FROM transactions t
                              JOIN users u ON u.id=t.user_id''' + clause +
-                          ' ORDER BY t.id DESC LIMIT 300', tuple(params)).fetchall()
+                          ' ORDER BY t.id DESC LIMIT 500', tuple(params)).fetchall()
     return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], name=x['name'], username=x['username'],
                                kind=x['kind'], amount=x['amount']/100,
                                balance_after=None if x['balance_after'] is None else x['balance_after']/100,
                                reference_type=x['reference_type'], reference_id=x['reference_id'],
                                details=x['details'], created_at=x['created_at']) for x in rows])
-
 
 @app.get('/api/admin/rtp')
 @admin_required

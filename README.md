@@ -33,8 +33,21 @@ Portal authentication values can expire. Paste the current `Authorization` heade
 
 Admin → **RTP игры** controls one shared RTP for all real players. Default is 97%. The project does not contain deposit-based or player-specific hidden outcome manipulation.
 
+## Mines / limits
+
+- Minimum bet: `0.10 TON`.
+- Maximum bet: `300 TON` (validated both in the browser and on the server).
+- Mines: `1–20`.
+- The player-facing RTP label is hidden; Admin → **RTP игры** remains the control point for the shared RTP.
+- Opened cells use animated inline SVG crystals instead of `mine1.png` / `mine2.png`.
+
 ## Admin additions
 
-- Pending gift withdrawals with approve/reject.
-- Transaction history (bets, wins, deposits, gift sales, balance edits, withdrawal events).
+- Withdrawals have **Active** and **Completed requests** views. Completed rows keep status, processing time, and administrator information.
+- **Funding history** shows deposits/referral credits/admin balance adjustments; Mines bets/wins are excluded from this admin screen while audit rows can remain in the database.
+- Withdrawal approve/reject actions are additionally written to `admin_log`.
 - Portal import logs.
+
+## TON Connect
+
+The `+` button to the right of the Mines balance opens TON Connect. Wallet connection is enabled; automatic balance crediting from a real on-chain payment is intentionally not simulated. Enable real deposits only together with server-side verification of the incoming TON transaction.

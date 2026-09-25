@@ -10,7 +10,7 @@ import sqlite3
 import tempfile
 import time
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from pathlib import Path
 from threading import Thread
@@ -32,6 +32,9 @@ BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 GAME_RTP_DEFAULT = 0.97
+PROMO_RTP_DEFAULT = 0.90
+MIN_GAME_RTP = 0.97
+MIN_PROMO_RTP = 0.89
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MIN_MINES = 1
@@ -230,7 +233,7 @@ def initialize():
             ('bet_gift_image', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'), ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'), ('promo_progress_after', 'INTEGER NOT NULL DEFAULT 0'),
-            ('promo_code', "TEXT NOT NULL DEFAULT ''"),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -404,13 +407,46 @@ def read_document(name):
 
 
 def game_rtp():
-    """Single RTP value shared by all real players."""
+    """Long-run payout ratio used for standard Mines rounds.
+
+    With uniformly sampled mines and a mandatory first-step multiplier >= 1.01x,
+    a global RTP below ~97% is mathematically incompatible with the 1-mine mode.
+    Keep standard play in the 97–99.9% range instead of secretly biasing outcomes.
+    """
     try:
         doc = read_document('game_settings') or {}
         value = float(doc.get('rtp', GAME_RTP_DEFAULT))
     except (TypeError, ValueError, OSError, json.JSONDecodeError):
         value = GAME_RTP_DEFAULT
-    return min(0.999, max(0.50, value))
+    return min(0.999, max(MIN_GAME_RTP, value))
+
+
+def promo_game_rtp():
+    """Separate, visibly lower payout curve for promo-wager gifts.
+
+    Promo gifts can only be played with 3+ mines, so 89% still keeps the first
+    visible cashout multiplier at or above 1.01x for the 3-mine mode.
+    """
+    try:
+        doc = read_document('game_settings') or {}
+        value = float(doc.get('promo_rtp', PROMO_RTP_DEFAULT))
+    except (TypeError, ValueError, OSError, json.JSONDecodeError):
+        value = PROMO_RTP_DEFAULT
+    return min(max(MIN_PROMO_RTP, value), min(0.969, game_rtp() - 0.001))
+
+
+def round_rtp(row):
+    try:
+        snap = row['rtp_snapshot']
+        if snap is not None and float(snap) > 0:
+            return float(snap)
+    except (KeyError, TypeError, ValueError, IndexError):
+        pass
+    try:
+        bet_type = row['bet_type']
+    except (KeyError, TypeError, IndexError):
+        bet_type = 'ton'
+    return promo_game_rtp() if bet_type == 'promo_gift' else game_rtp()
 
 
 def record_transaction(db, user_id, kind, amount=0, reference_type='', reference_id='', details=''):
@@ -505,6 +541,16 @@ def refresh_inventory_images(mapping):
                            (matched['image_url'], item['id']))
 
 
+def ton_to_cents(value):
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError('Invalid TON amount')
+    if not amount.is_finite() or amount < 0:
+        raise ValueError('Invalid TON amount')
+    return int((amount * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+
+
 def prize_for(amount, gifts=None):
     if gifts is None:
         try:
@@ -516,7 +562,7 @@ def prize_for(amount, gifts=None):
         try:
             if not gift.get('id') or not gift.get('name') or not gift.get('image_match'):
                 continue
-            price = int(Decimal(str(gift['price_ton'])) * 100)
+            price = ton_to_cents(gift['price_ton'])
             if price > 0 and price <= amount:
                 eligible.append((price, gift))
         except (KeyError, TypeError, ValueError, InvalidOperation):
@@ -527,15 +573,18 @@ def prize_for(amount, gifts=None):
 def multiplier_for(mines, opened_count, rtp=None):
     if opened_count <= 0:
         return 1.0
-    rtp = game_rtp() if rtp is None else rtp
-    # A successful Mines step must never display/pay below 1.01x.
-    # RTP remains an internal payout parameter and is never shown to players.
-    raw = rtp * math.comb(25, opened_count) / math.comb(25-mines, opened_count)
-    return max(1.01, raw)
+    if mines < MIN_MINES or mines > MAX_MINES or opened_count > 25 - mines:
+        raise ValueError('Invalid Mines step')
+    rtp = game_rtp() if rtp is None else float(rtp)
+    fair = Decimal(math.comb(25, opened_count)) / Decimal(math.comb(25 - mines, opened_count))
+    raw = fair * Decimal(str(rtp))
+    value = max(Decimal('1.01'), raw)
+    return float(value.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP))
 
 
 def payout_for(row, opened_count, rtp=None):
-    return round(row['bet'] * multiplier_for(row['mines'], opened_count, rtp))
+    factor = Decimal(str(multiplier_for(row['mines'], opened_count, rtp)))
+    return int((Decimal(int(row['bet'])) * factor).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
 def inventory_item(row):
@@ -554,7 +603,7 @@ def inventory_item(row):
 
 def award_round(db, row, opened_count):
     """Settle once, atomically, including promo-wager gift bets."""
-    rtp = game_rtp()
+    rtp = round_rtp(row)
     factor = multiplier_for(row['mines'], opened_count, rtp)
     amount = payout_for(row, opened_count, rtp)
 
@@ -578,7 +627,7 @@ def award_round(db, row, opened_count):
 
     prize = prize_for(amount)
     if prize:
-        cents = int(Decimal(str(prize['price_ton'])) * 100)
+        cents = ton_to_cents(prize['price_ton'])
         remainder = max(0, amount - cents)
         image_url = safe_image(prize.get('image_url'))
         cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
@@ -608,7 +657,7 @@ def round_view(row, reveal=False):
     if not row:
         return None
     opened = json.loads(row['opened'])
-    rtp = game_rtp()
+    rtp = round_rtp(row)
     if row['state'] == 'won' and row['win_multiplier'] is not None:
         factor = float(row['win_multiplier'])
         amount = int(row['win_total'] if row['win_total'] is not None else row['payout'])
@@ -651,11 +700,16 @@ def ladder():
         gifts = read_catalog()['gifts']
     except (OSError, ValueError):
         gifts = []
-    # Snapshot for the UI. The award is always checked anew on the server.
+    # Use the same RTP snapshot as an active round so the ladder cannot change mid-game.
     dummy = {'bet': bet, 'mines': mines}
-    current_rtp = game_rtp()
     promo_mode = request.args.get('promo') == '1'
-    return jsonify(levels=[dict(step=step, multiplier=round(multiplier_for(mines, step, current_rtp), 6),
+    current_rtp = promo_game_rtp() if promo_mode else game_rtp()
+    with connect() as db:
+        active = active_round(db, session['uid'])
+    if active and int(active['mines']) == mines and int(active['bet']) == bet:
+        current_rtp = round_rtp(active)
+        promo_mode = active['bet_type'] == 'promo_gift'
+    return jsonify(levels=[dict(step=step, multiplier=multiplier_for(mines, step, current_rtp),
                                 amount=payout_for(dummy, step, current_rtp)/100,
                                 prize=(None if promo_mode else prize_for(payout_for(dummy, step, current_rtp), gifts)))
                            for step in range(1, 26-mines)])
@@ -726,6 +780,8 @@ def start():
             if item['promo_locked'] and target > 0 and progress >= target:
                 return error('Отыгрыш уже завершён. Сначала получите обычный подарок.')
             bet_type = 'promo_gift' if item['promo_locked'] else 'gift'
+            if bet_type == 'promo_gift' and mines < 3:
+                return error('Промо-отыгрыш доступен только при 3 или более минах.')
             snapshot = dict(item_id=item['id'], gift_id=item['gift_id'], name=item['gift_name'],
                             image=item['image_url'], price=bet,
                             multiplier=float(item['promo_wager_multiplier'] or 0),
@@ -746,13 +802,14 @@ def start():
                 return error('Недостаточно средств.')
 
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
+        rtp_snapshot = promo_game_rtp() if bet_type == 'promo_gift' else game_rtp()
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
-                       promo_wager_target,promo_wager_progress,promo_code)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
                     snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
-                    snapshot['target'], snapshot['progress'], snapshot['code']))
+                    snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot))
         row = active_round(db, session['uid'])
         if bet_type == 'ton':
             record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
@@ -1030,6 +1087,42 @@ def wallet_save():
                    'ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
                    (session['uid'], address))
     return jsonify(ok=True, address=address)
+
+
+@app.delete('/api/wallet/me')
+@login_required
+def wallet_forget():
+    with connect() as db:
+        db.execute('DELETE FROM user_wallets WHERE user_id=?', (session['uid'],))
+    return jsonify(ok=True)
+
+
+@app.get('/api/wallet/balance')
+@login_required
+def wallet_balance():
+    address = str(request.args.get('address') or '').strip()
+    if not address:
+        with connect() as db:
+            row = db.execute('SELECT address FROM user_wallets WHERE user_id=?', (session['uid'],)).fetchone()
+        address = row['address'] if row else ''
+    if not (20 <= len(address) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', address)):
+        return error('Некорректный адрес TON-кошелька.')
+    try:
+        response = requests.get('https://toncenter.com/api/v3/accountStates',
+                                params={'address': address, 'include_boc': 'false'},
+                                headers=toncenter_headers(), timeout=(4, 8))
+        response.raise_for_status()
+        accounts = (response.json() or {}).get('accounts') or []
+        if not accounts:
+            return jsonify(ok=True, balance=0.0, balance_nano='0', status='uninitialized')
+        account = accounts[0]
+        nano = int(account.get('balance') or 0)
+        balance = Decimal(nano) / Decimal(1_000_000_000)
+        return jsonify(ok=True, balance=float(balance), balance_nano=str(nano),
+                       status=str(account.get('status') or 'unknown'))
+    except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError):
+        app.logger.warning('TON wallet balance lookup failed')
+        return error('Не удалось получить баланс кошелька из сети TON.', 502)
 
 
 @app.get('/api/referrals/me')
@@ -1415,7 +1508,7 @@ def admin_transactions():
 @app.get('/api/admin/rtp')
 @admin_required
 def admin_rtp_get():
-    return jsonify(rtp=round(game_rtp()*100, 2), mode='global')
+    return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2), mode='global')
 
 
 @app.post('/api/admin/rtp')
@@ -1424,13 +1517,19 @@ def admin_rtp_set():
     data = request.get_json(silent=True) or {}
     try:
         percent = float(data.get('rtp'))
+        promo_percent = float(data.get('promo_rtp', promo_game_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
-    if not 50 <= percent <= 99.9:
-        return error('RTP должен быть от 50 до 99.9%.')
-    save_document('game_settings', {'rtp': percent/100, 'updated_at': datetime.now(timezone.utc).isoformat(),
+    if not 97 <= percent <= 99.9:
+        return error('Для честной сетки Mines с минимумом 1.01x общий RTP должен быть от 97 до 99.9%.')
+    if not 89 <= promo_percent <= 96.9:
+        return error('RTP промо-отыгрыша должен быть от 89 до 96.9%.')
+    if promo_percent >= percent:
+        return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
+    save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
+                                    'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
-    return jsonify(ok=True, rtp=round(game_rtp()*100, 2))
+    return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2))
 
 
 def ton_settings():
@@ -1762,7 +1861,8 @@ def fetch_portal_catalog(key, progress=None):
             raw = next((item[k] for k in ('floor_price', 'floorPrice', 'price') if item.get(k) is not None), None)
             try:
                 price = Decimal(str(raw))
-                price = str(price) if price.is_finite() and price >= 0 else None
+                price = (format(price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), 'f')
+                         if price.is_finite() and price >= 0 else None)
             except (InvalidOperation, TypeError, ValueError):
                 price = None
             img = next((safe_image(item.get(k)) for k in
@@ -1864,7 +1964,65 @@ def portal_job(key):
         save_document('portal_job', dict(state='error', error=message, updated=time.time()))
         append_portal_log(message, 'error')
     finally:
+        try:
+            auto = portal_auto_settings()
+            if auto.get('enabled'):
+                auto['last_run_at'] = time.time()
+                save_portal_auto_settings(auto)
+        except Exception:
+            app.logger.exception('Could not update Portal auto-refresh timestamp')
         portal_job_lock.release()
+
+
+def portal_auto_settings():
+    doc = read_document('portal_auto_refresh') or {}
+    try:
+        interval = int(doc.get('interval_minutes', 60))
+    except (TypeError, ValueError):
+        interval = 60
+    interval = min(1440, max(15, interval))
+    try:
+        next_run_at = float(doc.get('next_run_at') or 0)
+    except (TypeError, ValueError):
+        next_run_at = 0
+    try:
+        last_run_at = float(doc.get('last_run_at') or 0)
+    except (TypeError, ValueError):
+        last_run_at = 0
+    return dict(enabled=bool(doc.get('enabled', False)), interval_minutes=interval,
+                next_run_at=next_run_at, last_run_at=last_run_at)
+
+
+def save_portal_auto_settings(settings):
+    save_document('portal_auto_refresh', settings)
+
+
+@app.get('/api/admin/portal/auto')
+@admin_required
+def portal_auto_get():
+    return jsonify(**portal_auto_settings())
+
+
+@app.post('/api/admin/portal/auto')
+@admin_required
+def portal_auto_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        interval = int(data.get('interval_minutes', 60))
+    except (TypeError, ValueError):
+        return error('Интервал автообновления указан неверно.')
+    if not 15 <= interval <= 1440:
+        return error('Интервал автообновления: от 15 до 1440 минут.')
+    enabled = bool(data.get('enabled', False))
+    now = time.time()
+    previous = portal_auto_settings()
+    settings = dict(enabled=enabled, interval_minutes=interval,
+                    next_run_at=(now + interval * 60 if enabled else 0),
+                    last_run_at=previous.get('last_run_at', 0),
+                    updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid'])
+    save_portal_auto_settings(settings)
+    append_portal_log(f'Автообновление цен: {"включено" if enabled else "выключено"}; интервал {interval} мин.')
+    return jsonify(ok=True, **portal_auto_settings())
 
 
 @app.post('/api/admin/portal/import')
@@ -1999,6 +2157,28 @@ def internal_error_handler(exc):
         return error('Внутренняя ошибка сервера. Ошибка записана в лог.', 500)
     return 'Internal Server Error', 500
 
+
+
+def portal_auto_loop():
+    # Best-effort scheduler for a continuously running Render web service.
+    # The schedule itself lives in the persistent DB, so deploys do not erase it.
+    time.sleep(8)
+    while True:
+        try:
+            settings = portal_auto_settings()
+            now = time.time()
+            if settings.get('enabled') and (not settings.get('next_run_at') or now >= settings['next_run_at']):
+                settings['next_run_at'] = now + settings['interval_minutes'] * 60
+                save_portal_auto_settings(settings)
+                if portal_job_lock.acquire(blocking=False):
+                    append_portal_log('Автообновление: запускаем обновление цен Portal.')
+                    Thread(target=portal_job, args=(saved_portal_key(),), daemon=True).start()
+        except Exception:
+            app.logger.exception('Portal auto-refresh loop failed')
+        time.sleep(30)
+
+
+Thread(target=portal_auto_loop, daemon=True).start()
 
 
 def configure_bot():

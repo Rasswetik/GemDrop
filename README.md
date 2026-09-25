@@ -127,3 +127,35 @@ Mines now supports choosing an inventory gift as the stake from the small gift b
 ## Referral reliability
 
 `/start ref_<id>` is written to the database before the bot greeting is sent. The webhook returns quickly and the greeting is sent outside the response path. The Mini App button also carries `?ref=<id>` as a fallback. `/api/auth` additionally recognizes a signed Telegram `start_param=ref_<id>` if the app is ever opened with a `startapp` link.
+
+
+## Wallet window update
+
+The TON top-up modal now has two explicit states. When connected it shows the active wallet/provider, the connected address, an on-chain TON balance fetched through TON Center API v3, a manual balance refresh control, and an **Отвязать кошелек** action that calls TON Connect `disconnect()` and removes the remembered address from the app database.
+
+`TONCENTER_API_KEY` is strongly recommended because the same TON Center access is used for both deposit verification and wallet-balance display.
+
+## RTP and multiplier model
+
+Mines coefficients are calculated from the cumulative probability of surviving the selected number of opened cells:
+
+`fair multiplier = C(25, opened) / C(25 - mines, opened)`
+
+The configured RTP is then applied as the payout factor. Money calculations are rounded to cents with `ROUND_HALF_UP`, and Portal prices are normalized to two decimals when refreshed. A successful visible multiplier is never below `1.01x`.
+
+Because a 1-mine first step has a fair multiplier of about `1.04167x`, a standard global RTP below about 97% cannot coexist with both uniform random mine placement and the mandatory `1.01x` minimum. The admin range is therefore `97–99.9%` for ordinary Mines. The separate promo-wager curve is `89–96.9%` and can only be used from 3 mines upward. Results are not secretly biased per user.
+
+Each round stores an RTP snapshot so changing admin settings cannot change the payout curve of a round already in progress.
+
+## Promo wager refinements
+
+- Promo-wager items remain visually marked in the inventory.
+- Promo progress/claim and successful wager modals use the normal blue GemDrop styling instead of red panels.
+- Promo wagering requires at least 3 mines in both the client and server.
+- Choosing a promo gift automatically raises the selected mines to 3 when needed.
+- After any gift-backed round ends, the TON bet input is reset instead of keeping the old gift price.
+- Promo-wager rounds use the separate lower payout curve configured in Admin → RTP.
+
+## Portal automatic price refresh
+
+Admin → Portal Market now includes **Автообновление цен**. It can be enabled with an interval from 15 to 1440 minutes. The schedule and next-run timestamp are stored in the persistent database and reuse the saved Portal Authorization. Auto-refresh runs while the Render web service is awake and preserves the last working catalog if Portal is unavailable.

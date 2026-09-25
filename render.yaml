@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: gemdrop
+    runtime: python
+    plan: 0.5c-512mb
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_IDS
+        value: '5257227756'
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+    disk:
+      name: gemdrop-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

@@ -29,6 +29,7 @@ CATALOG = DATA / 'portal_gifts.json'
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
+PORTAL_KEY = (os.environ.get('PORTAL_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
 GAME_RTP = 0.97  # Единый прозрачный RTP для всех игроков; персональных подкруток нет.
 app = Flask(__name__)
@@ -162,6 +163,16 @@ def initialize():
             admin_id INTEGER NOT NULL, request_key TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            inventory_id INTEGER NOT NULL, gift_id TEXT NOT NULL, gift_name TEXT NOT NULL,
+            image_url TEXT NOT NULL DEFAULT '', floor_price INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'withdrawal', round_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending', admin_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC);
+        CREATE INDEX IF NOT EXISTS withdrawals_user ON withdrawals(user_id,id DESC);
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -612,6 +623,55 @@ def sell_inventory(item_id):
         db.close()
 
 
+def send_user_notification(user_id, text):
+    """Best-effort Telegram notification; withdrawal state never depends on delivery."""
+    if not BOT_TOKEN:
+        return
+    try:
+        response = requests.post(
+            f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+            json={'chat_id': int(user_id), 'text': str(text)},
+            timeout=(4, 8),
+        )
+        response.raise_for_status()
+        if not response.json().get('ok'):
+            raise ValueError('Telegram rejected notification')
+    except (requests.RequestException, ValueError, TypeError):
+        app.logger.warning('Could not deliver withdrawal notification to %s', user_id)
+
+
+def notify_user_async(user_id, text):
+    Thread(target=send_user_notification, args=(user_id, text), daemon=True).start()
+
+
+@app.post('/api/inventory/<int:item_id>/withdraw')
+@login_required
+def request_withdrawal(item_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        item_sql = 'SELECT * FROM inventory WHERE id=? AND user_id=?' + (' FOR UPDATE' if DATABASE_URL else '')
+        item = db.execute(item_sql, (item_id, session['uid'])).fetchone()
+        if not item:
+            return error('Подарок не найден или уже отправлен на вывод.', 404)
+        pending = db.execute("SELECT id FROM withdrawals WHERE inventory_id=? AND status='pending' LIMIT 1",
+                             (item_id,)).fetchone()
+        if pending:
+            return error('Этот подарок уже находится на выводе.', 409)
+        db.execute('''INSERT INTO withdrawals(
+                        user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
+                      VALUES(?,?,?,?,?,?,?,?,'pending')''',
+                   (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
+                    item['floor_price'], item['source'], item['round_id']))
+        deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid']))
+        if not deleted.rowcount:
+            return error('Не удалось зарезервировать подарок для вывода.', 409)
+        db.commit()
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
 def _model_list(value):
     if not isinstance(value, list):
         return []
@@ -930,7 +990,7 @@ def portal_job(key):
 @app.post('/api/admin/portal/import')
 @admin_required
 def portal_import():
-    key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
+    key = str((request.get_json(silent=True) or {}).get('key', '')).strip() or PORTAL_KEY
     if len(key) > 8000 or '\n' in key or '\r' in key:
         return error('Некорректный ключ Portal.')
     if not portal_job_lock.acquire(blocking=False):
@@ -959,8 +1019,63 @@ def portal_logs():
 @app.get('/api/admin/withdrawals')
 @admin_required
 def admin_withdrawals():
-    # Вывод пока намеренно не активирован: интерфейс готов, заявок ещё нет.
-    return jsonify(items=[])
+    with connect() as db:
+        rows = db.execute('''SELECT w.*,u.name AS user_name,u.username AS username
+                             FROM withdrawals w JOIN users u ON u.id=w.user_id
+                             WHERE w.status='pending' ORDER BY w.id DESC LIMIT 200''').fetchall()
+    return jsonify(items=[dict(
+        id=row['id'], user_id=row['user_id'], user_name=row['user_name'], username=row['username'],
+        gift_name=row['gift_name'], image_url=row['image_url'], price_ton=row['floor_price']/100,
+        created_at=row['created_at']
+    ) for row in rows])
+
+
+@app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
+@admin_required
+def approve_withdrawal(withdrawal_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        withdrawal_sql = "SELECT * FROM withdrawals WHERE id=? AND status='pending'" + (' FOR UPDATE' if DATABASE_URL else '')
+        row = db.execute(withdrawal_sql, (withdrawal_id,)).fetchone()
+        if not row:
+            return error('Заявка уже обработана или не найдена.', 404)
+        db.execute("UPDATE withdrawals SET status='approved',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+                   (session['uid'], withdrawal_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], row['user_id'], 'withdraw_approve',
+                    json.dumps({'withdrawal_id': withdrawal_id, 'gift': row['gift_name']}, ensure_ascii=False)))
+        db.commit()
+        notify_user_async(row['user_id'], f"✅ Вывод подарка «{row['gift_name']}» завершён.")
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
+@app.post('/api/admin/withdrawals/<int:withdrawal_id>/reject')
+@admin_required
+def reject_withdrawal(withdrawal_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        withdrawal_sql = "SELECT * FROM withdrawals WHERE id=? AND status='pending'" + (' FOR UPDATE' if DATABASE_URL else '')
+        row = db.execute(withdrawal_sql, (withdrawal_id,)).fetchone()
+        if not row:
+            return error('Заявка уже обработана или не найдена.', 404)
+        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                      VALUES(?,?,?,?,?,?,?)''',
+                   (row['user_id'], row['gift_id'], row['gift_name'], row['image_url'], row['floor_price'],
+                    row['source'], row['round_id']))
+        db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+                   (session['uid'], withdrawal_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], row['user_id'], 'withdraw_reject',
+                    json.dumps({'withdrawal_id': withdrawal_id, 'gift': row['gift_name']}, ensure_ascii=False)))
+        db.commit()
+        notify_user_async(row['user_id'], f"↩️ Вывод подарка «{row['gift_name']}» отклонён. Подарок возвращён в инвентарь.")
+        return jsonify(ok=True)
+    finally:
+        db.close()
 
 
 @app.get('/tonconnect-manifest.json')

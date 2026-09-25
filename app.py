@@ -23,7 +23,7 @@ DATA = Path(os.environ.get('DATA_DIR', str(BASE / 'data'))).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'gemdrop.sqlite3'
 CATALOG = DATA / 'portal_gifts.json'
-BOT_TOKEN = (os.environ.get('TELEGRAM_BOT_TOKEN') or os.environ.get('BOT_TOKEN') or '').strip()
+BOT_TOKEN = (os.environ.get('8764742231:AAEhbxAwmqGxT1BragYFnex3kgDNhQhPC9U') or os.environ.get('BOT_TOKEN') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)

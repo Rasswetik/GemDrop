@@ -341,7 +341,7 @@ def gift_id_map():
     """Load the authoritative Telegram gift ID/name map; reuse a disk copy on outage."""
     path = DATA / 'gift_id_to_name.json'
     try:
-        response = requests.get('https://cdn.changes.tg/gifts/id-to-name.json', timeout=12)
+        response = requests.get('https://cdn.changes.tg/gifts/id-to-name.json', timeout=(4, 7))
         response.raise_for_status()
         mapping = response.json()
         if not isinstance(mapping, dict) or not mapping or not all(
@@ -357,8 +357,8 @@ def gift_id_map():
         raise
 
 
-def match_collection_image(gift, mapping):
-    names = {collection_key(v): k for k, v in mapping.items()}
+def match_collection_image(gift, mapping, names=None):
+    names = names or {collection_key(v): k for k, v in mapping.items()}
     match = None
     for field in ('telegram_gift_id', 'star_gift_id', 'gift_id'):
         candidate = str(gift.get(field) or '')
@@ -395,9 +395,10 @@ def save_catalog(document):
 
 def refresh_inventory_images(mapping):
     """Correct older inventory previews by exact collection name; keep price snapshots."""
+    names = {collection_key(v): k for k, v in mapping.items()}
     with connect() as db:
         for item in db.execute('SELECT id,gift_name,image_url FROM inventory').fetchall():
-            matched = match_collection_image({'name': item['gift_name']}, mapping)
+            matched = match_collection_image({'name': item['gift_name']}, mapping, names)
             if matched['image_match'] and matched['image_url'] != item['image_url']:
                 db.execute('UPDATE inventory SET image_url=? WHERE id=?',
                            (matched['image_url'], item['id']))
@@ -979,38 +980,77 @@ def portal_headers(key):
 
 
 def fetch_portal_catalog(key, progress=None):
+    """Fetch Portal collections without blocking the admin UI for the whole import."""
     previous = read_catalog()['gifts']
     previous_by_id = {str(gift.get('id')): gift for gift in previous}
     gifts, seen = [], set()
     offset = 0
-    # Portals currently caps collections pages at 20 even when limit=100.
-    # Advance by the number actually received, and stop on a repeated page.
-    for page in range(100):
-        for attempt in range(2):
+    session_http = requests.Session()
+    page_signatures = set()
+    request_limit = 100
+    deadline = time.monotonic() + 55
+
+    # The public collections endpoint is also used by the Portals web app. Some
+    # deployments cap a page below the requested limit, so advance by the real
+    # number of rows instead of assuming a fixed page size.
+    for page in range(30):
+        if time.monotonic() >= deadline:
+            append_portal_log('Импорт остановлен по защитному лимиту времени; уже полученные коллекции сохранены.', 'error')
+            break
+        response = None
+        for attempt in range(3):
             try:
-                response = requests.get('https://portal-market.com/api/collections',
-                                        params={'limit': 20, 'offset': offset},
-                                        headers=portal_headers(key), timeout=(10, 25))
+                response = session_http.get(
+                    'https://portal-market.com/api/collections',
+                    params={'limit': request_limit, 'offset': offset},
+                    headers=portal_headers(key),
+                    timeout=(5, 10),
+                )
+                if response.status_code == 429 and attempt < 2:
+                    retry_after = response.headers.get('Retry-After', '1')
+                    try:
+                        delay = min(3.0, max(0.5, float(retry_after)))
+                    except ValueError:
+                        delay = 1.0
+                    time.sleep(delay)
+                    continue
                 response.raise_for_status()
                 break
             except requests.RequestException as exc:
                 status = exc.response.status_code if exc.response is not None else None
-                if attempt or status in (400, 401, 403, 404):
+                if attempt >= 2 or status in (400, 401, 403, 404):
                     raise
-                time.sleep(1)
-        payload = response.json()
+                time.sleep(0.7 * (attempt + 1))
+        if response is None:
+            raise requests.RequestException('Portal did not return a response')
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError('Portal вернул некорректный JSON.') from exc
         items = payload.get('collections', payload.get('data', payload)) if isinstance(payload, dict) else payload
         if isinstance(items, dict):
             items = items.get('collections', items.get('items'))
         if not isinstance(items, list):
             raise ValueError('Portal вернул неожиданный формат коллекций.')
+        if not items:
+            break
+
+        page_ids = tuple(str(item.get('id') or item.get('slug') or item.get('name') or '')
+                         for item in items if isinstance(item, dict))
+        signature = hashlib.sha1(json.dumps(page_ids, ensure_ascii=False).encode()).hexdigest()
+        if signature in page_signatures:
+            append_portal_log('Portal повторил уже полученную страницу; импорт завершён без зацикливания.')
+            break
+        page_signatures.add(signature)
+
         added = 0
         for item in items:
             if not isinstance(item, dict):
                 continue
             name = item.get('name') or item.get('title') or item.get('gift_name')
             gift_id = str(item.get('id') or item.get('slug') or name or '')
-            if not name or gift_id in seen:
+            if not name or not gift_id or gift_id in seen:
                 continue
             seen.add(gift_id)
             added += 1
@@ -1018,36 +1058,71 @@ def fetch_portal_catalog(key, progress=None):
             try:
                 price = Decimal(str(raw))
                 price = str(price) if price.is_finite() and price >= 0 else None
-            except InvalidOperation:
+            except (InvalidOperation, TypeError, ValueError):
                 price = None
-            img = next((safe_image(item.get(k)) for k in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(k))), '')
+            img = next((safe_image(item.get(k)) for k in
+                        ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url')
+                        if safe_image(item.get(k))), '')
             gift = dict(id=gift_id, name=str(name)[:140], price_ton=price, portal_image_url=img)
             old = previous_by_id.get(gift_id, {})
-            gift.update(image_url=old.get('image_url') or img, image_match=bool(old.get('image_match')),
+            gift.update(image_url=old.get('image_url') or img,
+                        image_match=bool(old.get('image_match')),
                         telegram_gift_id=old.get('telegram_gift_id', ''))
             gifts.append(gift)
-        if progress:
-            progress(len(gifts))
-        if not items or not added:
+
+        if not added:
             break
         offset += len(items)
-        time.sleep(.15)
+
+        # Publish a partial catalog after every page. The admin panel can show
+        # gifts immediately instead of appearing frozen until PNG matching ends.
+        partial = gifts + [g for g in previous if str(g.get('id')) not in seen]
+        save_document('portal_catalog', dict(
+            source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(),
+            partial=True, gifts=partial))
+        if progress:
+            progress(len(gifts), 'collections')
+        if page == 0 or (page + 1) % 5 == 0:
+            append_portal_log(f'Portal: получено {len(gifts)} коллекций (страница {page + 1}).')
+
+        total = None
+        if isinstance(payload, dict):
+            for key_name in ('total', 'count', 'total_count'):
+                try:
+                    value = int(payload.get(key_name))
+                    if value >= 0:
+                        total = value
+                        break
+                except (TypeError, ValueError):
+                    pass
+        if total is not None and offset >= total:
+            break
     else:
-        raise ValueError('Portal не завершил список коллекций. Прежний каталог сохранён.')
+        append_portal_log('Достигнут защитный лимит страниц Portal; полученные коллекции сохранены.', 'error')
+
     if not gifts:
         raise ValueError('Portal вернул пустой каталог. Прежний каталог сохранён.')
-    try:
-        mapping = gift_id_map()
-    except (requests.RequestException, ValueError, OSError):
-        mapping = {}
-    if mapping:
-        gifts = [match_collection_image(g, mapping) for g in gifts]
+
     retained = [g for g in previous if str(g.get('id')) not in seen]
     gifts.extend(retained)
+    # Save usable Portal data before optional external PNG matching.
     document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
     save_catalog(document)
+    if progress:
+        progress(len(gifts), 'images')
+
+    try:
+        mapping = gift_id_map()
+    except (requests.RequestException, ValueError, OSError, json.JSONDecodeError):
+        mapping = {}
+        append_portal_log('Каталог Portal загружен; CDN сопоставления PNG временно недоступен.')
     if mapping:
+        names = {collection_key(v): k for k, v in mapping.items()}
+        gifts = [match_collection_image(g, mapping, names) for g in gifts]
+        document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
+        save_catalog(document)
         refresh_inventory_images(mapping)
+
     return dict(count=len(gifts), matched=sum(bool(g.get('image_match')) for g in gifts), retained=len(retained))
 
 
@@ -1068,8 +1143,8 @@ portal_job_lock = __import__('threading').Lock()
 def portal_job(key):
     try:
         append_portal_log('Начата загрузка каталога Portal Market.')
-        def progress(count):
-            save_document('portal_job', dict(state='running', count=count, updated=time.time()))
+        def progress(count, stage='collections'):
+            save_document('portal_job', dict(state='running', count=count, stage=stage, updated=time.time()))
         result = fetch_portal_catalog(key, progress)
         save_document('portal_job', dict(state='done', updated=time.time(), **result))
         append_portal_log(f"Каталог сохранён: {result.get('count', 0)} коллекций, PNG: {result.get('matched', 0)}.")

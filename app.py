@@ -192,6 +192,16 @@ def initialize():
             db.execute('ALTER TABLE rounds ADD COLUMN prize_inventory_id INTEGER')
         if 'lost_cell' not in columns:
             db.execute('ALTER TABLE rounds ADD COLUMN lost_cell INTEGER')
+        if 'win_total' not in columns:
+            db.execute('ALTER TABLE rounds ADD COLUMN win_total INTEGER')
+        if 'win_multiplier' not in columns:
+            db.execute('ALTER TABLE rounds ADD COLUMN win_multiplier REAL')
+        if 'win_gift_name' not in columns:
+            db.execute("ALTER TABLE rounds ADD COLUMN win_gift_name TEXT NOT NULL DEFAULT ''")
+        if 'win_gift_image' not in columns:
+            db.execute("ALTER TABLE rounds ADD COLUMN win_gift_image TEXT NOT NULL DEFAULT ''")
+        if 'win_gift_price' not in columns:
+            db.execute('ALTER TABLE rounds ADD COLUMN win_gift_price INTEGER')
 
 
 initialize()
@@ -427,7 +437,10 @@ def multiplier_for(mines, opened_count, rtp=None):
     if opened_count <= 0:
         return 1.0
     rtp = game_rtp() if rtp is None else rtp
-    return rtp * math.comb(25, opened_count) / math.comb(25-mines, opened_count)
+    # A successful Mines step must never display/pay below 1.01x.
+    # RTP remains an internal payout parameter and is never shown to players.
+    raw = rtp * math.comb(25, opened_count) / math.comb(25-mines, opened_count)
+    return max(1.01, raw)
 
 
 def payout_for(row, opened_count, rtp=None):
@@ -443,24 +456,32 @@ def inventory_item(row):
 def award_round(db, row, opened_count):
     """Settle once, atomically, as a catalog gift or a balance payout."""
     rtp = game_rtp()
+    factor = multiplier_for(row['mines'], opened_count, rtp)
     amount = payout_for(row, opened_count, rtp)
     prize = prize_for(amount)
     if prize:
         cents = int(Decimal(str(prize['price_ton'])) * 100)
         remainder = max(0, amount - cents)
-        cursor = db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                               VALUES(?,?,?,?,?,'game',?)''',
+        image_url = safe_image(prize.get('image_url'))
+        cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                               VALUES(?,?,?,?,?,'game',?)""",
                             (row['user_id'], str(prize['id']), str(prize['name']),
-                             safe_image(prize.get('image_url')), cents, row['id']))
-        db.execute("UPDATE rounds SET state='won',payout=?,prize_inventory_id=? WHERE id=?",
-                   (remainder, cursor.lastrowid, row['id']))
+                             image_url, cents, row['id']))
+        db.execute("""UPDATE rounds
+                      SET state='won',payout=?,prize_inventory_id=?,win_total=?,win_multiplier=?,
+                          win_gift_name=?,win_gift_image=?,win_gift_price=?
+                      WHERE id=?""",
+                   (remainder, cursor.lastrowid, amount, factor, str(prize['name'])[:140],
+                    image_url, cents, row['id']))
         if remainder:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, row['user_id']))
             record_transaction(db, row['user_id'], 'game_win_ton', remainder, 'round', row['id'],
                                f'Остаток после выигрыша подарка: {prize["name"]}')
         record_transaction(db, row['user_id'], 'gift_win', 0, 'round', row['id'], str(prize['name']))
     else:
-        db.execute("UPDATE rounds SET state='won',payout=? WHERE id=?", (amount, row['id']))
+        db.execute("""UPDATE rounds SET state='won',payout=?,win_total=?,win_multiplier=?,
+                      win_gift_name='',win_gift_image='',win_gift_price=NULL WHERE id=?""",
+                   (amount, amount, factor, row['id']))
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, row['user_id']))
         record_transaction(db, row['user_id'], 'game_win_ton', amount, 'round', row['id'], 'Выигрыш Mines')
 
@@ -470,8 +491,12 @@ def round_view(row, reveal=False):
         return None
     opened = json.loads(row['opened'])
     rtp = game_rtp()
-    factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
-    amount = payout_for(row, len(opened), rtp) if opened else row['bet']
+    if row['state'] == 'won' and row['win_multiplier'] is not None:
+        factor = float(row['win_multiplier'])
+        amount = int(row['win_total'] if row['win_total'] is not None else row['payout'])
+    else:
+        factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
+        amount = payout_for(row, len(opened), rtp) if opened else row['bet']
     prize = prize_for(amount) if opened and row['state'] == 'active' else None
     owned = None
     if row['prize_inventory_id']:
@@ -504,7 +529,7 @@ def ladder():
     return jsonify(levels=[dict(step=step, multiplier=round(multiplier_for(mines, step, current_rtp), 6),
                                 amount=payout_for(dummy, step, current_rtp)/100,
                                 prize=prize_for(payout_for(dummy, step, current_rtp), gifts))
-                           for step in range(1, 26-mines)], rtp=round(current_rtp * 100, 2))
+                           for step in range(1, 26-mines)])
 
 
 def parse_amount(value):
@@ -611,6 +636,30 @@ def cashout():
         return jsonify(round=round_view(result), user=profile())
     finally:
         db.close()
+
+
+@app.get('/api/game/recent-wins')
+@login_required
+def recent_wins():
+    with connect() as db:
+        rows = db.execute("""SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
+                                    r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
+                                    u.id AS user_id,u.name,u.username,u.photo_url
+                             FROM rounds r JOIN users u ON u.id=r.user_id
+                             WHERE r.state='won' ORDER BY r.id DESC LIMIT 20""").fetchall()
+    items = []
+    for row in rows:
+        opened_count = len(json.loads(row['opened'] or '[]'))
+        factor = float(row['win_multiplier']) if row['win_multiplier'] is not None else multiplier_for(row['mines'], opened_count)
+        total = row['win_total'] if row['win_total'] is not None else row['payout']
+        items.append(dict(
+            id=row['id'], user_id=row['user_id'], name=row['name'], username=row['username'],
+            photo_url=row['photo_url'], bet=row['bet']/100, multiplier=round(max(1.01, factor), 6),
+            amount=(total or 0)/100, gift=(dict(name=row['win_gift_name'], image_url=row['win_gift_image'],
+                                               price_ton=(row['win_gift_price'] or 0)/100)
+                                           if row['win_gift_name'] else None),
+            created_at=row['created_at']))
+    return jsonify(items=items)
 
 
 @app.get('/api/catalog')
@@ -963,6 +1012,59 @@ def admin_rtp_set():
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2))
 
 
+def ton_settings():
+    doc = read_document('ton_settings') or {}
+    return dict(
+        enabled=bool(doc.get('enabled', True)),
+        recipient_wallet=str(doc.get('recipient_wallet') or '').strip()[:180],
+        site_name=str(doc.get('site_name') or 'GemDrop').strip()[:48] or 'GemDrop',
+        site_url=str(doc.get('site_url') or WEBAPP_URL or '').strip()[:500],
+        icon_url=str(doc.get('icon_url') or '').strip()[:500],
+    )
+
+
+@app.get('/api/ton/settings')
+@login_required
+def ton_settings_public():
+    settings = ton_settings()
+    return jsonify(enabled=settings['enabled'], recipient_wallet=settings['recipient_wallet'],
+                   site_name=settings['site_name'])
+
+
+@app.get('/api/admin/ton-settings')
+@admin_required
+def admin_ton_settings_get():
+    return jsonify(**ton_settings())
+
+
+@app.post('/api/admin/ton-settings')
+@admin_required
+def admin_ton_settings_set():
+    data = request.get_json(silent=True) or {}
+    recipient = str(data.get('recipient_wallet') or '').strip()
+    site_name = str(data.get('site_name') or 'GemDrop').strip()
+    site_url = str(data.get('site_url') or '').strip()
+    icon_url = str(data.get('icon_url') or '').strip()
+    enabled = bool(data.get('enabled', True))
+    if recipient and not (20 <= len(recipient) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', recipient)):
+        return error('Проверьте адрес TON-кошелька получателя.')
+    if not (1 <= len(site_name) <= 48):
+        return error('Название сайта должно быть от 1 до 48 символов.')
+    if site_url and not site_url.startswith('https://'):
+        return error('URL сайта должен начинаться с https://')
+    if icon_url and not icon_url.startswith('https://'):
+        return error('URL иконки должен начинаться с https://')
+    save_document('ton_settings', dict(enabled=enabled, recipient_wallet=recipient, site_name=site_name,
+                                       site_url=site_url, icon_url=icon_url,
+                                       updated_at=datetime.now(timezone.utc).isoformat(),
+                                       admin_id=session['uid']))
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'ton_settings',
+                    json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient}, ensure_ascii=False)))
+    return jsonify(ok=True, **ton_settings())
+
+
 def safe_image(value):
     if isinstance(value, str) and value.startswith('https://') and len(value) < 1000:
         return value
@@ -1213,7 +1315,10 @@ def refresh_portal_images():
 @app.get('/tonconnect-manifest.json')
 def tonconnect_manifest():
     base = WEBAPP_URL or request.url_root.rstrip('/')
-    return jsonify(url=base, name='GemDrop', iconUrl=base + '/static/img/ton.png')
+    settings = ton_settings()
+    site_url = settings['site_url'] if settings['site_url'].startswith('https://') else base
+    icon_url = settings['icon_url'] if settings['icon_url'].startswith('https://') else base + '/static/img/ton.png'
+    return jsonify(url=site_url, name=settings['site_name'], iconUrl=icon_url)
 
 
 WELCOME_TEXT = (

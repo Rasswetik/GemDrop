@@ -8,46 +8,59 @@ Start command:
 gunicorn app:app
 ```
 
-Required environment variables:
+Environment variables:
 
 - `BOT_TOKEN` — token of the Telegram bot that opens the Mini App.
-- `ADMIN_IDS` — Telegram user IDs of administrators separated by commas (current project defaults: `5257227756,8468542825`).
+- `ADMIN_IDS` — Telegram user IDs of administrators separated by commas.
 - `SECRET_KEY` — stable random secret; keep the same value between deploys.
 - `WEBAPP_URL` — public HTTPS URL of the Mini App. On Render `RENDER_EXTERNAL_URL` is also supported.
-- `BOT_USERNAME` — bot username without `@` (used by referral links).
-
-Database:
-
-- `DATABASE_URL` — recommended on Render if PostgreSQL is used.
-- Or `DATA_DIR` — persistent disk directory when using SQLite, for example `/opt/render/project/src/data` if that path is backed by a Render Disk.
+- `BOT_USERNAME` — bot username without `@`.
+- `DATABASE_URL` — recommended if PostgreSQL is used.
+- Or `DATA_DIR` — persistent directory for SQLite, e.g. a mounted Render Disk.
 
 Do not set `PORT` manually on Render.
 
-## Portal Market
-
-Portal import is intentionally restored to the older working flow: the server uses the Authorization value entered in **Admin → Portal Market** for that import. A stale `PORTAL_KEY` environment variable is not silently substituted when the field is empty.
-
-Portal authentication values can expire. Paste the current `Authorization` header from Portal when an authenticated request is required. The code accepts the complete `tma ...` or `Bearer ...` value.
-
-## RTP
-
-Admin → **RTP игры** controls one shared RTP for all real players. Default is 97%. The project does not contain deposit-based or player-specific hidden outcome manipulation.
-
-## Mines / limits
+## Mines
 
 - Minimum bet: `0.10 TON`.
-- Maximum bet: `300 TON` (validated both in the browser and on the server).
+- Maximum bet: `300 TON`; validated in both browser and server API.
 - Mines: `1–20`.
-- The player-facing RTP label is hidden; Admin → **RTP игры** remains the control point for the shared RTP.
-- Opened cells use animated inline SVG crystals instead of `mine1.png` / `mine2.png`.
+- Any successful opened-cell multiplier is clamped to a minimum of **1.01x**.
+- RTP is not returned by the player ladder API and is not displayed in the player interface.
+- The Mines layout is refreshed to match the supplied reference structure while keeping the GemDrop cyan/dark palette.
+- The random-cell button uses a proper SVG question icon.
+- Opened cells use animated faceted diamond SVGs; only the newly opened cell receives the reveal animation.
+- **Последние победы** appears below the game controls and shows Telegram avatar/name, bet, multiplier and TON/NFT result.
 
-## Admin additions
+## Recent wins
 
-- Withdrawals have **Active** and **Completed requests** views. Completed rows keep status, processing time, and administrator information.
-- **Funding history** shows deposits/referral credits/admin balance adjustments; Mines bets/wins are excluded from this admin screen while audit rows can remain in the database.
-- Withdrawal approve/reject actions are additionally written to `admin_log`.
-- Portal import logs.
+New completed wins save a snapshot in the round: total win, multiplier and NFT information when applicable. This keeps the feed stable even if a gift is later sold or withdrawn.
 
-## TON Connect
+Endpoint: `GET /api/game/recent-wins`.
 
-The `+` button to the right of the Mines balance opens TON Connect. Wallet connection is enabled; automatic balance crediting from a real on-chain payment is intentionally not simulated. Enable real deposits only together with server-side verification of the incoming TON transaction.
+## TON Connect / funding settings
+
+Admin → **Управление пополнением** stores the following in the database:
+
+- enable/disable TON Connect;
+- recipient TON wallet;
+- site name shown by TON Connect;
+- site URL;
+- icon URL.
+
+These settings are used by `/tonconnect-manifest.json`. The recipient wallet is shown in the funding modal. Wallet connection works through TON Connect; automatic crediting of a real blockchain payment still requires server-side transaction verification and is not faked from client data.
+
+## Portal Market
+
+Portal uses the Authorization value entered in **Admin → Portal Market**. The progressive import/timeouts from the previous Portal fix are preserved so a slow external request does not block the whole catalog until the very end.
+
+## RTP administration
+
+Admin → **RTP игры** retains one shared payout setting. Hidden per-user outcome manipulation is not implemented.
+
+## Admin data
+
+- **История пополнений** contains funding/balance adjustments rather than Mines bet history.
+- Withdrawals have active and completed views.
+- Completed withdrawals keep status, processing time and administrator information.
+- Important settings and withdrawal actions are persisted in the database/admin log.

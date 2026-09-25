@@ -24,19 +24,92 @@ BASE = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('DATA_DIR', str(BASE / 'data'))).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'gemdrop.sqlite3'
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 CATALOG = DATA / 'portal_gifts.json'
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+# A stable key avoids worker/restart-dependent Telegram sessions.
+secret_path = DATA / '.session_secret'
+if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
+    secret_path.write_text(secrets.token_hex(32), encoding='utf-8')
+app.secret_key = os.environ.get('SECRET_KEY') or (
+    hashlib.sha256(('gemdrop-session:' + BOT_TOKEN).encode()).hexdigest() if BOT_TOKEN
+    else secret_path.read_text(encoding='utf-8'))
 WEBHOOK_SECRET = hashlib.sha256((app.secret_key + BOT_TOKEN).encode()).hexdigest()[:48]
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                   SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')))
 
 
+class DatabaseRow(dict):
+    def __getitem__(self, key):
+        return list(self.values())[key] if isinstance(key, int) else super().__getitem__(key)
+
+
+class PostgreSQL:
+    """Small SQL compatibility layer for the existing parameterized SQLite queries."""
+    def __init__(self):
+        import psycopg
+        from psycopg.rows import dict_row
+        self.connection = psycopg.connect(DATABASE_URL, autocommit=True, row_factory=dict_row, connect_timeout=10)
+
+    def execute(self, sql, params=()):
+        sql = sql.strip()
+        if sql.startswith('PRAGMA table_info('):
+            table = sql.split('(', 1)[1].rstrip(')')
+            sql = 'SELECT column_name AS name, column_default AS dflt_value FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s'
+            params = (table,)
+        else:
+            sql = sql.replace('BEGIN IMMEDIATE', 'BEGIN').replace('?', '%s')
+            if 'INSERT OR IGNORE INTO' in sql:
+                sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
+        returning = bool(re.match(r'INSERT INTO inventory\b', sql))
+        if returning:
+            sql += ' RETURNING id'
+        cursor = self.connection.execute(sql, params)
+        class Result:
+            rowcount = cursor.rowcount
+            lastrowid = cursor.fetchone()['id'] if returning else None
+            def fetchone(self):
+                row = cursor.fetchone()
+                return DatabaseRow(row) if row else None
+            def fetchall(self):
+                return [DatabaseRow(row) for row in cursor.fetchall()]
+            def __iter__(self):
+                return iter(self.fetchall())
+        return Result()
+
+    def executescript(self, script):
+        script = script.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'BIGSERIAL PRIMARY KEY')
+        script = re.sub(r'\bINTEGER\b', 'BIGINT', script)
+        for statement in script.split(';'):
+            if statement.strip():
+                self.execute(statement)
+
+    def commit(self):
+        self.connection.commit()
+
+    def close(self):
+        self.connection.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, value, tb):
+        try:
+            if kind:
+                self.connection.rollback()
+            else:
+                self.connection.commit()
+        finally:
+            self.close()
+
+
 def connect():
+    if DATABASE_URL:
+        return PostgreSQL()
     db = sqlite3.connect(DB, timeout=15, isolation_level=None)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA busy_timeout=15000')
@@ -47,6 +120,9 @@ def connect():
 def initialize():
     with connect() as db:
         db.executescript('''
+        CREATE TABLE IF NOT EXISTS app_documents (
+            name TEXT PRIMARY KEY, payload TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
             photo_url TEXT NOT NULL DEFAULT '', balance INTEGER NOT NULL DEFAULT 0,
@@ -89,17 +165,6 @@ def initialize():
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         ''')
-        balance_default = next((row['dflt_value'] for row in db.execute('PRAGMA table_info(users)')
-                                if row['name'] == 'balance'), None)
-        # Only the old schema handed every new user 10 demo units. Remove that
-        # legacy allocation once, without touching balances set after upgrading.
-        if str(balance_default).strip("'\"()") == '1000' and not db.execute(
-                "SELECT 1 FROM schema_migrations WHERE name='remove_legacy_demo_balances'").fetchone():
-            db.execute('BEGIN IMMEDIATE')
-            db.execute('UPDATE users SET balance=0')
-            db.execute("UPDATE rounds SET state='lost' WHERE state='active'")
-            db.execute("INSERT INTO schema_migrations(name) VALUES('remove_legacy_demo_balances')")
-            db.commit()
         columns = {row['name'] for row in db.execute('PRAGMA table_info(rounds)')}
         if 'prize_inventory_id' not in columns:
             db.execute('ALTER TABLE rounds ADD COLUMN prize_inventory_id INTEGER')
@@ -198,10 +263,27 @@ def profile():
 
 
 def active_round(db, uid):
+    if DATABASE_URL:
+        db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
     return db.execute("SELECT * FROM rounds WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
 
 
+def save_document(name, document):
+    with connect() as db:
+        db.execute('INSERT INTO app_documents(name,payload) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload',
+                   (name, json.dumps(document, ensure_ascii=False)))
+
+
+def read_document(name):
+    with connect() as db:
+        row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
+    return json.loads(row['payload']) if row else None
+
+
 def read_catalog():
+    stored = read_document('portal_catalog')
+    if stored is not None:
+        return stored
     if not CATALOG.exists():
         return {'gifts': [], 'updated_at': None}
     document = json.loads(CATALOG.read_text(encoding='utf-8'))
@@ -257,6 +339,7 @@ def match_collection_image(gift, mapping):
 
 
 def save_catalog(document):
+    save_document('portal_catalog', document)
     with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=DATA, delete=False, suffix='.tmp') as tmp:
         json.dump(document, tmp, ensure_ascii=False, indent=2)
         tmp_name = tmp.name
@@ -644,81 +727,129 @@ def safe_image(value):
     return ''
 
 
+def portal_headers(key):
+    key = key.strip()
+    headers = {'Accept': 'application/json', 'User-Agent': 'GemDrop/1.0'}
+    if key:
+        if not key.startswith(('tma ', 'Bearer ')):
+            key = ('tma ' if 'hash=' in key and 'auth_date=' in key else 'Bearer ') + key
+        headers['Authorization'] = key
+    return headers
+
+
+def fetch_portal_catalog(key, progress=None):
+    previous = read_catalog()['gifts']
+    previous_by_id = {str(gift.get('id')): gift for gift in previous}
+    gifts, seen = [], set()
+    offset = 0
+    # Portals currently caps collections pages at 20 even when limit=100.
+    # Advance by the number actually received, and stop on a repeated page.
+    for page in range(100):
+        for attempt in range(2):
+            try:
+                response = requests.get('https://portal-market.com/api/collections',
+                                        params={'limit': 20, 'offset': offset},
+                                        headers=portal_headers(key), timeout=(10, 25))
+                response.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if attempt or status in (400, 401, 403, 404):
+                    raise
+                time.sleep(1)
+        payload = response.json()
+        items = payload.get('collections', payload.get('data', payload)) if isinstance(payload, dict) else payload
+        if isinstance(items, dict):
+            items = items.get('collections', items.get('items'))
+        if not isinstance(items, list):
+            raise ValueError('Portal вернул неожиданный формат коллекций.')
+        added = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get('name') or item.get('title') or item.get('gift_name')
+            gift_id = str(item.get('id') or item.get('slug') or name or '')
+            if not name or gift_id in seen:
+                continue
+            seen.add(gift_id)
+            added += 1
+            raw = next((item[k] for k in ('floor_price', 'floorPrice', 'price') if item.get(k) is not None), None)
+            try:
+                price = Decimal(str(raw))
+                price = str(price) if price.is_finite() and price >= 0 else None
+            except InvalidOperation:
+                price = None
+            img = next((safe_image(item.get(k)) for k in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(k))), '')
+            gift = dict(id=gift_id, name=str(name)[:140], price_ton=price, portal_image_url=img)
+            old = previous_by_id.get(gift_id, {})
+            gift.update(image_url=old.get('image_url') or img, image_match=bool(old.get('image_match')),
+                        telegram_gift_id=old.get('telegram_gift_id', ''))
+            gifts.append(gift)
+        if progress:
+            progress(len(gifts))
+        if not items or not added:
+            break
+        offset += len(items)
+        time.sleep(.15)
+    else:
+        raise ValueError('Portal не завершил список коллекций. Прежний каталог сохранён.')
+    if not gifts:
+        raise ValueError('Portal вернул пустой каталог. Прежний каталог сохранён.')
+    try:
+        mapping = gift_id_map()
+    except (requests.RequestException, ValueError, OSError):
+        mapping = {}
+    if mapping:
+        gifts = [match_collection_image(g, mapping) for g in gifts]
+    retained = [g for g in previous if str(g.get('id')) not in seen]
+    gifts.extend(retained)
+    document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
+    save_catalog(document)
+    if mapping:
+        refresh_inventory_images(mapping)
+    return dict(count=len(gifts), matched=sum(bool(g.get('image_match')) for g in gifts), retained=len(retained))
+
+
+portal_job_lock = __import__('threading').Lock()
+
+
+def portal_job(key):
+    try:
+        result = fetch_portal_catalog(key, lambda count: save_document('portal_job',
+                     dict(state='running', count=count, updated=time.time())))
+        save_document('portal_job', dict(state='done', updated=time.time(), **result))
+    except requests.HTTPError as exc:
+        status = exc.response.status_code
+        message = ('Ключ Portal истёк или отклонён. Обновите Authorization из Portal либо очистите поле для публичного каталога.'
+                   if status in (401, 403) else f'Portal вернул HTTP {status}. Каталог сохранён; повторите позже.')
+        save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+    except (requests.RequestException, ValueError, OSError) as exc:
+        message = str(exc) if isinstance(exc, ValueError) else 'Portal не ответил вовремя. Старые подарки сохранены. Повторите загрузку.'
+        save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+    finally:
+        portal_job_lock.release()
+
+
 @app.post('/api/admin/portal/import')
 @admin_required
 def portal_import():
-    data = request.get_json(silent=True) or {}
-    key = str(data.get('key', '')).strip()
-    if not key or len(key) > 8000:
-        return error('Введите ключ Portal Market.')
-    # Portals Mini App uses a tma Authorization header. Partner keys may use Bearer.
-    authorization = key if key.startswith(('tma ', 'Bearer ')) else f'Bearer {key}'
-    gifts = []
-    seen = set()
-    try:
-        previous = read_catalog()['gifts']
-        previous_by_id = {str(gift.get('id')): gift for gift in previous}
-        # Images are enrichment: an outage of the CDN must not block Portal prices.
-        try:
-            mapping = gift_id_map()
-        except (requests.RequestException, ValueError, OSError):
-            mapping = {}
-        for offset in range(0, 10000, 100):
-            response = requests.get('https://portal-market.com/api/collections',
-                                    params={'limit': 100, 'offset': offset},
-                                    headers={'Authorization': authorization, 'Accept': 'application/json'}, timeout=18)
-            response.raise_for_status()
-            payload = response.json()
-            items = payload.get('collections', payload.get('data', payload)) if isinstance(payload, dict) else payload
-            if isinstance(items, dict):
-                items = items.get('collections', items.get('items', []))
-            if not isinstance(items, list):
-                return error('Portal вернул неожиданный формат каталога.', 502)
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                name = item.get('name') or item.get('title') or item.get('gift_name')
-                if not name:
-                    continue
-                raw_price = item.get('floor_price') or item.get('floorPrice') or item.get('price')
-                try:
-                    price = str(Decimal(str(raw_price))) if raw_price is not None else None
-                except InvalidOperation:
-                    price = None
-                img = next((safe_image(item.get(field)) for field in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(field))), '')
-                gift_id = str(item.get('id') or item.get('slug') or name)
-                if gift_id in seen:
-                    continue
-                seen.add(gift_id)
-                gift = dict(id=gift_id, name=str(name)[:140], price_ton=price,
-                            portal_image_url=img,
-                            telegram_gift_id=str(item.get('telegram_gift_id') or item.get('star_gift_id') or ''))
-                updated = match_collection_image(gift, mapping)
-                old = previous_by_id.get(gift_id)
-                if old and old.get('image_match') and not updated['image_match']:
-                    updated.update(image_url=old['image_url'], image_source=old.get('image_source'),
-                                   image_format='png', image_match=True,
-                                   telegram_gift_id=old.get('telegram_gift_id', ''))
-                gifts.append(updated)
-            if len(items) < 100:
-                break
-        if not gifts:
-            return error('Portal не вернул подарки. Проверьте ключ и его права.', 502)
-        # A short page or changed API permissions must never erase saved gifts.
-        retained = [gift for gift in previous if str(gift.get('id')) not in seen]
-        gifts.extend(retained)
-        document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
-        save_catalog(document)
-        if mapping:
-            refresh_inventory_images(mapping)
-        return jsonify(ok=True, count=len(gifts), matched=sum(g['image_match'] for g in gifts),
-                       retained=len(retained), updated_at=document['updated_at'])
-    except requests.HTTPError as exc:
-        status = exc.response.status_code
-        return error('Portal отклонил ключ.' if status in (401, 403) else f'Portal вернул ошибку HTTP {status}.', 502)
-    except (requests.RequestException, ValueError) as exc:
-        app.logger.warning('Portal import failed: %s', type(exc).__name__)
-        return error('Не удалось получить каталог Portal. Попробуйте позже.', 502)
+    key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
+    if len(key) > 8000 or '\n' in key or '\r' in key:
+        return error('Некорректный ключ Portal.')
+    if not portal_job_lock.acquire(blocking=False):
+        return jsonify(ok=True, state='running'), 202
+    save_document('portal_job', dict(state='running', count=0, updated=time.time()))
+    Thread(target=portal_job, args=(key,), daemon=True).start()
+    return jsonify(ok=True, state='running'), 202
+
+
+@app.get('/api/admin/portal/job')
+@admin_required
+def portal_job_status():
+    job = read_document('portal_job') or dict(state='idle')
+    if job.get('state') == 'running' and time.time() - job.get('updated', 0) > 120:
+        job = dict(state='error', error='Загрузка прервалась при перезапуске сервера. Повторите импорт.')
+    return jsonify(job)
 
 
 @app.post('/api/admin/portal/images/refresh')

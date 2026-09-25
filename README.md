@@ -193,3 +193,11 @@ The server chooses the outcome using `secrets.randbelow`, subtracts the price, r
 ### Roll screen update
 
 The wheel now moves slowly while the Roll screen is idle and stops on the server-selected sector after pressing the single **Крутить** button. The button opens the same TON deposit window used by Mines when the balance is insufficient. Roll selection stays in the slider; Boost and the next-roll shortcut are no longer buttons. The prize pool shows each sector's current probability (including any pending Boost) and the gift's TON value. The bottom navigation and its safe-area spacing have been adjusted for narrow Telegram screens.
+
+## Levels and deposit bonus codes
+
+Twenty levels are seeded into the database on startup. Level 1 starts at zero turnover; by default, level N requires `N × (N − 1) / 2` TON in paid stakes. Admin → **Уровни и награды** can adjust thresholds and assign a TON balance reward, Portal gift, wager gift, generated personal code, or generated deposit bonus code. Turnover increases when a Mines bet starts or a Roll spin is paid, including a gift bet at its stored TON value. Deposits and administrative balance adjustments do not increase turnover. Players claim unlocked rewards exactly once from the profile progress panel. Codes generated as level rewards have one activation and can be redeemed by anyone who knows the code; the player can reopen a claimed level to view its code.
+
+Admin → **Промокоды** now includes a deposit bonus: choose either a percentage or a fixed TON amount and an optional minimum deposit. The user activates it in the deposit window. The bonus is added only when an actual TON transaction is verified. A smaller deposit does not consume the code; a qualifying deposit consumes it once. Only one active deposit bonus code is permitted per user. Keep a persistent database on deployment to retain levels, claims, and redeemed codes.
+
+The active deposit code is attached to the deposit order at creation. Activating a code after an order was created does not retroactively add a bonus. Deposit order responses include the expected bonus; final credit remains conditional on network verification and the code being unused.

@@ -227,6 +227,29 @@ def initialize():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,level)
         );
+        CREATE TABLE IF NOT EXISTS upgrade_spins (
+            id TEXT PRIMARY KEY, user_id INTEGER NOT NULL,source_name TEXT NOT NULL,
+            source_image TEXT NOT NULL DEFAULT '',source_price INTEGER NOT NULL,
+            target_name TEXT NOT NULL,target_image TEXT NOT NULL DEFAULT '',target_price INTEGER NOT NULL,
+            chance_bp INTEGER NOT NULL,won INTEGER NOT NULL,result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS transfer_rates (
+            level INTEGER PRIMARY KEY,fee_percent REAL NOT NULL DEFAULT 5,
+            enabled INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS transfers (
+            id TEXT PRIMARY KEY,sender_id INTEGER NOT NULL,recipient_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL,fee INTEGER NOT NULL,
+            sender_before INTEGER NOT NULL,recipient_before INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            seen_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS user_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
         def ensure_columns(table, definitions):
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -300,9 +323,12 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS transactions_user ON transactions(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
+        db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         for level in range(1,21):
             db.execute('INSERT OR IGNORE INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
                        (level, (level-1)*level*50, '{}'))
+            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',(level,))
 
 
 
@@ -379,6 +405,7 @@ def auth():
             if db.execute('SELECT 1 FROM users WHERE id=?', (referrer_id,)).fetchone():
                 db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
                            (user_id, referrer_id))
+        log_event(db,user_id,'login',username=username)
     session.clear()
     session['uid'] = user_id
     return jsonify(ok=True, user=profile())
@@ -503,6 +530,11 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
                   VALUES(?,?,?,?,?,?,?)''',
                (user_id, str(kind)[:60], int(amount or 0), balance_after,
                 str(reference_type)[:60], str(reference_id)[:120], str(details)[:500]))
+
+
+def log_event(db,user_id,kind,**details):
+    db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
+               (user_id,kind,json.dumps(details,ensure_ascii=False)))
 
 
 def read_catalog():
@@ -804,10 +836,10 @@ def normalize_level_reward(data):
     if not isinstance(data, dict):
         raise ValueError('Неверная настройка награды.')
     kind = str(data.get('type') or 'none')
-    if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo'):
+    if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo','transfer_unlock'):
         raise ValueError('Неизвестный тип награды.')
     reward = {'type':kind}
-    if kind=='none':
+    if kind in ('none','transfer_unlock'):
         return reward
     content = str(data.get('promo_reward_type') or 'balance') if kind=='personal_promo' else kind
     if content in ('balance','gift','wager_gift'):
@@ -944,8 +976,11 @@ def claim_level(level):
                         reward.get('image_url',''),reward.get('gift_price',0),reward.get('wager_multiplier',0),0,
                         reward.get('bonus_percent',0),reward.get('bonus_fixed',0),reward.get('min_deposit',0)))
             result=dict(type=kind,code=code,description=reward_description(reward))
+        elif kind=='transfer_unlock':
+            result=dict(type='transfer_unlock',description='Переводы TON разблокированы')
         db.execute('INSERT INTO level_claims(user_id,level,reward_json) VALUES(?,?,?)',
                    (session['uid'],level,json.dumps(result,ensure_ascii=False)))
+        log_event(db,session['uid'],'level_claim',level=level,reward=result)
         db.commit()
         return jsonify(ok=True,reward=result,user=profile())
     finally:db.close()
@@ -953,6 +988,7 @@ def claim_level(level):
 
 def reward_description(reward):
     if reward.get('type')=='none':return 'Без награды'
+    if reward.get('type')=='transfer_unlock':return 'Доступ к переводам TON'
     if reward.get('type')=='balance' or reward.get('promo_reward_type')=='balance' and reward.get('type')=='personal_promo':
         return f"{reward.get('amount',0)/100:.2f} TON"
     if reward.get('type')=='deposit_promo':
@@ -1065,6 +1101,8 @@ def spin_roll(roll_id):
         record_transaction(db,session['uid'],'roll_spin',-roll['price'],'roll',spin_id,roll['name'])
         if entry['kind']=='gift':
             record_transaction(db,session['uid'],'roll_gift',0,'roll',spin_id,entry['name'])
+        log_event(db,session['uid'],'roll',name=roll['name'],price=roll['price']/100,
+                  outcome=entry['kind'],gift_name=entry['name'],gift_image=entry.get('image_url',''))
         new_level=increase_turnover(db,session['uid'],roll['price'])
         db.commit()
         return jsonify(spin_id=spin_id,entry_id=entry['id'],index=index,kind=entry['kind'],
@@ -1072,6 +1110,226 @@ def spin_roll(roll_id):
                        applied_boost=boost,new_level=new_level,user=profile())
     finally:
         db.close()
+
+
+def upgrade_target(gift_id):
+    gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==str(gift_id)),None)
+    if not gift:return None
+    try:price=ton_to_cents(gift['price_ton'])
+    except (ValueError,TypeError,KeyError,InvalidOperation):return None
+    if price<1:return None
+    image_url=safe_image(gift.get('image_url'))
+    if not image_url:return None
+    return dict(id=str(gift['id']),name=str(gift.get('name') or 'Подарок')[:140],
+                image_url=image_url,price=price)
+
+
+def upgrade_chance(source_price,target_price):
+    if source_price<1 or target_price<=source_price:return 0
+    return min(9500,round(9000*source_price/target_price))
+
+
+@app.get('/api/upgrade/preview')
+@login_required
+def upgrade_preview():
+    try:source_id=int(request.args.get('inventory_id') or 0)
+    except (ValueError,TypeError):return error('Выберите свой подарок.')
+    target=upgrade_target(request.args.get('gift_id'))
+    with connect() as db:
+        source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
+    if not source or source['promo_locked']:return error('Выберите доступный подарок из инвентаря.')
+    if not target:return error('Целевой подарок не найден в каталоге Portal.')
+    chance=upgrade_chance(int(source['floor_price'] or 0),target['price'])
+    if not chance:return error('Целевой подарок должен стоить дороже вашего.')
+    return jsonify(source=inventory_item(source),target=dict(id=target['id'],name=target['name'],
+                   image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
+                   probability=chance/10000,rtp=90)
+
+
+@app.post('/api/upgrade/spin')
+@login_required
+def upgrade_spin():
+    data=request.get_json(silent=True) or {}
+    request_id=str(data.get('request_id') or '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{16,64}',request_id):return error('Повторите попытку прокрутки.')
+    try:source_id=int(data.get('inventory_id'))
+    except (ValueError,TypeError):return error('Выберите свой подарок.')
+    target=upgrade_target(data.get('gift_id'))
+    if not target:return error('Целевой подарок не найден в каталоге Portal.')
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        previous=db.execute('SELECT user_id,result_json FROM upgrade_spins WHERE id=?',(request_id,)).fetchone()
+        if previous:
+            if previous['user_id']!=session['uid']:return error('Некорректная операция.',409)
+            db.commit()
+            return jsonify(**json.loads(previous['result_json']),user=profile())
+        source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
+                          (source_id,session['uid'])).fetchone()
+        if not source or source['promo_locked']:return error('Подарок недоступен для апгрейда.',409)
+        source_price=int(source['floor_price'] or 0)
+        chance=upgrade_chance(source_price,target['price'])
+        if not chance:return error('Целевой подарок должен стоить дороже вашего.')
+        if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
+            return error('Подарок уже использован.',409)
+        won=secrets.randbelow(10000)<chance
+        awarded=None
+        if won:
+            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
+                           (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
+            awarded=cur.lastrowid
+        result=dict(ok=True,id=request_id,won=won,chance=chance/100,
+                    source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
+                    target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100),
+                    awarded_inventory_id=awarded)
+        db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+                   (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
+                    target['name'],target['image_url'],target['price'],chance,int(won),json.dumps(result,ensure_ascii=False)))
+        record_transaction(db,session['uid'],'upgrade_bet',0,'upgrade',request_id,
+                           f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
+        log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
+                  source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
+                  target_price=target['price']/100,chance=chance/100,won=won)
+        result['new_level']=increase_turnover(db,session['uid'],source_price)
+        db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
+        db.commit()
+        return jsonify(**result,user=profile())
+    finally:db.close()
+
+
+def transfer_access(db,user_id):
+    rows=db.execute('SELECT reward_json FROM level_claims WHERE user_id=?',(user_id,)).fetchall()
+    return any(json.loads(r['reward_json']).get('type')=='transfer_unlock' for r in rows)
+
+
+def transfer_rate(db,user_id):
+    row=db.execute('SELECT turnover_cents FROM users WHERE id=?',(user_id,)).fetchone()
+    level=level_number(db,int(row['turnover_cents'] or 0))
+    rate=db.execute('SELECT fee_percent,enabled FROM transfer_rates WHERE level=?',(level,)).fetchone()
+    return level,float(rate['fee_percent']) if rate else 5.0,bool(rate['enabled']) if rate else True
+
+
+@app.get('/api/transfers/status')
+@login_required
+def transfers_status():
+    with connect() as db:
+        unlocked=transfer_access(db,session['uid'])
+        level,fee,enabled=transfer_rate(db,session['uid'])
+        incoming=db.execute('SELECT COUNT(*) AS n FROM transfers WHERE recipient_id=? AND seen_at IS NULL',(session['uid'],)).fetchone()['n']
+    return jsonify(unlocked=unlocked,enabled=enabled,level=level,fee_percent=fee,
+                   min_amount=0.1,unread=incoming)
+
+
+@app.get('/api/transfers/recipient')
+@login_required
+def transfer_recipient():
+    username=str(request.args.get('username') or '').strip().lstrip('@').lower()
+    if not re.fullmatch(r'[a-z0-9_]{5,32}',username):return error('Введите Telegram username получателя.')
+    with connect() as db:
+        users=db.execute('SELECT id,name,username,photo_url FROM users WHERE LOWER(username)=? LIMIT 2',(username,)).fetchall()
+    if len(users)!=1:return error('Зарегистрированный пользователь с таким username не найден.',404)
+    u=users[0]
+    if u['id']==session['uid']:return error('Себе перевести нельзя.')
+    return jsonify(user=dict(id=u['id'],name=u['name'],username=u['username'],photo_url=u['photo_url']))
+
+
+@app.post('/api/transfers/send')
+@login_required
+def transfer_send():
+    data=request.get_json(silent=True) or {}
+    request_id=str(data.get('request_id') or '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{16,64}',request_id):return error('Обновите страницу и повторите перевод.')
+    try:amount=parse_amount(data.get('amount'))
+    except (ValueError,TypeError,InvalidOperation):return error('Введите сумму перевода с точностью до 0.01 TON.')
+    if amount<10:return error('Минимальный перевод — 0.10 TON.')
+    username=str(data.get('username') or '').strip().lstrip('@').lower()
+    if not re.fullmatch(r'[a-z0-9_]{5,32}',username):return error('Введите username зарегистрированного получателя.')
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        previous=db.execute('SELECT * FROM transfers WHERE id=?',(request_id,)).fetchone()
+        if previous:
+            if previous['sender_id']!=session['uid']:return error('Некорректная операция.',409)
+            recipient=db.execute('SELECT name,username,photo_url FROM users WHERE id=?',(previous['recipient_id'],)).fetchone()
+            db.commit()
+            return jsonify(ok=True,id=request_id,amount=previous['amount']/100,fee=previous['fee']/100,
+                           old_balance=previous['sender_before']/100,new_balance=(previous['sender_before']-previous['amount']-previous['fee'])/100,
+                           recipient=dict(name=recipient['name'],username=recipient['username'],photo_url=recipient['photo_url']),user=profile())
+        users=db.execute('SELECT id,name,username,photo_url FROM users WHERE LOWER(username)=? LIMIT 2',(username,)).fetchall()
+        if len(users)!=1 or users[0]['id']==session['uid']:return error('Получатель не найден или совпадает с отправителем.',404)
+        recipient=users[0]
+        if DATABASE_URL:
+            for uid in sorted((session['uid'],recipient['id'])):
+                db.execute('SELECT id FROM users WHERE id=? FOR UPDATE',(uid,))
+        sender=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()
+        receiver=db.execute('SELECT balance FROM users WHERE id=?',(recipient['id'],)).fetchone()
+        if not sender or not receiver:return error('Получатель не найден.',404)
+        if not transfer_access(db,session['uid']):return error('Получите награду уровня с доступом к переводам.',403)
+        _,fee_percent,enabled=transfer_rate(db,session['uid'])
+        if not enabled:return error('Переводы для вашего уровня отключены.',403)
+        fee=int((Decimal(amount)*Decimal(str(fee_percent))/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
+        total=amount+fee
+        if sender['balance']<total:return error(f'Недостаточно TON с учётом комиссии {fee_percent:g}%.')
+        debited=db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',(total,session['uid'],total))
+        if not debited.rowcount:return error('Недостаточно TON.')
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?',(amount,recipient['id']))
+        db.execute('INSERT INTO transfers(id,sender_id,recipient_id,amount,fee,sender_before,recipient_before) VALUES(?,?,?,?,?,?,?)',
+                   (request_id,session['uid'],recipient['id'],amount,fee,sender['balance'],receiver['balance']))
+        record_transaction(db,session['uid'],'transfer_sent',-total,'transfer',request_id,f'@{recipient["username"]} · комиссия {fee/100:.2f} TON')
+        record_transaction(db,recipient['id'],'transfer_received',amount,'transfer',request_id,f'От пользователя {session["uid"]}')
+        log_event(db,session['uid'],'transfer_sent',recipient_id=recipient['id'],username=recipient['username'],amount=amount/100,fee=fee/100)
+        log_event(db,recipient['id'],'transfer_received',sender_id=session['uid'],amount=amount/100)
+        db.commit()
+        return jsonify(ok=True,id=request_id,amount=amount/100,fee=fee/100,
+                       old_balance=sender['balance']/100,new_balance=(sender['balance']-total)/100,
+                       recipient=dict(name=recipient['name'],username=recipient['username'],photo_url=recipient['photo_url']),user=profile())
+    finally:db.close()
+
+
+@app.get('/api/transfers/incoming')
+@login_required
+def incoming_transfer():
+    with connect() as db:
+        row=db.execute('''SELECT t.*,u.name,u.username,u.photo_url FROM transfers t JOIN users u ON u.id=t.sender_id
+                          WHERE t.recipient_id=? AND t.seen_at IS NULL ORDER BY t.created_at,t.id LIMIT 1''',(session['uid'],)).fetchone()
+    if not row:return jsonify(transfer=None)
+    return jsonify(transfer=dict(id=row['id'],amount=row['amount']/100,
+                  old_balance=row['recipient_before']/100,new_balance=(row['recipient_before']+row['amount'])/100,
+                  sender=dict(name=row['name'],username=row['username'],photo_url=row['photo_url'])))
+
+
+@app.post('/api/transfers/<transfer_id>/seen')
+@login_required
+def transfer_seen(transfer_id):
+    with connect() as db:
+        db.execute('UPDATE transfers SET seen_at=CURRENT_TIMESTAMP WHERE id=? AND recipient_id=? AND seen_at IS NULL',
+                   (transfer_id,session['uid']))
+    return jsonify(ok=True)
+
+
+@app.get('/api/admin/transfers/settings')
+@admin_required
+def transfer_settings_get():
+    with connect() as db:
+        rows=db.execute('SELECT level,fee_percent,enabled FROM transfer_rates ORDER BY level').fetchall()
+    return jsonify(levels=[dict(level=r['level'],fee_percent=float(r['fee_percent']),enabled=bool(r['enabled'])) for r in rows])
+
+
+@app.post('/api/admin/transfers/settings/<int:level>')
+@admin_required
+def transfer_settings_set(level):
+    if not 1<=level<=20:return error('Неверный уровень.')
+    data=request.get_json(silent=True) or {}
+    try:fee=float(data.get('fee_percent'))
+    except (TypeError,ValueError):return error('Введите комиссию.')
+    if not math.isfinite(fee) or not 0<=fee<=30:return error('Комиссия: от 0 до 30%.')
+    enabled=int(bool(data.get('enabled',True)))
+    with connect() as db:
+        db.execute('UPDATE transfer_rates SET fee_percent=?,enabled=? WHERE level=?',(fee,enabled,level))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'transfer_rate',f'Уровень {level}: {fee:g}%, enabled={enabled}'))
+    return jsonify(ok=True,level=level,fee_percent=fee,enabled=bool(enabled))
 
 
 @app.post('/api/game/start')
@@ -1152,6 +1410,8 @@ def start():
                                f'{snapshot["name"]} · X{snapshot["multiplier"]:g}')
         else:
             record_transaction(db, session['uid'], 'gift_bet', 0, 'round', row['id'], snapshot['name'])
+        log_event(db,session['uid'],'mines_start',round_id=row['id'],mines=mines,bet=bet/100,
+                  bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'])
         new_level=increase_turnover(db,session['uid'],bet)
         db.commit()
         return jsonify(round=round_view(row), user=profile(), new_level=new_level)
@@ -1193,6 +1453,8 @@ def open_cell():
             if len(opened) == 25-row['mines']:
                 award_round(db, row, len(opened))
         result = db.execute('SELECT * FROM rounds WHERE id=?', (row['id'],)).fetchone()
+        log_event(db,session['uid'],'mines_cell',round_id=row['id'],cell=cell,
+                  lost=cell in positions,opened=len(opened))
         db.commit()
         return jsonify(round=round_view(result), user=profile())
     finally:
@@ -1211,6 +1473,9 @@ def cashout():
         opened = len(json.loads(row['opened']))
         award_round(db, row, opened)
         result = db.execute('SELECT * FROM rounds WHERE id=?', (row['id'],)).fetchone()
+        log_event(db,session['uid'],'mines_cashout',round_id=row['id'],bet=row['bet']/100,
+                  mines=row['mines'],opened=opened,payout=result['payout']/100,
+                  gift_name=result['win_gift_name'],gift_image=result['win_gift_image'])
         db.commit()
         return jsonify(round=round_view(result), user=profile())
     finally:
@@ -1590,6 +1855,7 @@ def redeem_promocode():
         db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
                    (code, session['uid'], promo['reward_type'], int(promo['amount'] or 0), inventory_id))
         db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+        log_event(db,session['uid'],'promo_redeem',code=code,reward_type=promo['reward_type'],reward=reward)
         db.commit()
         return jsonify(ok=True, reward=reward, user=profile())
     finally:
@@ -1745,6 +2011,54 @@ def admin_user(user_id):
                            (user_id,)).fetchall()
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
                              balance=user['balance']/100), items=[inventory_item(x) for x in items])
+
+
+@app.get('/api/admin/users/<int:user_id>/activity')
+@admin_required
+def admin_user_activity(user_id):
+    try:offset=max(0,min(100000,int(request.args.get('offset',0))))
+    except (ValueError,TypeError):offset=0
+    limit=offset+101
+    events=[]
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM users WHERE id=?',(user_id,)).fetchone():return error('Пользователь не найден.',404)
+        for r in db.execute('SELECT * FROM user_events WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            payload=json.loads(r['payload'])
+            image=payload.get('gift_image') or payload.get('target_image') or payload.get('source_image') or ''
+            events.append(dict(id='e'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
+                               amount=None,image=image,details=payload))
+        for r in db.execute('SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='t'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
+                               amount=r['amount']/100,image='',details=dict(text=r['details'],
+                               balance_after=r['balance_after']/100 if r['balance_after'] is not None else None,
+                               reference_type=r['reference_type'],reference_id=r['reference_id'])))
+        for r in db.execute('SELECT * FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='m'+str(r['id']),date=str(r['created_at']),kind='mines_round',
+                               amount=r['bet']/100,image=r['bet_gift_image'] or r['win_gift_image'],
+                               details=dict(mines=r['mines'],bet=r['bet']/100,state=r['state'],
+                                            bet_type=r['bet_type'],gift_name=r['bet_gift_name'] or r['win_gift_name'],
+                                            opened=len(json.loads(r['opened'] or '[]')),payout=r['payout']/100)))
+        for r in db.execute('SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='w'+str(r['id']),date=str(r['created_at']),kind='withdrawal',amount=0,
+                               image=r['image_url'],details=dict(gift_name=r['gift_name'],status=r['status'])))
+        for r in db.execute('SELECT * FROM promo_redemptions WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='p'+r['code'],date=str(r['created_at']),kind='promo_activation',amount=r['amount']/100,
+                               image='',details=dict(code=r['code'],reward_type=r['reward_type'],consumed_at=r['consumed_at'])))
+        for r in db.execute('SELECT * FROM roll_spins WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='r'+r['id'],date=str(r['created_at']),kind='roll_spin',amount=-r['price']/100,
+                               image='',details=dict(roll_id=r['roll_id'],outcome=r['outcome'],gift_name=r['gift_name'])))
+        for r in db.execute('SELECT * FROM ton_deposit_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='d'+r['id'],date=str(r['created_at']),kind='deposit_order',amount=r['amount']/100,
+                               image='',details=dict(status=r['status'],promo_code=r['promo_code'],order_id=r['id'])))
+        for r in db.execute('SELECT * FROM admin_log WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            events.append(dict(id='a'+str(r['id']),date=str(r['created_at']),kind='admin_action',amount=None,
+                               image='',details=dict(action=r['action'],text=r['details'],admin_id=r['admin_id'])))
+        for r in db.execute('SELECT * FROM level_claims WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
+            reward=json.loads(r['reward_json'])
+            events.append(dict(id='l'+str(r['level']),date=str(r['created_at']),kind='level_claim',amount=None,
+                               image=(reward.get('gift') or {}).get('image_url',''),details=dict(level=r['level'],reward=reward)))
+    events.sort(key=lambda x:(x['date'],x['id']),reverse=True)
+    return jsonify(items=events[offset:offset+100],has_more=len(events)>offset+100)
 
 
 @app.post('/api/admin/users/<int:user_id>/balance')
@@ -2058,6 +2372,8 @@ def credit_verified_ton_deposit(db, order, tx_hash):
     if deposit_bonus:
         record_transaction(db,user_id,'deposit_promo_bonus',deposit_bonus,'ton_tx',tx_hash,
                            f'Бонус промокода {active["code"]}')
+    log_event(db,user_id,'deposit_confirmed',amount=amount/100,bonus=deposit_bonus/100,
+              promo_code=active['code'] if deposit_bonus else '',transaction=tx_hash)
     if referrer and bonus:
         record_transaction(db, referrer, 'referral_bonus', bonus, 'ton_tx', tx_hash,
                            f'Реферальный бонус {referral_percent():g}% от TON-пополнения пользователя {user_id}')
@@ -2095,6 +2411,7 @@ def create_ton_deposit():
                    (order_id, session['uid'], wallet_address, settings['recipient_wallet'], amount, amount_nano, created,promo_code))
         db.execute('INSERT INTO user_wallets(user_id,address,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
                    (session['uid'], wallet_address))
+        log_event(db,session['uid'],'deposit_created',amount=amount/100,promo_code=promo_code,order_id=order_id)
     return jsonify(ok=True, order_id=order_id, amount=amount/100,
                    deposit_bonus=(round(amount*float(promo['bonus_percent'] or 0)/100)+int(promo['bonus_fixed'] or 0))/100
                    if promo and amount>=int(promo['min_deposit'] or 0) else 0,

@@ -9,8 +9,10 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: BOT_USERNAME
-        value: gemdrop_robot
+      - key: WEBAPP_URL
+        sync: false
+      - key: TONCENTER_API_KEY
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_IDS

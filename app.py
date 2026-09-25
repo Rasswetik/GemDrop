@@ -185,6 +185,7 @@ def initialize():
             code TEXT PRIMARY KEY, reward_type TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0,
             gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
             gift_image_url TEXT NOT NULL DEFAULT '', gift_price INTEGER NOT NULL DEFAULT 0,
+            wager_multiplier REAL NOT NULL DEFAULT 0,
             max_uses INTEGER NOT NULL DEFAULT 1, uses_count INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1, created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -224,11 +225,23 @@ def initialize():
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
             ('win_multiplier', 'REAL'), ('win_gift_name', "TEXT NOT NULL DEFAULT ''"),
             ('win_gift_image', "TEXT NOT NULL DEFAULT ''"), ('win_gift_price', 'INTEGER'),
+            ('bet_type', "TEXT NOT NULL DEFAULT 'ton'"), ('bet_inventory_id', 'INTEGER'),
+            ('bet_gift_id', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_name', "TEXT NOT NULL DEFAULT ''"),
+            ('bet_gift_image', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_price', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'), ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'), ('promo_progress_after', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('source', "TEXT NOT NULL DEFAULT 'legacy'"), ('round_id', 'INTEGER'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
+            ('promo_locked', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
+            ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('promo_codes', [
+            ('wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
         ])
         ensure_columns('withdrawals', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -311,9 +324,29 @@ def auth():
     username = (user.get('username') or '')[:80]
     photo = user.get('photo_url') or ''
     photo = photo[:500] if photo.startswith('https://') else ''
+    referrer_id = data.get('referrer_id')
+    # Also accept Telegram Mini App start_param when the app is opened from a startapp-style link.
+    # The ordinary bot deep-link still uses /start ref_<id>; this is a second, signed fallback.
+    if referrer_id in (None, ''):
+        try:
+            start_param = dict(parse_qsl(str(data.get('initData') or ''), keep_blank_values=True)).get('start_param', '')
+            if re.fullmatch(r'ref_[0-9]{1,20}', start_param):
+                referrer_id = start_param[4:]
+        except (ValueError, TypeError):
+            pass
+    try:
+        referrer_id = int(referrer_id) if referrer_id not in (None, '') else None
+    except (TypeError, ValueError):
+        referrer_id = None
     with connect() as db:
         db.execute('INSERT OR IGNORE INTO users(id,name,username,photo_url,balance) VALUES(?,?,?,?,0)', (user_id, name, username, photo))
         db.execute('UPDATE users SET name=?,username=?,photo_url=? WHERE id=?', (name, username, photo, user_id))
+        if referrer_id and referrer_id != user_id:
+            already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1",
+                                           (user_id,)).fetchone()
+            if not already_deposited and db.execute('SELECT 1 FROM users WHERE id=?', (referrer_id,)).fetchone():
+                db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
+                           (user_id, referrer_id))
     session.clear()
     session['uid'] = user_id
     return jsonify(ok=True, user=profile())
@@ -506,16 +539,43 @@ def payout_for(row, opened_count, rtp=None):
 
 
 def inventory_item(row):
+    target = int(row['promo_wager_target'] or 0)
+    progress = int(row['promo_wager_progress'] or 0)
+    locked = bool(row['promo_locked'])
     return dict(id=row['id'], gift_id=row['gift_id'], name=row['gift_name'],
                 image_url=row['image_url'], price_ton=row['floor_price']/100,
-                source=row['source'], created_at=row['created_at'])
+                source=row['source'], created_at=row['created_at'],
+                promo_locked=locked, promo_code=row['promo_code'] or '',
+                wager_multiplier=float(row['promo_wager_multiplier'] or 0),
+                wager_target=target/100, wager_progress=progress/100,
+                wager_complete=bool(locked and target > 0 and progress >= target),
+                wager_percent=(min(100.0, progress * 100.0 / target) if target > 0 else 0.0))
 
 
 def award_round(db, row, opened_count):
-    """Settle once, atomically, as a catalog gift or a balance payout."""
+    """Settle once, atomically, including promo-wager gift bets."""
     rtp = game_rtp()
     factor = multiplier_for(row['mines'], opened_count, rtp)
     amount = payout_for(row, opened_count, rtp)
+
+    if row['bet_type'] == 'promo_gift':
+        target = max(0, int(row['promo_wager_target'] or 0))
+        previous = max(0, int(row['promo_wager_progress'] or 0))
+        progress = min(target, previous + amount) if target else previous + amount
+        cursor = db.execute("""INSERT INTO inventory(
+                                user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                                promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
+                              VALUES(?,?,?,?,?,'promo_wager',?,1,?,?,?,?)""",
+                            (row['user_id'], row['bet_gift_id'], row['bet_gift_name'], row['bet_gift_image'],
+                             row['bet_gift_price'], row['id'], float(row['promo_wager_multiplier'] or 0),
+                             target, progress, row['promo_code'] or ''))
+        db.execute("""UPDATE rounds SET state='won',payout=0,prize_inventory_id=?,win_total=?,win_multiplier=?,
+                      promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL WHERE id=?""",
+                   (cursor.lastrowid, amount, factor, progress, row['id']))
+        record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'],
+                           f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
+        return
+
     prize = prize_for(amount)
     if prize:
         cents = int(Decimal(str(prize['price_ton'])) * 100)
@@ -555,16 +615,26 @@ def round_view(row, reveal=False):
     else:
         factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
         amount = payout_for(row, len(opened), rtp) if opened else row['bet']
-    prize = prize_for(amount) if opened and row['state'] == 'active' else None
+    is_promo = row['bet_type'] == 'promo_gift'
+    prize = prize_for(amount) if opened and row['state'] == 'active' and not is_promo else None
     owned = None
     if row['prize_inventory_id']:
         with connect() as db:
             item = db.execute('SELECT * FROM inventory WHERE id=?', (row['prize_inventory_id'],)).fetchone()
             owned = inventory_item(item) if item else None
-    return dict(id=row['id'], bet=row['bet']/100, mines=row['mines'], opened=opened, state=row['state'],
+    bet_gift = None
+    if row['bet_type'] in ('gift', 'promo_gift'):
+        bet_gift = dict(id=row['bet_inventory_id'], gift_id=row['bet_gift_id'], name=row['bet_gift_name'],
+                        image_url=row['bet_gift_image'], price_ton=row['bet_gift_price']/100,
+                        promo_locked=is_promo, wager_multiplier=float(row['promo_wager_multiplier'] or 0),
+                        wager_target=int(row['promo_wager_target'] or 0)/100,
+                        wager_progress=int(row['promo_wager_progress'] or 0)/100)
+    return dict(id=row['id'], bet=row['bet']/100, bet_type=row['bet_type'], bet_gift=bet_gift,
+                mines=row['mines'], opened=opened, state=row['state'],
                 multiplier=round(factor, 6), potential=amount/100,
                 positions=json.loads(row['positions']) if reveal or row['state'] != 'active' else [],
-                payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'])
+                payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'],
+                promo_progress_after=int(row['promo_progress_after'] or 0)/100)
 
 
 @app.get('/api/game/ladder')
@@ -584,9 +654,10 @@ def ladder():
     # Snapshot for the UI. The award is always checked anew on the server.
     dummy = {'bet': bet, 'mines': mines}
     current_rtp = game_rtp()
+    promo_mode = request.args.get('promo') == '1'
     return jsonify(levels=[dict(step=step, multiplier=round(multiplier_for(mines, step, current_rtp), 6),
                                 amount=payout_for(dummy, step, current_rtp)/100,
-                                prize=prize_for(payout_for(dummy, step, current_rtp), gifts))
+                                prize=(None if promo_mode else prize_for(payout_for(dummy, step, current_rtp), gifts)))
                            for step in range(1, 26-mines)])
 
 
@@ -621,23 +692,75 @@ def start():
     data = request.get_json(silent=True) or {}
     try:
         mines = int(data.get('mines'))
-        bet = parse_amount(data.get('bet'))
-    except (ValueError, InvalidOperation, TypeError):
-        return error('Укажите корректную ставку и число мин.')
-    if not (MIN_MINES <= mines <= MAX_MINES and MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
-        return error('Ставка от 0.10 до 300 TON, мин от 1 до 20.')
+    except (ValueError, TypeError):
+        return error('Укажите корректное число мин.')
+    if not (MIN_MINES <= mines <= MAX_MINES):
+        return error('Количество мин: от 1 до 20.')
+
+    inventory_id = data.get('inventory_id')
+    try:
+        inventory_id = int(inventory_id) if inventory_id not in (None, '') else None
+    except (TypeError, ValueError):
+        return error('Некорректный подарок для ставки.')
+
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
         if active_round(db, session['uid']):
             return error('Сначала завершите текущую игру.')
-        updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, session['uid'], bet))
-        if not updated.rowcount:
-            return error('Недостаточно средств. Баланс может пополнить администратор.')
+
+        bet_type = 'ton'
+        snapshot = dict(item_id=None, gift_id='', name='', image='', price=0,
+                        multiplier=0.0, target=0, progress=0, code='')
+        if inventory_id is not None:
+            lock = ' FOR UPDATE' if DATABASE_URL else ''
+            item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock,
+                              (inventory_id, session['uid'])).fetchone()
+            if not item:
+                return error('Подарок не найден в инвентаре.', 404)
+            bet = int(item['floor_price'] or 0)
+            if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+                return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            target = int(item['promo_wager_target'] or 0)
+            progress = int(item['promo_wager_progress'] or 0)
+            if item['promo_locked'] and target > 0 and progress >= target:
+                return error('Отыгрыш уже завершён. Сначала получите обычный подарок.')
+            bet_type = 'promo_gift' if item['promo_locked'] else 'gift'
+            snapshot = dict(item_id=item['id'], gift_id=item['gift_id'], name=item['gift_name'],
+                            image=item['image_url'], price=bet,
+                            multiplier=float(item['promo_wager_multiplier'] or 0),
+                            target=target, progress=progress, code=item['promo_code'] or '')
+            deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, session['uid']))
+            if not deleted.rowcount:
+                return error('Подарок уже используется.', 409)
+        else:
+            try:
+                bet = parse_amount(data.get('bet'))
+            except (ValueError, InvalidOperation, TypeError):
+                return error('Укажите корректную ставку.')
+            if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+                return error('Ставка от 0.10 до 300 TON.')
+            updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                                 (bet, session['uid'], bet))
+            if not updated.rowcount:
+                return error('Недостаточно средств.')
+
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
-        db.execute('INSERT INTO rounds(user_id,bet,mines,positions) VALUES(?,?,?,?)', (session['uid'], bet, mines, json.dumps(positions)))
+        db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
+                       bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
+                       promo_wager_target,promo_wager_progress,promo_code)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
+                    snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
+                    snapshot['target'], snapshot['progress'], snapshot['code']))
         row = active_round(db, session['uid'])
-        record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
+        if bet_type == 'ton':
+            record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
+        elif bet_type == 'promo_gift':
+            record_transaction(db, session['uid'], 'promo_wager_bet', 0, 'round', row['id'],
+                               f'{snapshot["name"]} · X{snapshot["multiplier"]:g}')
+        else:
+            record_transaction(db, session['uid'], 'gift_bet', 0, 'round', row['id'], snapshot['name'])
         db.commit()
         return jsonify(round=round_view(row), user=profile())
     finally:
@@ -666,6 +789,12 @@ def open_cell():
         positions = json.loads(row['positions'])
         if cell in positions:
             db.execute("UPDATE rounds SET state='lost',lost_cell=? WHERE id=?", (cell, row['id']))
+            if row['bet_type'] == 'promo_gift':
+                record_transaction(db, row['user_id'], 'promo_wager_burn', 0, 'round', row['id'],
+                                   f'Сгорел промо-подарок: {row["bet_gift_name"]}')
+            elif row['bet_type'] == 'gift':
+                record_transaction(db, row['user_id'], 'gift_bet_lost', 0, 'round', row['id'],
+                                   f'Проигран подарок: {row["bet_gift_name"]}')
         else:
             opened.append(cell)
             db.execute('UPDATE rounds SET opened=? WHERE id=?', (json.dumps(opened), row['id']))
@@ -704,7 +833,8 @@ def recent_wins():
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
                                     u.id AS user_id,u.name,u.username,u.photo_url
                              FROM rounds r JOIN users u ON u.id=r.user_id
-                             WHERE r.state='won' ORDER BY r.id DESC LIMIT 15""").fetchall()
+                             WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                             ORDER BY r.id DESC LIMIT 15""").fetchall()
     items = []
     for row in rows:
         opened_count = len(json.loads(row['opened'] or '[]'))
@@ -756,6 +886,8 @@ def sell_inventory(item_id):
                           (item_id, session['uid'])).fetchone()
         if not item:
             return error('Подарок не найден.', 404)
+        if item['promo_locked']:
+            return error('Промо-подарок нельзя продать до завершения отыгрыша.', 409)
         amount = max(0, int(item['floor_price']))
         deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',
                              (item_id, session['uid']))
@@ -770,22 +902,30 @@ def sell_inventory(item_id):
         db.close()
 
 
-def send_user_notification(user_id, text):
+def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     if not BOT_TOKEN:
         return
-    try:
-        response = requests.post(
-            f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-            json={'chat_id': int(user_id), 'text': str(text)}, timeout=(4, 8))
-        response.raise_for_status()
-        if not response.json().get('ok'):
-            raise ValueError('Telegram rejected notification')
-    except (requests.RequestException, ValueError, TypeError):
-        app.logger.warning('Could not deliver notification to %s', user_id)
+    payload = {'chat_id': int(user_id), 'text': str(text)}
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+    if parse_mode:
+        payload['parse_mode'] = parse_mode
+    for attempt in range(2):
+        try:
+            response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                                     json=payload, timeout=(2, 4))
+            response.raise_for_status()
+            if response.json().get('ok'):
+                return
+        except (requests.RequestException, ValueError, TypeError):
+            if attempt == 0:
+                time.sleep(.2)
+    app.logger.warning('Could not deliver notification to %s', user_id)
 
 
-def notify_user_async(user_id, text):
-    Thread(target=send_user_notification, args=(user_id, text), daemon=True).start()
+def notify_user_async(user_id, text, reply_markup=None, parse_mode=None):
+    Thread(target=send_user_notification,
+           args=(user_id, text, reply_markup, parse_mode), daemon=True).start()
 
 
 @app.post('/api/inventory/<int:item_id>/withdraw')
@@ -798,6 +938,8 @@ def request_withdrawal(item_id):
                           (item_id, session['uid'])).fetchone()
         if not item:
             return error('Подарок не найден или уже отправлен на вывод.', 404)
+        if item['promo_locked']:
+            return error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
         db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
                       VALUES(?,?,?,?,?,?,?,?,'pending')''',
                    (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
@@ -808,6 +950,35 @@ def request_withdrawal(item_id):
         record_transaction(db, session['uid'], 'withdrawal_request', 0, 'inventory', item_id, item['gift_name'])
         db.commit()
         return jsonify(ok=True)
+    finally:
+        db.close()
+
+
+@app.post('/api/inventory/<int:item_id>/claim-promo')
+@login_required
+def claim_promo_gift(item_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        lock = ' FOR UPDATE' if DATABASE_URL else ''
+        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock,
+                          (item_id, session['uid'])).fetchone()
+        if not item:
+            return error('Подарок не найден.', 404)
+        if not item['promo_locked']:
+            return error('Этот подарок уже обычный.', 409)
+        target = int(item['promo_wager_target'] or 0)
+        progress = int(item['promo_wager_progress'] or 0)
+        if target <= 0 or progress < target:
+            return error('Отыгрыш ещё не завершён.', 409)
+        db.execute("""UPDATE inventory SET promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
+                      promo_wager_progress=0,promo_code='',source='promo_claimed'
+                      WHERE id=? AND user_id=?""", (item_id, session['uid']))
+        record_transaction(db, session['uid'], 'promo_wager_claim', 0,
+                           'inventory', item_id, item['gift_name'])
+        db.commit()
+        updated = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
+        return jsonify(ok=True, item=inventory_item(updated), user=profile())
     finally:
         db.close()
 
@@ -905,6 +1076,22 @@ def redeem_promocode():
             reward = dict(type='gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
                                                  image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100))
             record_transaction(db, session['uid'], 'promo_gift', 0, 'promo', code, promo['gift_name'])
+        elif promo['reward_type'] == 'wager_gift':
+            multiplier = max(1.0, float(promo['wager_multiplier'] or 1))
+            target = max(1, round(int(promo['gift_price']) * multiplier))
+            cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                              promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
+                              VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?)""",
+                             (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'],
+                              promo['gift_price'], multiplier, target, code))
+            inventory_id = cur.lastrowid
+            reward = dict(type='wager_gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'],
+                                                       name=promo['gift_name'], image_url=promo['gift_image_url'],
+                                                       price_ton=promo['gift_price']/100, promo_locked=True,
+                                                       wager_multiplier=multiplier, wager_target=target/100,
+                                                       wager_progress=0))
+            record_transaction(db, session['uid'], 'promo_wager_gift', 0, 'promo', code,
+                               f'{promo["gift_name"]} · X{multiplier:g}')
         else:
             return error('Награда промокода настроена неверно.', 500)
         db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
@@ -928,7 +1115,8 @@ def admin_promocodes():
         rows = db.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code DESC LIMIT 300').fetchall()
     return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=x['amount']/100,
                                gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
-                               gift_price=x['gift_price']/100, max_uses=x['max_uses'], uses_count=x['uses_count'],
+                               gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
+                               max_uses=x['max_uses'], uses_count=x['uses_count'],
                                active=bool(x['active']), created_at=x['created_at']) for x in rows])
 
 
@@ -946,7 +1134,7 @@ def admin_create_promocode():
         return error('Некорректный лимит активаций.')
     if not 0 <= max_uses <= 1000000:
         return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
-    amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0
+    amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0
     if reward_type == 'balance':
         try:
             amount = parse_amount(data.get('amount'))
@@ -954,7 +1142,7 @@ def admin_create_promocode():
             return error('Укажите сумму награды с точностью до 0.01 TON.')
         if not 1 <= amount <= 100000000:
             return error('Сумма промокода должна быть от 0.01 до 1 000 000 TON.')
-    elif reward_type == 'gift':
+    elif reward_type in ('gift', 'wager_gift'):
         gift_id = str(data.get('gift_id') or '')
         try:
             gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
@@ -968,12 +1156,22 @@ def admin_create_promocode():
             gift_price = int(Decimal(str(gift.get('price_ton') or 0)) * 100)
         except (InvalidOperation, TypeError, ValueError):
             gift_price = 0
+        if gift_price <= 0:
+            return error('У подарка должна быть актуальная цена Portal.')
+        if reward_type == 'wager_gift':
+            try:
+                wager_multiplier = float(data.get('wager_multiplier') or 0)
+            except (TypeError, ValueError):
+                return error('Укажите корректный X отыгрыша.')
+            if not 1 <= wager_multiplier <= 1000:
+                return error('X отыгрыша должен быть от 1 до 1000.')
     else:
-        return error('Выберите награду: баланс или подарок.')
+        return error('Выберите награду: баланс, подарок или отыгрыш NFT.')
     try:
         with connect() as db:
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,max_uses,created_by) VALUES(?,?,?,?,?,?,?,?,?)',
-                       (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price, max_uses, session['uid']))
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                       (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
+                        wager_multiplier, max_uses, session['uid']))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:
@@ -1760,50 +1958,38 @@ def telegram_webhook():
     try:
         update_id = int(update['update_id'])
         uid = sender['id']
+        referrer = None
+        if len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
+            referrer = int(command[1][4:])
         db = connect()
         try:
             db.execute('BEGIN IMMEDIATE')
-            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)',
-                              (update_id,)).rowcount:
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)', (update_id,)).rowcount:
                 db.commit()
                 return jsonify(ok=True)
-            is_new = db.execute('''INSERT OR IGNORE INTO users(id,name,username,balance)
-                                   VALUES(?,?,?,0)''',
-                                (uid, str(sender.get('first_name') or 'Игрок')[:80],
-                                 str(sender.get('username') or '')[:80])).rowcount
-            if len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
-                referrer = int(command[1][4:])
-                already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1", (uid,)).fetchone()
-                if (uid != referrer and not already_deposited and
-                        db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone()):
-                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
-                               (uid, referrer))
+            db.execute("""INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)""",
+                       (uid, str(sender.get('first_name') or 'Игрок')[:80], str(sender.get('username') or '')[:80]))
+            db.execute('UPDATE users SET name=?,username=? WHERE id=?',
+                       (str(sender.get('first_name') or 'Игрок')[:80], str(sender.get('username') or '')[:80], uid))
+            if referrer and uid != referrer:
+                already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1",
+                                               (uid,)).fetchone()
+                if not already_deposited and db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
+                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid, referrer))
             db.commit()
         finally:
             db.close()
-        button = {'inline_keyboard': [[{'text': '🎮 Играть',
-                                       'web_app': {'url': WEBAPP_URL + '/'}}]]}
-        response = None
-        for attempt in range(3):
-            try:
-                response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-                                         json={'chat_id': chat['id'], 'text': welcome_text(),
-                                               'parse_mode': 'HTML', 'reply_markup': button}, timeout=12)
-                response.raise_for_status()
-                if response.json().get('ok'):
-                    break
-                raise ValueError('Telegram rejected sendMessage')
-            except (requests.RequestException, ValueError):
-                if attempt == 2:
-                    raise
-                time.sleep(.6 * (attempt + 1))
+        play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
+        button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}}]]}
+        # Return to Telegram immediately; sendMessage runs outside the webhook response path.
+        notify_user_async(chat['id'], welcome_text(), button, 'HTML')
         return jsonify(ok=True)
-    except (ValueError, KeyError, requests.RequestException, sqlite3.Error) as exc:
+    except (ValueError, KeyError, sqlite3.Error) as exc:
         app.logger.warning('Telegram update failed: %s', type(exc).__name__)
         if isinstance(update.get('update_id'), int):
             with connect() as db:
                 db.execute('DELETE FROM bot_updates WHERE update_id=?', (update['update_id'],))
-        return error('Не удалось отправить сообщение.', 502)
+        return error('Не удалось обработать команду.', 500)
 
 
 @app.errorhandler(500)
@@ -1832,7 +2018,8 @@ def configure_bot():
                                      json={'url': WEBAPP_URL + '/telegram/webhook',
                                            'secret_token': WEBHOOK_SECRET,
                                            'allowed_updates': ['message'],
-                                           'drop_pending_updates': False}, timeout=12)
+                                           'max_connections': 40,
+                                           'drop_pending_updates': False}, timeout=(3, 6))
             response.raise_for_status()
             if not response.json().get('ok'):
                 raise ValueError('setWebhook rejected')

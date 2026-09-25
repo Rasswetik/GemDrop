@@ -53,6 +53,7 @@ Admin → **Промокоды** can create codes with:
 - a custom code, or a random `GEM-XXXXXXXX` code when the field is empty;
 - TON balance reward;
 - gift reward from the current Portal catalog;
+- **Отыгрыш NFT** reward: Portal gift + configurable wager multiplier `X`;
 - activation limit (`0` = unlimited).
 
 Each user can redeem a code only once. The successful redemption closes the input modal and opens the reward modal. TON reward is displayed as a centered amount with the TON PNG on the same line; gift reward shows the gift image and name.
@@ -105,3 +106,24 @@ Portal uses the Authorization value entered in **Admin → Portal Market**. Prog
 - Если сохранённый TMA Authorization истёк (401/403), импорт автоматически пробует публичный `/api/collections`; ранее сохранённый каталог при ошибке не удаляется.
 - Для гарантированного сохранения между деплоями используйте PostgreSQL `DATABASE_URL` или постоянный Render Disk для `DATA_DIR`.
 - Mines показывает 15 последних побед. Окно денежной победы использует компактную строку `+сумма` + PNG TON, как окно промокода.
+
+## Mobile / Telegram opening
+
+- The client no longer calls `Telegram.WebApp.expand()`. If the Telegram client supports it, the app asks to leave explicit fullscreen mode with `exitFullscreen()` and otherwise keeps the normal Mini App sheet behavior.
+- On mobile, the content area is shifted down by `4vh` plus the safe-area inset so the header does not run into the system status area.
+- Pinch zoom and double-tap zoom are disabled by the viewport settings and touch/gesture guards.
+- TON bet input is disabled when the balance is below `0.10 TON`. A typed TON bet is clamped to the user's current balance and to the hard server limit of `300 TON`.
+
+## Gift bets and promo wagering
+
+Mines now supports choosing an inventory gift as the stake from the small gift button between **Ставка** and **Мины**.
+
+- A regular gift is removed from inventory when the round starts. If the round loses, it is burned. If the round is cashed out, the game settles from the gift's stored Portal price exactly like a normal stake.
+- A promo-wager gift is created by the new promocode type **Отыгрыш NFT**. Admin chooses the Portal gift and an `X` requirement (for example X25). Its target is `gift price × X`.
+- Promo-wager gifts are marked in red and cannot be sold or withdrawn while locked.
+- If a promo-wager gift loses in Mines, it burns. If it is cashed out, the calculated cashout goes only to its wager-progress; no TON or replacement NFT is paid to the player, and the promo gift returns to inventory.
+- When the target is reached, opening the gift animates the progress to 100%, hides the progress area and reveals **Получить подарок**. Claiming converts the same item into an ordinary inventory gift that can then be sold or withdrawn.
+
+## Referral reliability
+
+`/start ref_<id>` is written to the database before the bot greeting is sent. The webhook returns quickly and the greeting is sent outside the response path. The Mini App button also carries `?ref=<id>` as a fallback. `/api/auth` additionally recognizes a signed Telegram `start_param=ref_<id>` if the app is ever opened with a `startapp` link.

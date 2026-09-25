@@ -250,7 +250,9 @@ def match_collection_image(gift, mapping):
                        image_url=f'https://cdn.changes.tg/gifts/originals/{match}/Original.png',
                        image_format='png', image_source='cdn.changes.tg', image_match=True)
     else:
-        updated.update(image_url='', image_format=None, image_source=None, image_match=False)
+        preview = safe_image(updated.get('portal_image_url') or updated.get('image_url'))
+        updated.update(image_url=preview, image_format=None,
+                       image_source='Portal Market' if preview else None, image_match=False)
     return updated
 
 
@@ -313,12 +315,15 @@ def award_round(db, row, opened_count):
     prize = prize_for(amount)
     if prize:
         cents = int(Decimal(str(prize['price_ton'])) * 100)
+        remainder = max(0, amount - cents)
         cursor = db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
                                VALUES(?,?,?,?,?,'game',?)''',
                             (row['user_id'], str(prize['id']), str(prize['name']),
                              safe_image(prize.get('image_url')), cents, row['id']))
-        db.execute("UPDATE rounds SET state='won',payout=0,prize_inventory_id=? WHERE id=?",
-                   (cursor.lastrowid, row['id']))
+        db.execute("UPDATE rounds SET state='won',payout=?,prize_inventory_id=? WHERE id=?",
+                   (remainder, cursor.lastrowid, row['id']))
+        if remainder:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, row['user_id']))
     else:
         db.execute("UPDATE rounds SET state='won',payout=? WHERE id=?", (amount, row['id']))
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, row['user_id']))
@@ -651,7 +656,13 @@ def portal_import():
     gifts = []
     seen = set()
     try:
-        mapping = gift_id_map()
+        previous = read_catalog()['gifts']
+        previous_by_id = {str(gift.get('id')): gift for gift in previous}
+        # Images are enrichment: an outage of the CDN must not block Portal prices.
+        try:
+            mapping = gift_id_map()
+        except (requests.RequestException, ValueError, OSError):
+            mapping = {}
         for offset in range(0, 10000, 100):
             response = requests.get('https://portal-market.com/api/collections',
                                     params={'limit': 100, 'offset': offset},
@@ -682,19 +693,26 @@ def portal_import():
                 gift = dict(id=gift_id, name=str(name)[:140], price_ton=price,
                             portal_image_url=img,
                             telegram_gift_id=str(item.get('telegram_gift_id') or item.get('star_gift_id') or ''))
-                gifts.append(match_collection_image(gift, mapping))
+                updated = match_collection_image(gift, mapping)
+                old = previous_by_id.get(gift_id)
+                if old and old.get('image_match') and not updated['image_match']:
+                    updated.update(image_url=old['image_url'], image_source=old.get('image_source'),
+                                   image_format='png', image_match=True,
+                                   telegram_gift_id=old.get('telegram_gift_id', ''))
+                gifts.append(updated)
             if len(items) < 100:
                 break
         if not gifts:
             return error('Portal не вернул подарки. Проверьте ключ и его права.', 502)
-        old_count = len(read_catalog()['gifts'])
-        if old_count > 10 and len(gifts) < old_count // 2:
-            return error('Новый ответ Portal содержит менее половины прежнего каталога. Старые подарки сохранены; проверьте права ключа.', 502)
+        # A short page or changed API permissions must never erase saved gifts.
+        retained = [gift for gift in previous if str(gift.get('id')) not in seen]
+        gifts.extend(retained)
         document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
         save_catalog(document)
-        refresh_inventory_images(mapping)
+        if mapping:
+            refresh_inventory_images(mapping)
         return jsonify(ok=True, count=len(gifts), matched=sum(g['image_match'] for g in gifts),
-                       updated_at=document['updated_at'])
+                       retained=len(retained), updated_at=document['updated_at'])
     except requests.HTTPError as exc:
         status = exc.response.status_code
         return error('Portal отклонил ключ.' if status in (401, 403) else f'Portal вернул ошибку HTTP {status}.', 502)

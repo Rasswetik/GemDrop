@@ -29,9 +29,8 @@ CATALOG = DATA / 'portal_gifts.json'
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
-PORTAL_KEY = (os.environ.get('PORTAL_KEY') or '').strip()
-ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
-GAME_RTP = 0.97  # Единый прозрачный RTP для всех игроков; персональных подкруток нет.
+ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
+GAME_RTP_DEFAULT = 0.97
 app = Flask(__name__)
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
@@ -165,14 +164,21 @@ def initialize():
         );
         CREATE TABLE IF NOT EXISTS withdrawals (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-            inventory_id INTEGER NOT NULL, gift_id TEXT NOT NULL, gift_name TEXT NOT NULL,
-            image_url TEXT NOT NULL DEFAULT '', floor_price INTEGER NOT NULL DEFAULT 0,
-            source TEXT NOT NULL DEFAULT 'withdrawal', round_id INTEGER,
-            status TEXT NOT NULL DEFAULT 'pending', admin_id INTEGER,
+            inventory_id INTEGER NOT NULL, gift_id TEXT NOT NULL, gift_name TEXT NOT NULL, image_url TEXT NOT NULL DEFAULT '',
+            floor_price INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'withdrawal',
+            round_id INTEGER, status TEXT NOT NULL DEFAULT 'pending', admin_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TEXT
         );
         CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC);
         CREATE INDEX IF NOT EXISTS withdrawals_user ON withdrawals(user_id,id DESC);
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0, balance_after INTEGER,
+            reference_type TEXT NOT NULL DEFAULT '', reference_id TEXT NOT NULL DEFAULT '',
+            details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS transactions_user ON transactions(user_id,id DESC);
+        CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC);
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -292,6 +298,25 @@ def read_document(name):
     return json.loads(row['payload']) if row else None
 
 
+def game_rtp():
+    """Single RTP value shared by all real players."""
+    try:
+        doc = read_document('game_settings') or {}
+        value = float(doc.get('rtp', GAME_RTP_DEFAULT))
+    except (TypeError, ValueError, OSError, json.JSONDecodeError):
+        value = GAME_RTP_DEFAULT
+    return min(0.999, max(0.50, value))
+
+
+def record_transaction(db, user_id, kind, amount=0, reference_type='', reference_id='', details=''):
+    row = db.execute('SELECT balance FROM users WHERE id=?', (user_id,)).fetchone()
+    balance_after = row['balance'] if row else None
+    db.execute('''INSERT INTO transactions(user_id,kind,amount,balance_after,reference_type,reference_id,details)
+                  VALUES(?,?,?,?,?,?,?)''',
+               (user_id, str(kind)[:60], int(amount or 0), balance_after,
+                str(reference_type)[:60], str(reference_id)[:120], str(details)[:500]))
+
+
 def read_catalog():
     stored = read_document('portal_catalog')
     if stored is not None:
@@ -393,15 +418,15 @@ def prize_for(amount, gifts=None):
     return max(eligible, key=lambda x: (x[0], str(x[1].get('id', ''))))[1] if eligible else None
 
 
-def multiplier_for(mines, opened_count):
-    """Return the same probability-based multiplier for every player."""
+def multiplier_for(mines, opened_count, rtp=None):
     if opened_count <= 0:
         return 1.0
-    return GAME_RTP * math.comb(25, opened_count) / math.comb(25-mines, opened_count)
+    rtp = game_rtp() if rtp is None else rtp
+    return rtp * math.comb(25, opened_count) / math.comb(25-mines, opened_count)
 
 
-def payout_for(row, opened_count):
-    return round(row['bet'] * multiplier_for(row['mines'], opened_count))
+def payout_for(row, opened_count, rtp=None):
+    return round(row['bet'] * multiplier_for(row['mines'], opened_count, rtp))
 
 
 def inventory_item(row):
@@ -412,7 +437,8 @@ def inventory_item(row):
 
 def award_round(db, row, opened_count):
     """Settle once, atomically, as a catalog gift or a balance payout."""
-    amount = payout_for(row, opened_count)
+    rtp = game_rtp()
+    amount = payout_for(row, opened_count, rtp)
     prize = prize_for(amount)
     if prize:
         cents = int(Decimal(str(prize['price_ton'])) * 100)
@@ -425,17 +451,22 @@ def award_round(db, row, opened_count):
                    (remainder, cursor.lastrowid, row['id']))
         if remainder:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, row['user_id']))
+            record_transaction(db, row['user_id'], 'game_win_ton', remainder, 'round', row['id'],
+                               f'Остаток после выигрыша подарка: {prize["name"]}')
+        record_transaction(db, row['user_id'], 'gift_win', 0, 'round', row['id'], str(prize['name']))
     else:
         db.execute("UPDATE rounds SET state='won',payout=? WHERE id=?", (amount, row['id']))
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, row['user_id']))
+        record_transaction(db, row['user_id'], 'game_win_ton', amount, 'round', row['id'], 'Выигрыш Mines')
 
 
 def round_view(row, reveal=False):
     if not row:
         return None
     opened = json.loads(row['opened'])
-    factor = multiplier_for(row['mines'], len(opened))
-    amount = payout_for(row, len(opened)) if opened else row['bet']
+    rtp = game_rtp()
+    factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
+    amount = payout_for(row, len(opened), rtp) if opened else row['bet']
     prize = prize_for(amount) if opened and row['state'] == 'active' else None
     owned = None
     if row['prize_inventory_id']:
@@ -464,9 +495,11 @@ def ladder():
         gifts = []
     # Snapshot for the UI. The award is always checked anew on the server.
     dummy = {'bet': bet, 'mines': mines}
-    return jsonify(levels=[dict(step=step, multiplier=round(multiplier_for(mines, step), 6),
-                                amount=payout_for(dummy, step)/100, prize=prize_for(payout_for(dummy, step), gifts))
-                           for step in range(1, 26-mines)], rtp=GAME_RTP)
+    current_rtp = game_rtp()
+    return jsonify(levels=[dict(step=step, multiplier=round(multiplier_for(mines, step, current_rtp), 6),
+                                amount=payout_for(dummy, step, current_rtp)/100,
+                                prize=prize_for(payout_for(dummy, step, current_rtp), gifts))
+                           for step in range(1, 26-mines)], rtp=round(current_rtp * 100, 2))
 
 
 def parse_amount(value):
@@ -516,6 +549,7 @@ def start():
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
         db.execute('INSERT INTO rounds(user_id,bet,mines,positions) VALUES(?,?,?,?)', (session['uid'], bet, mines, json.dumps(positions)))
         row = active_round(db, session['uid'])
+        record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
         db.commit()
         return jsonify(round=round_view(row), user=profile())
     finally:
@@ -617,6 +651,7 @@ def sell_inventory(item_id):
             return error('Подарок уже обработан.', 409)
         if amount:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
+        record_transaction(db, session['uid'], 'gift_sale', amount, 'inventory', item_id, item['gift_name'])
         db.commit()
         return jsonify(ok=True, sold_for=amount/100, user=profile())
     finally:
@@ -624,20 +659,17 @@ def sell_inventory(item_id):
 
 
 def send_user_notification(user_id, text):
-    """Best-effort Telegram notification; withdrawal state never depends on delivery."""
     if not BOT_TOKEN:
         return
     try:
         response = requests.post(
             f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-            json={'chat_id': int(user_id), 'text': str(text)},
-            timeout=(4, 8),
-        )
+            json={'chat_id': int(user_id), 'text': str(text)}, timeout=(4, 8))
         response.raise_for_status()
         if not response.json().get('ok'):
             raise ValueError('Telegram rejected notification')
     except (requests.RequestException, ValueError, TypeError):
-        app.logger.warning('Could not deliver withdrawal notification to %s', user_id)
+        app.logger.warning('Could not deliver notification to %s', user_id)
 
 
 def notify_user_async(user_id, text):
@@ -650,67 +682,22 @@ def request_withdrawal(item_id):
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        item_sql = 'SELECT * FROM inventory WHERE id=? AND user_id=?' + (' FOR UPDATE' if DATABASE_URL else '')
-        item = db.execute(item_sql, (item_id, session['uid'])).fetchone()
+        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
+                          (item_id, session['uid'])).fetchone()
         if not item:
             return error('Подарок не найден или уже отправлен на вывод.', 404)
-        pending = db.execute("SELECT id FROM withdrawals WHERE inventory_id=? AND status='pending' LIMIT 1",
-                             (item_id,)).fetchone()
-        if pending:
-            return error('Этот подарок уже находится на выводе.', 409)
-        db.execute('''INSERT INTO withdrawals(
-                        user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
+        db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
                       VALUES(?,?,?,?,?,?,?,?,'pending')''',
                    (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
                     item['floor_price'], item['source'], item['round_id']))
         deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid']))
         if not deleted.rowcount:
-            return error('Не удалось зарезервировать подарок для вывода.', 409)
+            return error('Не удалось зарезервировать подарок.', 409)
+        record_transaction(db, session['uid'], 'withdrawal_request', 0, 'inventory', item_id, item['gift_name'])
         db.commit()
         return jsonify(ok=True)
     finally:
         db.close()
-
-
-def _model_list(value):
-    if not isinstance(value, list):
-        return []
-    result = []
-    for model in value[:120]:
-        if isinstance(model, str):
-            result.append({'name': model[:120], 'image_url': '', 'rarity': None})
-            continue
-        if not isinstance(model, dict):
-            continue
-        name = model.get('name') or model.get('title') or model.get('model') or 'Модель'
-        image = next((safe_image(model.get(k)) for k in
-                      ('image_url', 'photo_url', 'preview_url', 'image', 'png_url', 'icon_url')
-                      if safe_image(model.get(k))), '')
-        rarity = model.get('rarity') or model.get('chance') or model.get('rarity_per_mille')
-        result.append({'name': str(name)[:120], 'image_url': image, 'rarity': rarity})
-    return result
-
-
-@app.get('/api/inventory/<int:item_id>/models')
-@login_required
-def inventory_models(item_id):
-    with connect() as db:
-        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
-                          (item_id, session['uid'])).fetchone()
-    if not item:
-        return error('Подарок не найден.', 404)
-    try:
-        gift = next((g for g in read_catalog().get('gifts', [])
-                     if str(g.get('id')) == str(item['gift_id'])
-                     or collection_key(g.get('name')) == collection_key(item['gift_name'])), None)
-    except (OSError, ValueError):
-        gift = None
-    models = []
-    if gift:
-        models = _model_list(gift.get('models'))
-        if not models and isinstance(gift.get('attributes'), dict):
-            models = _model_list(gift['attributes'].get('models'))
-    return jsonify(models=models, withdrawal_enabled=False)
 
 
 @app.get('/api/referrals/me')
@@ -769,11 +756,16 @@ def admin_balance(user_id):
     if not 0 <= amount <= 100000000:
         return error('Баланс должен быть от 0 до 1 000 000.')
     with connect() as db:
+        old_row = db.execute('SELECT balance FROM users WHERE id=?', (user_id,)).fetchone()
+        if not old_row:
+            return error('Пользователь не найден.', 404)
         cursor = db.execute('UPDATE users SET balance=? WHERE id=?', (amount, user_id))
         if not cursor.rowcount:
             return error('Пользователь не найден.', 404)
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'balance_set', str(amount)))
+        record_transaction(db, user_id, 'admin_balance', amount-int(old_row['balance']),
+                           'admin', session['uid'], f'Баланс установлен: {amount/100:.2f} TON')
     return jsonify(ok=True, balance=amount/100)
 
 
@@ -808,6 +800,9 @@ def admin_deposit(user_id):
                       VALUES(?,?,?,?,?,?)''', (user_id, amount, referrer, bonus, session['uid'], key))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'deposit', str(amount)))
+        record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Подтверждённый депозит')
+        if referrer and bonus:
+            record_transaction(db, referrer, 'referral_bonus', bonus, 'deposit', key, f'Реферальный бонус от {user_id}')
         db.commit()
         return jsonify(ok=True, balance_added=amount/100, referral_bonus=bonus/100)
     finally:
@@ -850,6 +845,108 @@ def admin_remove_inventory(user_id, item_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_remove', str(item_id)))
     return jsonify(ok=True)
+
+
+@app.get('/api/admin/withdrawals')
+@admin_required
+def admin_withdrawals():
+    with connect() as db:
+        rows = db.execute('''SELECT w.*,u.name AS user_name,u.username
+                             FROM withdrawals w JOIN users u ON u.id=w.user_id
+                             WHERE w.status='pending' ORDER BY w.id DESC LIMIT 200''').fetchall()
+    return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], user_name=x['user_name'],
+                               username=x['username'], gift_name=x['gift_name'], image_url=x['image_url'],
+                               price_ton=x['floor_price']/100, created_at=x['created_at']) for x in rows])
+
+
+@app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
+@admin_required
+def approve_withdrawal(withdrawal_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute("SELECT * FROM withdrawals WHERE id=? AND status='pending'",
+                         (withdrawal_id,)).fetchone()
+        if not row:
+            return error('Заявка не найдена или уже обработана.', 404)
+        db.execute("UPDATE withdrawals SET status='approved',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
+                   (session['uid'], withdrawal_id))
+        record_transaction(db, row['user_id'], 'withdrawal_approved', 0, 'withdrawal', withdrawal_id, row['gift_name'])
+        db.commit()
+        notify_user_async(row['user_id'], f'✅ Вывод подарка «{row["gift_name"]}» завершён.')
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
+@app.post('/api/admin/withdrawals/<int:withdrawal_id>/reject')
+@admin_required
+def reject_withdrawal(withdrawal_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute("SELECT * FROM withdrawals WHERE id=? AND status='pending'",
+                         (withdrawal_id,)).fetchone()
+        if not row:
+            return error('Заявка не найдена или уже обработана.', 404)
+        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                      VALUES(?,?,?,?,?,?,?)''',
+                   (row['user_id'], row['gift_id'], row['gift_name'], row['image_url'],
+                    row['floor_price'], row['source'], row['round_id']))
+        db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
+                   (session['uid'], withdrawal_id))
+        record_transaction(db, row['user_id'], 'withdrawal_rejected', 0, 'withdrawal', withdrawal_id, row['gift_name'])
+        db.commit()
+        notify_user_async(row['user_id'], f'↩️ Вывод подарка «{row["gift_name"]}» отклонён. Подарок возвращён в инвентарь.')
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
+@app.get('/api/admin/transactions')
+@admin_required
+def admin_transactions():
+    term = request.args.get('q', '').strip()[:80]
+    kind = request.args.get('kind', '').strip()[:60]
+    params = []
+    where = []
+    if term:
+        where.append('(CAST(t.user_id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?)')
+        params.extend([f'%{term}%', f'%{term}%', f'%{term}%'])
+    if kind:
+        where.append('t.kind=?')
+        params.append(kind)
+    clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+    with connect() as db:
+        rows = db.execute('''SELECT t.*,u.name,u.username FROM transactions t
+                             JOIN users u ON u.id=t.user_id''' + clause +
+                          ' ORDER BY t.id DESC LIMIT 300', tuple(params)).fetchall()
+    return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], name=x['name'], username=x['username'],
+                               kind=x['kind'], amount=x['amount']/100,
+                               balance_after=None if x['balance_after'] is None else x['balance_after']/100,
+                               reference_type=x['reference_type'], reference_id=x['reference_id'],
+                               details=x['details'], created_at=x['created_at']) for x in rows])
+
+
+@app.get('/api/admin/rtp')
+@admin_required
+def admin_rtp_get():
+    return jsonify(rtp=round(game_rtp()*100, 2), mode='global')
+
+
+@app.post('/api/admin/rtp')
+@admin_required
+def admin_rtp_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        percent = float(data.get('rtp'))
+    except (TypeError, ValueError):
+        return error('Введите RTP в процентах.')
+    if not 50 <= percent <= 99.9:
+        return error('RTP должен быть от 50 до 99.9%.')
+    save_document('game_settings', {'rtp': percent/100, 'updated_at': datetime.now(timezone.utc).isoformat(),
+                                    'admin_id': session['uid']})
+    return jsonify(ok=True, rtp=round(game_rtp()*100, 2))
 
 
 def safe_image(value):
@@ -912,11 +1009,6 @@ def fetch_portal_catalog(key, progress=None):
                 price = None
             img = next((safe_image(item.get(k)) for k in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(k))), '')
             gift = dict(id=gift_id, name=str(name)[:140], price_ton=price, portal_image_url=img)
-            raw_models = item.get('models')
-            if raw_models is None and isinstance(item.get('attributes'), dict):
-                raw_models = item['attributes'].get('models')
-            if isinstance(raw_models, list):
-                gift['models'] = _model_list(raw_models)
             old = previous_by_id.get(gift_id, {})
             gift.update(image_url=old.get('image_url') or img, image_match=bool(old.get('image_match')),
                         telegram_gift_id=old.get('telegram_gift_id', ''))
@@ -947,13 +1039,12 @@ def fetch_portal_catalog(key, progress=None):
 
 
 def append_portal_log(message, level='info'):
-    entry = dict(ts=datetime.now(timezone.utc).isoformat(), level=level, message=str(message)[:500])
     try:
         logs = read_document('portal_logs') or []
         if not isinstance(logs, list):
             logs = []
-        logs.append(entry)
-        save_document('portal_logs', logs[-80:])
+        logs.append({'ts': datetime.now(timezone.utc).isoformat(), 'level': level, 'message': str(message)[:500]})
+        save_document('portal_logs', logs[-100:])
     except Exception:
         app.logger.exception('Could not persist Portal log')
 
@@ -964,12 +1055,8 @@ portal_job_lock = __import__('threading').Lock()
 def portal_job(key):
     try:
         append_portal_log('Начата загрузка каталога Portal Market.')
-        last_logged = {'count': 0}
         def progress(count):
-            save_document('portal_job', dict(state='running', count=int(count or 0), updated=time.time()))
-            if count - last_logged['count'] >= 100:
-                append_portal_log(f'Загружено коллекций: {count}.')
-                last_logged['count'] = count
+            save_document('portal_job', dict(state='running', count=count, updated=time.time()))
         result = fetch_portal_catalog(key, progress)
         save_document('portal_job', dict(state='done', updated=time.time(), **result))
         append_portal_log(f"Каталог сохранён: {result.get('count', 0)} коллекций, PNG: {result.get('matched', 0)}.")
@@ -990,7 +1077,7 @@ def portal_job(key):
 @app.post('/api/admin/portal/import')
 @admin_required
 def portal_import():
-    key = str((request.get_json(silent=True) or {}).get('key', '')).strip() or PORTAL_KEY
+    key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
     if len(key) > 8000 or '\n' in key or '\r' in key:
         return error('Некорректный ключ Portal.')
     if not portal_job_lock.acquire(blocking=False):
@@ -1013,75 +1100,7 @@ def portal_job_status():
 @admin_required
 def portal_logs():
     logs = read_document('portal_logs') or []
-    return jsonify(logs=logs[-80:] if isinstance(logs, list) else [])
-
-
-@app.get('/api/admin/withdrawals')
-@admin_required
-def admin_withdrawals():
-    with connect() as db:
-        rows = db.execute('''SELECT w.*,u.name AS user_name,u.username AS username
-                             FROM withdrawals w JOIN users u ON u.id=w.user_id
-                             WHERE w.status='pending' ORDER BY w.id DESC LIMIT 200''').fetchall()
-    return jsonify(items=[dict(
-        id=row['id'], user_id=row['user_id'], user_name=row['user_name'], username=row['username'],
-        gift_name=row['gift_name'], image_url=row['image_url'], price_ton=row['floor_price']/100,
-        created_at=row['created_at']
-    ) for row in rows])
-
-
-@app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
-@admin_required
-def approve_withdrawal(withdrawal_id):
-    db = connect()
-    try:
-        db.execute('BEGIN IMMEDIATE')
-        withdrawal_sql = "SELECT * FROM withdrawals WHERE id=? AND status='pending'" + (' FOR UPDATE' if DATABASE_URL else '')
-        row = db.execute(withdrawal_sql, (withdrawal_id,)).fetchone()
-        if not row:
-            return error('Заявка уже обработана или не найдена.', 404)
-        db.execute("UPDATE withdrawals SET status='approved',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
-                   (session['uid'], withdrawal_id))
-        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], row['user_id'], 'withdraw_approve',
-                    json.dumps({'withdrawal_id': withdrawal_id, 'gift': row['gift_name']}, ensure_ascii=False)))
-        db.commit()
-        notify_user_async(row['user_id'], f"✅ Вывод подарка «{row['gift_name']}» завершён.")
-        return jsonify(ok=True)
-    finally:
-        db.close()
-
-
-@app.post('/api/admin/withdrawals/<int:withdrawal_id>/reject')
-@admin_required
-def reject_withdrawal(withdrawal_id):
-    db = connect()
-    try:
-        db.execute('BEGIN IMMEDIATE')
-        withdrawal_sql = "SELECT * FROM withdrawals WHERE id=? AND status='pending'" + (' FOR UPDATE' if DATABASE_URL else '')
-        row = db.execute(withdrawal_sql, (withdrawal_id,)).fetchone()
-        if not row:
-            return error('Заявка уже обработана или не найдена.', 404)
-        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                      VALUES(?,?,?,?,?,?,?)''',
-                   (row['user_id'], row['gift_id'], row['gift_name'], row['image_url'], row['floor_price'],
-                    row['source'], row['round_id']))
-        db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
-                   (session['uid'], withdrawal_id))
-        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], row['user_id'], 'withdraw_reject',
-                    json.dumps({'withdrawal_id': withdrawal_id, 'gift': row['gift_name']}, ensure_ascii=False)))
-        db.commit()
-        notify_user_async(row['user_id'], f"↩️ Вывод подарка «{row['gift_name']}» отклонён. Подарок возвращён в инвентарь.")
-        return jsonify(ok=True)
-    finally:
-        db.close()
-
-
-@app.get('/tonconnect-manifest.json')
-def tonconnect_manifest():
-    base = WEBAPP_URL or request.url_root.rstrip('/')
-    return jsonify(url=base, name='GemDrop', iconUrl=base + '/static/img/ton.png')
+    return jsonify(logs=logs[-100:] if isinstance(logs, list) else [])
 
 
 @app.post('/api/admin/portal/images/refresh')
@@ -1096,12 +1115,17 @@ def refresh_portal_images():
         document['images_updated_at'] = datetime.now(timezone.utc).isoformat()
         save_catalog(document)
         refresh_inventory_images(mapping)
-        matched = sum(bool(g.get('image_match')) for g in document['gifts'])
-        append_portal_log(f'PNG обновлены: {matched} из {len(document["gifts"])} коллекций.')
-        return jsonify(ok=True, count=len(document['gifts']), matched=matched)
+        return jsonify(ok=True, count=len(document['gifts']),
+                       matched=sum(g['image_match'] for g in document['gifts']))
     except (requests.RequestException, ValueError, OSError) as exc:
         app.logger.warning('Gift image refresh failed: %s', type(exc).__name__)
         return error('Не удалось сопоставить изображения. Старый каталог сохранён.', 502)
+
+
+@app.get('/tonconnect-manifest.json')
+def tonconnect_manifest():
+    base = WEBAPP_URL or request.url_root.rstrip('/')
+    return jsonify(url=base, name='GemDrop', iconUrl=base + '/static/img/ton.png')
 
 
 WELCOME_TEXT = (
@@ -1199,7 +1223,8 @@ def configure_bot():
         except (requests.RequestException, ValueError, KeyError) as exc:
             last_error = exc
             time.sleep(min(8, 1.5 ** attempt))
-    app.logger.warning('Telegram webhook setup failed after retries: %s', type(last_error).__name__ if last_error else 'unknown')
+    app.logger.warning('Telegram webhook setup failed after retries: %s',
+                       type(last_error).__name__ if last_error else 'unknown')
 
 
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):

@@ -14,7 +14,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_IDS
-        value: '5257227756'
+        value: '5257227756,8468542825'
       - key: DATA_DIR
         value: /opt/render/project/src/data
     disk:

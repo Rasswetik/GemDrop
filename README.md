@@ -1,80 +1,40 @@
-# GemDrop
+# GemDrop Flask / Telegram Mini App
 
-Flask Mini App с игрой «Мины», профилем, SQLite и импортом каталога Portal Market.
+## Render
 
-## Локальный запуск
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export BOT_TOKEN='токен вашего бота'
-export SECRET_KEY='длинная случайная строка'
-export WEBAPP_URL='https://ваш-публичный-адрес'
-export ADMIN_IDS='ваш_telegram_id'
-# export PORTAL_KEY='Bearer ...'  # только если Portal требует авторизацию
-python app.py
-```
-
-Сайт отвечает на `http://localhost:5000`, но авторизация доступна только через Telegram Mini App: данные `initData` проверяются на сервере. Для тестирования через Telegram используйте HTTPS-туннель на локальный порт и укажите его URL у своего бота. На Render создайте Web Service из своего репозитория: сборка `pip install -r requirements.txt`, запуск `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90`, проверка `/health`. В Render → Environment задайте `BOT_TOKEN` от **того же бота**, из которого открывается Mini App (например, при открытии через `@gemdrop_robot` нужен токен именно `@gemdrop_robot`). `BOT_TOKEN` имеет приоритет; старое имя `TELEGRAM_BOT_TOKEN` поддерживается для совместимости. При отсутствии токена или несовпадении бот покажет конкретную ошибку входа. После изменения переменных Render дождитесь нового деплоя.
-
-Бот находится в `app.py`. На Render используется `RENDER_EXTERNAL_URL`: при запуске один процесс регистрирует Telegram webhook с проверкой секретного заголовка. Сообщение `/start` присылает приветствие и кнопку «Играть», открывающую этот Mini App. Если сайт размещён на собственном HTTPS-домене, задайте `WEBAPP_URL` с полным адресом. `BOT_USERNAME` нужен для ссылки приглашения; при успешном вызове `getMe` используется фактическое имя бота. Не запускайте одновременно другой процесс polling для того же бота: webhook и getUpdates не работают параллельно.
-
-
-### Переменные окружения
-
-На Render в **Environment** используются:
-
-- `BOT_TOKEN` — токен того Telegram-бота, из которого открывается Mini App. Обязателен.
-- `ADMIN_IDS` — Telegram ID администраторов через запятую, например `123456789,987654321`. Обязателен для доступа к админ-панели.
-- `SECRET_KEY` — постоянный случайный секрет Flask. В `render.yaml` может генерироваться автоматически; не меняйте его при каждом деплое.
-- `BOT_USERNAME` — username бота без `@`. Не критичен: при доступном Telegram API приложение уточняет его через `getMe`.
-- `WEBAPP_URL` — полный публичный HTTPS URL приложения. На обычном Render можно не задавать, если доступен автоматический `RENDER_EXTERNAL_URL`; для собственного домена задайте явно.
-- `PORTAL_KEY` — необязательный ключ Portal Market. Если указать его здесь, ключ переживает перезапуски и можно оставлять поле Portal в админке пустым. Поддерживается полное `Bearer ...`/`tma ...` либо сам ключ.
-- `DATABASE_URL` — необязательная PostgreSQL-строка. Если её нет, используется SQLite.
-- `DATA_DIR` — каталог SQLite/JSON. Для Render с диском используйте `/opt/render/project/src/data`.
-
-`PORT` вручную на Render задавать не нужно — платформа передаёт его сама.
-
-## Сохранение данных после перезапуска
-
-Есть два режима:
-
-1. **PostgreSQL:** задайте в Render → Environment `DATABASE_URL` — строку подключения постоянной PostgreSQL-базы. Балансы, игроки, раунды, инвентарь и копия каталога хранятся в ней. Таблицы создаются при запуске. Используйте одну и ту же базу при каждом деплое. JSON каталога также записывается в `data/portal_gifts.json` как локальная копия.
-2. **SQLite:** оставьте `DATABASE_URL` пустым, задайте `DATA_DIR=/opt/render/project/src/data` и подключите постоянный диск Render к этому пути. Без диска локальная SQLite не гарантирует сохранение после рестарта/деплоя.
-
-`SECRET_KEY` должен быть постоянным. Если он не задан, сессия теперь использует стабильный ключ, производный от `BOT_TOKEN`. Перезагрузка страницы не создаёт новый баланс и не закрывает активный раунд. Автоматическое обнуление старых балансов полностью удалено.
-
-PostgreSQL и прежняя SQLite — разные базы: существующие записи SQLite не переносятся автоматически при добавлении `DATABASE_URL`. Если прежние данные ещё есть, сохраните файл базы и перенесите их перед переключением.
-
-Для других администраторов измените `ADMIN_IDS`, перечислив Telegram ID через запятую. Админ-панель появляется в профиле после подтверждения Telegram ID. В разделе Portal можно оставить ключ пустым для публичного каталога. Если требуется авторизация, поддерживаются: поддерживаются полное значение `tma ...`, `Bearer ...` либо ключ, к которому автоматически добавляется `Bearer `. Импорт выполняется в фоне с показом прогресса, получает страницы `/api/collections` по 20 записей и переходит дальше по фактически полученному количеству. Повторная страница завершает загрузку. Каталог также хранится в SQL. Импорт и сохраняет названия, минимальные цены и **точно сопоставленные PNG** в `data/portal_gifts.json`; секрет в файл не записывается. ID Telegram подарка определяется по точному ID/имени коллекции через `https://cdn.changes.tg/gifts/id-to-name.json`, затем PNG имеет вид `https://cdn.changes.tg/gifts/originals/<ID>/Original.png`. Подарок без точного сопоставления помечается `image_match: false` и не получает чужое изображение. Если источник PNG временно недоступен, импорт Portal продолжает работать и сохраняет доступные превью Portal. Кнопка «Обновить PNG» обновляет картинки для уже сохранённого каталога и ранее выданных предметов инвентаря, сохраняя цены. Изображения остаются ссылками на источник, сами PNG на диск не скачиваются.
-
-Иконка TON находится в `static/img/ton.png`. Клетки Mines теперь рисуются встроенными SVG-алмазами, поэтому отдельные PNG для безопасной клетки и мины не нужны. Экран запуска использует `static/gifs/shard.gif` и тонкий прогресс-бар, пока загружаются авторизация, профиль, активный раунд, коэффициенты и инвентарь. Новый пользователь начинает с балансом **0.00**; администратор может вручную задать баланс и выдать или удалить подарок из каталога. При остановке игры сервер либо начисляет рассчитанный выигрыш на баланс, либо, если выигрыш достигает минимальной цены коллекции Portal с подтверждённым PNG, добавляет её снимок с ценой и картинкой во внутренний инвентарь, а разницу перечисляет на баланс. Существующие балансы не обнуляются при запуске или обновлении.
-
-**Инвентарь и вывод:** продажа внутреннего предмета начисляет его сохранённую floor-цену на внутренний баланс. Кнопка «Вывести» создаёт заявку и резервирует подарок: предмет исчезает из активного инвентаря и появляется у администратора в разделе «Выводы». При одобрении заявка завершается, при отклонении подарок автоматически возвращается в инвентарь. Бот отправляет пользователю уведомление о результате. TON Connect используется для подключения кошелька; автоматический приём реальных TON по-прежнему не начисляет баланс без отдельной серверной проверки транзакций.
-
-Реферальная ссылка убрана с экрана профиля; механизм приглашений в боте сохранён. Приглашение сохраняется один раз по `/start ref_<ID>` для нового пользователя. Раздел администратора «Подтверждённый депозит» зачисляет введённую сумму пользователю и **10%** от неё пригласившему, если приглашение было записано ранее. Операция защищена от повторной отправки тем же идентификатором. Внешние платежи не подключены: администратор подтверждает пополнение вручную. Кнопка «Изменить баланс» не считается депозитом и реферальный бонус не создаёт.
-
-### Mines и Portal в этой версии
-
-Коэффициенты Mines рассчитываются одинаково для всех игроков по вероятности с единым RTP 97%; персональных коэффициентов и скрытой подкрутки по депозитам/проигрышам нет. Для 1 мины первый безопасный ход начинается примерно с `1.01x`. Интерфейс сокращает большие коэффициенты до `Kx` и `Mx`. Во время активной игры блоки ставки и количества мин скрываются, остаются кнопка «Забрать … TON» и кнопка `?`, которая выбирает случайную ещё не открытую клетку. Верхний баланс всегда показывает реальный баланс игрока, а не потенциальный выигрыш.
-
-В Portal Market добавлены сохраняемые логи импорта и полный список загруженных коллекций с ценой, отображаемой до сотых. Статус загрузки всегда использует числовой счётчик, поэтому строка `undefined коллекций` больше не формируется.
-
-Webhook Telegram при старте сервиса теперь регистрируется с несколькими повторными попытками; отправка ответа на `/start` также повторяется при временной сетевой ошибке.
-
-## Загрузка проекта на GitHub
-
-Установите [Git](https://git-scm.com/downloads) и настройте вход в GitHub. Для **существующего** репозитория запустите в папке проекта:
+Start command:
 
 ```bash
-python upload_to_github.py https://github.com/ВАШ_ЛОГИН/gemdrop.git
+gunicorn app:app
 ```
 
-Чтобы **создать новый** закрытый репозиторий, установите [GitHub CLI](https://cli.github.com/), выполните `gh auth login`, затем:
+Required environment variables:
 
-```bash
-python upload_to_github.py --create gemdrop
-```
+- `BOT_TOKEN` — token of the Telegram bot that opens the Mini App.
+- `ADMIN_IDS` — Telegram user IDs of administrators separated by commas (current project defaults: `5257227756,8468542825`).
+- `SECRET_KEY` — stable random secret; keep the same value between deploys.
+- `WEBAPP_URL` — public HTTPS URL of the Mini App. On Render `RENDER_EXTERNAL_URL` is also supported.
+- `BOT_USERNAME` — bot username without `@` (used by referral links).
 
-Для открытого репозитория добавьте `--public`. В Windows CMD используйте `upload_to_github.bat --create gemdrop` или `upload_to_github.bat https://github.com/ВАШ_ЛОГИН/gemdrop.git`. Пишите обычный URL без квадратных скобок и круглых скобок Markdown. Запускатель `.bat` использует `py -3`: команда `py -V` должна показать версию Python. Скрипт загружает только исходники проекта; `render.yaml`, токен бота, файлы `.env`, базу данных, JSON каталога и архивы не добавляет в коммит. Если старый скрипт уже загрузил `render.yaml`, новая версия удалит его из отслеживаемых файлов Git при следующей отправке (сам локальный файл сохранится). Если в Git не указаны имя и email, задайте их командами `git config --global user.name "Имя"` и `git config --global user.email "email@example.com"`.
+Database:
+
+- `DATABASE_URL` — recommended on Render if PostgreSQL is used.
+- Or `DATA_DIR` — persistent disk directory when using SQLite, for example `/opt/render/project/src/data` if that path is backed by a Render Disk.
+
+Do not set `PORT` manually on Render.
+
+## Portal Market
+
+Portal import is intentionally restored to the older working flow: the server uses the Authorization value entered in **Admin → Portal Market** for that import. A stale `PORTAL_KEY` environment variable is not silently substituted when the field is empty.
+
+Portal authentication values can expire. Paste the current `Authorization` header from Portal when an authenticated request is required. The code accepts the complete `tma ...` or `Bearer ...` value.
+
+## RTP
+
+Admin → **RTP игры** controls one shared RTP for all real players. Default is 97%. The project does not contain deposit-based or player-specific hidden outcome manipulation.
+
+## Admin additions
+
+- Pending gift withdrawals with approve/reject.
+- Transaction history (bets, wins, deposits, gift sales, balance edits, withdrawal events).
+- Portal import logs.

@@ -549,6 +549,53 @@ def read_catalog():
     return document
 
 
+def repair_legacy_upgrade_wagers():
+    """Restore wager gifts incorrectly changed into upgrade targets by older releases."""
+    try:catalog=read_catalog().get('gifts',[])
+    except (OSError,ValueError,TypeError):catalog=[]
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        items=db.execute("""SELECT * FROM inventory WHERE promo_locked=1
+                            AND source IN ('upgrade','promo_wager')""").fetchall()
+        for item in items:
+            original=None
+            if item['promo_code']:
+                promo=db.execute("""SELECT gift_id,gift_name,gift_image_url,gift_price FROM promo_codes
+                                    WHERE code=? AND reward_type='wager_gift'""",(item['promo_code'],)).fetchone()
+                if promo and promo['gift_id']!=item['gift_id']:
+                    original=(promo['gift_id'],promo['gift_name'],promo['gift_image_url'],int(promo['gift_price']))
+            if original is None and item['source']=='upgrade':
+                spins=db.execute('SELECT result_json,source_name,source_image,source_price FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC LIMIT 100',(item['user_id'],)).fetchall()
+                spin=None
+                for candidate in spins:
+                    try:awarded=json.loads(candidate['result_json']).get('awarded_inventory_id')
+                    except (ValueError,TypeError,AttributeError):continue
+                    if awarded==item['id']:
+                        spin=candidate
+                        break
+                if spin:
+                    matches=[]
+                    for gift in catalog:
+                        try:price=ton_to_cents(gift['price_ton'])
+                        except (KeyError,ValueError,TypeError,InvalidOperation):continue
+                        if gift.get('name')==spin['source_name'] and price==spin['source_price']:
+                            matches.append(gift)
+                    if len(matches)==1:
+                        gift=matches[0]
+                        original=(str(gift['id']),spin['source_name'],spin['source_image'],int(spin['source_price']))
+            if not original or original[3]<1:continue
+            target=round(original[3]*float(item['promo_wager_multiplier'] or 0))
+            if target<1:continue
+            progress=min(target,int(item['promo_wager_progress'] or 0))
+            db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,
+                          promo_wager_target=?,promo_wager_progress=?,source='upgrade_wager_repaired'
+                          WHERE id=? AND user_id=?""",original+(target,progress,item['id'],item['user_id']))
+            log_event(db,item['user_id'],'upgrade_wager_repaired',inventory_id=item['id'],gift_name=original[1])
+        db.commit()
+    finally:db.close()
+
+
 def collection_key(name):
     return re.sub(r'[\W_]+', '', str(name).casefold(), flags=re.UNICODE)
 
@@ -1175,16 +1222,32 @@ def upgrade_settings():
 @app.get('/api/upgrade/preview')
 @login_required
 def upgrade_preview():
-    try:source_id=int(request.args.get('inventory_id') or 0)
-    except (ValueError,TypeError):return error('Выберите свой подарок.')
+    amount_text=request.args.get('amount')
+    item_text=request.args.get('inventory_id')
+    if bool(amount_text)==bool(item_text):return error('Выберите TON или подарок для ставки.')
+    if amount_text:
+        try:source_price=parse_amount(amount_text)
+        except (ValueError,InvalidOperation,TypeError):return error('Укажите ставку в TON с точностью до 0.01.')
+        if not 10<=source_price<=100000000:return error('Ставка TON: от 0.10 до 1 000 000.')
+        with connect() as db:
+            balance=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()['balance']
+        if balance<source_price:return error('Недостаточно TON для ставки.')
+        source_view=dict(type='ton',id=None,name='TON',image_url='/static/img/ton.png',price_ton=source_price/100)
+    else:
+        try:source_id=int(item_text)
+        except (ValueError,TypeError):return error('Выберите свой подарок.')
+        with connect() as db:
+            source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
+        if not source:return error('Выберите доступный подарок из инвентаря.')
+        if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
+            return error('Отыгрыш завершён — сначала получите подарок.')
+        source_price=int(source['floor_price'] or 0)
+        source_view=dict(type='gift',**inventory_item(source))
     target=upgrade_target(request.args.get('gift_id'))
-    with connect() as db:
-        source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
-    if not source:return error('Выберите доступный подарок из инвентаря.')
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
-    chance=upgrade_chance(int(source['floor_price'] or 0),target['price'])
+    chance=upgrade_chance(source_price,target['price'])
     if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
-    return jsonify(source=inventory_item(source),target=dict(id=target['id'],name=target['name'],
+    return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
                    probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
 
@@ -1195,8 +1258,16 @@ def upgrade_spin():
     data=request.get_json(silent=True) or {}
     request_id=str(data.get('request_id') or '')
     if not re.fullmatch(r'[A-Za-z0-9_-]{16,64}',request_id):return error('Повторите попытку прокрутки.')
-    try:source_id=int(data.get('inventory_id'))
-    except (ValueError,TypeError):return error('Выберите свой подарок.')
+    amount_text=data.get('amount')
+    item_text=data.get('inventory_id')
+    if bool(amount_text)==bool(item_text):return error('Выберите TON или подарок для ставки.')
+    if amount_text:
+        try:ton_price=parse_amount(amount_text)
+        except (ValueError,InvalidOperation,TypeError):return error('Укажите ставку в TON с точностью до 0.01.')
+        if not 10<=ton_price<=100000000:return error('Ставка TON: от 0.10 до 1 000 000.')
+    else:
+        try:source_id=int(item_text)
+        except (ValueError,TypeError):return error('Выберите свой подарок.')
     target=upgrade_target(data.get('gift_id'))
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
     db=connect()
@@ -1207,42 +1278,57 @@ def upgrade_spin():
             if previous['user_id']!=session['uid']:return error('Некорректная операция.',409)
             db.commit()
             return jsonify(**json.loads(previous['result_json']),user=profile())
-        source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
-                          (source_id,session['uid'])).fetchone()
-        if not source:return error('Подарок недоступен для апгрейда.',409)
-        source_price=int(source['floor_price'] or 0)
+        if amount_text:
+            source_price=ton_price
+            source=dict(gift_name='TON',image_url='/static/img/ton.png',floor_price=ton_price,promo_locked=0)
+        else:
+            source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
+                              (source_id,session['uid'])).fetchone()
+            if not source:return error('Подарок недоступен для апгрейда.',409)
+            source_price=int(source['floor_price'] or 0)
+            if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
+                return error('Отыгрыш завершён — сначала получите подарок.')
         chance=upgrade_chance(source_price,target['price'])
         if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
-        if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
+        if amount_text:
+            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                              (source_price,session['uid'],source_price)).rowcount:
+                return error('Недостаточно TON для ставки.',409)
+        elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
         won=secrets.randbelow(10000)<chance
         awarded=None
         wager=bool(source['promo_locked'])
-        wager_target=round(target['price']*float(source['promo_wager_multiplier'] or 0)) if wager else 0
-        wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)) if wager else 0
+        wager_target=int(source['promo_wager_target'] or 0) if wager else 0
+        wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)+target['price']) if wager and won else 0
         if won:
-            cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                             promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
-                             VALUES(?,?,?,?,?,'upgrade',?,?,?,?,?)''',
-                           (session['uid'],target['id'],target['name'],target['image_url'],target['price'],
-                            int(wager),float(source['promo_wager_multiplier'] or 0) if wager else 0,
-                            wager_target,wager_progress,source['promo_code'] or ''))
+            if wager:
+                cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                                 promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
+                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?)''',
+                               (session['uid'],source['gift_id'],source['gift_name'],source['image_url'],source_price,
+                                float(source['promo_wager_multiplier'] or 0),wager_target,wager_progress,source['promo_code'] or ''))
+            else:
+                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
+                               (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             awarded=cur.lastrowid
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,
+                    source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
-                                promo_locked=wager,wager_multiplier=float(source['promo_wager_multiplier'] or 0) if wager else 0,
-                                wager_target=wager_target/100,wager_progress=wager_progress/100),
+                                promo_locked=False),
+                    wager_progress=wager_progress/100,wager_target=wager_target/100,
                     awarded_inventory_id=awarded)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
                     target['name'],target['image_url'],target['price'],chance,int(won),json.dumps(result,ensure_ascii=False)))
-        record_transaction(db,session['uid'],'upgrade_bet',0,'upgrade',request_id,
+        record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
-                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager)
+                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
+                  wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         result['new_level']=increase_turnover(db,session['uid'],source_price)
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
@@ -3083,6 +3169,9 @@ def configure_bot():
 
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
     Thread(target=configure_bot, daemon=True).start()
+
+
+repair_legacy_upgrade_wagers()
 
 
 if __name__ == '__main__':

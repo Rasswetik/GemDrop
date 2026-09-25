@@ -3,6 +3,7 @@ import hmac
 import json
 import math
 import os
+import re
 import secrets
 import shutil
 import sqlite3
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
+from threading import Thread
 from urllib.parse import parse_qsl
 
 import requests
@@ -23,10 +25,13 @@ DATA = Path(os.environ.get('DATA_DIR', str(BASE / 'data'))).resolve()
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'gemdrop.sqlite3'
 CATALOG = DATA / 'portal_gifts.json'
-BOT_TOKEN = (os.environ.get('8764742231:AAEhbxAwmqGxT1BragYFnex3kgDNhQhPC9U') or os.environ.get('BOT_TOKEN') or '').strip()
+BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
+WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
+BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756').split(',') if x.strip().isdigit()}
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+WEBHOOK_SECRET = hashlib.sha256((app.secret_key + BOT_TOKEN).encode()).hexdigest()[:48]
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                   SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')))
 
@@ -68,6 +73,20 @@ def initialize():
         );
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS referrals (
+            referred_id INTEGER PRIMARY KEY, referrer_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer_id);
+        CREATE TABLE IF NOT EXISTS deposits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+            amount INTEGER NOT NULL, referrer_id INTEGER, referral_bonus INTEGER NOT NULL DEFAULT 0,
+            admin_id INTEGER NOT NULL, request_key TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS bot_updates (
+            update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         ''')
         balance_default = next((row['dflt_value'] for row in db.execute('PRAGMA table_info(users)')
@@ -128,10 +147,10 @@ def verified_user(init_data):
 def auth():
     data = request.get_json(silent=True) or {}
     if not BOT_TOKEN:
-        return error('На сервере не задан TELEGRAM_BOT_TOKEN. Добавьте токен именно бота, который открыл Mini App, в Environment на Render.', 503)
+        return error('На сервере не задан BOT_TOKEN. Добавьте токен именно бота, который открыл Mini App, в Environment на Render.', 503)
     user = verified_user(data.get('initData', ''))
     if not user:
-        return error('Telegram не подтвердил вход. Проверьте TELEGRAM_BOT_TOKEN на Render: он должен принадлежать боту, через которого открыто приложение.', 401)
+        return error('Telegram не подтвердил вход. Проверьте BOT_TOKEN на Render: он должен принадлежать боту, через которого открыто приложение.', 401)
     user_id = user['id']
     name = (user.get('first_name') or 'Игрок')[:80]
     username = (user.get('username') or '')[:80]
@@ -191,6 +210,73 @@ def read_catalog():
     return document
 
 
+def collection_key(name):
+    return re.sub(r'[\W_]+', '', str(name).casefold(), flags=re.UNICODE)
+
+
+def gift_id_map():
+    """Load the authoritative Telegram gift ID/name map; reuse a disk copy on outage."""
+    path = DATA / 'gift_id_to_name.json'
+    try:
+        response = requests.get('https://cdn.changes.tg/gifts/id-to-name.json', timeout=12)
+        response.raise_for_status()
+        mapping = response.json()
+        if not isinstance(mapping, dict) or not mapping or not all(
+                str(k).isdigit() and isinstance(v, str) for k, v in mapping.items()):
+            raise ValueError('Invalid gift mapping')
+        tmp = path.with_suffix('.json.tmp')
+        tmp.write_text(json.dumps(mapping, ensure_ascii=False), encoding='utf-8')
+        os.replace(tmp, path)
+        return mapping
+    except (requests.RequestException, ValueError):
+        if path.exists():
+            return json.loads(path.read_text(encoding='utf-8'))
+        raise
+
+
+def match_collection_image(gift, mapping):
+    names = {collection_key(v): k for k, v in mapping.items()}
+    match = None
+    for field in ('telegram_gift_id', 'star_gift_id', 'gift_id'):
+        candidate = str(gift.get(field) or '')
+        if candidate in mapping and collection_key(mapping[candidate]) == collection_key(gift['name']):
+            match = candidate
+            break
+    if match is None:
+        match = names.get(collection_key(gift['name']))
+    updated = dict(gift)
+    if match:
+        updated.update(telegram_gift_id=match,
+                       image_url=f'https://cdn.changes.tg/gifts/originals/{match}/Original.png',
+                       image_format='png', image_source='cdn.changes.tg', image_match=True)
+    else:
+        updated.update(image_url='', image_format=None, image_source=None, image_match=False)
+    return updated
+
+
+def save_catalog(document):
+    with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=DATA, delete=False, suffix='.tmp') as tmp:
+        json.dump(document, tmp, ensure_ascii=False, indent=2)
+        tmp_name = tmp.name
+    if CATALOG.exists():
+        backups = DATA / 'catalog_backups'
+        backups.mkdir(exist_ok=True)
+        shutil.copy2(CATALOG, backups / f'portal_gifts_{time.time_ns()}.json')
+        for stale in sorted(backups.glob('portal_gifts_*.json'))[:-5]:
+            stale.unlink(missing_ok=True)
+    os.replace(tmp_name, CATALOG)
+
+
+def refresh_inventory_images(mapping):
+    """Correct older inventory previews by exact collection name; keep price snapshots."""
+    with connect() as db:
+        for item in db.execute('SELECT id,gift_name,image_url FROM inventory').fetchall():
+            matched = match_collection_image({'name': item['gift_name']}, mapping)
+            if matched['image_match'] and matched['image_url'] != item['image_url']:
+                db.execute('UPDATE inventory SET image_url=? WHERE id=?',
+                           (matched['image_url'], item['id']))
+
+
 def prize_for(amount, gifts=None):
     if gifts is None:
         try:
@@ -200,7 +286,7 @@ def prize_for(amount, gifts=None):
     eligible = []
     for gift in gifts:
         try:
-            if not gift.get('id') or not gift.get('name'):
+            if not gift.get('id') or not gift.get('name') or not gift.get('image_match'):
                 continue
             price = int(Decimal(str(gift['price_ton'])) * 100)
             if price > 0 and price <= amount:
@@ -408,6 +494,19 @@ def inventory():
     return jsonify(items=[inventory_item(item) for item in items])
 
 
+@app.get('/api/referrals/me')
+@login_required
+def my_referrals():
+    with connect() as db:
+        count = db.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=?',
+                           (session['uid'],)).fetchone()[0]
+        total = db.execute('SELECT COALESCE(SUM(referral_bonus),0) FROM deposits WHERE referrer_id=?',
+                           (session['uid'],)).fetchone()[0]
+    username = BOT_USERNAME
+    return jsonify(count=count, earned=total/100,
+                   link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
+
+
 @app.get('/api/admin/users')
 @admin_required
 def admin_users():
@@ -457,6 +556,43 @@ def admin_balance(user_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'balance_set', str(amount)))
     return jsonify(ok=True, balance=amount/100)
+
+
+@app.post('/api/admin/users/<int:user_id>/deposit')
+@admin_required
+def admin_deposit(user_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, TypeError, InvalidOperation):
+        return error('Укажите депозит с точностью до 0.01.')
+    key = str(data.get('request_key', ''))
+    if not (1 <= amount <= 100000000 and re.fullmatch(r'[A-Za-z0-9_-]{8,100}', key)):
+        return error('Некорректная сумма или идентификатор операции.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        old = db.execute('SELECT user_id FROM deposits WHERE request_key=?', (key,)).fetchone()
+        if old:
+            db.commit()
+            return jsonify(ok=True, duplicate=True)
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Пользователь не найден.', 404)
+        referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?',
+                              (user_id,)).fetchone()
+        referrer = referral['referrer_id'] if referral else None
+        bonus = amount // 10 if referrer else 0
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+        if referrer:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
+        db.execute('''INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
+                      VALUES(?,?,?,?,?,?)''', (user_id, amount, referrer, bonus, session['uid'], key))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, 'deposit', str(amount)))
+        db.commit()
+        return jsonify(ok=True, balance_added=amount/100, referral_bonus=bonus/100)
+    finally:
+        db.close()
 
 
 @app.post('/api/admin/users/<int:user_id>/inventory')
@@ -515,6 +651,7 @@ def portal_import():
     gifts = []
     seen = set()
     try:
+        mapping = gift_id_map()
         for offset in range(0, 10000, 100):
             response = requests.get('https://portal-market.com/api/collections',
                                     params={'limit': 100, 'offset': offset},
@@ -537,15 +674,15 @@ def portal_import():
                     price = str(Decimal(str(raw_price))) if raw_price is not None else None
                 except InvalidOperation:
                     price = None
-                # Prefer the collection's own PNG preview; preserve HTTPS fallback URL.
                 img = next((safe_image(item.get(field)) for field in ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url') if safe_image(item.get(field))), '')
                 gift_id = str(item.get('id') or item.get('slug') or name)
                 if gift_id in seen:
                     continue
                 seen.add(gift_id)
-                gifts.append(dict(id=gift_id, name=str(name)[:140],
-                                  price_ton=price, image_url=img,
-                                  image_format='png' if img.lower().split('?')[0].endswith('.png') else 'remote'))
+                gift = dict(id=gift_id, name=str(name)[:140], price_ton=price,
+                            portal_image_url=img,
+                            telegram_gift_id=str(item.get('telegram_gift_id') or item.get('star_gift_id') or ''))
+                gifts.append(match_collection_image(gift, mapping))
             if len(items) < 100:
                 break
         if not gifts:
@@ -554,23 +691,123 @@ def portal_import():
         if old_count > 10 and len(gifts) < old_count // 2:
             return error('Новый ответ Portal содержит менее половины прежнего каталога. Старые подарки сохранены; проверьте права ключа.', 502)
         document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
-        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=DATA, delete=False, suffix='.tmp') as tmp:
-            json.dump(document, tmp, ensure_ascii=False, indent=2)
-            tmp_name = tmp.name
-        if CATALOG.exists():
-            backups = DATA / 'catalog_backups'
-            backups.mkdir(exist_ok=True)
-            shutil.copy2(CATALOG, backups / f'portal_gifts_{int(time.time())}.json')
-            for stale in sorted(backups.glob('portal_gifts_*.json'))[:-5]:
-                stale.unlink(missing_ok=True)
-        os.replace(tmp_name, CATALOG)
-        return jsonify(ok=True, count=len(gifts), updated_at=document['updated_at'])
+        save_catalog(document)
+        refresh_inventory_images(mapping)
+        return jsonify(ok=True, count=len(gifts), matched=sum(g['image_match'] for g in gifts),
+                       updated_at=document['updated_at'])
     except requests.HTTPError as exc:
         status = exc.response.status_code
         return error('Portal отклонил ключ.' if status in (401, 403) else f'Portal вернул ошибку HTTP {status}.', 502)
     except (requests.RequestException, ValueError) as exc:
         app.logger.warning('Portal import failed: %s', type(exc).__name__)
         return error('Не удалось получить каталог Portal. Попробуйте позже.', 502)
+
+
+@app.post('/api/admin/portal/images/refresh')
+@admin_required
+def refresh_portal_images():
+    try:
+        document = read_catalog()
+        if not document['gifts']:
+            return error('Сначала загрузите каталог Portal.')
+        mapping = gift_id_map()
+        document['gifts'] = [match_collection_image(gift, mapping) for gift in document['gifts']]
+        document['images_updated_at'] = datetime.now(timezone.utc).isoformat()
+        save_catalog(document)
+        refresh_inventory_images(mapping)
+        return jsonify(ok=True, count=len(document['gifts']),
+                       matched=sum(g['image_match'] for g in document['gifts']))
+    except (requests.RequestException, ValueError, OSError) as exc:
+        app.logger.warning('Gift image refresh failed: %s', type(exc).__name__)
+        return error('Не удалось сопоставить изображения. Старый каталог сохранён.', 502)
+
+
+WELCOME_TEXT = (
+    '🎉 <b>Привет, Добро Пожаловать в GemDrop! 💎</b>\n\n'
+    'Открывай кейсы и выигрывай лучшие NFT гифты!\n\n'
+    '💰 Делись своей реферальной ссылкой с друзьями – и за каждого приведённого друга '
+    'который сделает депозит ты получишь 10% от суммы их пополнений!'
+)
+
+
+@app.post('/telegram/webhook')
+def telegram_webhook():
+    received = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+    if not BOT_TOKEN or not hmac.compare_digest(received, WEBHOOK_SECRET):
+        return error('Нет доступа.', 403)
+    if not WEBAPP_URL.startswith('https://'):
+        return error('Укажите HTTPS URL приложения.', 503)
+    update = request.get_json(silent=True) or {}
+    message = update.get('message') or {}
+    sender = message.get('from') or {}
+    chat = message.get('chat') or {}
+    command = str(message.get('text') or '').split(maxsplit=1)
+    if (chat.get('type') != 'private' or not command or
+            command[0].split('@')[0] != '/start' or not isinstance(sender.get('id'), int)):
+        return jsonify(ok=True)
+    try:
+        update_id = int(update['update_id'])
+        uid = sender['id']
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)',
+                              (update_id,)).rowcount:
+                db.commit()
+                return jsonify(ok=True)
+            is_new = db.execute('''INSERT OR IGNORE INTO users(id,name,username,balance)
+                                   VALUES(?,?,?,0)''',
+                                (uid, str(sender.get('first_name') or 'Игрок')[:80],
+                                 str(sender.get('username') or '')[:80])).rowcount
+            if is_new and len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
+                referrer = int(command[1][4:])
+                if uid != referrer and db.execute('SELECT 1 FROM users WHERE id=?',
+                                                 (referrer,)).fetchone():
+                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
+                               (uid, referrer))
+            db.commit()
+        finally:
+            db.close()
+        button = {'inline_keyboard': [[{'text': '🎮 Играть',
+                                       'web_app': {'url': WEBAPP_URL + '/'}}]]}
+        response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
+                                 json={'chat_id': chat['id'], 'text': WELCOME_TEXT,
+                                       'parse_mode': 'HTML', 'reply_markup': button}, timeout=12)
+        response.raise_for_status()
+        if not response.json().get('ok'):
+            raise ValueError('Telegram rejected sendMessage')
+        return jsonify(ok=True)
+    except (ValueError, KeyError, requests.RequestException, sqlite3.Error) as exc:
+        app.logger.warning('Telegram update failed: %s', type(exc).__name__)
+        if isinstance(update.get('update_id'), int):
+            with connect() as db:
+                db.execute('DELETE FROM bot_updates WHERE update_id=?', (update['update_id'],))
+        return error('Не удалось отправить сообщение.', 502)
+
+
+def configure_bot():
+    global BOT_USERNAME
+    if not BOT_TOKEN or not WEBAPP_URL.startswith('https://'):
+        return
+    try:
+        info = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=10)
+        info.raise_for_status()
+        if info.json().get('ok'):
+            BOT_USERNAME = info.json()['result'].get('username') or BOT_USERNAME
+        response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
+                                 json={'url': WEBAPP_URL + '/telegram/webhook',
+                                       'secret_token': WEBHOOK_SECRET,
+                                       'allowed_updates': ['message']}, timeout=12)
+        response.raise_for_status()
+        if not response.json().get('ok'):
+            raise ValueError('setWebhook rejected')
+        app.logger.info('Telegram webhook configured for %s', WEBAPP_URL)
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        app.logger.warning('Telegram webhook setup failed: %s', type(exc).__name__)
+
+
+if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
+    Thread(target=configure_bot, daemon=True).start()
 
 
 if __name__ == '__main__':

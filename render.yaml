@@ -7,8 +7,10 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90
     healthCheckPath: /health
     envVars:
-      - key: TELEGRAM_BOT_TOKEN
+      - key: BOT_TOKEN
         sync: false
+      - key: BOT_USERNAME
+        value: gemdrop_robot
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_IDS

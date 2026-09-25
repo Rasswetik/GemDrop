@@ -98,3 +98,10 @@ Portal uses the Authorization value entered in **Admin → Portal Market**. Prog
 - Withdrawals have active and completed views.
 - Completed withdrawals keep status, processing time and administrator information.
 - Promocodes, referrals, TON deposit orders, wallet addresses and settings are persisted in the database.
+
+
+## Стабильность Portal и Mines
+- Последний введённый Authorization Portal сохраняется в постоянной БД и повторно используется при следующих импортах/деплоях.
+- Если сохранённый TMA Authorization истёк (401/403), импорт автоматически пробует публичный `/api/collections`; ранее сохранённый каталог при ошибке не удаляется.
+- Для гарантированного сохранения между деплоями используйте PostgreSQL `DATABASE_URL` или постоянный Render Disk для `DATA_DIR`.
+- Mines показывает 15 последних побед. Окно денежной победы использует компактную строку `+сумма` + PNG TON, как окно промокода.

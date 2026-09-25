@@ -704,7 +704,7 @@ def recent_wins():
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
                                     u.id AS user_id,u.name,u.username,u.photo_url
                              FROM rounds r JOIN users u ON u.id=r.user_id
-                             WHERE r.state='won' ORDER BY r.id DESC LIMIT 20""").fetchall()
+                             WHERE r.state='won' ORDER BY r.id DESC LIMIT 15""").fetchall()
     items = []
     for row in rows:
         opened_count = len(json.loads(row['opened'] or '[]'))
@@ -1445,6 +1445,70 @@ def portal_headers(key):
     return headers
 
 
+def saved_portal_key():
+    """Return the last admin-supplied Portal Authorization without exposing it to the client."""
+    try:
+        doc = read_document('portal_auth') or {}
+        value = str(doc.get('authorization') or '').strip()
+        return value if len(value) <= 8000 and '\n' not in value and '\r' not in value else ''
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ''
+
+
+def store_portal_key(key):
+    key = str(key or '').strip()
+    if not key:
+        return
+    save_document('portal_auth', {
+        'authorization': key,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def portal_get_collections(session_http, key, params):
+    """Fetch one collections page with bounded retries and stale-auth fallback.
+
+    Portals TMA auth can expire. If an old saved token is rejected, retry the
+    public collections endpoint before failing, while never deleting the last
+    successfully cached catalog.
+    """
+    auth_candidates = [str(key or '').strip()]
+    if auth_candidates[0]:
+        auth_candidates.append('')
+    last_error = None
+    for auth_index, auth_key in enumerate(auth_candidates):
+        for attempt in range(3):
+            try:
+                response = session_http.get(
+                    'https://portal-market.com/api/collections',
+                    params=params,
+                    headers=portal_headers(auth_key),
+                    timeout=(5, 10),
+                )
+                if response.status_code == 429 and attempt < 2:
+                    retry_after = response.headers.get('Retry-After', '1')
+                    try:
+                        delay = min(3.0, max(0.5, float(retry_after)))
+                    except ValueError:
+                        delay = 1.0
+                    time.sleep(delay)
+                    continue
+                if response.status_code in (401, 403) and auth_key and auth_index == 0:
+                    append_portal_log('Сохранённый Authorization Portal отклонён; пробуем публичный каталог без него.', 'error')
+                    break
+                response.raise_for_status()
+                return response
+            except requests.RequestException as exc:
+                last_error = exc
+                status = exc.response.status_code if exc.response is not None else None
+                if status in (400, 401, 403, 404) or attempt >= 2:
+                    break
+                time.sleep(0.7 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise requests.RequestException('Portal did not return a response')
+
+
 def fetch_portal_catalog(key, progress=None):
     """Fetch Portal collections without blocking the admin UI for the whole import."""
     previous = read_catalog()['gifts']
@@ -1463,32 +1527,9 @@ def fetch_portal_catalog(key, progress=None):
         if time.monotonic() >= deadline:
             append_portal_log('Импорт остановлен по защитному лимиту времени; уже полученные коллекции сохранены.', 'error')
             break
-        response = None
-        for attempt in range(3):
-            try:
-                response = session_http.get(
-                    'https://portal-market.com/api/collections',
-                    params={'limit': request_limit, 'offset': offset},
-                    headers=portal_headers(key),
-                    timeout=(5, 10),
-                )
-                if response.status_code == 429 and attempt < 2:
-                    retry_after = response.headers.get('Retry-After', '1')
-                    try:
-                        delay = min(3.0, max(0.5, float(retry_after)))
-                    except ValueError:
-                        delay = 1.0
-                    time.sleep(delay)
-                    continue
-                response.raise_for_status()
-                break
-            except requests.RequestException as exc:
-                status = exc.response.status_code if exc.response is not None else None
-                if attempt >= 2 or status in (400, 401, 403, 404):
-                    raise
-                time.sleep(0.7 * (attempt + 1))
-        if response is None:
-            raise requests.RequestException('Portal did not return a response')
+        response = portal_get_collections(
+            session_http, key, {'limit': request_limit, 'offset': offset}
+        )
 
         try:
             payload = response.json()
@@ -1631,12 +1672,18 @@ def portal_job(key):
 @app.post('/api/admin/portal/import')
 @admin_required
 def portal_import():
-    key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
-    if len(key) > 8000 or '\n' in key or '\r' in key:
+    entered_key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
+    if len(entered_key) > 8000 or '\n' in entered_key or '\r' in entered_key:
         return error('Некорректный ключ Portal.')
+    if entered_key:
+        store_portal_key(entered_key)
+    key = entered_key or saved_portal_key()
     if not portal_job_lock.acquire(blocking=False):
         return jsonify(ok=True, state='running'), 202
-    save_document('portal_job', dict(state='running', count=0, updated=time.time()))
+    save_document('portal_job', dict(state='running', count=0, stage='collections', updated=time.time()))
+    append_portal_log('Используется сохранённый Authorization Portal.' if key and not entered_key else
+                      ('Authorization Portal сохранён для следующих обновлений.' if entered_key else
+                       'Authorization не задан; пробуем публичный каталог Portal.'))
     Thread(target=portal_job, args=(key,), daemon=True).start()
     return jsonify(ok=True, state='running'), 202
 

@@ -29,6 +29,7 @@ CATALOG = DATA / 'portal_gifts.json'
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
+TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 GAME_RTP_DEFAULT = 0.97
 MIN_BET_CENTS = 10
@@ -146,7 +147,6 @@ def initialize():
             round_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
-        CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC);
         CREATE TABLE IF NOT EXISTS admin_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL,
@@ -159,7 +159,6 @@ def initialize():
             referred_id INTEGER PRIMARY KEY, referrer_id INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer_id);
         CREATE TABLE IF NOT EXISTS deposits (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
             amount INTEGER NOT NULL, referrer_id INTEGER, referral_bonus INTEGER NOT NULL DEFAULT 0,
@@ -173,35 +172,94 @@ def initialize():
             round_id INTEGER, status TEXT NOT NULL DEFAULT 'pending', admin_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC);
-        CREATE INDEX IF NOT EXISTS withdrawals_user ON withdrawals(user_id,id DESC);
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
             kind TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0, balance_after INTEGER,
             reference_type TEXT NOT NULL DEFAULT '', reference_id TEXT NOT NULL DEFAULT '',
             details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX IF NOT EXISTS transactions_user ON transactions(user_id,id DESC);
-        CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC);
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY, reward_type TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0,
+            gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
+            gift_image_url TEXT NOT NULL DEFAULT '', gift_price INTEGER NOT NULL DEFAULT 0,
+            max_uses INTEGER NOT NULL DEFAULT 1, uses_count INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1, created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS promo_redemptions (
+            code TEXT NOT NULL, user_id INTEGER NOT NULL, reward_type TEXT NOT NULL,
+            amount INTEGER NOT NULL DEFAULT 0, inventory_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(code,user_id)
+        );
+        CREATE TABLE IF NOT EXISTS user_wallets (
+            user_id INTEGER PRIMARY KEY, address TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS ton_deposit_orders (
+            id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, wallet_address TEXT NOT NULL,
+            recipient_wallet TEXT NOT NULL, amount INTEGER NOT NULL, amount_nano BIGINT NOT NULL,
+            created_unix INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            tx_hash TEXT UNIQUE, credited_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
-        columns = {row['name'] for row in db.execute('PRAGMA table_info(rounds)')}
-        if 'prize_inventory_id' not in columns:
-            db.execute('ALTER TABLE rounds ADD COLUMN prize_inventory_id INTEGER')
-        if 'lost_cell' not in columns:
-            db.execute('ALTER TABLE rounds ADD COLUMN lost_cell INTEGER')
-        if 'win_total' not in columns:
-            db.execute('ALTER TABLE rounds ADD COLUMN win_total INTEGER')
-        if 'win_multiplier' not in columns:
-            db.execute('ALTER TABLE rounds ADD COLUMN win_multiplier REAL')
-        if 'win_gift_name' not in columns:
-            db.execute("ALTER TABLE rounds ADD COLUMN win_gift_name TEXT NOT NULL DEFAULT ''")
-        if 'win_gift_image' not in columns:
-            db.execute("ALTER TABLE rounds ADD COLUMN win_gift_image TEXT NOT NULL DEFAULT ''")
-        if 'win_gift_price' not in columns:
-            db.execute('ALTER TABLE rounds ADD COLUMN win_gift_price INTEGER')
+        def ensure_columns(table, definitions):
+            existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
+            for name, definition in definitions:
+                if name not in existing:
+                    db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+
+        # Older Render disks may contain tables created by much earlier builds.
+        # Keep migrations additive so an update cannot turn a working deployment into HTTP 500.
+        ensure_columns('users', [
+            ('username', "TEXT NOT NULL DEFAULT ''"),
+            ('photo_url', "TEXT NOT NULL DEFAULT ''"),
+            ('balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('rounds', [
+            ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
+            ('win_multiplier', 'REAL'), ('win_gift_name', "TEXT NOT NULL DEFAULT ''"),
+            ('win_gift_image', "TEXT NOT NULL DEFAULT ''"), ('win_gift_price', 'INTEGER'),
+        ])
+        ensure_columns('inventory', [
+            ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
+            ('source', "TEXT NOT NULL DEFAULT 'legacy'"), ('round_id', 'INTEGER'),
+            ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('withdrawals', [
+            ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
+            ('source', "TEXT NOT NULL DEFAULT 'withdrawal'"), ('round_id', 'INTEGER'),
+            ('status', "TEXT NOT NULL DEFAULT 'pending'"), ('admin_id', 'INTEGER'),
+            ('created_at', "TEXT NOT NULL DEFAULT ''"), ('processed_at', 'TEXT'),
+        ])
+        ensure_columns('referrals', [
+            ('referrer_id', 'INTEGER NOT NULL DEFAULT 0'), ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('deposits', [
+            ('amount', 'INTEGER NOT NULL DEFAULT 0'), ('referrer_id', 'INTEGER'),
+            ('referral_bonus', 'INTEGER NOT NULL DEFAULT 0'), ('admin_id', 'INTEGER NOT NULL DEFAULT 0'),
+            ('request_key', "TEXT NOT NULL DEFAULT ''"), ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('transactions', [
+            ('kind', "TEXT NOT NULL DEFAULT 'legacy'"), ('amount', 'INTEGER NOT NULL DEFAULT 0'),
+            ('balance_after', 'INTEGER'), ('reference_type', "TEXT NOT NULL DEFAULT ''"),
+            ('reference_id', "TEXT NOT NULL DEFAULT ''"), ('details', "TEXT NOT NULL DEFAULT ''"),
+            ('created_at', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        # Indexes are intentionally created after additive migrations. Creating an index on a
+        # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
+        db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer_id)')
+        db.execute('CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS withdrawals_user ON withdrawals(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS transactions_user ON transactions(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
+
 
 
 initialize()
@@ -754,17 +812,190 @@ def request_withdrawal(item_id):
         db.close()
 
 
+def referral_percent():
+    try:
+        return min(50.0, max(0.0, float((read_document('ton_settings') or {}).get('referral_percent', 10))))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return 10.0
+
+
+def current_bot_username():
+    identity = read_document('bot_identity') or {}
+    username = (str(identity.get('username') or BOT_USERNAME).strip().lstrip('@'))[:64]
+    if username or not BOT_TOKEN:
+        return username
+    try:
+        response = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=(3, 6))
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get('ok'):
+            username = str((payload.get('result') or {}).get('username') or '').strip().lstrip('@')[:64]
+            if username:
+                save_document('bot_identity', {'username': username,
+                                               'updated_at': datetime.now(timezone.utc).isoformat()})
+                return username
+    except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
+        pass
+    return ''
+
+
+@app.get('/api/wallet/me')
+@login_required
+def wallet_me():
+    with connect() as db:
+        row = db.execute('SELECT address,updated_at FROM user_wallets WHERE user_id=?', (session['uid'],)).fetchone()
+    return jsonify(address=(row['address'] if row else ''), updated_at=(row['updated_at'] if row else None))
+
+
+@app.post('/api/wallet/me')
+@login_required
+def wallet_save():
+    data = request.get_json(silent=True) or {}
+    address = str(data.get('address') or '').strip()
+    if not (20 <= len(address) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', address)):
+        return error('Некорректный адрес TON-кошелька.')
+    with connect() as db:
+        db.execute('INSERT INTO user_wallets(user_id,address,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) '
+                   'ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
+                   (session['uid'], address))
+    return jsonify(ok=True, address=address)
+
+
 @app.get('/api/referrals/me')
 @login_required
 def my_referrals():
     with connect() as db:
         count = db.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=?',
                            (session['uid'],)).fetchone()[0]
-        total = db.execute('SELECT COALESCE(SUM(referral_bonus),0) FROM deposits WHERE referrer_id=?',
+        total = db.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE user_id=? AND kind='referral_bonus'",
                            (session['uid'],)).fetchone()[0]
-    username = BOT_USERNAME
-    return jsonify(count=count, earned=total/100,
+    username = current_bot_username()
+    return jsonify(count=count, earned=total/100, percent=referral_percent(), bot_username=username,
                    link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
+
+
+@app.post('/api/promocodes/redeem')
+@login_required
+def redeem_promocode():
+    code = str((request.get_json(silent=True) or {}).get('code') or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Проверьте промокод.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
+        if not promo or not promo['active']:
+            return error('Промокод не найден или отключён.', 404)
+        if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
+            return error('Лимит активаций этого промокода исчерпан.', 409)
+        if db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (code, session['uid'])).fetchone():
+            return error('Вы уже активировали этот промокод.', 409)
+        inventory_id = None
+        if promo['reward_type'] == 'balance':
+            amount = max(0, int(promo['amount']))
+            if amount <= 0:
+                return error('Награда промокода настроена неверно.', 500)
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
+            reward = dict(type='balance', amount=amount/100)
+            record_transaction(db, session['uid'], 'promo_balance', amount, 'promo', code, f'Промокод {code}')
+        elif promo['reward_type'] == 'gift':
+            cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'promo')",
+                             (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price']))
+            inventory_id = cur.lastrowid
+            reward = dict(type='gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
+                                                 image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100))
+            record_transaction(db, session['uid'], 'promo_gift', 0, 'promo', code, promo['gift_name'])
+        else:
+            return error('Награда промокода настроена неверно.', 500)
+        db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
+                   (code, session['uid'], promo['reward_type'], int(promo['amount'] or 0), inventory_id))
+        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+        db.commit()
+        return jsonify(ok=True, reward=reward, user=profile())
+    finally:
+        db.close()
+
+
+def generated_promo_code():
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    return 'GEM-' + ''.join(secrets.choice(alphabet) for _ in range(8))
+
+
+@app.get('/api/admin/promocodes')
+@admin_required
+def admin_promocodes():
+    with connect() as db:
+        rows = db.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code DESC LIMIT 300').fetchall()
+    return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=x['amount']/100,
+                               gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
+                               gift_price=x['gift_price']/100, max_uses=x['max_uses'], uses_count=x['uses_count'],
+                               active=bool(x['active']), created_at=x['created_at']) for x in rows])
+
+
+@app.post('/api/admin/promocodes')
+@admin_required
+def admin_create_promocode():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code') or '').strip().upper() or generated_promo_code()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
+    reward_type = str(data.get('reward_type') or 'balance')
+    try:
+        max_uses = int(data.get('max_uses', 1))
+    except (TypeError, ValueError):
+        return error('Некорректный лимит активаций.')
+    if not 0 <= max_uses <= 1000000:
+        return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
+    amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0
+    if reward_type == 'balance':
+        try:
+            amount = parse_amount(data.get('amount'))
+        except (ValueError, InvalidOperation, TypeError):
+            return error('Укажите сумму награды с точностью до 0.01 TON.')
+        if not 1 <= amount <= 100000000:
+            return error('Сумма промокода должна быть от 0.01 до 1 000 000 TON.')
+    elif reward_type == 'gift':
+        gift_id = str(data.get('gift_id') or '')
+        try:
+            gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+        except (OSError, ValueError, json.JSONDecodeError):
+            gift = None
+        if not gift:
+            return error('Подарок не найден в каталоге Portal.')
+        gift_name = str(gift.get('name') or 'Подарок')[:140]
+        gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+        try:
+            gift_price = int(Decimal(str(gift.get('price_ton') or 0)) * 100)
+        except (InvalidOperation, TypeError, ValueError):
+            gift_price = 0
+    else:
+        return error('Выберите награду: баланс или подарок.')
+    try:
+        with connect() as db:
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,max_uses,created_by) VALUES(?,?,?,?,?,?,?,?,?)',
+                       (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price, max_uses, session['uid']))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'promo_create', code))
+    except Exception as exc:
+        if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
+            return error('Такой промокод уже существует.', 409)
+        raise
+    return jsonify(ok=True, code=code)
+
+
+@app.post('/api/admin/promocodes/<code>/toggle')
+@admin_required
+def admin_toggle_promocode(code):
+    code = str(code).upper()
+    with connect() as db:
+        row = db.execute('SELECT active FROM promo_codes WHERE code=?', (code,)).fetchone()
+        if not row:
+            return error('Промокод не найден.', 404)
+        active = 0 if row['active'] else 1
+        db.execute('UPDATE promo_codes SET active=? WHERE code=?', (active, code))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'promo_toggle', f'{code}:{active}'))
+    return jsonify(ok=True, active=bool(active))
 
 
 @app.get('/api/admin/users')
@@ -843,22 +1074,14 @@ def admin_deposit(user_id):
             return jsonify(ok=True, duplicate=True)
         if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
             return error('Пользователь не найден.', 404)
-        referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?',
-                              (user_id,)).fetchone()
-        referrer = referral['referrer_id'] if referral else None
-        bonus = amount // 10 if referrer else 0
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
-        if referrer:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
         db.execute('''INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
-                      VALUES(?,?,?,?,?,?)''', (user_id, amount, referrer, bonus, session['uid'], key))
+                      VALUES(?,?,?,?,?,?)''', (user_id, amount, None, 0, session['uid'], key))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], user_id, 'deposit', str(amount)))
-        record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Подтверждённый депозит')
-        if referrer and bonus:
-            record_transaction(db, referrer, 'referral_bonus', bonus, 'deposit', key, f'Реферальный бонус от {user_id}')
+                   (session['uid'], user_id, 'admin_deposit', str(amount)))
+        record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
         db.commit()
-        return jsonify(ok=True, balance_added=amount/100, referral_bonus=bonus/100)
+        return jsonify(ok=True, balance_added=amount/100, referral_bonus=0)
     finally:
         db.close()
 
@@ -976,7 +1199,7 @@ def admin_transactions():
     # Funding/balance adjustment history for the admin UI. Game audit rows stay in DB.
     term = request.args.get('q', '').strip()[:80]
     params = []
-    where = ["t.kind IN ('deposit','admin_balance','referral_bonus','ton_deposit')"]
+    where = ["t.kind IN ('deposit','admin_balance','referral_bonus','ton_deposit','promo_balance')"]
     if term:
         where.append('(CAST(t.user_id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?)')
         params.extend([f'%{term}%', f'%{term}%', f'%{term}%'])
@@ -1014,12 +1237,17 @@ def admin_rtp_set():
 
 def ton_settings():
     doc = read_document('ton_settings') or {}
+    try:
+        ref_percent = min(50.0, max(0.0, float(doc.get('referral_percent', 10) or 0)))
+    except (TypeError, ValueError):
+        ref_percent = 10.0
     return dict(
         enabled=bool(doc.get('enabled', True)),
         recipient_wallet=str(doc.get('recipient_wallet') or '').strip()[:180],
         site_name=str(doc.get('site_name') or 'GemDrop').strip()[:48] or 'GemDrop',
         site_url=str(doc.get('site_url') or WEBAPP_URL or '').strip()[:500],
         icon_url=str(doc.get('icon_url') or '').strip()[:500],
+        referral_percent=ref_percent,
     )
 
 
@@ -1028,7 +1256,7 @@ def ton_settings():
 def ton_settings_public():
     settings = ton_settings()
     return jsonify(enabled=settings['enabled'], recipient_wallet=settings['recipient_wallet'],
-                   site_name=settings['site_name'])
+                   site_name=settings['site_name'], referral_percent=settings['referral_percent'])
 
 
 @app.get('/api/admin/ton-settings')
@@ -1046,6 +1274,12 @@ def admin_ton_settings_set():
     site_url = str(data.get('site_url') or '').strip()
     icon_url = str(data.get('icon_url') or '').strip()
     enabled = bool(data.get('enabled', True))
+    try:
+        referral_pct = float(data.get('referral_percent', 10))
+    except (TypeError, ValueError):
+        return error('Реферальный процент указан неверно.')
+    if not 0 <= referral_pct <= 50:
+        return error('Реферальный процент должен быть от 0 до 50%.')
     if recipient and not (20 <= len(recipient) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', recipient)):
         return error('Проверьте адрес TON-кошелька получателя.')
     if not (1 <= len(site_name) <= 48):
@@ -1055,14 +1289,144 @@ def admin_ton_settings_set():
     if icon_url and not icon_url.startswith('https://'):
         return error('URL иконки должен начинаться с https://')
     save_document('ton_settings', dict(enabled=enabled, recipient_wallet=recipient, site_name=site_name,
-                                       site_url=site_url, icon_url=icon_url,
+                                       site_url=site_url, icon_url=icon_url, referral_percent=referral_pct,
                                        updated_at=datetime.now(timezone.utc).isoformat(),
                                        admin_id=session['uid']))
     with connect() as db:
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'ton_settings',
-                    json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient}, ensure_ascii=False)))
+                    json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient, 'referral_percent': referral_pct}, ensure_ascii=False)))
     return jsonify(ok=True, **ton_settings())
+
+
+def toncenter_headers():
+    headers = {'Accept': 'application/json'}
+    if TONCENTER_API_KEY:
+        headers['X-API-Key'] = TONCENTER_API_KEY
+    return headers
+
+
+def credit_verified_ton_deposit(db, order, tx_hash):
+    """Credit an on-chain TON deposit exactly once; referral rewards are paid only here."""
+    user_id = int(order['user_id'])
+    amount = int(order['amount'])
+    referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (user_id,)).fetchone()
+    referrer = referral['referrer_id'] if referral else None
+    bonus = int(amount * referral_percent() / 100) if referrer else 0
+    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+    if referrer and bonus:
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
+    request_key = 'ton:' + str(order['id'])
+    db.execute('INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key) VALUES(?,?,?,?,0,?)',
+               (user_id, amount, referrer, bonus, request_key))
+    db.execute("UPDATE ton_deposit_orders SET status='credited',tx_hash=?,credited_at=CURRENT_TIMESTAMP WHERE id=?",
+               (tx_hash, order['id']))
+    record_transaction(db, user_id, 'ton_deposit', amount, 'ton_tx', tx_hash, 'Подтверждённое пополнение TON')
+    if referrer and bonus:
+        record_transaction(db, referrer, 'referral_bonus', bonus, 'ton_tx', tx_hash,
+                           f'Реферальный бонус {referral_percent():g}% от TON-пополнения пользователя {user_id}')
+    return bonus
+
+
+@app.post('/api/ton/deposit/create')
+@login_required
+def create_ton_deposit():
+    settings = ton_settings()
+    if not settings['enabled']:
+        return error('Пополнение TON временно отключено.', 503)
+    if not settings['recipient_wallet']:
+        return error('Администратор ещё не настроил кошелёк получателя.', 503)
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Введите сумму с точностью до 0.01 TON.')
+    if not 10 <= amount <= 100000000:
+        return error('Сумма пополнения должна быть от 0.10 до 1 000 000 TON.')
+    wallet_address = str(data.get('wallet_address') or '').strip()
+    if not (20 <= len(wallet_address) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', wallet_address)):
+        return error('Сначала подключите TON-кошелёк.')
+    order_id = secrets.token_urlsafe(18).replace('-', '').replace('_', '')[:24]
+    created = int(time.time())
+    amount_nano = amount * 10_000_000
+    with connect() as db:
+        db.execute("UPDATE ton_deposit_orders SET status='expired' WHERE user_id=? AND status='pending'", (session['uid'],))
+        db.execute('INSERT INTO ton_deposit_orders(id,user_id,wallet_address,recipient_wallet,amount,amount_nano,created_unix) VALUES(?,?,?,?,?,?,?)',
+                   (order_id, session['uid'], wallet_address, settings['recipient_wallet'], amount, amount_nano, created))
+        db.execute('INSERT INTO user_wallets(user_id,address,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
+                   (session['uid'], wallet_address))
+    return jsonify(ok=True, order_id=order_id, amount=amount/100,
+                   transaction=dict(validUntil=created + 300,
+                                    messages=[dict(address=settings['recipient_wallet'], amount=str(amount_nano))]))
+
+
+@app.post('/api/ton/deposit/<order_id>/verify')
+@login_required
+def verify_ton_deposit(order_id):
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return error('Некорректная операция.')
+    with connect() as db:
+        order = db.execute('SELECT * FROM ton_deposit_orders WHERE id=? AND user_id=?',
+                           (order_id, session['uid'])).fetchone()
+    if not order:
+        return error('Операция пополнения не найдена.', 404)
+    if order['status'] == 'credited':
+        return jsonify(ok=True, status='credited', user=profile())
+    if order['status'] == 'expired':
+        return error('Эта операция уже устарела. Создайте новое пополнение.', 409)
+    if int(time.time()) - int(order['created_unix']) > 900:
+        with connect() as db:
+            db.execute("UPDATE ton_deposit_orders SET status='expired' WHERE id=? AND status='pending'", (order_id,))
+        return error('Транзакция не найдена вовремя. Если TON уже отправлены — обратитесь к администратору.', 409)
+    try:
+        response = requests.get('https://toncenter.com/api/v3/messages', params={
+            'source': order['wallet_address'], 'destination': order['recipient_wallet'],
+            'start_utime': max(0, int(order['created_unix']) - 8), 'limit': 50, 'sort': 'desc'
+        }, headers=toncenter_headers(), timeout=(5, 12))
+        response.raise_for_status()
+        messages = response.json().get('messages') or []
+        match = None
+        for msg in messages:
+            try:
+                if int(msg.get('value') or 0) != int(order['amount_nano']):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if msg.get('bounced') is True or not msg.get('hash'):
+                continue
+            check = requests.get('https://toncenter.com/api/v3/transactionsByMessage',
+                                 params={'msg_hash': msg['hash'], 'direction': 'in', 'limit': 5},
+                                 headers=toncenter_headers(), timeout=(5, 12))
+            check.raise_for_status()
+            txs = check.json().get('transactions') or []
+            good = next((tx for tx in txs if not (tx.get('description') or {}).get('aborted', False)), None)
+            if good:
+                match = (msg, good)
+                break
+        if not match:
+            return jsonify(ok=True, status='pending')
+        msg, tx = match
+        tx_hash = str(tx.get('hash') or msg.get('in_msg_tx_hash') or msg['hash'])[:180]
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            fresh = db.execute('SELECT * FROM ton_deposit_orders WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),
+                               (order_id,)).fetchone()
+            if fresh['status'] == 'credited':
+                db.commit()
+                return jsonify(ok=True, status='credited', user=profile())
+            used = db.execute("SELECT id FROM ton_deposit_orders WHERE tx_hash=? AND status='credited'", (tx_hash,)).fetchone()
+            if used:
+                return error('Эта блокчейн-транзакция уже была зачислена.', 409)
+            bonus = credit_verified_ton_deposit(db, fresh, tx_hash)
+            db.commit()
+        finally:
+            db.close()
+        return jsonify(ok=True, status='credited', referral_bonus=bonus/100, user=profile())
+    except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
+        app.logger.exception('TON deposit verification failed')
+        return error('Сеть TON пока не подтвердила пополнение. Повторите проверку через несколько секунд.', 502)
+
 
 
 def safe_image(value):
@@ -1321,12 +1685,14 @@ def tonconnect_manifest():
     return jsonify(url=site_url, name=settings['site_name'], iconUrl=icon_url)
 
 
-WELCOME_TEXT = (
-    '🎉 <b>Привет, Добро Пожаловать в GemDrop! 💎</b>\n\n'
-    'Открывай кейсы и выигрывай лучшие NFT гифты!\n\n'
-    '💰 Делись своей реферальной ссылкой с друзьями – и за каждого приведённого друга '
-    'который сделает депозит ты получишь 10% от суммы их пополнений!'
-)
+def welcome_text():
+    pct = referral_percent()
+    pct_text = f'{pct:.1f}'.rstrip('0').rstrip('.')
+    return (
+        '🎉 <b>Привет, добро пожаловать в GemDrop! 💎</b>\n\n'
+        'Открывай Mines и собирай подарки.\n\n'
+        f'💰 Делись своей реферальной ссылкой: {pct_text}% начисляется только с подтверждённых TON-пополнений приглашённых друзей.'
+    )
 
 
 @app.post('/telegram/webhook')
@@ -1358,10 +1724,11 @@ def telegram_webhook():
                                    VALUES(?,?,?,0)''',
                                 (uid, str(sender.get('first_name') or 'Игрок')[:80],
                                  str(sender.get('username') or '')[:80])).rowcount
-            if is_new and len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
+            if len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
                 referrer = int(command[1][4:])
-                if uid != referrer and db.execute('SELECT 1 FROM users WHERE id=?',
-                                                 (referrer,)).fetchone():
+                already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1", (uid,)).fetchone()
+                if (uid != referrer and not already_deposited and
+                        db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone()):
                     db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
                                (uid, referrer))
             db.commit()
@@ -1373,7 +1740,7 @@ def telegram_webhook():
         for attempt in range(3):
             try:
                 response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-                                         json={'chat_id': chat['id'], 'text': WELCOME_TEXT,
+                                         json={'chat_id': chat['id'], 'text': welcome_text(),
                                                'parse_mode': 'HTML', 'reply_markup': button}, timeout=12)
                 response.raise_for_status()
                 if response.json().get('ok'):
@@ -1392,6 +1759,15 @@ def telegram_webhook():
         return error('Не удалось отправить сообщение.', 502)
 
 
+@app.errorhandler(500)
+def internal_error_handler(exc):
+    app.logger.exception('Unhandled server error: %s', exc)
+    if request.path.startswith('/api/') or request.path.startswith('/telegram/'):
+        return error('Внутренняя ошибка сервера. Ошибка записана в лог.', 500)
+    return 'Internal Server Error', 500
+
+
+
 def configure_bot():
     global BOT_USERNAME
     if not BOT_TOKEN or not WEBAPP_URL.startswith('https://'):
@@ -1403,6 +1779,8 @@ def configure_bot():
             info.raise_for_status()
             if info.json().get('ok'):
                 BOT_USERNAME = info.json()['result'].get('username') or BOT_USERNAME
+                save_document('bot_identity', {'username': BOT_USERNAME,
+                                                'updated_at': datetime.now(timezone.utc).isoformat()})
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                      json={'url': WEBAPP_URL + '/telegram/webhook',
                                            'secret_token': WEBHOOK_SECRET,

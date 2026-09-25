@@ -763,7 +763,7 @@ def public_rolls(rolls):
                  entries=[dict(id=e['id'], kind=e['kind'], name=e['name'],
                                image_url=e.get('image_url', ''), weight=e['weight'],
                                probability=round(100*e['weight']/sum(x['weight'] for x in r['entries']), 2),
-                               boost=e.get('boost', 1)) for e in r['entries']]) for r in sorted(rolls, key=lambda r:r['price'])]
+                               boost=e.get('boost', 1), price_ton=e.get('price', 0)/100) for e in r['entries']]) for r in sorted(rolls, key=lambda r:r['price'])]
 
 
 @app.get('/api/rolls')

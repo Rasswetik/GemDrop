@@ -189,3 +189,7 @@ The default remains `/static/gifs/shard.gif`.
 The bottom navigation now includes **Roll**. Admin → **Roll и шансы** lets you create multiple named rolls with a TON price and 2–24 sectors. Add gift sectors from the imported Portal catalog, a **Boost** sector (1–3×), or a **Без подарка** sector. A sector's integer weight divided by the sum of all sector weights is its chance and its portion of the wheel. Rolls are displayed in ascending price order.
 
 The server chooses the outcome using `secrets.randbelow`, subtracts the price, records the spin and grants the gift to inventory in a database transaction. Boost multiplies gift-sector weights on the **next** spin, then expires; the wheel and prize pool update to reflect the new chances. A gift must have a matched PNG in the Portal catalog to be added. Import the catalog first if the gift picker is empty. Changes persist in the existing database, so keep the Render disk or PostgreSQL storage mounted across deployments.
+
+### Roll screen update
+
+The wheel now moves slowly while the Roll screen is idle and stops on the server-selected sector after pressing the single **Крутить** button. The button opens the same TON deposit window used by Mines when the balance is insufficient. Roll selection stays in the slider; Boost and the next-roll shortcut are no longer buttons. The prize pool shows each sector's current probability (including any pending Boost) and the gift's TON value. The bottom navigation and its safe-area spacing have been adjusted for narrow Telegram screens.

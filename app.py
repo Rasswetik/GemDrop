@@ -29,6 +29,7 @@ CATALOG = DATA / 'portal_gifts.json'
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
+BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if BOT_TOKEN else ''
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 GAME_RTP_DEFAULT = 0.97
@@ -122,12 +123,15 @@ def connect():
     db = sqlite3.connect(DB, timeout=15, isolation_level=None)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA busy_timeout=15000')
-    db.execute('PRAGMA journal_mode=WAL')
     return db
 
 
 def initialize():
     with connect() as db:
+        # WAL is persistent for the SQLite database. Set it once at startup instead
+        # of executing journal_mode on every API request/connection.
+        if not DATABASE_URL:
+            db.execute('PRAGMA journal_mode=WAL')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
             name TEXT PRIMARY KEY, payload TEXT NOT NULL
@@ -209,6 +213,11 @@ def initialize():
             created_unix INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
             tx_hash TEXT UNIQUE, credited_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS roll_spins (
+            id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, roll_id TEXT NOT NULL,
+            price INTEGER NOT NULL, outcome TEXT NOT NULL, gift_name TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
         def ensure_columns(table, definitions):
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -223,6 +232,7 @@ def initialize():
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
+            ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
@@ -345,9 +355,10 @@ def auth():
         db.execute('INSERT OR IGNORE INTO users(id,name,username,photo_url,balance) VALUES(?,?,?,?,0)', (user_id, name, username, photo))
         db.execute('UPDATE users SET name=?,username=?,photo_url=? WHERE id=?', (name, username, photo, user_id))
         if referrer_id and referrer_id != user_id:
-            already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1",
-                                           (user_id,)).fetchone()
-            if not already_deposited and db.execute('SELECT 1 FROM users WHERE id=?', (referrer_id,)).fetchone():
+            # A referral is bound once. Existing users may still become referrals as
+            # long as they have never been bound before; rewards are paid only from
+            # future confirmed TON deposits in credit_ton_deposit().
+            if db.execute('SELECT 1 FROM users WHERE id=?', (referrer_id,)).fetchone():
                 db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
                            (user_id, referrer_id))
     session.clear()
@@ -366,7 +377,9 @@ def current_user():
 def login_required(fn):
     @wraps(fn)
     def decorated(*args, **kwargs):
-        if not current_user():
+        # Flask's signed session is the authentication proof after /api/auth.
+        # Avoid an extra SELECT/open SQLite connection on every game click.
+        if not session.get('uid'):
             return error('Требуется вход через Telegram.', 401)
         return fn(*args, **kwargs)
     return decorated
@@ -740,6 +753,131 @@ def me():
     return jsonify(user=profile(), round=round_view(row))
 
 
+def roll_config(db):
+    row = db.execute("SELECT payload FROM app_documents WHERE name='roll_config'").fetchone()
+    return json.loads(row['payload']) if row else []
+
+
+def public_rolls(rolls):
+    return [dict(id=r['id'], name=r['name'], price_ton=r['price']/100,
+                 entries=[dict(id=e['id'], kind=e['kind'], name=e['name'],
+                               image_url=e.get('image_url', ''), weight=e['weight'],
+                               probability=round(100*e['weight']/sum(x['weight'] for x in r['entries']), 2),
+                               boost=e.get('boost', 1)) for e in r['entries']]) for r in sorted(rolls, key=lambda r:r['price'])]
+
+
+@app.get('/api/rolls')
+@login_required
+def list_rolls():
+    with connect() as db:
+        rolls = roll_config(db)
+        user = db.execute('SELECT roll_boost FROM users WHERE id=?', (session['uid'],)).fetchone()
+    return jsonify(rolls=public_rolls(rolls), boost=float(user['roll_boost'] or 1))
+
+
+@app.get('/api/admin/rolls')
+@admin_required
+def admin_rolls():
+    with connect() as db:
+        return jsonify(rolls=roll_config(db))
+
+
+@app.post('/api/admin/rolls')
+@admin_required
+def admin_save_rolls():
+    data = request.get_json(silent=True) or {}
+    incoming = data.get('rolls')
+    if not isinstance(incoming, list) or len(incoming)>30:
+        return error('Допускается не более 30 роллов.')
+    with connect() as db:
+        catalog = {str(g.get('id')):g for g in read_catalog().get('gifts', [])}
+        rolls = []
+        ids = set()
+        for raw in incoming:
+            if not isinstance(raw, dict): return error('Неверный формат ролла.')
+            rid = str(raw.get('id') or secrets.token_hex(8))
+            name = str(raw.get('name') or '').strip()[:50]
+            try:
+                price = parse_amount(raw.get('price_ton'))
+            except (ValueError, InvalidOperation, TypeError):
+                return error('Укажите корректную цену Roll.')
+            if not name or rid in ids or not 1 <= price <= MAX_BET_CENTS:
+                return error('Название или цена Roll указаны неверно.')
+            ids.add(rid)
+            raw_entries = raw.get('entries')
+            if not isinstance(raw_entries, list) or not 2 <= len(raw_entries) <= 24:
+                return error('У Roll должно быть от 2 до 24 секторов.')
+            entries=[]
+            for item in raw_entries:
+                if not isinstance(item,dict): return error('Неверный сектор.')
+                kind = item.get('kind')
+                try:
+                    weight=int(item.get('weight'))
+                    boost=float(item.get('boost') or 1)
+                except (TypeError,ValueError,OverflowError):
+                    return error('Проверьте шанс и Boost.')
+                if kind not in ('gift','empty','boost') or not 1<=weight<=10000 or not math.isfinite(boost) or not 1<=boost<=3:
+                    return error('Шанс: 1–10000; Boost: от 1 до 3.')
+                eid=str(item.get('id') or secrets.token_hex(8))
+                if kind=='gift':
+                    gift=catalog.get(str(item.get('gift_id')))
+                    if not gift or not gift.get('name') or not gift.get('image_match') or not gift.get('price_ton'):
+                        return error('Подарок отсутствует в каталоге Portal или его PNG не найден.')
+                    entries.append(dict(id=eid,kind=kind,weight=weight,gift_id=str(gift['id']),
+                                        name=str(gift['name'])[:140],image_url=safe_image(gift.get('image_url')),
+                                        price=ton_to_cents(gift['price_ton'])))
+                else:
+                    entries.append(dict(id=eid,kind=kind,weight=weight,
+                                        name='Boost ×'+f'{boost:g}' if kind=='boost' else 'Без подарка',
+                                        image_url='',boost=boost if kind=='boost' else 1))
+            rolls.append(dict(id=rid,name=name,price=price,entries=entries))
+        db.execute("INSERT INTO app_documents(name,payload) VALUES('roll_config',?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                   (json.dumps(rolls,ensure_ascii=False),))
+    return jsonify(rolls=rolls)
+
+
+@app.post('/api/rolls/<roll_id>/spin')
+@login_required
+def spin_roll(roll_id):
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        rolls=roll_config(db)
+        roll=next((r for r in rolls if r['id']==roll_id),None)
+        if not roll: return error('Roll не найден.',404)
+        lock=' FOR UPDATE' if DATABASE_URL else ''
+        player=db.execute('SELECT balance,roll_boost FROM users WHERE id=?'+lock,(session['uid'],)).fetchone()
+        if not player: return error('Пользователь не найден.',404)
+        if player['balance']<roll['price']: return error('Недостаточно TON. Пополните баланс.')
+        boost=max(1,min(3,float(player['roll_boost'] or 1)))
+        weights=[max(1,round(e['weight']*(boost if e['kind']=='gift' else 1))) for e in roll['entries']]
+        ticket=secrets.randbelow(sum(weights))
+        index=0
+        for index,weight in enumerate(weights):
+            if ticket<weight: break
+            ticket-=weight
+        entry=roll['entries'][index]
+        new_boost=entry['boost'] if entry['kind']=='boost' else 1
+        updated=db.execute('UPDATE users SET balance=balance-?,roll_boost=? WHERE id=? AND balance>=?',
+                           (roll['price'],new_boost,session['uid'],roll['price']))
+        if not updated.rowcount: return error('Недостаточно TON.')
+        spin_id=secrets.token_hex(16)
+        if entry['kind']=='gift':
+            db.execute('INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,?)',
+                       (session['uid'],entry['gift_id'],entry['name'],entry['image_url'],entry['price'],'roll'))
+        db.execute('INSERT INTO roll_spins(id,user_id,roll_id,price,outcome,gift_name) VALUES(?,?,?,?,?,?)',
+                   (spin_id,session['uid'],roll_id,roll['price'],entry['kind'],entry['name'] if entry['kind']=='gift' else ''))
+        record_transaction(db,session['uid'],'roll_spin',-roll['price'],'roll',spin_id,roll['name'])
+        if entry['kind']=='gift':
+            record_transaction(db,session['uid'],'roll_gift',0,'roll',spin_id,entry['name'])
+        db.commit()
+        return jsonify(spin_id=spin_id,entry_id=entry['id'],index=index,kind=entry['kind'],
+                       name=entry['name'],image_url=entry.get('image_url',''),boost=new_boost,
+                       applied_boost=boost,user=profile())
+    finally:
+        db.close()
+
+
 @app.post('/api/game/start')
 @login_required
 def start():
@@ -970,13 +1108,13 @@ def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     for attempt in range(2):
         try:
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage',
-                                     json=payload, timeout=(2, 4))
+                                     json=payload, timeout=(1.5, 3))
             response.raise_for_status()
             if response.json().get('ok'):
                 return
         except (requests.RequestException, ValueError, TypeError):
             if attempt == 0:
-                time.sleep(.2)
+                time.sleep(.08)
     app.logger.warning('Could not deliver notification to %s', user_id)
 
 
@@ -1048,23 +1186,29 @@ def referral_percent():
 
 
 def current_bot_username():
+    # Never reuse a username cached for another BOT_TOKEN. This matters after a bot
+    # replacement/deploy: otherwise referral links can silently point to the old bot.
     identity = read_document('bot_identity') or {}
-    username = (str(identity.get('username') or BOT_USERNAME).strip().lstrip('@'))[:64]
-    if username or not BOT_TOKEN:
+    cached_ok = bool(BOT_TOKEN_FINGERPRINT and identity.get('token_fingerprint') == BOT_TOKEN_FINGERPRINT)
+    username = str(identity.get('username') or '').strip().lstrip('@')[:64] if cached_ok else ''
+    if username:
         return username
+    if not BOT_TOKEN:
+        return BOT_USERNAME[:64]
     try:
-        response = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=(3, 6))
+        response = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=(2, 4))
         response.raise_for_status()
         payload = response.json()
         if payload.get('ok'):
             username = str((payload.get('result') or {}).get('username') or '').strip().lstrip('@')[:64]
             if username:
                 save_document('bot_identity', {'username': username,
+                                               'token_fingerprint': BOT_TOKEN_FINGERPRINT,
                                                'updated_at': datetime.now(timezone.utc).isoformat()})
                 return username
     except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
         pass
-    return ''
+    return BOT_USERNAME[:64]
 
 
 @app.get('/api/wallet/me')
@@ -1123,6 +1267,59 @@ def wallet_balance():
     except (requests.RequestException, ValueError, TypeError, json.JSONDecodeError):
         app.logger.warning('TON wallet balance lookup failed')
         return error('Не удалось получить баланс кошелька из сети TON.', 502)
+
+
+def loader_settings():
+    doc = read_document('loader_settings') or {}
+    path = str(doc.get('path') or '/static/gifs/shard.gif').strip()[:1000]
+    if not (path.startswith('/static/') or path.startswith('https://')):
+        path = '/static/gifs/shard.gif'
+    return {'path': path}
+
+
+def loader_catalog():
+    folder = BASE / 'static' / 'gifs'
+    items = []
+    if folder.exists():
+        for item in sorted(folder.iterdir(), key=lambda x: x.name.casefold()):
+            if item.is_file() and item.suffix.lower() in {'.gif', '.webp', '.png', '.jpg', '.jpeg'}:
+                items.append({'name': item.name, 'path': '/static/gifs/' + item.name})
+    return items
+
+
+@app.get('/api/ui/settings')
+def public_ui_settings():
+    # Intentionally public: the loading image is needed before Telegram auth finishes.
+    return jsonify(loader_gif=loader_settings()['path'])
+
+
+@app.get('/api/admin/loader-settings')
+@admin_required
+def admin_loader_settings():
+    settings = loader_settings()
+    return jsonify(path=settings['path'], catalog=loader_catalog())
+
+
+@app.post('/api/admin/loader-settings')
+@admin_required
+def save_admin_loader_settings():
+    data = request.get_json(silent=True) or {}
+    path = str(data.get('path') or '').strip()[:1000]
+    if not path:
+        path = '/static/gifs/shard.gif'
+    if path.startswith('/static/'):
+        local = (BASE / path.lstrip('/')).resolve()
+        static_root = (BASE / 'static').resolve()
+        try:
+            local.relative_to(static_root)
+        except ValueError:
+            return error('Путь должен находиться внутри /static или быть HTTPS URL.')
+        if not local.is_file():
+            return error('Файл по указанному пути не найден.')
+    elif not path.startswith('https://'):
+        return error('Укажите путь /static/... или полный HTTPS URL.')
+    save_document('loader_settings', {'path': path, 'updated_at': datetime.now(timezone.utc).isoformat()})
+    return jsonify(ok=True, path=path, catalog=loader_catalog())
 
 
 @app.get('/api/referrals/me')
@@ -2130,18 +2327,17 @@ def telegram_webhook():
             db.execute('UPDATE users SET name=?,username=? WHERE id=?',
                        (str(sender.get('first_name') or 'Игрок')[:80], str(sender.get('username') or '')[:80], uid))
             if referrer and uid != referrer:
-                already_deposited = db.execute("SELECT 1 FROM transactions WHERE user_id=? AND kind='ton_deposit' LIMIT 1",
-                                               (uid,)).fetchone()
-                if not already_deposited and db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
+                if db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
                     db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid, referrer))
             db.commit()
         finally:
             db.close()
         play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
         button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}}]]}
-        # Return to Telegram immediately; sendMessage runs outside the webhook response path.
-        notify_user_async(chat['id'], welcome_text(), button, 'HTML')
-        return jsonify(ok=True)
+        # Telegram can execute a Bot API method directly from the webhook response.
+        # This removes one extra outbound HTTP request and makes /start visibly faster.
+        return jsonify(method='sendMessage', chat_id=chat['id'], text=welcome_text(),
+                       reply_markup=button, parse_mode='HTML')
     except (ValueError, KeyError, sqlite3.Error) as exc:
         app.logger.warning('Telegram update failed: %s', type(exc).__name__)
         if isinstance(update.get('update_id'), int):
@@ -2188,11 +2384,12 @@ def configure_bot():
     last_error = None
     for attempt in range(5):
         try:
-            info = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=10)
+            info = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=(2, 4))
             info.raise_for_status()
             if info.json().get('ok'):
                 BOT_USERNAME = info.json()['result'].get('username') or BOT_USERNAME
                 save_document('bot_identity', {'username': BOT_USERNAME,
+                                                'token_fingerprint': BOT_TOKEN_FINGERPRINT,
                                                 'updated_at': datetime.now(timezone.utc).isoformat()})
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                      json={'url': WEBAPP_URL + '/telegram/webhook',

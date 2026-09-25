@@ -41,7 +41,6 @@ A referral relationship is attached on `/start ref_<id>` only when:
 
 - the invited user is not the referrer themself;
 - the referrer exists;
-- the invited user has not already made a verified TON deposit;
 - the invited user does not already have another referrer.
 
 Referral rewards are credited **only** from a server-verified on-chain TON deposit. Admin balance changes and admin deposits do not pay referral rewards. The percentage is configured in **Админ-панель → Управление пополнением**.
@@ -110,7 +109,7 @@ Portal uses the Authorization value entered in **Admin → Portal Market**. Prog
 ## Mobile / Telegram opening
 
 - The client no longer calls `Telegram.WebApp.expand()`. If the Telegram client supports it, the app asks to leave explicit fullscreen mode with `exitFullscreen()` and otherwise keeps the normal Mini App sheet behavior.
-- On mobile, the content area is shifted down by `4vh` plus the safe-area inset so the header does not run into the system status area.
+- On mobile, the content area uses Telegram safe-area information (when available) plus an increased phone-only top offset so the header stays below the system/Telegram chrome.
 - Pinch zoom and double-tap zoom are disabled by the viewport settings and touch/gesture guards.
 - TON bet input is disabled when the balance is below `0.10 TON`. A typed TON bet is clamped to the user's current balance and to the hard server limit of `300 TON`.
 
@@ -126,7 +125,7 @@ Mines now supports choosing an inventory gift as the stake from the small gift b
 
 ## Referral reliability
 
-`/start ref_<id>` is written to the database before the bot greeting is sent. The webhook returns quickly and the greeting is sent outside the response path. The Mini App button also carries `?ref=<id>` as a fallback. `/api/auth` additionally recognizes a signed Telegram `start_param=ref_<id>` if the app is ever opened with a `startapp` link.
+`/start ref_<id>` is written to the database before the bot greeting is sent. The greeting is returned directly through the Telegram webhook response, avoiding a second outbound Bot API request. The Mini App button also carries `?ref=<id>` as a fallback. `/api/auth` additionally recognizes a signed Telegram `start_param=ref_<id>` if the app is ever opened with a `startapp` link.
 
 
 ## Wallet window update
@@ -159,3 +158,34 @@ Each round stores an RTP snapshot so changing admin settings cannot change the p
 ## Portal automatic price refresh
 
 Admin → Portal Market now includes **Автообновление цен**. It can be enabled with an interval from 15 to 1440 minutes. The schedule and next-run timestamp are stored in the persistent database and reuse the saved Portal Authorization. Auto-refresh runs while the Render web service is awake and preserves the last working catalog if Portal is unavailable.
+
+## Mobile speed / input update
+
+- TON Connect SDK is loaded asynchronously after the main game is visible. The startup loader no longer waits for `connectionRestored`, and wallet restoration has a short fallback timeout so a wallet provider/CDN outage cannot freeze the app on “Подключаем TON Connect…”.
+- The main loader waits only for Telegram authentication + profile. Inventory, recent wins, multiplier ladder and TON Connect continue in parallel after the UI appears.
+- Mobile top spacing now uses Telegram safe-area information when available and adds a larger phone-only offset. The app also asks Telegram to leave explicit fullscreen mode and keeps vertical swipes enabled.
+- The TON bet field uses a text/decimal editing mode: it may be temporarily empty while the user types. It is normalized on blur/start, clamps immediately to the current balance/300 TON maximum, and is disabled only when the balance is below 0.10 TON.
+- A Mines round no longer performs an unnecessary ladder request after every opened cell; the already-loaded ladder is simply advanced locally.
+
+## Referral / bot latency update
+
+- Existing users can now be bound to a referrer if they have never been bound before; referral rewards still apply only to future server-confirmed TON deposits.
+- Cached bot usernames are tied to a fingerprint of the current `BOT_TOKEN`, preventing a referral link from silently pointing at an old bot after the token is changed.
+- `/start` greetings are returned directly as a Telegram webhook `sendMessage` response instead of making a second outbound HTTP request, reducing greeting latency.
+
+## Configurable loading GIF
+
+Admin → **Экран загрузки** lets an administrator:
+
+- enter a `/static/...` path manually;
+- enter a full HTTPS image URL;
+- choose one of the images found in `static/gifs`;
+- preview it and save it to the persistent database.
+
+The default remains `/static/gifs/shard.gif`.
+
+## Roll
+
+The bottom navigation now includes **Roll**. Admin → **Roll и шансы** lets you create multiple named rolls with a TON price and 2–24 sectors. Add gift sectors from the imported Portal catalog, a **Boost** sector (1–3×), or a **Без подарка** sector. A sector's integer weight divided by the sum of all sector weights is its chance and its portion of the wheel. Rolls are displayed in ascending price order.
+
+The server chooses the outcome using `secrets.randbelow`, subtracts the price, records the spin and grants the gift to inventory in a database transaction. Boost multiplies gift-sector weights on the **next** spin, then expires; the wheel and prize pool update to reflect the new chances. A gift must have a matched PNG in the Portal catalog to be added. Import the catalog first if the gift picker is empty. Changes persist in the existing database, so keep the Render disk or PostgreSQL storage mounted across deployments.

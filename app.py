@@ -291,6 +291,7 @@ def initialize():
             ('bonus_percent', 'REAL NOT NULL DEFAULT 0'),
             ('bonus_fixed', 'INTEGER NOT NULL DEFAULT 0'),
             ('min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
+            ('reward_json', "TEXT NOT NULL DEFAULT '{}'"),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         ensure_columns('ton_deposit_orders', [('promo_code', "TEXT NOT NULL DEFAULT ''")])
@@ -883,11 +884,22 @@ def normalize_level_reward(data):
     if not isinstance(data, dict):
         raise ValueError('Неверная настройка награды.')
     kind = str(data.get('type') or 'none')
-    if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo','transfer_unlock'):
+    if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo','multi_promo','transfer_unlock'):
         raise ValueError('Неизвестный тип награды.')
     reward = {'type':kind}
     if kind in ('none','transfer_unlock'):
         return reward
+    if kind=='multi_promo':
+        components=data.get('components')
+        if not isinstance(components,dict) or not components or len(components)>4:
+            raise ValueError('Выберите хотя бы одну награду мультипромокода.')
+        allowed={'balance','gift','wager_gift','deposit_bonus'}
+        if not set(components)<=allowed:raise ValueError('Неизвестная награда мультипромокода.')
+        resolved={}
+        for name,config in components.items():
+            if not isinstance(config,dict):raise ValueError('Проверьте настройки мультипромокода.')
+            resolved[name]=normalize_level_reward({**config,'type':'deposit_promo' if name=='deposit_bonus' else name})
+        return {'type':'multi_promo','components':resolved}
     content = str(data.get('promo_reward_type') or 'balance') if kind=='personal_promo' else kind
     if content in ('balance','gift','wager_gift'):
         if content=='balance':
@@ -927,6 +939,8 @@ def normalize_level_reward(data):
 
 def public_level_reward(reward):
     result={'type':'none',**reward}
+    if isinstance(result.get('components'),dict):
+        result['components']={k:public_level_reward(v) for k,v in result['components'].items()}
     for key in ('amount','gift_price','bonus_fixed','min_deposit'):
         if key in result:result[key+'_ton']=result.pop(key)/100
     return result
@@ -1044,14 +1058,16 @@ def claim_level(level):
                                   VALUES(?,?,?,?,?,'level_wager',1,?,?,0)""",item+(mult,target))
             result=dict(type=kind,gift=dict(id=cur.lastrowid,name=reward['gift_name'],image_url=reward['image_url'],
                         price_ton=reward['gift_price']/100,promo_locked=kind=='wager_gift',wager_multiplier=reward.get('wager_multiplier',0)))
-        elif kind in ('personal_promo','deposit_promo'):
-            promo_type=reward.get('promo_reward_type','balance') if kind=='personal_promo' else 'deposit_bonus'
+        elif kind in ('personal_promo','deposit_promo','multi_promo'):
+            promo_type='multi' if kind=='multi_promo' else reward.get('promo_reward_type','balance') if kind=='personal_promo' else 'deposit_bonus'
             code='LV'+str(level)+'-'+secrets.token_hex(6).upper()
-            db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit)
-                          VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?)''',
+            deposit=reward.get('components',{}).get('deposit_bonus',{}) if kind=='multi_promo' else reward
+            db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json)
+                          VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?)''',
                        (code,promo_type,reward.get('amount',0),reward.get('gift_id',''),reward.get('gift_name',''),
                         reward.get('image_url',''),reward.get('gift_price',0),reward.get('wager_multiplier',0),0,
-                        reward.get('bonus_percent',0),reward.get('bonus_fixed',0),reward.get('min_deposit',0)))
+                        deposit.get('bonus_percent',0),deposit.get('bonus_fixed',0),deposit.get('min_deposit',0),
+                        json.dumps(reward,ensure_ascii=False) if kind=='multi_promo' else '{}'))
             result=dict(type=kind,code=code,description=reward_description(reward))
         elif kind=='transfer_unlock':
             result=dict(type='transfer_unlock',description='Переводы TON разблокированы')
@@ -1066,6 +1082,7 @@ def claim_level(level):
 def reward_description(reward):
     if reward.get('type')=='none':return 'Без награды'
     if reward.get('type')=='transfer_unlock':return 'Доступ к переводам TON'
+    if reward.get('type')=='multi_promo':return 'Мультипромокод · '+', '.join(reward.get('components',{}))
     if reward.get('type')=='balance' or reward.get('promo_reward_type')=='balance' and reward.get('type')=='personal_promo':
         return f"{reward.get('amount',0)/100:.2f} TON"
     if reward.get('type')=='deposit_promo':
@@ -1948,10 +1965,21 @@ def redeem_promocode():
         if not promo or not promo['active']:
             return error('Промокод не найден или отключён.', 404)
         prior=db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',(code,session['uid'])).fetchone()
-        reusable=bool(prior and promo['reward_type']=='deposit_bonus' and prior['deactivated_at'] and not prior['consumed_at'])
+        reusable=bool(prior and promo['reward_type'] in ('deposit_bonus','multi') and
+                      prior['reward_type']=='deposit_bonus' and prior['deactivated_at'] and not prior['consumed_at'])
         if prior and not reusable:return error('Вы уже активировали этот промокод.',409)
         if not reusable and promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
             return error('Лимит активаций этого промокода исчерпан.', 409)
+        if reusable:
+            if db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
+                             AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
+                return error('У вас уже есть активный промокод на пополнение.',409)
+            db.execute('UPDATE promo_redemptions SET deactivated_at=NULL WHERE code=? AND user_id=?',(code,session['uid']))
+            db.commit()
+            return jsonify(ok=True,reward=dict(type='deposit_bonus',code=code,
+                           bonus_percent=float(promo['bonus_percent'] or 0),
+                           bonus_fixed=int(promo['bonus_fixed'] or 0)/100,
+                           min_deposit=int(promo['min_deposit'] or 0)/100),user=profile())
         inventory_id = None
         if promo['reward_type'] == 'balance':
             amount = max(0, int(promo['amount']))
@@ -1983,6 +2011,43 @@ def redeem_promocode():
                                                        wager_progress=0))
             record_transaction(db, session['uid'], 'promo_wager_gift', 0, 'promo', code,
                                f'{promo["gift_name"]} · X{multiplier:g}')
+        elif promo['reward_type']=='multi':
+            components=json.loads(promo['reward_json'] or '{}').get('components',{})
+            if not components:return error('Мультипромокод настроен неверно.',500)
+            if 'deposit_bonus' in components and db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=?
+               AND reward_type='deposit_bonus' AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
+                return error('Сначала используйте или уберите активный промокод на пополнение.',409)
+            rewards=[]
+            if 'balance' in components:
+                amount=int(components['balance']['amount'])
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?',(amount,session['uid']))
+                record_transaction(db,session['uid'],'promo_balance',amount,'promo',code,f'Мультипромокод {code}')
+                rewards.append(dict(type='balance',amount=amount/100))
+            for kind in ('gift','wager_gift'):
+                if kind not in components:continue
+                comp=components[kind]
+                if kind=='gift':
+                    cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'promo')",
+                                   (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price']))
+                else:
+                    multiplier=float(comp['wager_multiplier'])
+                    target=round(int(comp['gift_price'])*multiplier)
+                    cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                                      promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
+                                      VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?)""",
+                                   (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],multiplier,target,code))
+                inventory_id=cur.lastrowid
+                record_transaction(db,session['uid'],'promo_'+kind,0,'promo',code,comp['gift_name'])
+                rewards.append(dict(type=kind,gift=dict(id=inventory_id,name=comp['gift_name'],
+                   image_url=comp['image_url'],price_ton=comp['gift_price']/100,
+                   wager_multiplier=comp.get('wager_multiplier',0))))
+            if 'deposit_bonus' in components:
+                comp=components['deposit_bonus']
+                rewards.append(dict(type='deposit_bonus',code=code,
+                  bonus_percent=float(comp.get('bonus_percent') or 0),
+                  bonus_fixed=int(comp.get('bonus_fixed') or 0)/100,
+                  min_deposit=int(comp.get('min_deposit') or 0)/100))
+            reward=dict(type='multi',rewards=rewards)
         elif promo['reward_type'] == 'deposit_bonus':
             if db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
                              AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
@@ -1991,12 +2056,10 @@ def redeem_promocode():
                         bonus_fixed=int(promo['bonus_fixed'] or 0)/100,min_deposit=int(promo['min_deposit'] or 0)/100)
         else:
             return error('Награда промокода настроена неверно.', 500)
-        if reusable:
-            db.execute('UPDATE promo_redemptions SET deactivated_at=NULL WHERE code=? AND user_id=?',(code,session['uid']))
-        else:
-            db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
-                       (code, session['uid'], promo['reward_type'], int(promo['amount'] or 0), inventory_id))
-            db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+        redemption_type='deposit_bonus' if promo['reward_type']=='multi' and 'deposit_bonus' in components else promo['reward_type']
+        db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
+                   (code, session['uid'],redemption_type, int(promo['amount'] or 0), inventory_id))
+        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
         log_event(db,session['uid'],'promo_redeem',code=code,reward_type=promo['reward_type'],reward=reward)
         db.commit()
         return jsonify(ok=True, reward=reward, user=profile())
@@ -2050,7 +2113,9 @@ def admin_promocodes():
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
                                active=bool(x['active']), created_at=x['created_at'],
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
-                               min_deposit=x['min_deposit']/100) for x in rows])
+                               min_deposit=x['min_deposit']/100,
+                               components=public_level_reward(json.loads(x['reward_json'])).get('components',{})
+                               if x['reward_type']=='multi' else {}) for x in rows])
 
 
 @app.post('/api/admin/promocodes')
@@ -2068,6 +2133,7 @@ def admin_create_promocode():
     if not 0 <= max_uses <= 1000000:
         return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
     amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0
+    bonus_percent=0;bonus_fixed=0;min_deposit=0;multi_reward=None
     if reward_type == 'balance':
         try:
             amount = parse_amount(data.get('amount'))
@@ -2098,6 +2164,13 @@ def admin_create_promocode():
                 return error('Укажите корректный X отыгрыша.')
             if not 1 <= wager_multiplier <= 1000:
                 return error('X отыгрыша должен быть от 1 до 1000.')
+    elif reward_type=='multi':
+        try:multi_reward=normalize_level_reward({'type':'multi_promo','components':data.get('components')})
+        except (ValueError,TypeError,InvalidOperation) as exc:return error(str(exc))
+        deposit=multi_reward['components'].get('deposit_bonus',{})
+        bonus_percent=deposit.get('bonus_percent',0)
+        bonus_fixed=deposit.get('bonus_fixed',0)
+        min_deposit=deposit.get('min_deposit',0)
     elif reward_type=='deposit_bonus':
         try:
             bonus_percent=float(data.get('bonus_percent') or 0)
@@ -2111,12 +2184,11 @@ def admin_create_promocode():
         return error('Выберите тип промокода.')
     try:
         with connect() as db:
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
-                        bonus_percent if reward_type=='deposit_bonus' else 0,
-                        bonus_fixed if reward_type=='deposit_bonus' else 0,
-                        min_deposit if reward_type=='deposit_bonus' else 0))
+                        bonus_percent,bonus_fixed,min_deposit,
+                        json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}'))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:

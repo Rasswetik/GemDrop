@@ -939,6 +939,36 @@ def admin_save_level(level):
     return jsonify(ok=True,level=level,reward=public_level_reward(reward))
 
 
+@app.post('/api/admin/levels/bulk')
+@admin_required
+def admin_save_levels_bulk():
+    data=request.get_json(silent=True) or {}
+    items=data.get('levels')
+    if not isinstance(items,list) or len(items)!=20:return error('Передайте все 20 уровней.')
+    prepared=[]
+    try:
+        for index,item in enumerate(items,1):
+            if not isinstance(item,dict) or int(item.get('level',0))!=index:
+                return error('Уровни должны идти по порядку от 1 до 20.')
+            threshold=parse_amount(item.get('required_turnover'))
+            if threshold<0 or threshold>10000000000:return error('Слишком большой оборот.')
+            reward=normalize_level_reward(item.get('reward') or {'type':'none'})
+            prepared.append((index,threshold,json.dumps(reward,ensure_ascii=False)))
+    except (ValueError,InvalidOperation,TypeError) as exc:return error(str(exc))
+    if prepared[0][1]!=0:return error('Первый уровень начинается с нулевого оборота.')
+    if any(right[1]<=left[1] for left,right in zip(prepared,prepared[1:])):
+        return error('Пороги уровней должны возрастать.')
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        for level,threshold,reward_json in prepared:
+            db.execute('UPDATE levels SET required_turnover=?,reward_json=? WHERE level=?',
+                       (threshold,reward_json,level))
+        db.commit()
+    finally:db.close()
+    return jsonify(ok=True)
+
+
 @app.post('/api/levels/<int:level>/claim')
 @login_required
 def claim_level(level):
@@ -1126,7 +1156,7 @@ def upgrade_target(gift_id):
 
 def upgrade_chance(source_price,target_price):
     if source_price<1 or target_price<=source_price:return 0
-    return min(9500,round(9000*source_price/target_price))
+    return max(100,min(8000,round(9000*source_price/target_price)))
 
 
 @app.get('/api/upgrade/preview')

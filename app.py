@@ -298,7 +298,7 @@ def initialize():
             ('bet_gift_image', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'), ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'), ('promo_progress_after', 'INTEGER NOT NULL DEFAULT 0'),
-            ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'), ('bet_expires_at', 'TEXT'),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -306,7 +306,7 @@ def initialize():
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('promo_locked', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
-            ('promo_code', "TEXT NOT NULL DEFAULT ''"),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('expires_at', 'TEXT'),
         ])
         ensure_columns('promo_codes', [
             ('wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
@@ -317,7 +317,7 @@ def initialize():
             ('assigned_user_id', 'INTEGER NOT NULL DEFAULT 0'),
             ('source_label', "TEXT NOT NULL DEFAULT ''"),
             ('description', "TEXT NOT NULL DEFAULT ''"),
-            ('expires_at', 'TEXT'),
+            ('expires_at', 'TEXT'), ('gift_expires_days', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         ensure_columns('ton_deposit_orders', [('promo_code', "TEXT NOT NULL DEFAULT ''")])
@@ -561,6 +561,24 @@ def active_round(db, uid):
     if DATABASE_URL:
         db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
     return db.execute("SELECT * FROM rounds WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+
+
+def promo_round_expired(row):
+    if not row or row['bet_type'] != 'promo_gift' or not row['bet_expires_at']:
+        return False
+    expires = parse_datetime_utc(row['bet_expires_at'])
+    return bool(expires and expires <= datetime.now(timezone.utc))
+
+
+def expire_promo_round(db, row):
+    if not promo_round_expired(row):
+        return False
+    settled_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+    db.execute("UPDATE rounds SET state='lost',settled_at=? WHERE id=? AND state='active'", (settled_at, row['id']))
+    record_transaction(db, row['user_id'], 'promo_gift_expired', 0, 'round', row['id'],
+                       f'Истёк срок отыгрышного подарка: {row["bet_gift_name"]}')
+    log_event(db, row['user_id'], 'promo_gift_expired', round_id=row['id'], gift_name=row['bet_gift_name'])
+    return True
 
 
 def save_document(name, document):
@@ -812,6 +830,9 @@ def inventory_item(row):
     target = int(row['promo_wager_target'] or 0)
     progress = int(row['promo_wager_progress'] or 0)
     locked = bool(row['promo_locked'])
+    raw_expires = row['expires_at'] if 'expires_at' in row.keys() else None
+    expires = parse_datetime_utc(raw_expires) if raw_expires else None
+    expires_in = max(0, int((expires - datetime.now(timezone.utc)).total_seconds())) if expires else None
     return dict(id=row['id'], gift_id=row['gift_id'], name=row['gift_name'],
                 image_url=row['image_url'], price_ton=row['floor_price']/100,
                 source=row['source'], created_at=row['created_at'],
@@ -819,8 +840,34 @@ def inventory_item(row):
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                 wager_target=target/100, wager_progress=progress/100,
                 wager_complete=bool(locked and target > 0 and progress >= target),
-                wager_percent=(min(100.0, progress * 100.0 / target) if target > 0 else 0.0))
+                wager_percent=(min(100.0, progress * 100.0 / target) if target > 0 else 0.0),
+                expires_at=expires.isoformat() if expires else None, expires_in_seconds=expires_in)
 
+
+def promo_gift_expiry(days):
+    try:
+        days = int(days or 0)
+    except (TypeError, ValueError):
+        days = 0
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days > 0 else None
+
+
+def purge_expired_inventory(db, user_id=None):
+    params = () if user_id is None else (int(user_id),)
+    where = "expires_at IS NOT NULL AND expires_at<>''" + (" AND user_id=?" if user_id is not None else '')
+    rows = db.execute(f'SELECT id,user_id,gift_name,expires_at FROM inventory WHERE {where}', params).fetchall()
+    now = datetime.now(timezone.utc)
+    expired = []
+    for row in rows:
+        expires = parse_datetime_utc(row['expires_at'])
+        if expires and expires <= now:
+            expired.append(row)
+    for row in expired:
+        db.execute('DELETE FROM inventory WHERE id=?', (row['id'],))
+        record_transaction(db, row['user_id'], 'promo_gift_expired', 0, 'inventory', row['id'],
+                           f'Истёк срок отыгрышного подарка: {row["gift_name"]}')
+        log_event(db, row['user_id'], 'promo_gift_expired', inventory_id=row['id'], gift_name=row['gift_name'])
+    return len(expired)
 
 def award_round(db, row, opened_count):
     """Settle once, atomically, including promo-wager gift bets."""
@@ -835,11 +882,11 @@ def award_round(db, row, opened_count):
         progress = min(target, previous + amount) if target else previous + amount
         cursor = db.execute("""INSERT INTO inventory(
                                 user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                                promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
-                              VALUES(?,?,?,?,?,'promo_wager',?,1,?,?,?,?)""",
+                                promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                              VALUES(?,?,?,?,?,'promo_wager',?,1,?,?,?,?,?)""",
                             (row['user_id'], row['bet_gift_id'], row['bet_gift_name'], row['bet_gift_image'],
                              row['bet_gift_price'], row['id'], float(row['promo_wager_multiplier'] or 0),
-                             target, progress, row['promo_code'] or ''))
+                             target, progress, row['promo_code'] or '', row['bet_expires_at']))
         db.execute("""UPDATE rounds SET state='won',payout=0,prize_inventory_id=?,win_total=?,win_multiplier=?,
                       promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL,
                       settled_at=? WHERE id=?""",
@@ -900,7 +947,8 @@ def round_view(row, reveal=False):
                         image_url=row['bet_gift_image'], price_ton=row['bet_gift_price']/100,
                         promo_locked=is_promo, wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                         wager_target=int(row['promo_wager_target'] or 0)/100,
-                        wager_progress=int(row['promo_wager_progress'] or 0)/100)
+                        wager_progress=int(row['promo_wager_progress'] or 0)/100,
+                        expires_at=row['bet_expires_at'])
     return dict(id=row['id'], bet=row['bet']/100, bet_type=row['bet_type'], bet_gift=bet_gift,
                 mines=row['mines'], opened=opened, state=row['state'],
                 multiplier=round(factor, 6), potential=amount/100,
@@ -959,7 +1007,10 @@ def health():
 @login_required
 def me():
     with connect() as db:
+        purge_expired_inventory(db, session['uid'])
         row = active_round(db, session['uid'])
+        if expire_promo_round(db, row):
+            row = None
     return jsonify(user=profile(), round=round_view(row))
 
 
@@ -1023,6 +1074,13 @@ def normalize_level_reward(data):
                 except (TypeError,ValueError): raise ValueError('Укажите X отыгрыша.')
                 if not math.isfinite(multiplier) or not 1<=multiplier<=1000: raise ValueError('X отыгрыша: 1–1000.')
                 reward['wager_multiplier']=multiplier
+                try:
+                    gift_expires_days=int(data.get('gift_expires_days') or 0)
+                except (TypeError,ValueError):
+                    raise ValueError('Срок жизни отыгрышного подарка должен быть указан в днях.')
+                if not 0<=gift_expires_days<=3650:
+                    raise ValueError('Срок жизни подарка: от 0 до 3650 дней. 0 — без срока.')
+                reward['gift_expires_days']=gift_expires_days
     elif content=='deposit_promo':
         try:
             percent=float(data.get('bonus_percent') or 0)
@@ -1149,13 +1207,14 @@ def create_level_promo(db, user_id, level, reward):
     expires_days = int(reward.get('expires_days') or 0)
     expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat() if expires_days else None
     description = reward_description(reward)
-    db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at)
-                  VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+    gift_expires_days = int(reward.get('gift_expires_days') or 0) if promo_type == 'wager_gift' else 0
+    db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days)
+                  VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)''',
                (code, promo_type, reward.get('amount', 0), reward.get('gift_id', ''), reward.get('gift_name', ''),
                 reward.get('image_url', ''), reward.get('gift_price', 0), reward.get('wager_multiplier', 0), 0,
                 deposit.get('bonus_percent', 0), deposit.get('bonus_fixed', 0), deposit.get('min_deposit', 0),
                 json.dumps(reward, ensure_ascii=False) if kind == 'multi_promo' else '{}', user_id,
-                f'Награда за уровень {level}', description, expires_at))
+                f'Награда за уровень {level}', description, expires_at, gift_expires_days))
     return dict(type=kind, code=code, description=description, expires_at=expires_at)
 
 
@@ -1212,10 +1271,12 @@ def claim_level(level):
                 cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'level')",item)
             else:
                 mult=reward['wager_multiplier'];target=round(reward['gift_price']*mult)
-                cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress)
-                                  VALUES(?,?,?,?,?,'level_wager',1,?,?,0)""",item+(mult,target))
+                item_expires_at=promo_gift_expiry(reward.get('gift_expires_days'))
+                cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,expires_at)
+                                  VALUES(?,?,?,?,?,'level_wager',1,?,?,0,?)""",item+(mult,target,item_expires_at))
             result=dict(type=kind,gift=dict(id=cur.lastrowid,name=reward['gift_name'],image_url=reward['image_url'],
-                        price_ton=reward['gift_price']/100,promo_locked=kind=='wager_gift',wager_multiplier=reward.get('wager_multiplier',0)))
+                        price_ton=reward['gift_price']/100,promo_locked=kind=='wager_gift',wager_multiplier=reward.get('wager_multiplier',0),
+                        expires_at=item_expires_at if kind=='wager_gift' else None))
         elif kind in LEVEL_PROMO_TYPES:
             result=create_level_promo(db,session['uid'],level,reward)
         elif kind=='transfer_unlock':
@@ -1236,6 +1297,10 @@ def reward_description(reward):
     if reward.get('type')=='multi_promo':return 'Мультипромокод · '+', '.join(reward.get('components',{}))
     if reward.get('type')=='balance' or reward.get('promo_reward_type')=='balance' and reward.get('type')=='personal_promo':
         return f"{reward.get('amount',0)/100:.2f} TON"
+    if reward.get('type')=='wager_gift' or reward.get('promo_reward_type')=='wager_gift':
+        days=int(reward.get('gift_expires_days') or 0)
+        suffix=f' · сгорит через {days} дн.' if days else ''
+        return f"{reward.get('gift_name','Подарок')} · X{float(reward.get('wager_multiplier') or 0):g}{suffix}"
     if reward.get('type')=='deposit_promo':
         pct=reward.get('bonus_percent',0)
         return f'+{pct:g}% к депозиту' if pct else f"+{reward.get('bonus_fixed',0)/100:.2f} TON к депозиту от {reward.get('min_deposit',0)/100:.2f} TON"
@@ -1408,6 +1473,7 @@ def upgrade_preview():
         try:source_id=int(item_text)
         except (ValueError,TypeError):return error('Выберите свой подарок.')
         with connect() as db:
+            purge_expired_inventory(db, session['uid'])
             source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
         if not source:return error('Выберите доступный подарок из инвентаря.')
         if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
@@ -1496,6 +1562,7 @@ def upgrade_spin():
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, session['uid'])
         previous=db.execute('SELECT user_id,result_json FROM upgrade_spins WHERE id=?',(request_id,)).fetchone()
         if previous:
             if previous['user_id']!=session['uid']:return error('Некорректная операция.',409)
@@ -1531,10 +1598,10 @@ def upgrade_spin():
         if won:
             if wager:
                 cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                                 promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
-                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?)''',
+                                 promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?,?)''',
                                (session['uid'],source['gift_id'],source['gift_name'],source['image_url'],source_price,
-                                float(source['promo_wager_multiplier'] or 0),wager_target,wager_progress,source['promo_code'] or ''))
+                                float(source['promo_wager_multiplier'] or 0),wager_target,wager_progress,source['promo_code'] or '',source['expires_at']))
             else:
                 cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
                                (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
@@ -1547,6 +1614,7 @@ def upgrade_spin():
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
                                 promo_locked=False),
                     wager_progress=wager_progress/100,wager_target=wager_target/100,
+                    expires_at=source['expires_at'] if wager else None,
                     awarded_inventory_id=awarded,compensation=compensation)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
@@ -1559,6 +1627,7 @@ def upgrade_spin():
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
                   target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
+        # Upgrade always advances level turnover by the stake value, for TON and gift bets.
         result['new_level']=increase_turnover(db,session['uid'],source_price)
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
@@ -1725,12 +1794,16 @@ def start():
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        if active_round(db, session['uid']):
+        purge_expired_inventory(db, session['uid'])
+        existing_round = active_round(db, session['uid'])
+        if existing_round and expire_promo_round(db, existing_round):
+            existing_round = None
+        if existing_round:
             return error('Сначала завершите текущую игру.')
 
         bet_type = 'ton'
         snapshot = dict(item_id=None, gift_id='', name='', image='', price=0,
-                        multiplier=0.0, target=0, progress=0, code='')
+                        multiplier=0.0, target=0, progress=0, code='', expires_at=None)
         if inventory_id is not None:
             lock = ' FOR UPDATE' if DATABASE_URL else ''
             item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock,
@@ -1750,7 +1823,8 @@ def start():
             snapshot = dict(item_id=item['id'], gift_id=item['gift_id'], name=item['gift_name'],
                             image=item['image_url'], price=bet,
                             multiplier=float(item['promo_wager_multiplier'] or 0),
-                            target=target, progress=progress, code=item['promo_code'] or '')
+                            target=target, progress=progress, code=item['promo_code'] or '',
+                            expires_at=item['expires_at'])
             deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, session['uid']))
             if not deleted.rowcount:
                 return error('Подарок уже используется.', 409)
@@ -1770,11 +1844,11 @@ def start():
         rtp_snapshot = promo_game_rtp() if bet_type == 'promo_gift' else game_rtp()
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
-                       promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot,bet_expires_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
                     snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
-                    snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot))
+                    snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at']))
         row = active_round(db, session['uid'])
         if bet_type == 'ton':
             record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
@@ -1810,6 +1884,9 @@ def open_cell():
         row = active_round(db, session['uid'])
         if not row:
             return error('Сначала начните игру.')
+        if expire_promo_round(db, row):
+            db.commit()
+            return error('Срок отыгрышного подарка истёк. Подарок сгорел.', 409)
         opened = json.loads(row['opened'])
         if cell in opened:
             return error('Клетка уже открыта.')
@@ -1843,6 +1920,9 @@ def cashout():
     try:
         db.execute('BEGIN IMMEDIATE')
         row = active_round(db, session['uid'])
+        if row and expire_promo_round(db, row):
+            db.commit()
+            return error('Срок отыгрышного подарка истёк. Подарок сгорел.', 409)
         if not row or not json.loads(row['opened']):
             return error('Для вывода откройте хотя бы одну безопасную клетку.')
         opened = len(json.loads(row['opened']))
@@ -1955,6 +2035,7 @@ def admin_status():
 @login_required
 def inventory():
     with connect() as db:
+        purge_expired_inventory(db, session['uid'])
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (session['uid'],)).fetchall()
     return jsonify(items=[inventory_item(item) for item in items])
@@ -1966,10 +2047,11 @@ def sell_inventory(item_id):
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, session['uid'])
         item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
                           (item_id, session['uid'])).fetchone()
         if not item:
-            return error('Подарок не найден.', 404)
+            return error('Подарок не найден или срок его действия истёк.', 404)
         if item['promo_locked']:
             return error('Промо-подарок нельзя продать до завершения отыгрыша.', 409)
         amount = max(0, int(item['floor_price']))
@@ -2057,6 +2139,7 @@ def request_withdrawal(item_id):
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, session['uid'])
         account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
                              (session['uid'],)).fetchone()
         if not account:
@@ -2090,6 +2173,7 @@ def claim_promo_gift(item_id):
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, session['uid'])
         lock = ' FOR UPDATE' if DATABASE_URL else ''
         item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock,
                           (item_id, session['uid'])).fetchone()
@@ -2102,7 +2186,7 @@ def claim_promo_gift(item_id):
         if target <= 0 or progress < target:
             return error('Отыгрыш ещё не завершён.', 409)
         db.execute("""UPDATE inventory SET promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
-                      promo_wager_progress=0,promo_code='',source='promo_claimed'
+                      promo_wager_progress=0,promo_code='',expires_at=NULL,source='promo_claimed'
                       WHERE id=? AND user_id=?""", (item_id, session['uid']))
         record_transaction(db, session['uid'], 'promo_wager_claim', 0,
                            'inventory', item_id, item['gift_name'])
@@ -2308,8 +2392,10 @@ def promo_purpose(promo):
     if kind == 'gift':
         return f"Выдаёт подарок «{promo['gift_name'] or 'Подарок'}»."
     if kind == 'wager_gift':
+        days = int(promo['gift_expires_days'] or 0) if 'gift_expires_days' in promo.keys() else 0
+        lifetime = f' Подарок сгорит через {days} дн. после получения, если отыгрыш не завершён.' if days else ''
         return (f"Выдаёт отыгрышный подарок «{promo['gift_name'] or 'Подарок'}» "
-                f"с условием X{float(promo['wager_multiplier'] or 0):g}.")
+                f"с условием X{float(promo['wager_multiplier'] or 0):g}.{lifetime}")
     if kind == 'deposit_bonus':
         pct = float(promo['bonus_percent'] or 0)
         fixed = int(promo['bonus_fixed'] or 0) / 100
@@ -2577,17 +2663,18 @@ def redeem_promocode():
         elif promo['reward_type'] == 'wager_gift':
             multiplier = max(1.0, float(promo['wager_multiplier'] or 1))
             target = max(1, round(int(promo['gift_price']) * multiplier))
+            item_expires_at = promo_gift_expiry(promo['gift_expires_days'])
             cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                              promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
-                              VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?)""",
+                              promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                              VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
                              (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'],
-                              promo['gift_price'], multiplier, target, code))
+                              promo['gift_price'], multiplier, target, code, item_expires_at))
             inventory_id = cur.lastrowid
             reward = dict(type='wager_gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'],
                                                        name=promo['gift_name'], image_url=promo['gift_image_url'],
                                                        price_ton=promo['gift_price']/100, promo_locked=True,
                                                        wager_multiplier=multiplier, wager_target=target/100,
-                                                       wager_progress=0))
+                                                       wager_progress=0, expires_at=item_expires_at))
             record_transaction(db, session['uid'], 'promo_wager_gift', 0, 'promo', code,
                                f'{promo["gift_name"]} · X{multiplier:g}')
         elif promo['reward_type']=='multi':
@@ -2608,15 +2695,17 @@ def redeem_promocode():
                 else:
                     multiplier=float(comp['wager_multiplier'])
                     target=round(int(comp['gift_price'])*multiplier)
+                    component_expires_at=promo_gift_expiry(comp.get('gift_expires_days'))
                     cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                                      promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code)
-                                      VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?)""",
-                                   (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],multiplier,target,code))
+                                      promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                                      VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
+                                   (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],multiplier,target,code,component_expires_at))
                 inventory_id=cur.lastrowid
                 record_transaction(db,session['uid'],'promo_'+kind,0,'promo',code,comp['gift_name'])
                 rewards.append(dict(type=kind,gift=dict(id=inventory_id,name=comp['gift_name'],
                    image_url=comp['image_url'],price_ton=comp['gift_price']/100,
-                   wager_multiplier=comp.get('wager_multiplier',0))))
+                   wager_multiplier=comp.get('wager_multiplier',0),
+                   expires_at=component_expires_at if kind=='wager_gift' else None)))
             if 'deposit_bonus' in components:
                 comp=components['deposit_bonus']
                 rewards.append(dict(type='deposit_bonus',code=code,
@@ -2690,7 +2779,7 @@ def admin_promocodes():
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
                                active=bool(x['active']), created_at=x['created_at'],
                                assigned_user_id=int(x['assigned_user_id'] or 0),source=x['source_label'] or '',
-                               description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),
+                               description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),gift_expires_days=int(x['gift_expires_days'] or 0),
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
                                min_deposit=x['min_deposit']/100,
                                components=public_level_reward(json.loads(x['reward_json'])).get('components',{})
@@ -2711,7 +2800,7 @@ def admin_create_promocode():
         return error('Некорректный лимит активаций.')
     if not 0 <= max_uses <= 1000000:
         return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
-    amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0
+    amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0; gift_expires_days = 0
     bonus_percent=0;bonus_fixed=0;min_deposit=0;multi_reward=None
     try:
         assigned_user_id=int(data.get('assigned_user_id') or 0)
@@ -2753,6 +2842,12 @@ def admin_create_promocode():
                 return error('Укажите корректный X отыгрыша.')
             if not 1 <= wager_multiplier <= 1000:
                 return error('X отыгрыша должен быть от 1 до 1000.')
+            try:
+                gift_expires_days=int(data.get('gift_expires_days') or 0)
+            except (TypeError,ValueError):
+                return error('Срок жизни подарка указан неверно.')
+            if not 0<=gift_expires_days<=3650:
+                return error('Срок жизни подарка: от 0 до 3650 дней.')
     elif reward_type=='multi':
         try:multi_reward=normalize_level_reward({'type':'multi_promo','components':data.get('components')})
         except (ValueError,TypeError,InvalidOperation) as exc:return error(str(exc))
@@ -2777,12 +2872,12 @@ def admin_create_promocode():
                 return error('Пользователь с таким ID не найден.',404)
             if assigned_user_id:
                 max_uses=1
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
                         json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
-                        assigned_user_id,source_label,description,expires_at))
+                        assigned_user_id,source_label,description,expires_at,gift_expires_days))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:
@@ -2835,6 +2930,7 @@ def admin_user(user_id):
         user = db.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
         if not user:
             return error('Пользователь не найден.', 404)
+        purge_expired_inventory(db, user_id)
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (user_id,)).fetchall()
         promos = db.execute('SELECT * FROM promo_codes WHERE assigned_user_id=? ORDER BY created_at DESC LIMIT 20',
@@ -2891,7 +2987,7 @@ def admin_create_user_promocode(user_id):
         if not 0 <= days <= 3650:raise ValueError()
     except (TypeError,ValueError):
         return error('Срок действия: от 0 до 3650 дней.')
-    amount=gift_price=min_deposit=0
+    amount=gift_price=min_deposit=gift_expires_days=0
     gift_id=gift_name=gift_image=''
     bonus_percent=wager_multiplier=0.0
     if kind=='balance':
@@ -2920,6 +3016,12 @@ def admin_create_user_promocode(user_id):
             except (ValueError,TypeError):return error('Укажите X отыгрыша.')
             if not math.isfinite(wager_multiplier) or not 1<=wager_multiplier<=1000:
                 return error('X отыгрыша: от 1 до 1000.')
+            try:
+                gift_expires_days=int(data.get('gift_expires_days') or 0)
+            except (TypeError,ValueError):
+                return error('Срок жизни подарка указан неверно.')
+            if not 0<=gift_expires_days<=3650:
+                return error('Срок жизни подарка: от 0 до 3650 дней.')
     expires_at=(datetime.now(timezone.utc)+timedelta(days=days)).isoformat() if days else None
     db=connect()
     try:
@@ -2930,10 +3032,10 @@ def admin_create_user_promocode(user_id):
         db.execute('''INSERT INTO promo_codes(
                       code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                       max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
-                      assigned_user_id,source_label,description,expires_at)
-                      VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+                      assigned_user_id,source_label,description,expires_at,gift_expires_days)
+                      VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)''',
                    (code,kind,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
-                    session['uid'],bonus_percent,0,min_deposit,'{}',user_id,'Администрация','',expires_at))
+                    session['uid'],bonus_percent,0,min_deposit,'{}',user_id,'Администрация','',expires_at,gift_expires_days))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],user_id,'promo_issue',code))
         log_event(db,user_id,'promo_issued',code=code,source='Администрация')
@@ -2967,13 +3069,13 @@ def admin_issue_user_promocode(user_id):
         db.execute('''INSERT INTO promo_codes(
             code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
             max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
-            assigned_user_id,source_label,description,expires_at)
-            VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+            assigned_user_id,source_label,description,expires_at,gift_expires_days)
+            VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)''',
             (issued_code,template['reward_type'],template['amount'],template['gift_id'],
              template['gift_name'],template['gift_image_url'],template['gift_price'],
              template['wager_multiplier'],session['uid'],template['bonus_percent'],
              template['bonus_fixed'],template['min_deposit'],template['reward_json'],
-             user_id,'Выдан администратором',promo_purpose(template),template['expires_at']))
+             user_id,'Выдан администратором',promo_purpose(template),template['expires_at'],template['gift_expires_days']))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],user_id,'promo_issue',f'{code} → {issued_code}'))
         log_event(db,user_id,'promo_issued',code=issued_code,source='Администрация')

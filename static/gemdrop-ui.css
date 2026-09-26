@@ -1,492 +1,909 @@
-/* GemDrop UI: one consistent visual layer over the legacy page styles. */
-:root {
-  --bg:#0b1119;
-  --surface:#151f2b;
-  --surface2:#1b2937;
-  --line:#334455;
-  --text:#edf6fc;
-  --muted:#a1b3c2;
-  --accent:#83dbef;
-  --blue:#56bade;
-  --danger:#f27c91;
+/* GemDrop 24 — calm monochrome liquid-glass pass. Loaded last on purpose. */
+:root{
+  --gd-bg:#0a0c0f;--gd-glass:rgba(25,28,33,.72);--gd-line:rgba(255,255,255,.095);
+  --gd-line-strong:rgba(255,255,255,.14);--gd-text:#f4f5f7;--gd-muted:#9299a3;--gd-blue:#83d8f5;
 }
-html { -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
-body {
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-  font-size:14px;line-height:1.45;letter-spacing:0;
-  color:var(--text);background:linear-gradient(180deg,#101a26 0,#0b1119 290px);
-}
-button,input,select { font-family:inherit;letter-spacing:normal; }
-button { -webkit-tap-highlight-color:transparent; }
-button:focus-visible,input:focus-visible,select:focus-visible {
-  outline:2px solid #90e7fb;outline-offset:2px;
-}
-h1,h2,h3,strong,b { letter-spacing:-.015em; }
-h1 { font-size:clamp(25px,6.5vw,30px);font-weight:750;line-height:1.18; }
-h2 { font-size:18px;font-weight:700;line-height:1.28; }
-p,.muted,.caption,.notice,small { line-height:1.5; }
-.caption { font-size:12px;font-weight:650; }
-.panel,.modal-card {
-  border:1px solid #354a5e;
-  background:linear-gradient(155deg,#1a2735,#121c28 76%);
-  box-shadow:inset 0 1px #ffffff0c,0 12px 30px #0309112b;
-}
-.panel { border-radius:18px;padding:16px; }
-.modal-card { border-radius:22px; }
-.primary,.secondary,.mini-btn,.back {
-  font-size:13px;font-weight:700;letter-spacing:0;
-  transition:background-color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease;
-}
-.primary:active,.secondary:active,.mini-btn:active,.back:active { transform:scale(.985); }
-.primary { background:linear-gradient(130deg,#9fe8ed,#61bddc);color:#0b2029; }
-.secondary { background:#20303e;border:1px solid #405b6f;color:#def6ff; }
-.text-input,input[type="text"],input[type="number"],select {
-  min-width:0;min-height:43px;font-size:14px;
-  background-color:#111b26;color:#eaf6ff;border-color:#415468;
-}
-.text-input::placeholder,input::placeholder { color:#8499ab;opacity:1; }
-.panel-head h2,.bonus-section-head h3 { margin:0;font-size:15px;font-weight:720; }
-.nav { background:#121d29f2;border:1px solid #30475b;border-bottom:0;box-shadow:0 -7px 28px #02070d70; }
-.nav button { font-size:11px;font-weight:650; }
-.nav button.active { color:#a8ecf4; }
-.profile-shortcut { font-size:13px;font-weight:720; }
-.profile-shortcut.referral { background:linear-gradient(135deg,#1b536c,#2c7390); }
+html{background:var(--gd-bg)}
+body{color:var(--gd-text)!important;background:linear-gradient(180deg,#0f1216 0,#0b0e12 300px,#090b0e 100%)!important;background-attachment:fixed!important}
+body:before{display:none!important}
+.app{max-width:480px!important;padding-inline:16px!important;padding-bottom:calc(104px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+h1,h2,h3{letter-spacing:-.035em!important}h1{font-weight:730!important}h2,h3{font-weight:690!important}
+.caption,.muted,.modal-extra{color:var(--gd-muted)!important}
+.panel,.modal-card,.profile-hero,.public-profile-card,.admin-group,.gift,.user-row,.notice,.freebet-card,.withdrawal-card,.transaction-row,.transfer-card,.wallet-connected-panel,.wallet-disconnected-panel,.topup-box,.deposit-promo,.public-level-block,.public-stat-card,.public-max-drop{
+  border:1px solid var(--gd-line)!important;background:rgba(24,27,32,.78)!important;box-shadow:inset 0 1px rgba(255,255,255,.055),0 14px 38px rgba(0,0,0,.20)!important;-webkit-backdrop-filter:blur(24px) saturate(120%);backdrop-filter:blur(24px) saturate(120%)}
+.panel,.profile-hero,.admin-group{border-radius:20px!important}
+.modal{background:rgba(0,0,0,.57)!important;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+.modal-card{border-radius:24px!important;background:rgba(24,27,32,.94)!important;box-shadow:inset 0 1px rgba(255,255,255,.075),0 28px 90px rgba(0,0,0,.56)!important}
+.field,.text-input,select,.quick button,.secondary,.mini-btn,.danger-btn{border:1px solid var(--gd-line)!important;background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important}
+.field,.text-input,select{border-radius:13px!important}
+.field:focus-within,.text-input:focus,select:focus{border-color:rgba(180,225,244,.38)!important;box-shadow:0 0 0 3px rgba(131,216,245,.07)!important}
+.primary{border:1px solid rgba(255,255,255,.18)!important;border-radius:14px!important;background:#e7f7fc!important;color:#0b151a!important;box-shadow:inset 0 1px rgba(255,255,255,.85),0 8px 24px rgba(0,0,0,.18)!important}
 
-/* Readable inventory: full image and full name, two cards per row. */
-#profilePage .inventory { grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;align-items:stretch; }
-#profilePage .gift {
-  display:flex;flex-direction:column;height:100%;min-width:0;padding:10px;
-  border-radius:16px;overflow:visible;box-shadow:inset 0 1px #ffffff19,0 9px 20px #02070c30;
-}
-#profilePage .gift-art {
-  display:grid;place-items:center;width:100%;height:clamp(112px,34vw,158px);min-height:0;
-  margin:0 0 10px;padding:12px;border-radius:12px;overflow:visible;
-}
-#profilePage .gift-art img {
-  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
-  object-fit:contain;object-position:center;transform:none;filter:none;
-}
-#profilePage .gift strong {
-  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
-  -webkit-line-clamp:unset;overflow-wrap:anywhere;font-size:12px;font-weight:690;line-height:1.35;
-}
-#profilePage .gift>small {
-  display:flex;align-items:center;margin-top:auto;padding-top:8px;
-  color:#d1edfa;font-size:12px;font-weight:720;white-space:nowrap;
-}
-#profilePage .gift.promo-wager .promo-ribbon { right:5px;top:5px; }
+/* Floating segmented bottom navigation. */
+#nav.nav{width:min(452px,calc(100% - 24px))!important;bottom:calc(14px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;min-height:60px!important;height:60px!important;padding:5px!important;gap:0!important;border:1px solid var(--gd-line-strong)!important;border-radius:21px!important;background:rgba(25,28,33,.82)!important;box-shadow:inset 0 1px rgba(255,255,255,.09),0 18px 48px rgba(0,0,0,.38)!important;-webkit-backdrop-filter:blur(28px) saturate(130%);backdrop-filter:blur(28px) saturate(130%)}
+#nav.nav button{position:relative!important;display:grid!important;place-content:center!important;justify-items:center!important;flex:1!important;min-width:0!important;min-height:50px!important;height:50px!important;padding:5px 4px!important;gap:4px!important;border-radius:16px!important;color:#838a94!important;background:transparent!important;font-size:9.5px!important;font-weight:650!important;line-height:1!important}
+#nav.nav button:not(:last-child):after{content:""!important;position:absolute!important;top:10px!important;bottom:10px!important;right:0!important;width:1px!important;background:rgba(255,255,255,.07)!important}
+#nav.nav button.active{color:#f6fbfd!important;background:rgba(255,255,255,.075)!important;box-shadow:inset 0 1px rgba(255,255,255,.055)!important}
+#nav.nav button svg{width:20px!important;height:20px!important;transform:none!important;stroke-width:1.75!important}
 
-/* Bonus badge counts codes that have not been opened. */
-.profile-shortcut.referral.has-bonus { box-shadow:inset 0 1px #ffffff30,0 0 11px #ec576044; }
-.my-promo-card { border-radius:13px;padding:12px; }
-.my-promo-card strong { font-size:13px;font-weight:740; }
-.my-promo-card small { font-size:11px;line-height:1.45; }
-.my-promo-card.unread { border-color:#de6b82;box-shadow:inset 3px 0 #ef6078; }
-.my-promo-card.unread .promo-status { color:#ff9cae; }
-.bonus-section-head span { font-size:11px; }
-.bonus-badge { font-size:11px;font-weight:800; }
+/* Mines controls stay balanced when gift bet is hidden. */
+#minesPage .controls{grid-template-columns:minmax(0,.95fr) 48px minmax(0,1.05fr)!important;gap:9px!important}
+#minesPage .controls.no-gift-bets{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr)!important;gap:9px!important}
+#minesPage .controls.no-gift-bets>div:first-child,#minesPage .controls.no-gift-bets>div:last-child{min-width:0!important}
+#minesPage .controls.no-gift-bets .field{width:100%!important}
+#minesPage .field{background:rgba(255,255,255,.042)!important;border-color:var(--gd-line)!important}
+#minesPage .stepper button{background:rgba(255,255,255,.055)!important;color:#d6d9de!important}
 
-/* Wallet promo: current bonus is informational; the field remains editable. */
-.deposit-promo { background:#172637;border-color:#416176; }
-.deposit-promo label { font-size:12px;font-weight:710; }
-.deposit-promo-row { grid-template-columns:minmax(0,1fr) 100px; }
-.deposit-promo-row button { border-radius:11px;font-weight:700; }
-#depositPromoStatus { display:block;font-size:11px;overflow-wrap:anywhere; }
+/* Detached Top Drop and individually spaced win cards. */
+.recent-wins-card{margin-top:28px!important;padding:15px!important;border:1px solid var(--gd-line)!important;border-radius:21px!important;overflow:visible!important;background:rgba(18,21,25,.66)!important;box-shadow:inset 0 1px rgba(255,255,255,.045),0 16px 42px rgba(0,0,0,.18)!important;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+.recent-wins-card>h2{margin:0 2px 13px!important;padding:0!important;border:0!important;color:#adb3bc!important;font-size:11px!important;letter-spacing:.055em!important;text-transform:none!important}
+.recent-wins-card .top-drop{display:grid!important;gap:8px!important;margin:0 0 17px!important;padding:12px!important;border:1px solid rgba(255,255,255,.105)!important;border-radius:16px!important;background:rgba(255,255,255,.04)!important;box-shadow:none!important}
+.recent-wins-card .top-drop:before{display:none!important}
+.recent-wins-card .top-drop-label{padding:0!important;border:0!important;background:transparent!important;color:#aeb5bd!important;font-size:8.5px!important;letter-spacing:.08em!important}
+.recent-wins-card .top-drop-body{grid-template-columns:44px minmax(0,1fr)!important;gap:10px!important;padding:0!important}
+.recent-wins-card .top-drop-art{width:44px!important;height:44px!important;padding:3px!important;border-radius:12px!important;background:rgba(255,255,255,.04)!important;filter:none!important}
+.recent-wins-card .top-drop-info strong{font-size:12px!important;color:#f0f2f5!important}.recent-wins-card .top-drop-info span{font-size:10.5px!important;color:#9ca5af!important}
+.recent-wins{display:grid!important;gap:9px!important}
+.recent-win{border:1px solid var(--gd-line)!important;border-radius:15px!important;padding:10px 11px!important;background:rgba(255,255,255,.03)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}
+.recent-win:last-child{border-bottom:1px solid var(--gd-line)!important}
+.recent-win-reward{border-radius:11px!important;background:rgba(131,216,245,.06)!important;border-color:rgba(131,216,245,.18)!important}
+#upgradePage .upgrade-wins-card{margin:28px 0 18px!important}
+#upgradePage .upgrade-win-row{border:1px solid var(--gd-line)!important;border-radius:15px!important;padding:10px 11px!important;background:rgba(255,255,255,.03)!important}
+#upgradePage .upgrade-win-row:last-child{border-bottom:1px solid var(--gd-line)!important}
+#upgradePage .upgrade-win-chip{background:rgba(255,255,255,.035)!important;border-color:var(--gd-line)!important}
 
-/* Admin console: grouped actions and readable form rhythm. */
-#adminPage .admin-heading {
-  margin:12px 0 17px;padding:20px 17px;border-radius:18px;
-  border:1px solid #406277;background:radial-gradient(circle at 92% 14%,#2b697a6b,transparent 60%),#182939;
-}
-#adminPage .admin-heading span { color:#94e2ef;font-size:10px;font-weight:750;letter-spacing:.13em; }
-#adminPage .admin-heading h1 { margin:7px 0 4px; }
-#adminPage .admin-heading p { margin:0;color:#aec4d2;font-size:12px; }
-#adminPage .admin-menu { display:grid;gap:13px; }
-#adminPage .admin-group {
-  padding:14px;border:1px solid #344a5b;border-radius:17px;background:#152330;
-}
-#adminPage .admin-group h2 { margin:0 0 11px;color:#c6dfeb;font-size:13px;font-weight:700; }
-#adminPage .admin-actions { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
-#adminPage .admin-actions button {
-  display:flex;align-items:center;justify-content:space-between;gap:6px;
-  min-height:57px;padding:11px;text-align:left;line-height:1.3;
-  font-size:12px;font-weight:650;white-space:normal;overflow-wrap:anywhere;
-  border:1px solid #3c5669;border-radius:12px;background:#203140;color:#e5f4fb;
-}
-#adminPage .admin-actions button span { flex:none;color:#82d7ec;font-size:17px; }
-#adminPage .admin-actions button:active { background:#2c4354;transform:scale(.985); }
-#userPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#portalPage .panel,#rtpPage .panel,#loaderSettingsPage .panel { margin:12px 0;padding:15px; }
-#userPage .panel h2,#promocodesPage .panel h2 { margin-bottom:9px;font-size:15px; }
-#userPage .row,#promocodesPage .row { min-width:0;align-items:center; }
-#userPage .panel.stack,#promocodesPage .promo-admin-form { gap:9px; }
-#userPage .user-row,#usersPage .user-row { background:#1c2b39;border-color:#364e60; }
-#usersPage .user-row { min-height:56px; }
-#usersPage .user-row small { color:#a7bdca; }
-#promocodesPage .caption,#userPage .caption { color:#b6d2df;font-size:11px; }
-#promocodesPage .promo-admin-extra { gap:12px; }
+/* Deposit: disconnected = connect only. Connected = amount + promo + action. */
+#depositModal .deposit-card{position:relative!important;width:min(100%,390px)!important;max-height:calc(100dvh - 36px - env(safe-area-inset-bottom))!important;overflow:auto!important;padding:22px 18px 18px!important;border:1px solid var(--gd-line-strong)!important;border-radius:24px!important;background:rgba(23,26,31,.96)!important;box-shadow:inset 0 1px rgba(255,255,255,.07),0 28px 88px rgba(0,0,0,.52)!important}
+#depositModal .deposit-head{display:block!important;padding:0 42px 15px 1px!important;margin:0 0 15px!important;border-bottom:1px solid rgba(255,255,255,.07)!important;text-align:left!important}
+#depositModal .deposit-head-icon,#depositModal .deposit-kicker,#depositModal .deposit-head p{display:none!important}
+#depositModal .deposit-head h2{margin:0!important;font-size:22px!important;font-weight:690!important}
+#depositModal #closeDeposit{position:absolute!important;z-index:3!important;top:13px!important;right:13px!important;display:grid!important;place-items:center!important;width:34px!important;height:34px!important;min-height:34px!important;margin:0!important;padding:0!important;border:1px solid var(--gd-line)!important;border-radius:50%!important;background:rgba(255,255,255,.055)!important;color:transparent!important;font-size:0!important}
+#depositModal #closeDeposit:before{content:"×";color:#c7ccd2;font:400 22px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;transform:translateY(-1px)}
+#depositModal .wallet-connected-panel{display:none!important}
+#depositModal .wallet-disconnected-panel{display:grid!important;gap:10px!important;margin:0!important;padding:3px 0 1px!important;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .wallet-disconnected-panel.hidden{display:none!important}
+#depositModal .wallet-connect-icon,#depositModal .wallet-disconnected-panel>b{display:none!important}
+#depositModal #walletState{margin:0 0 2px!important;color:#8f969f!important;font-size:10.5px!important;text-align:left!important}
+#depositModal #modalWalletButton{min-height:44px!important;margin:0!important;border-radius:13px!important}
+#depositModal .topup-box{display:none!important;gap:11px!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal.wallet-ready .topup-box{display:grid!important}
+#depositModal .topup-box>label{margin:0 0 -3px!important;color:#aeb4bc!important;font-size:11px!important}
+#depositModal .topup-row{min-height:50px!important;padding:3px 12px!important;border:1px solid var(--gd-line-strong)!important;border-radius:14px!important;background:rgba(255,255,255,.045)!important}
+#depositModal .topup-row input{min-height:42px!important;padding:4px 0!important;background:transparent!important;border:0!important;box-shadow:none!important;font-size:20px!important;font-weight:700!important}
+#depositModal .topup-row span{color:#aeb6bf!important;font-size:11px!important}
+#depositModal .topup-presets{display:none!important}
+#depositModal .deposit-pay{min-height:44px!important;border-radius:13px!important;font-size:13px!important}
+#depositModal .deposit-promo-accordion{margin:3px 0 0!important;padding:0!important;border:0!important;background:transparent!important}
+#depositModal .deposit-promo-accordion>summary{display:none!important}
+#depositModal .deposit-promo{display:grid!important;gap:7px!important;margin:0!important;padding:12px 0 0!important;border:0!important;border-top:1px solid rgba(255,255,255,.07)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .deposit-promo label{color:#aeb4bc!important;font-size:10.5px!important;font-weight:600!important}
+#depositModal .deposit-promo-row{display:grid!important;grid-template-columns:minmax(0,1fr) 92px!important;gap:8px!important;align-items:stretch!important}
+#depositModal .deposit-promo-row .text-input,#depositModal .deposit-promo-row button{height:43px!important;min-height:43px!important;max-height:43px!important;margin:0!important;padding-top:0!important;padding-bottom:0!important}
+#depositModal .deposit-promo-row button{border:1px solid var(--gd-line)!important;border-radius:12px!important;background:rgba(255,255,255,.065)!important;color:#eef0f2!important;font-size:11px!important;font-weight:650!important}
+#depositModal #depositPromoStatus{color:#848c96!important;font-size:9.5px!important;line-height:1.4!important}
+#depositModal .deposit-foot,#depositModal #recipientState{display:none!important}
+#depositModal .deposit-progress{margin-top:1px!important;border-radius:12px!important}
 
-/* Mines: crisp cell transitions, short feedback after a round starts or ends. */
-#minesPage .board { isolation:isolate; }
-#minesPage .cell {
-  border-color:#304659;background:linear-gradient(145deg,#223344,#16232f);
-  box-shadow:inset 0 1px #ffffff14,0 5px 13px #0005;
-}
-#minesPage .cell:not(:disabled):active { transform:scale(.92); }
-#minesPage .cell.open { border-color:#72d7eb;background:radial-gradient(circle at 50% 38%,#235673,#152736 73%); }
-#minesPage .cell.mine { border-color:#c4677a;background:radial-gradient(circle at 50% 38%,#673447,#231a27 75%); }
-#minesPage .board.round-start .cell { animation:cellSettle .36s both; }
-#minesPage .board.round-start .cell:nth-child(5n+2) { animation-delay:35ms; }
-#minesPage .board.round-start .cell:nth-child(5n+3) { animation-delay:65ms; }
-#minesPage .board.round-start .cell:nth-child(5n+4) { animation-delay:95ms; }
-#minesPage .board.round-start .cell:nth-child(5n+5) { animation-delay:125ms; }
-#minesPage .board.round-loss { animation:boardLoss .36s ease-in-out; }
-#minesPage .cell.reveal.open { animation:cellFound .45s cubic-bezier(.17,1.2,.34,1); }
-#minesPage .cell.reveal.mine { animation:cellLost .48s ease-out; }
-@keyframes cellSettle { from{transform:translateY(8px) scale(.94);opacity:.65} to{transform:none;opacity:1} }
-@keyframes cellFound { 45%{transform:scale(1.08);box-shadow:0 0 20px #68dcff80} to{transform:scale(1)} }
-@keyframes cellLost { 30%{transform:scale(.92);box-shadow:0 0 24px #ff6d9380} to{transform:scale(1)} }
-@keyframes boardLoss { 20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)} }
+/* Promo action exactly matches the text input height. */
+#promoModal .compact-modal{padding:20px!important}
+#promoModal .promo-entry{display:grid!important;grid-template-columns:minmax(0,1fr) 44px!important;gap:8px!important;align-items:stretch!important}
+#promoModal #promoInput,#promoModal .promo-check{height:44px!important;min-height:44px!important;max-height:44px!important;margin:0!important}
+#promoModal .promo-check{width:44px!important;min-width:44px!important;padding:0!important;border-radius:12px!important}
+.top-drop-info>strong,.recent-win-meta>strong,.upgrade-win-head>strong{text-decoration:none!important}
 
-/* Upgrade: depth and movement follow the actual server result. */
-#upgradePage .upgrade-heading { font-size:29px;font-weight:750; }
-#upgradePage .upgrade-pick { border-radius:17px; }
-#upgradePage .upgrade-wheel-wrap { transition:box-shadow .3s ease; }
-#upgradePage .upgrade-wheel-wrap.ready { box-shadow:0 18px 42px #0009,0 0 22px #48d7b22f; }
-#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1.25s ease-in-out infinite; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { box-shadow:0 0 0 6px #12232ab0,0 0 26px #d0f8ee88; }
-@keyframes upgradeGlow { 50%{box-shadow:0 19px 46px #000b,0 0 32px #72efd380} }
-#upgradeResultModal:not(.hidden) .upgrade-result-card { animation:resultArrive .42s cubic-bezier(.2,1.2,.35,1) both; }
-#upgradeResultModal .upgrade-result-card.won { background:radial-gradient(circle at 50% 18%,#245044,#17272a 70%); }
-#upgradeResultModal .upgrade-result-card.lost { background:radial-gradient(circle at 50% 18%,#493343,#221b29 70%); }
-@keyframes resultArrive { from{opacity:0;transform:translateY(17px) scale(.94)} to{opacity:1;transform:none} }
-
-@media(max-width:370px) {
-  #adminPage .admin-actions { grid-template-columns:1fr; }
-  #adminPage .admin-actions button { min-height:48px; }
-  #profilePage .gift-art { height:112px;padding:9px; }
+@media(max-width:520px){
+  .app{padding-inline:13px!important;padding-bottom:calc(96px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+  #nav.nav{width:calc(100% - 20px)!important;bottom:calc(10px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;height:55px!important;min-height:55px!important;padding:4px!important;border-radius:20px!important}
+  #nav.nav button{height:47px!important;min-height:47px!important;font-size:9px!important;gap:3px!important}
+  #nav.nav button svg{width:19px!important;height:19px!important}
+  .recent-wins-card{margin-top:24px!important;padding:12px!important}
+  .recent-win{grid-template-columns:36px minmax(0,1fr) auto!important;gap:8px!important;padding:9px!important}
+  .recent-win-avatar{width:36px!important;height:36px!important}.recent-win-reward{padding:5px 7px!important}
+  #upgradePage .upgrade-win-row{grid-template-columns:34px minmax(0,1fr)!important;gap:8px!important;padding:9px!important}
+  #upgradePage .upgrade-win-row .recent-win-avatar{width:34px!important;height:34px!important}
+  #minesPage .controls.no-gift-bets{grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr)!important;gap:8px!important}
 }
-@media(prefers-reduced-motion:reduce) {
-  *,*::before,*::after { animation-duration:.01ms!important;transition-duration:.01ms!important; }
+@media(max-width:360px){
+  .app{padding-inline:10px!important}
+  #nav.nav{width:calc(100% - 14px)!important;bottom:calc(8px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+  #nav.nav button{font-size:8.5px!important}
+  #depositModal .deposit-card{padding-inline:15px!important}
 }
 
-/* Direct browser login backed by a one-time Telegram bot command. */
-#auth { max-width:410px;margin:12vh auto 0;padding:24px;border:1px solid #38596e;
-  border-radius:24px;background:linear-gradient(160deg,#1b3142,#131f2c);box-shadow:0 24px 55px #0006;text-align:left; }
-#auth h1 { margin:0 0 8px; }
-#authText { color:#a9c9d7;font-size:13px; }
-.web-auth-panel { display:grid;gap:14px;margin-top:18px; }
-.web-auth-panel p { margin:0;font-size:13px;color:#d5eaf3;line-height:1.55; }
-.web-auth-command { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;
-  border:1px solid #6bacca;border-radius:13px;background:#10202d; }
-.web-auth-command code { min-width:0;padding:6px 2px;overflow-wrap:anywhere;font-size:17px;font-weight:750;color:#b3efff;letter-spacing:.04em; }
-.web-auth-command button { padding:9px 10px;border-radius:9px;background:#2e5971;color:#e6f9ff;font-size:11px;font-weight:700; }
-.web-auth-panel small { color:#a9c0cf;font-size:12px; }
-.web-bot-link { color:#91e1ee;text-decoration:none;font-size:13px;font-weight:700; }
-#webAuthRenew { margin-top:2px; }
+/* Build 25 — compact Apple-like bonus / promo editor and responsive Upgrade pointer. */
+.profile-shortcut.referral.has-bonus,
+.profile-shortcut.bonus-new{animation:none!important;box-shadow:inset 0 1px rgba(255,255,255,.05)!important}
+.profile-shortcut.referral{background:rgba(255,255,255,.045)!important;border-color:rgba(255,255,255,.09)!important;color:#eef1f4!important}
+.bonus-badge{top:-5px!important;right:-4px!important;min-width:18px!important;height:18px!important;padding:0 5px!important;border:1px solid rgba(255,255,255,.16)!important;background:#eef1f4!important;color:#15181c!important;box-shadow:0 4px 12px rgba(0,0,0,.28)!important;font-size:9px!important;font-weight:760!important}
 
-/* Personal promo is created in the player's admin card; templates are optional. */
-#userPage .user-promo-panel { display:grid;gap:9px;margin-block:20px;padding:18px; }
-#userPage .user-promo-panel h2 { margin:0; }
-#userPage .user-promo-panel p { margin:0 0 4px;font-size:12px; }
-#userPage .user-promo-panel .caption { display:block;margin:6px 0 4px; }
-#userPage .user-promo-panel .text-input { display:block;width:100%; }
-#userPage .user-promo-panel .text-input.hidden { display:none!important; }
-#userPage .user-promo-panel .primary { margin-top:9px; }
-.user-promo-issued { display:grid;gap:5px;max-height:150px;overflow:auto; }
-.user-promo-line { padding:8px 10px;border:1px solid #354a59;border-radius:9px;background:#13202b;
-  color:#bcd3df;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
-.user-promo-extra { border-top:1px solid #3b5666;padding-top:12px; }
-.user-promo-extra summary { cursor:pointer;color:#a5e1f0;font-size:12px;font-weight:700; }
-.user-promo-extra .secondary { margin:10px 0; }
-.user-promo-extra .text-input { margin-bottom:9px; }
+#referralModal{background:rgba(3,5,8,.66)!important;backdrop-filter:blur(22px) saturate(115%)!important;-webkit-backdrop-filter:blur(22px) saturate(115%)!important}
+#referralModal .bonus-modal-card{position:relative!important;width:min(100%,400px)!important;max-height:min(88dvh,680px)!important;overflow:auto!important;padding:18px!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:26px!important;background:rgba(25,27,31,.88)!important;box-shadow:inset 0 1px rgba(255,255,255,.08),0 30px 90px rgba(0,0,0,.52)!important;text-align:left!important}
+#referralModal .bonus-titlebar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 1px 15px!important;border-bottom:1px solid rgba(255,255,255,.075)}
+#referralModal .bonus-titlebar h2{margin:0!important;font:700 23px/1.15 -apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif!important;letter-spacing:-.035em!important;color:#f5f5f7!important}
+#referralModal .bonus-titlebar p{margin:5px 0 0!important;color:#8e8e93!important;font-size:11px!important;line-height:1.35!important}
+#referralModal .bonus-close{flex:none;display:grid;place-items:center;width:31px;height:31px;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:50%;background:rgba(255,255,255,.065);color:#b9bcc1;font:400 21px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#referralModal .bonus-tabs{display:grid!important;grid-template-columns:1fr 1fr!important;gap:3px!important;margin:14px 0 11px!important;padding:3px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:12px!important;background:rgba(0,0,0,.22)!important}
+#referralModal .bonus-tabs button{min-height:34px!important;padding:0 10px!important;border:0!important;border-radius:9px!important;background:transparent!important;color:#8f949a!important;font-size:11px!important;font-weight:650!important;box-shadow:none!important}
+#referralModal .bonus-tabs button.active{background:rgba(255,255,255,.105)!important;color:#f5f5f7!important;box-shadow:inset 0 1px rgba(255,255,255,.055),0 1px 5px rgba(0,0,0,.22)!important}
+#referralModal .bonus-section{margin:0!important;padding:0!important;border:0!important;background:transparent!important}
+#referralModal .bonus-section-head{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:8px 2px!important;margin:0!important}
+#referralModal .bonus-section-head h3{margin:0!important;color:#d8dade!important;font-size:11px!important;font-weight:680!important;letter-spacing:0!important;text-transform:none!important}
+#referralModal .bonus-section-head span{padding:0!important;border:0!important;background:transparent!important;color:#777d84!important;font-size:9px!important;font-weight:600!important}
+#referralModal .my-promos{display:grid!important;gap:7px!important}
+#referralModal .my-promo-card{grid-template-columns:38px minmax(0,1fr) auto!important;min-height:62px!important;padding:8px 9px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:15px!important;background:rgba(255,255,255,.035)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important;color:#f3f4f5!important}
+#referralModal .my-promo-card.unread{border-color:rgba(255,255,255,.13)!important;background:rgba(255,255,255,.052)!important;box-shadow:inset 2px 0 rgba(235,238,241,.72)!important}
+#referralModal .my-promo-card:not(:disabled):hover{background:rgba(255,255,255,.065)!important}
+#referralModal .promo-card-icon{width:38px!important;height:38px!important;border-radius:11px!important;background:rgba(255,255,255,.07)!important;color:#d7dade!important;font-size:8px!important;box-shadow:none!important}
+#referralModal .my-promo-card strong{font-size:11px!important;font-weight:670!important;color:#f1f2f4!important}
+#referralModal .my-promo-card small{margin-top:3px!important;color:#858a91!important;font-size:9px!important}
+#referralModal .my-promo-card .promo-status{padding:4px 6px!important;border-radius:999px!important;background:rgba(255,255,255,.065)!important;color:#aeb2b8!important;font-size:8px!important}
+#referralModal .my-promo-card.unread .promo-status{background:rgba(255,255,255,.1)!important;color:#e2e4e7!important}
+#referralModal .my-promo-more{width:100%!important;min-height:36px!important;margin:8px 0 0!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:11px!important;background:rgba(255,255,255,.035)!important;color:#a5a9af!important;font-size:10px!important}
+#referralModal .ref-stats{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:7px!important;margin:8px 0 10px!important}
+#referralModal .ref-stat{padding:10px 6px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:13px!important;background:rgba(255,255,255,.03)!important;text-align:center!important}
+#referralModal .ref-stat b{font-size:15px!important;color:#f1f2f4!important}
+#referralModal .ref-stat small{margin-top:2px!important;color:#7f848b!important;font-size:8px!important}
+#referralModal .ref-link{padding:10px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:12px!important;background:rgba(0,0,0,.16)!important;color:#969ba2!important;font-size:9px!important}
+#referralModal .ref-actions{gap:7px!important;margin-top:8px!important}
+#referralModal .ref-actions button{min-height:38px!important;padding:0 12px!important;border-radius:11px!important;font-size:10px!important;box-shadow:none!important}
+#referralModal .ref-actions .primary{border:1px solid rgba(255,255,255,.12)!important;background:#f0f1f2!important;color:#17191c!important}
+#referralModal .ref-actions .secondary{border:1px solid rgba(255,255,255,.08)!important;background:rgba(255,255,255,.04)!important;color:#d1d4d8!important}
 
-/* Bonuses: separate browsing and referrals with clear unread status. */
-.bonus-modal-card { padding:20px 17px;max-height:88dvh; }
-.bonus-heading { text-align:left;padding:3px 4px 12px; }
-.bonus-heading span { color:#87e1ed;font-size:10px;font-weight:760;letter-spacing:.12em; }
-.bonus-heading h2 { margin:5px 0 2px;font-size:23px; }
-.bonus-heading p { margin:0;color:#a7bfce;font-size:12px; }
-.bonus-tabs { display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border:1px solid #334c5e;
-  border-radius:12px;background:#101c27; }
-.bonus-tabs button { min-height:38px;border-radius:8px;background:transparent;color:#9db4c3;font-size:12px;font-weight:700; }
-.bonus-tabs button.active { background:#2c5267;color:#eafcff;box-shadow:inset 0 1px #ffffff24; }
-.bonus-modal-card .bonus-section { margin-top:13px;background:#14212c;border-color:#344d5e; }
-.bonus-hint { margin:0 0 10px;color:#98afbd;font-size:11px;text-align:left; }
-.bonus-modal-card .ref-stats { grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }
-.bonus-modal-card .ref-stat { min-width:0;padding:9px 5px;text-align:center; }
-.bonus-modal-card .ref-stat b { font-size:16px; }
-.bonus-modal-card .ref-stat small { font-size:9px;line-height:1.25; }
-.bonus-modal-card .ref-link { overflow-wrap:anywhere; }
+/* Multi-reward promo editor. */
+.promo-bundle-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.promo-bundle-head>div{min-width:0}.promo-bundle-head b{display:block;font-size:12px;color:#e8eaed}.promo-bundle-head small{display:block;margin-top:3px;color:#777d85;font-size:9px;line-height:1.35}
+.promo-bundle-head .secondary{width:auto;min-width:96px;min-height:36px;padding:7px 10px;border-radius:11px;font-size:10px;background:rgba(255,255,255,.045);border-color:rgba(255,255,255,.08);color:#d7dade}
+.promo-bundle-list{display:grid;gap:8px}
+.promo-bundle-item{padding:11px;border:1px solid rgba(255,255,255,.075);border-radius:15px;background:rgba(255,255,255,.025)}
+.promo-bundle-item-head{display:grid;grid-template-columns:minmax(0,1fr) 30px;gap:8px;align-items:end;margin-bottom:8px}
+.promo-bundle-item label{display:grid;gap:5px;min-width:0}.promo-bundle-item label>span{color:#858b93;font-size:9px;font-weight:620}
+.promo-bundle-item .text-input{min-height:40px;padding:9px 10px;border-radius:11px;background:rgba(0,0,0,.18);border-color:rgba(255,255,255,.085);font-size:11px}
+.promo-bundle-remove{display:grid;place-items:center;width:30px;height:30px;margin-bottom:5px;padding:0;border:1px solid rgba(255,255,255,.07);border-radius:50%;background:rgba(255,255,255,.035);color:#999ea5;font-size:18px;line-height:1}
+.promo-bundle-fields{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(88px,.65fr);gap:8px}
+.promo-bundle-fields label:nth-child(n+3){grid-column:auto}
+.user-promo-panel>h2{margin-bottom:4px!important}.user-promo-panel{gap:9px!important}
+.user-promo-panel .caption,.promo-admin-form .caption{margin-bottom:4px!important;color:#8c9299!important;font-size:9.5px!important;font-weight:620!important}
+.user-promo-panel .text-input,.promo-admin-form>.text-input,.promo-admin-extra .text-input{min-height:41px!important;padding:9px 10px!important;border-radius:11px!important}
+.user-promo-extra{margin-top:3px!important;border-top:1px solid rgba(255,255,255,.06);padding-top:7px}.user-promo-extra summary{color:#858a91;font-size:10px;cursor:pointer}
 
-/* Transfer panel with one readable progression. */
-#transferModal .transfer-card { width:min(100%,405px);padding:19px;text-align:left;border-color:#49768b;
-  background:linear-gradient(155deg,#1d3647,#142431 65%,#111c28); }
-.transfer-heading { padding:2px 2px 15px;border-bottom:1px solid #385366;margin-bottom:16px; }
-.transfer-heading span { color:#80d8e8;font-size:10px;font-weight:750;letter-spacing:.13em; }
-.transfer-heading h2 { margin:5px 0 3px;font-size:24px;line-height:1.2; }
-.transfer-heading p { margin:0;color:#a7c2d2;font-size:12px; }
-#transferModal .transfer-form { gap:10px; }
-#transferModal .transfer-form label { margin:2px 0 -4px;font-size:12px;font-weight:680;color:#c8e4ee; }
-#transferModal .transfer-form>.row { display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:7px; }
-#transferModal .transfer-form>.row .mini-btn { padding-inline:7px; }
-#transferModal .transfer-user { border-radius:12px;background:#1a3341;border-color:#426477; }
-#transferModal .transfer-preview { margin-top:6px;padding:13px;border:1px solid #385e6d;border-radius:14px;background:#132b37; }
-.transfer-preview>small { display:block;color:#a0bccb;font-size:11px; }
-#transferModal .transfer-before-after { border:0;background:none;box-shadow:none;margin:6px 0 0;padding:0;font-size:19px; }
-#transferModal .transfer-meta { margin-bottom:6px;color:#b8d0dc;font-size:12px;line-height:1.55; }
-#transferModal .transfer-buttons { gap:9px; }
-#transferModal #transferConfirmSummary { padding:15px;border:1px solid #406073;border-radius:12px;background:#142a38; }
-
-/* Extra breathing room for games and management screens. */
-#upgradePage { padding-bottom:34px; }
-#upgradePage .upgrade-heading { margin:25px 0 18px; }
-#upgradePage .upgrade-picks { gap:13px;margin-bottom:12px; }
-#upgradePage .upgrade-pick { min-height:165px;padding:15px 11px; }
-#upgradePage .upgrade-wheel-wrap { margin:26px auto 24px; }
-#upgradePage .upgrade-chance { margin:13px 0 19px;padding:13px; }
-#upgradePage .upgrade-action { margin-top:7px; }
-#adminPage .admin-menu { gap:20px; }
-#adminPage .admin-group { padding:17px; }
-#adminPage .admin-actions { gap:11px; }
-#adminPage .admin-group h2 { margin-bottom:13px; }
-#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#rtpPage .panel,#loaderSettingsPage .panel { margin-block:19px; }
-@media(max-height:710px) { #upgradePage .upgrade-wheel-wrap { margin:15px auto; } }
-
-/* A separate, readable feed for successful Upgrade spins. */
-#upgradePage .upgrade-wins-card { margin:23px 0 12px;border-color:#345567;background:linear-gradient(155deg,#172c38,#111c29); }
-#upgradePage .upgrade-wins-card h2 { color:#a9d9e8;font-size:12px;font-weight:760;letter-spacing:.035em;text-transform:none; }
-.upgrade-win-row { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;min-width:0;padding:12px;border-bottom:1px solid #2b4150; }
-.upgrade-win-row:last-child { border-bottom:0; }
-.upgrade-win-row .recent-win-avatar { width:38px;height:38px;align-self:start; }
-.upgrade-win-main { min-width:0; }
-.upgrade-win-head { display:flex;justify-content:space-between;align-items:center;gap:7px;min-width:0;margin-bottom:7px; }
-.upgrade-win-head strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
-.upgrade-win-chance { flex:none;padding:3px 6px;border:1px solid #3b786c;border-radius:7px;background:#173c39;color:#a1f1d0;font-size:10px;font-weight:740; }
-.upgrade-win-flow { display:flex;align-items:center;gap:7px;min-width:0; }
-.upgrade-win-chip { display:flex;align-items:center;gap:4px;min-width:0;padding:5px 7px;border:1px solid #3c5770;border-radius:10px;background:#152332;color:#dceefb;font-size:11px;font-weight:760;white-space:nowrap; }
-.upgrade-win-chip.target { border-color:#3b846c;background:#193c33;color:#d1ffe9; }
-.upgrade-win-chip img:first-child { width:27px;height:27px;min-width:27px;object-fit:contain; }
-.upgrade-win-chip img:last-child { width:14px;height:14px;object-fit:contain; }
-.upgrade-win-chip span { overflow:hidden;text-overflow:ellipsis; }
-.upgrade-win-arrow { flex:none;color:#90bbc8;font-size:11px;font-weight:800;line-height:1; }
-.upgrade-win-note { display:block;margin-top:5px;color:#9cb8c8;font-size:10px; }
-@media(max-width:355px) { .upgrade-win-row { grid-template-columns:31px minmax(0,1fr);gap:7px;padding:10px 7px; }.upgrade-win-row .recent-win-avatar { width:31px;height:31px; }.upgrade-win-chip { padding:4px;gap:3px;font-size:10px; }.upgrade-win-chip img:first-child { width:22px;height:22px;min-width:22px; } }
-
-/* Loss rewards stay visible until the player closes the result. */
-#upgradeResultModal .upgrade-compensation { display:grid;gap:9px;margin:15px 0!important;color:#dbeef5!important;font-size:12px!important;text-align:left; }
-#upgradeResultModal .upgrade-compensation.hidden { display:none!important; }
-.upgrade-compensation-line { display:grid;gap:4px;padding:11px 12px;border:1px solid #426c69;border-radius:12px;background:#17312f; }
-.upgrade-compensation-line strong { color:#bef5dd;font-size:12px; }
-.upgrade-compensation-line.promo-awarded { border-color:#6682aa;background:#1b3148; }
-.upgrade-compensation-line.promo-awarded strong { color:#bde9ff; }
-.upgrade-compensation-line code { overflow-wrap:anywhere;color:#fff;font-size:17px;font-weight:780;letter-spacing:.03em; }
-.upgrade-compensation-line small { color:#bdd2e0;font-size:11px; }
-.upgrade-compensation-line button { width:100%;min-height:39px;margin-top:5px;border-radius:10px; }
-
-/* /auf login, with visible steps and controls on narrow browser windows. */
-#auth { width:min(100%,420px);margin:clamp(16px,9vh,75px) auto 0;padding:clamp(18px,5vw,27px);border-color:#568ba4;background:radial-gradient(circle at 90% 0%,#254c62,#182d3d 52%,#121f2c); }
-#auth h1 { color:#effbff;font-size:clamp(23px,6vw,30px); }
-#authText { margin:6px 0 0;line-height:1.5; }
-#webAuthPanel { min-width:0;gap:13px; }
-#webAuthPanel p { padding:12px;border:1px solid #385970;border-radius:12px;background:#122536; }
-#webAuthPanel .web-auth-command { min-width:0;flex-wrap:wrap;border-color:#71c3d8;background:#0f2635;box-shadow:inset 0 1px #ffffff16; }
-#webAuthPanel .web-auth-command code { flex:1 1 160px;min-width:0;font-size:clamp(15px,4.2vw,19px); }
-#webAuthPanel .web-auth-command button,#webAuthRenew,#webBotLink { min-height:42px;padding:10px 13px;border:1px solid #619cb5;border-radius:11px;background:#244e63;color:#e6faff;text-align:center;font-size:12px;font-weight:740;text-decoration:none;cursor:pointer; }
-#webAuthPanel #webBotLink { display:grid;place-items:center;background:linear-gradient(120deg,#87dded,#5ab8d8);border-color:#99e9f4;color:#10232e; }
-#webAuthPanel #webBotLink.hidden { display:none!important; }
-#webAuthStatus { display:block;padding:9px 12px;border-left:3px solid #7bd7dc;border-radius:7px;background:#122c39;color:#c7e4ef; }
-
-/* Every clickable control in the bonus and promo dialogs has a clear state. */
-#referralModal button,#promoModal button { font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;transition:background .18s,border-color .18s,transform .18s,box-shadow .18s; }
-#referralModal button:active,#promoModal button:active { transform:scale(.98); }
-#referralModal button:disabled,#promoModal button:disabled { opacity:.55;cursor:default; }
-#referralModal .bonus-tabs button { border:1px solid transparent; }
-#referralModal .bonus-tabs button.active { border-color:#68b7ce;background:#305a6d;color:#f3ffff; }
-#referralModal .my-promo-card { min-height:64px;border-color:#476c82;background:#1a3140;color:#effaff;text-align:left; }
-#referralModal .my-promo-card.unread { border-color:#d7839b; }
-#referralModal .my-promo-card:not(:disabled):hover { background:#264356; }
-#referralModal .my-promo-card:disabled { background:#1d2229;color:#8e9aa5; }
-#referralModal .my-promo-more { min-height:42px;border-color:#4b869c;background:#1b4357;color:#def8ff; }
-#referralModal .ref-actions { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0; }
-#referralModal .ref-actions button { min-height:44px;border-radius:11px; }
-#referralModal .modal-close-small,#promoModal .modal-close-small { display:block;width:100%;min-height:43px;padding:10px;margin-top:12px;border:1px solid #4a6a7f;border-radius:11px;background:#213848;color:#d8edfa; }
-#promoModal .promo-check { display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid #8de3d7;border-radius:11px;background:#54c7ad;color:#092725; }
-#promoModal .promo-check svg { width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:2.5; }
-@media(max-width:370px) { #referralModal .bonus-modal-card { padding:17px 12px; }.bonus-modal-card .ref-stats { gap:4px; } }
-
-/* Upgrade feed: fixed art dimensions even when source PNGs are very large. */
-#upgradePage .upgrade-win-flow { overflow:hidden; }
-#upgradePage .upgrade-win-chip { flex:0 1 auto;overflow:hidden;max-width:calc(50% - 23px); }
-#upgradePage .upgrade-win-chip .upgrade-win-gift-image { display:block;flex:none;width:26px;height:26px;min-width:26px;max-width:26px;min-height:26px;max-height:26px;object-fit:contain; }
-#upgradePage .upgrade-win-chip .upgrade-win-ton-image { display:block;flex:none;width:13px;height:13px;min-width:13px;max-width:13px;min-height:13px;max-height:13px;object-fit:contain; }
-#upgradePage .upgrade-win-row { animation:upgradeFeedAppear .42s ease both; }
-#upgradePage .upgrade-win-row:nth-child(2) { animation-delay:.07s; }
-#upgradePage .upgrade-win-row:nth-child(3) { animation-delay:.14s; }
-#upgradePage .upgrade-win-row:nth-child(4) { animation-delay:.2s; }
-@keyframes upgradeFeedAppear { from { opacity:0;transform:translateY(7px) } to { opacity:1;transform:translateY(0) } }
-
-/* Spin has a clear active phase and a short settled result. */
-#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1s ease-in-out infinite; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before { content:"";position:absolute;z-index:2;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,#ffffff40 24deg,transparent 52deg);animation:upgradeSweep 1.35s linear infinite;pointer-events:none; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { animation:upgradeCenterBeat .72s ease-in-out infinite alternate; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i { filter:drop-shadow(0 0 9px #f2fffe) drop-shadow(0 4px 4px #0009); }
-#upgradePage .upgrade-wheel-wrap.spinning+.upgrade-chance { border-color:#5ba6a1;box-shadow:0 0 17px #53d9a120; }
-@keyframes upgradeSweep { to { transform:rotate(360deg) } }
-@keyframes upgradeCenterBeat { to { box-shadow:0 0 0 7px #12232ab0,0 0 34px #a6ffdc88;transform:scale(1.045) } }
-
-/* Bonus navigation, links and status all have consistent button affordances. */
-#referralModal .bonus-tabs { background:#101f2b;border-color:#486a7e; }
-#referralModal .bonus-tabs button { padding:9px 6px;color:#b2cad8;border-radius:9px; }
-#referralModal .bonus-tabs button.active { background:linear-gradient(140deg,#317089,#254c64);box-shadow:0 2px 10px #07131c9e;color:#fff; }
-#referralModal .ref-actions .secondary { border:1px solid #6396ad;background:#23475a;color:#eefaff; }
-#referralModal .ref-actions .primary { border:1px solid #a0eff2;background:linear-gradient(130deg,#9debea,#66bfdc);color:#0d2833; }
-#referralModal .my-promo-card .promo-status { padding:5px 7px;border-radius:8px;background:#173d4e; }
-#referralModal .my-promo-card.unread .promo-status { background:#53313e;color:#ffb9c8; }
-#referralModal .my-promo-card:disabled .promo-status { background:#252a30;color:#8c959e; }
-
-/* Administrative screens share a calm grid and readable controls. */
-#adminPage,#usersPage,#userPage,#withdrawalsPage,#transactionsPage,#depositSettingsPage,#promocodesPage,
-#rtpPage,#loaderSettingsPage,#portalPage,#transferSettingsPage,#userActivityPage,#levelsAdminPage,#rollAdminPage { min-width:0;padding-bottom:25px; }
-#adminPage .admin-heading { margin-bottom:18px; }
-#adminPage .admin-group { min-width:0;padding:17px;background:linear-gradient(160deg,#192c3b,#14212e); }
-#adminPage .admin-group h2 { margin:0 0 13px; }
-#adminPage .admin-actions button { min-width:0;min-height:57px;padding:10px 11px; }
-#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#rtpPage .panel,#loaderSettingsPage .panel,#usersPage .panel,#transactionsPage .panel { min-width:0;margin-block:17px;padding:16px; }
-#userPage .panel.stack,#promocodesPage .promo-admin-form { display:grid;gap:11px; }
-#userPage .panel .row,#usersPage .panel.row,#transactionsPage .panel.row { display:flex;gap:8px;align-items:center;min-width:0; }
-#userPage .panel .row .text-input,#usersPage .panel.row .text-input,#transactionsPage .panel.row .text-input { min-width:0;flex:1; }
-#userPage .panel .row .mini-btn,#usersPage .panel.row .mini-btn,#transactionsPage .panel.row .mini-btn { flex:none;min-height:42px;padding:9px 11px;border-radius:10px; }
-#userPage .panel button,#promocodesPage .panel button,#depositSettingsPage .panel button { min-height:42px;border-radius:10px; }
-#userPage .panel .text-input,#promocodesPage .panel .text-input { max-width:100%; }
-@media(max-width:440px) {
-  #adminPage .admin-actions { grid-template-columns:1fr;gap:8px; }
-  #adminPage .admin-actions button { min-height:45px; }
-  #adminPage .admin-menu { gap:15px; }
-  #adminPage .admin-group { padding:14px; }
-  #promocodesPage .promo-admin-extra { grid-template-columns:minmax(0,1fr); }
-  #promocodesPage .promo-admin-extra .full { grid-column:1; }
-  #upgradePage .upgrade-win-chip { padding:4px 5px;gap:3px; }
-}
-@media(prefers-reduced-motion:reduce) {
-  #upgradePage .upgrade-wheel-wrap.spinning,#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before,
-  #upgradePage .upgrade-wheel-wrap.spinning .upgrade-center,#upgradePage .upgrade-win-row { animation:none!important; }
+@media(max-width:420px){
+  #referralModal{padding:14px!important}
+  #referralModal .bonus-modal-card{padding:15px!important;border-radius:23px!important}
+  .promo-bundle-fields{grid-template-columns:minmax(0,1fr) 86px}
+  .promo-bundle-fields label:nth-child(n+3){grid-column:span 1}
 }
 
-/* Profile inventory: three complete gifts in each row, including narrow phones. */
-#profilePage #inventoryGrid.inventory {
-  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
-  align-items:stretch;min-width:0;width:100%;
+/* Build 26 — cleaner Upgrade geometry, highlighted Top Drop and /start button editor. */
+.recent-wins-card .top-drop{
+  position:relative!important;
+  overflow:hidden!important;
+  border-color:rgba(220,185,105,.28)!important;
+  background:
+    radial-gradient(circle at 92% 14%,rgba(234,202,126,.12),transparent 34%),
+    linear-gradient(145deg,rgba(31,31,28,.96),rgba(18,21,23,.98))!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.055),0 8px 24px rgba(0,0,0,.18),0 0 0 1px rgba(218,181,94,.035)!important;
 }
-#profilePage #inventoryGrid .gift {
-  box-sizing:border-box;display:flex;flex-direction:column;min-width:0;width:100%;height:100%;
-  padding:7px;border-radius:12px;overflow:visible;
+.recent-wins-card .top-drop:before{
+  content:""!important;
+  display:block!important;
+  position:absolute!important;
+  inset:-45% auto -45% -38%!important;
+  width:42%!important;
+  height:190%!important;
+  transform:rotate(16deg)!important;
+  background:linear-gradient(90deg,transparent,rgba(255,235,183,.07),transparent)!important;
+  pointer-events:none!important;
+  animation:topDropSheen 7.5s ease-in-out infinite!important;
 }
-#profilePage #inventoryGrid .gift-art {
-  display:grid;place-items:center;min-width:0;width:100%;height:clamp(88px,27vw,118px);
-  min-height:0;margin:0 0 7px;padding:7px;border-radius:9px;overflow:visible;
+.recent-wins-card .top-drop-label{
+  position:relative!important;
+  width:max-content!important;
+  padding:4px 7px!important;
+  border:1px solid rgba(224,190,110,.22)!important;
+  border-radius:999px!important;
+  background:rgba(216,179,92,.075)!important;
+  color:#d9c58e!important;
+  font-size:8.5px!important;
+  font-weight:760!important;
+  letter-spacing:.075em!important;
 }
-#profilePage #inventoryGrid .gift-art img {
-  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
-  object-fit:contain;object-position:center;transform:none;filter:none;
+.recent-wins-card .top-drop-body,.recent-wins-card .top-drop-empty{position:relative!important;z-index:1!important}
+.recent-wins-card .top-drop-art{box-shadow:inset 0 1px rgba(255,255,255,.045),0 5px 14px rgba(0,0,0,.18)!important}
+@keyframes topDropSheen{0%,63%{left:-38%;opacity:0}72%{opacity:1}91%,100%{left:112%;opacity:0}}
+@media(prefers-reduced-motion:reduce){.recent-wins-card .top-drop:before{animation:none!important;display:none!important}}
+
+/* TON stake input and button are exactly level. */
+#upgradeListModal .upgrade-ton-row{display:grid!important;grid-template-columns:minmax(0,1fr) 92px!important;gap:8px!important;align-items:stretch!important}
+#upgradeListModal .upgrade-ton-row .text-input,
+#upgradeListModal .upgrade-ton-row .primary{
+  box-sizing:border-box!important;
+  width:100%!important;
+  height:44px!important;
+  min-height:44px!important;
+  max-height:44px!important;
+  margin:0!important;
+  padding-top:0!important;
+  padding-bottom:0!important;
+  border-radius:12px!important;
+  line-height:42px!important;
 }
-#profilePage #inventoryGrid .gift strong {
-  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
-  text-overflow:clip;overflow-wrap:anywhere;-webkit-line-clamp:unset;
-  font-size:11px;line-height:1.3;font-weight:710;
+#upgradeListModal .upgrade-ton-row .text-input{line-height:normal!important;padding-inline:12px!important}
+
+/* Sharper Upgrade wheel edge and an exact red/green split. */
+#upgradePage .upgrade-wheel-wrap{
+  --upgrade-ring:rgba(221,239,246,.28);
+  border-radius:50%!important;
+  contain:layout paint!important;
+  isolation:isolate!important;
 }
-#profilePage #inventoryGrid .gift>small {
-  display:flex;align-items:center;flex-wrap:wrap;gap:3px;min-width:0;
-  margin-top:auto;padding-top:7px;white-space:normal;overflow-wrap:anywhere;
-  font-size:10px;line-height:1.25;
+#upgradePage .upgrade-wheel{
+  border-radius:50%!important;
+  clip-path:circle(50% at 50% 50%)!important;
+  -webkit-clip-path:circle(50% at 50% 50%)!important;
+  transform:translateZ(0)!important;
+  backface-visibility:hidden!important;
+  background:conic-gradient(#284257,#1a2e3d)!important;
+  box-shadow:inset 0 0 0 3px rgba(255,255,255,.16)!important;
 }
-#profilePage #inventoryGrid .gift>small img {
-  width:13px;height:13px;min-width:13px;max-width:13px;object-fit:contain;
+#upgradePage .upgrade-wheel.has-chance{
+  background:conic-gradient(#42d39b 0 var(--upgrade-angle),#ed677d var(--upgrade-angle) 360deg)!important;
 }
-#profilePage #inventoryGrid .gift-progress { width:100%;min-width:0; }
-#profilePage #inventoryGrid .gift-progress small { display:block;overflow-wrap:anywhere;white-space:normal;font-size:9px; }
-#profilePage #inventoryGrid .promo-ribbon { top:4px;right:4px;padding:3px 4px;font-size:8px; }
-@media(max-width:360px) {
-  #profilePage #inventoryGrid.inventory { gap:6px; }
-  #profilePage #inventoryGrid .gift { padding:5px; }
-  #profilePage #inventoryGrid .gift-art { height:86px;padding:5px; }
-  #profilePage #inventoryGrid .gift strong { font-size:10px; }
+#upgradePage .upgrade-wheel:after{
+  inset:10px!important;
+  border:1px solid rgba(255,255,255,.20)!important;
+  border-style:solid!important;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)!important;
+}
+#upgradePage .upgrade-wheel-wrap:before{
+  inset:-9px!important;
+  border:6px solid rgba(20,31,43,.98)!important;
+  box-shadow:inset 0 0 0 1px var(--upgrade-ring),0 10px 28px rgba(0,0,0,.34)!important;
+}
+#upgradePage .upgrade-chance{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:14px!important;
+  border-color:rgba(255,255,255,.085)!important;
+  background:rgba(255,255,255,.035)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035)!important;
+}
+#upgradePage .upgrade-chance-value{color:#8e979f!important;font-size:10px!important;line-height:1.35!important}
+#upgradePage .upgrade-chance-value b{display:inline-block;margin-top:2px;color:#f2f4f5!important;font-size:18px!important;font-variant-numeric:tabular-nums!important}
+#upgradePage .upgrade-chance-legend{display:grid!important;gap:6px!important;color:#9aa1a8!important;font-size:9.5px!important;line-height:1!important}
+#upgradePage .upgrade-chance-legend em{display:flex!important;align-items:center!important;gap:6px!important;font-style:normal!important;white-space:nowrap!important}
+#upgradePage .upgrade-chance-legend i{display:block!important;width:7px!important;height:7px!important;border-radius:50%!important;box-shadow:0 0 0 1px rgba(255,255,255,.08)!important}
+#upgradePage .upgrade-chance-legend i.win{background:#42d39b!important}
+#upgradePage .upgrade-chance-legend i.lose{background:#ed677d!important}
+
+/* /start keyboard editor. */
+.bot-settings-card{gap:11px!important}
+.bot-buttons-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:5px;padding-top:13px;border-top:1px solid rgba(255,255,255,.065)}
+.bot-buttons-head>div{min-width:0}.bot-buttons-head b{display:block;color:#eceef0;font-size:12px}.bot-buttons-head small{display:block;margin-top:3px;color:#7f858c;font-size:9px}
+.bot-buttons-head .mini-btn{flex:none;width:auto!important;min-height:34px!important;padding:0 10px!important}
+.bot-start-buttons{display:grid;gap:9px}
+.bot-button-row{padding:10px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025)}
+.bot-button-row-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.bot-button-row-head b{font-size:10px;color:#aeb3b9}.bot-button-row-head .post-row-remove{font-size:9px!important}
+.bot-button-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.95fr);gap:7px;padding:9px 0;border-top:1px solid rgba(255,255,255,.045)}
+.bot-button-item:first-of-type{border-top:0;padding-top:0}
+.bot-button-item .text-input{min-height:39px!important;height:39px!important;padding:8px 9px!important;border-radius:10px!important;font-size:10px!important}
+.bot-button-item .bot-button-value{grid-column:1/-1}
+.bot-button-remove{grid-column:2;justify-self:end;display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.07);border-radius:50%;background:rgba(255,255,255,.035);color:#9da2a8;font-size:18px;line-height:1}
+.bot-add-button{width:100%;min-height:34px;margin-top:5px;border:1px dashed rgba(255,255,255,.09);border-radius:10px;background:transparent;color:#8e949b;font-size:9.5px}
+.bot-tools-card{gap:7px!important}.bot-tools-card h2{margin-bottom:0!important}
+@media(max-width:420px){
+  .bot-button-item{grid-template-columns:1fr!important}
+  .bot-button-item .bot-button-value,.bot-button-remove{grid-column:1!important}
+  .bot-button-remove{justify-self:end!important}
+  #upgradePage .upgrade-chance{grid-template-columns:1fr auto!important;gap:9px!important;padding:11px!important}
 }
 
-/* Victory feeds: highlight today's best drop without overfilling the page. */
-.recent-wins-card .top-drop { display:grid;gap:7px;margin:10px 10px 5px;padding:10px 11px;border:1px solid #755d37;border-radius:12px;background:linear-gradient(125deg,#3c2e22,#203540 65%,#172632); }
-.recent-wins-card .top-drop-label { color:#ffe0a0;font-size:10px;font-weight:780;letter-spacing:.09em; }
-.recent-wins-card .top-drop-empty { color:#aebbc6;font-size:11px; }
-.recent-wins-card .top-drop-body { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:9px;min-width:0; }
-.recent-wins-card .top-drop-art { width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 3px 6px #0009); }
-.recent-wins-card .top-drop-info { display:grid;gap:2px;min-width:0; }
-.recent-wins-card .top-drop-info strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f8f1dc;font-size:12px; }
-.recent-wins-card .top-drop-info span { color:#c9e3ed;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
-#upgradePage .upgrade-wins-card { margin-top:20px; }
-#upgradePage .upgrade-win-row { padding:9px 11px;gap:8px; }
-#upgradePage .upgrade-win-head { margin-bottom:5px; }
-#upgradePage .upgrade-win-chip { min-height:31px; }
-#upgradePage .upgrade-win-chip .upgrade-win-gift-image { width:22px;height:22px;min-width:22px;max-width:22px;min-height:22px;max-height:22px; }
-#upgradePage .upgrade-win-chip .upgrade-win-ton-image { width:12px;height:12px;min-width:12px;max-width:12px;min-height:12px;max-height:12px; }
-#upgradePage .upgrade-wins-more { display:block;width:calc(100% - 20px);min-height:36px;margin:7px 10px 11px;border:1px solid #426a7c;border-radius:9px;background:#1c3545;color:#c7edf8;font-size:11px;font-weight:730; }
-#upgradePage .upgrade-wins-more.hidden { display:none!important; }
+/* Build 29 — final UI cleanup: old Upgrade pointer, single-surface inputs and staged transfers. */
 
-/* A compact navigation bar keeps all three destinations clear. */
-#nav.nav { gap:3px;justify-content:space-evenly;padding:6px 9px calc(6px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)));border-color:#345367;background:#14232ff2; }
-#nav.nav button { flex:1;min-width:0;min-height:48px;gap:2px;padding:5px 3px;border-radius:10px;font-size:10px;font-weight:710;transition:background .16s,color .16s,transform .16s; }
-#nav.nav button svg { width:20px;height:20px; }
-#nav.nav button.active { background:#2a5367;color:#e8fcff; }
-#nav.nav button:active { transform:scale(.96); }
+/* Upgrade: return the compact old triangle and keep it proportionate to the wheel. */
+#upgradePage .upgrade-wheel-wrap{
+  contain:none!important;
+  overflow:visible!important;
+  margin-top:26px!important;
+  filter:drop-shadow(0 12px 25px rgba(0,0,0,.48))!important;
+}
+#upgradePage .upgrade-pointer{overflow:visible!important}
+#upgradePage .upgrade-pointer i{
+  left:50%!important;
+  top:-4.35%!important;
+  width:10.25%!important;
+  height:9.25%!important;
+  min-width:0!important;
+  min-height:0!important;
+  max-width:none!important;
+  max-height:none!important;
+  border:0!important;
+  transform:translateX(-50%)!important;
+  transform-origin:50% 100%!important;
+  background:#f5f7f8!important;
+  clip-path:polygon(0 0,100% 0,50% 100%)!important;
+  -webkit-clip-path:polygon(0 0,100% 0,50% 100%)!important;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.62)) drop-shadow(0 3px 5px rgba(0,0,0,.30))!important;
+}
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i{
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.66)) drop-shadow(0 0 5px rgba(255,255,255,.22))!important;
+}
+/* Anti-aliased wheel edge: avoid polygon/circle clipping jaggies. */
+#upgradePage .upgrade-wheel{
+  border-radius:50%!important;
+  clip-path:none!important;
+  -webkit-clip-path:none!important;
+  overflow:hidden!important;
+  -webkit-mask-image:radial-gradient(circle at 50% 50%,#000 0 99.15%,rgba(0,0,0,.9) 99.45%,rgba(0,0,0,.3) 99.75%,transparent 100%)!important;
+  mask-image:radial-gradient(circle at 50% 50%,#000 0 99.15%,rgba(0,0,0,.9) 99.45%,rgba(0,0,0,.3) 99.75%,transparent 100%)!important;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.16)!important;
+}
+#upgradePage .upgrade-wheel-wrap:before{
+  inset:-8px!important;
+  border:0!important;
+  border-radius:50%!important;
+  background:#151e27!important;
+  box-shadow:0 0 0 1px rgba(207,231,240,.24),0 11px 28px rgba(0,0,0,.34),inset 0 1px rgba(255,255,255,.055)!important;
+}
+#upgradePage .upgrade-wheel:after{
+  inset:10px!important;
+  border:1px solid rgba(255,255,255,.15)!important;
+  border-style:solid!important;
+  box-shadow:none!important;
+}
+#upgradePage .upgrade-center{inset:28%!important;border-width:3px!important;box-shadow:0 0 0 5px rgba(16,27,35,.72),0 6px 18px rgba(0,0,0,.44)!important}
+#upgradePage .upgrade-chance{
+  min-height:48px!important;
+  padding:8px 11px!important;
+  margin:7px 0 14px!important;
+  gap:10px!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.028)!important;
+  border-color:rgba(255,255,255,.075)!important;
+  box-shadow:none!important;
+}
+#upgradePage .upgrade-chance-value{font-size:9.5px!important;line-height:1.2!important;color:#8f979e!important}
+#upgradePage #upgradeChance{margin-top:1px!important;font-size:14px!important;font-weight:780!important;letter-spacing:-.01em!important;color:#eef2f4!important}
+#upgradePage .upgrade-chance-legend{gap:5px!important;font-size:8.8px!important}
+#upgradePage .upgrade-chance-legend i{width:6px!important;height:6px!important}
 
-/* Focused admin controls for the two public feeds. */
-#winsAdminPage .wins-admin-panel { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px; }
-#winsAdminPage .wins-admin-stat { padding:13px;border:1px solid #426174;border-radius:12px;background:#152a38; }
-#winsAdminPage .wins-admin-stat span { display:block;color:#a6c3d4;font-size:11px; }
-#winsAdminPage .wins-admin-stat strong { font-size:24px;color:#e8f9ff; }
-#winsAdminPage .wins-admin-panel button,#winsAdminPage #winsAdminStatus { grid-column:1/-1; }
-#winsAdminPage .wins-admin-panel button { min-height:44px;border-radius:11px; }
-#winsAdminPage .wins-admin-panel .danger-btn { border:1px solid #bc7284;background:#643548;color:#ffe9ed; }
-#winsAdminPage #winsAdminStatus { margin:1px 0 0;font-size:12px; }
+/* Mines: one clean row, no captions, no nested rectangles. */
+#minesPage #setupControls{margin-top:16px!important}
+#minesPage #setupControls .controls{
+  grid-template-columns:minmax(0,1fr) 50px minmax(0,1.08fr)!important;
+  align-items:center!important;
+  gap:8px!important;
+  margin:0 0 10px!important;
+}
+#minesPage #setupControls .controls.no-gift-bets{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+}
+#minesPage #setupControls .gift-bet-slot{width:50px!important;min-width:50px!important;display:block!important}
+#minesPage #setupControls .gift-bet-slot.hidden{display:none!important}
+#minesPage #setupControls .gift-bet-toggle{
+  width:50px!important;height:50px!important;min-height:50px!important;margin:0!important;padding:0!important;
+  border-radius:13px!important;border:1px solid rgba(255,255,255,.10)!important;
+  background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important;
+}
+#minesPage #setupControls .gift-bet-toggle svg{width:22px!important;height:22px!important}
+#minesPage #betField,#minesPage .mines-stepper{
+  width:100%!important;height:50px!important;min-height:50px!important;margin:0!important;
+  border:1px solid rgba(255,255,255,.105)!important;border-radius:13px!important;
+  background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important;
+}
+#minesPage #betField{padding:0 11px!important}
+#minesPage #betField input{
+  min-width:0!important;height:46px!important;padding:0 2px!important;margin:0!important;
+  border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;
+}
+#minesPage #betField:focus-within{border-color:rgba(174,226,246,.32)!important;box-shadow:0 0 0 2px rgba(125,211,243,.06)!important}
+#minesPage .mines-stepper{display:grid!important;grid-template-columns:38px 1fr 38px!important;align-items:center!important;padding:5px!important;gap:4px!important}
+#minesPage .mines-stepper button{width:38px!important;height:38px!important;margin:0!important;padding:0!important;border-radius:10px!important;background:rgba(255,255,255,.055)!important}
+#minesPage .mines-stepper strong{font-size:16px!important;font-weight:760!important;text-align:center!important}
+#minesPage #quickBets{gap:8px!important;margin:0 0 11px!important}
+#minesPage #quickBets button{height:36px!important;border-radius:11px!important;background:rgba(255,255,255,.035)!important}
+#minesPage #start{min-height:52px!important;border-radius:14px!important}
 
-/* Deposit: one clear amount, a strong action, optional details. */
-#depositModal .deposit-card { width:min(100%,420px);max-height:calc(100dvh - 36px - env(safe-area-inset-bottom));overflow:auto;padding:19px;border:1px solid #4a7188;border-radius:22px;background:radial-gradient(circle at 90% 0%,#295e7266,transparent 50%),linear-gradient(160deg,#1b3142,#111e2b 78%);animation:depositArrive .36s cubic-bezier(.2,1,.3,1) both; }
-#depositModal .deposit-head { display:flex;align-items:center;gap:12px;padding-bottom:13px;margin-bottom:15px;border-bottom:1px solid #385263; }
-#depositModal .deposit-head-icon { display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:12px;background:#2b5269; }
-#depositModal .deposit-head-icon img { width:27px;height:27px;object-fit:contain; }
-#depositModal .deposit-kicker { font-size:9px;font-weight:790;letter-spacing:.12em;color:#8cdae9; }
-#depositModal .deposit-head h2 { margin:2px 0;font-size:21px; }
-#depositModal .deposit-head p { margin:0;color:#a9c5d2;font-size:11px; }
-#depositModal .wallet-disconnected-panel,#depositModal .wallet-connected-panel { margin:0 0 14px;padding:14px;border:1px solid #3f6175;border-radius:15px;background:#152b3a; }
-#depositModal .wallet-disconnected-panel { display:grid;justify-items:center;gap:8px;text-align:center; }
-#depositModal .wallet-disconnected-panel #modalWalletButton { width:100%;min-height:44px;margin-top:5px;border-radius:10px; }
-#depositModal .wallet-connected-head { margin-bottom:9px; }
-#depositModal .wallet-live { animation:depositConnectedGlow 2s ease-in-out infinite; }
-#depositModal .wallet-details { margin:5px 0 10px; }
-#depositModal .wallet-details summary { cursor:pointer;color:#99d9e9;font-size:11px;font-weight:720; }
-#depositModal .wallet-details .wallet-address-line { margin:9px 0 0; }
-#depositModal .wallet-balance-card { padding:9px 12px;border-radius:11px; }
-#depositModal .wallet-disconnect { display:block;margin:9px 0 0 auto; }
-#depositModal .topup-box { display:grid;gap:10px;margin:0; }
-#depositModal .topup-box>label { margin:0;color:#d7ecf5;font-size:12px; }
-#depositModal .topup-row { display:flex;align-items:center;gap:7px;padding:4px 12px;border:1px solid #53788c;border-radius:12px;background:#102431; }
-#depositModal .topup-row input { flex:1;min-width:0;min-height:39px;padding:5px 2px;border:0;outline:0;background:transparent;font-size:20px;font-weight:780; }
-#depositModal .topup-row span { color:#9ddfea;font-size:12px;font-weight:790; }
-#depositModal .topup-row:focus-within { border-color:#96e2ed;box-shadow:0 0 0 2px #81e3e023; }
-#depositModal .topup-presets { display:grid;grid-template-columns:repeat(3,1fr);gap:7px; }
-#depositModal .topup-presets button { min-height:35px;border:1px solid #416b80;border-radius:9px;background:#204052;color:#daeff8;font-size:11px;font-weight:730; }
-#depositModal .topup-presets button:active { transform:scale(.97); }
-#depositModal .deposit-pay { width:100%;min-height:49px;border-radius:12px;font-size:14px;font-weight:800; }
-#depositModal .deposit-promo-accordion { margin-top:3px;border:1px solid #345668;border-radius:12px;background:#142b39; }
-#depositModal .deposit-promo-accordion summary { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;cursor:pointer;color:#d6edf5;font-size:12px;font-weight:750;list-style:none; }
-#depositModal .deposit-promo-accordion summary::-webkit-details-marker { display:none; }
-#depositModal .deposit-promo-accordion summary span { color:#88cddc;font-size:10px;font-weight:680; }
-#depositModal .deposit-promo { margin:0;padding:0 11px 11px;border:0;background:transparent; }
-#depositModal .deposit-promo-row { grid-template-columns:minmax(0,1fr) 93px; }
-#depositModal .deposit-promo-row button { border-radius:10px; }
-#depositModal .wallet-state,#depositModal .deposit-foot,#depositModal #recipientState { font-size:10px;line-height:1.45; }
-#depositModal #closeDeposit { width:100%;min-height:40px;margin-top:12px!important;border-radius:11px; }
-@keyframes depositArrive { from { opacity:0;transform:translateY(12px) scale(.97) } to { opacity:1;transform:none } }
-@keyframes depositConnectedGlow { 50% { box-shadow:0 0 12px #6eecce88 } }
-@media(prefers-reduced-motion:reduce) { #depositModal .deposit-card,#depositModal .wallet-live { animation:none!important; } }
+/* Inputs wrapped by a styled container must never draw a second container. */
+#depositModal .topup-row>input,
+#depositModal .deposit-promo-row>input,
+#upgradeListModal .upgrade-ton-row>input{
+  border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;outline:0!important;
+}
+#depositModal .topup-row>input:focus,
+#depositModal .deposit-promo-row>input:focus,
+#upgradeListModal .upgrade-ton-row>input:focus{border:0!important;box-shadow:none!important}
+#depositModal .topup-row,#depositModal .deposit-promo-row,#upgradeListModal .upgrade-ton-row{box-shadow:inset 0 1px rgba(255,255,255,.035)!important}
+
+/* Standalone promo input: exactly one rectangle. */
+#promoModal .compact-modal{width:min(100%,338px)!important;padding:19px!important}
+#promoModal .compact-modal h2{margin:0 0 13px!important;font-size:20px!important}
+#promoModal .promo-entry{display:grid!important;grid-template-columns:minmax(0,1fr) 44px!important;gap:8px!important;margin-top:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+#promoModal #promoInput{height:44px!important;min-height:44px!important;margin:0!important;padding:0 12px!important;border:1px solid rgba(255,255,255,.105)!important;border-radius:12px!important;background:rgba(255,255,255,.04)!important;box-shadow:inset 0 1px rgba(255,255,255,.03)!important}
+#promoModal #promoInput:focus{border-color:rgba(174,226,246,.32)!important;box-shadow:0 0 0 2px rgba(125,211,243,.06)!important}
+#promoModal .promo-check{height:44px!important;min-height:44px!important;border-radius:12px!important;box-shadow:none!important}
+#promoModal .modal-close-small{width:100%!important;margin-top:9px!important}
+
+/* Transfer: input -> separate confirmation sheet -> receipt animation. */
+#transferModal .transfer-card{position:relative!important;overflow:hidden!important;width:min(100%,370px)!important;padding:20px!important;background:rgba(22,25,30,.97)!important;border-color:rgba(255,255,255,.11)!important}
+#transferModal .transfer-heading{margin-bottom:15px!important}
+#transferModal .transfer-heading>span{display:none!important}
+#transferModal .transfer-heading h2{margin:0 0 4px!important;font-size:22px!important}
+#transferModal .transfer-heading p{margin:0!important;color:#878f98!important;font-size:10.5px!important}
+#transferModal .transfer-form{display:grid!important;gap:9px!important}
+#transferModal .transfer-form .text-input{width:100%!important;height:46px!important;min-height:46px!important;padding:0 12px!important;border-radius:12px!important;background:rgba(255,255,255,.04)!important;border-color:rgba(255,255,255,.10)!important;box-shadow:inset 0 1px rgba(255,255,255,.03)!important}
+#transferModal .transfer-form .text-input:focus{border-color:rgba(174,226,246,.32)!important;box-shadow:0 0 0 2px rgba(125,211,243,.06)!important}
+#transferModal #transferFee{padding:1px 2px 4px!important;color:#7f8992!important;font-size:9.5px!important}
+#transferModal #prepareTransfer{min-height:46px!important;margin-top:2px!important}
+#transferModal #closeTransfer{min-height:40px!important;margin-top:9px!important;background:transparent!important;border-color:rgba(255,255,255,.065)!important;color:#9099a2!important}
+#transferModal .transfer-confirm-step{
+  position:absolute!important;z-index:8!important;inset:8px!important;display:block!important;padding:18px!important;
+  border:1px solid rgba(255,255,255,.12)!important;border-radius:20px!important;
+  background:rgba(20,23,28,.985)!important;box-shadow:0 22px 70px rgba(0,0,0,.58),inset 0 1px rgba(255,255,255,.055)!important;
+}
+#transferModal .transfer-confirm-step.hidden{display:none!important}
+#transferModal .transfer-confirm-kicker{color:#7f8992!important;font-size:8.5px!important;font-weight:750!important;letter-spacing:.11em!important}
+#transferModal .transfer-confirm-step h3{margin:5px 0 14px!important;font-size:20px!important}
+#transferModal .transfer-confirm-user{display:flex!important;align-items:center!important;gap:10px!important;padding:10px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:13px!important;background:rgba(255,255,255,.035)!important}
+#transferModal .transfer-confirm-user .avatar{width:42px!important;height:42px!important;border-radius:12px!important}
+#transferModal .transfer-confirm-user strong{display:block!important;font-size:12px!important}
+#transferModal .transfer-confirm-user small{display:block!important;margin-top:2px!important;color:#87919b!important;font-size:10px!important}
+#transferModal #transferConfirmSummary{margin:12px 2px 2px!important;color:#a4adb5!important;font-size:10.5px!important}
+#transferModal .transfer-buttons{margin-top:14px!important}
+.transfer-receipt .transfer-before-after{overflow:hidden!important}
+.transfer-receipt .transfer-before-after.animate del{animation:gdBalanceOld .55s cubic-bezier(.2,.8,.2,1) both}
+.transfer-receipt .transfer-before-after.animate b{animation:gdBalanceNew .62s .18s cubic-bezier(.2,1,.25,1) both}
+@keyframes gdBalanceOld{0%{opacity:0;transform:translateX(-8px)}45%{opacity:1;transform:none}100%{opacity:.48;transform:translateX(-2px)}}
+@keyframes gdBalanceNew{0%{opacity:0;transform:translateY(8px) scale(.94)}100%{opacity:1;transform:none}}
+
+/* Keep the floating nav tidy and centered without making it taller. */
+#nav.nav{width:min(448px,calc(100% - 18px))!important;height:56px!important;min-height:56px!important;bottom:calc(10px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;padding:4px!important;border-radius:19px!important}
+#nav.nav button{height:46px!important;min-height:46px!important;padding:4px 3px!important;gap:3px!important}
+#nav.nav button svg{width:19px!important;height:19px!important}
+
+/* Admin: remove noisy secondary decoration while preserving every action. */
+#adminPage .admin-group{padding:13px!important;border-radius:16px!important;background:rgba(255,255,255,.022)!important;box-shadow:none!important}
+#adminPage .admin-actions{gap:6px!important}
+#adminPage .admin-actions button{min-height:45px!important;padding:9px 10px!important;border-radius:11px!important;background:rgba(255,255,255,.028)!important;font-size:10.5px!important}
+#adminPage .admin-group h2{margin-bottom:8px!important;color:#858f98!important;font-size:9px!important}
+
+@media(max-width:380px){
+  #minesPage #setupControls .controls{grid-template-columns:minmax(0,1fr) 46px minmax(0,1.08fr)!important;gap:7px!important}
+  #minesPage #setupControls .gift-bet-slot,#minesPage #setupControls .gift-bet-toggle{width:46px!important;min-width:46px!important}
+  #minesPage #setupControls .gift-bet-toggle{height:48px!important;min-height:48px!important}
+  #minesPage #betField,#minesPage .mines-stepper{height:48px!important;min-height:48px!important}
+  #minesPage .mines-stepper{grid-template-columns:35px 1fr 35px!important;padding:4px!important}
+  #minesPage .mines-stepper button{width:35px!important;height:35px!important}
+  #nav.nav{width:calc(100% - 12px)!important;height:54px!important;min-height:54px!important;bottom:calc(7px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+  #nav.nav button{height:44px!important;min-height:44px!important;font-size:8.6px!important}
+}
+
+
+/* Build 30 — stable Upgrade UI, clean embedded inputs, staged updates and admin max-drop override. */
+html{scrollbar-gutter:stable}
+
+/* Embedded inputs live on exactly one visual surface. */
+#minesPage #bet,
+#depositModal .embedded-input,
+#upgradeListModal .embedded-input{
+  -webkit-appearance:none!important;appearance:none!important;
+  background:transparent!important;background-color:transparent!important;
+  border:0!important;outline:0!important;box-shadow:none!important;
+  border-radius:0!important;margin:0!important;
+}
+#minesPage #bet:focus,
+#depositModal .embedded-input:focus,
+#upgradeListModal .embedded-input:focus{border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important}
+#minesPage #betField,#depositModal .topup-row,#depositModal .deposit-promo-row,#upgradeListModal .upgrade-ton-row{
+  background:rgba(255,255,255,.045)!important;
+  border:1px solid rgba(255,255,255,.105)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035)!important;
+}
+#minesPage #betField:focus-within,#depositModal .topup-row:focus-within,#depositModal .deposit-promo-row:focus-within,#upgradeListModal .upgrade-ton-row:focus-within{
+  border-color:rgba(174,226,246,.32)!important;box-shadow:0 0 0 2px rgba(125,211,243,.06)!important;
+}
+
+/* Deposit order: amount -> quick values -> promo -> final pay button. */
+#depositModal .topup-box>label{order:1!important}
+#depositModal .topup-row{order:2!important}
+#depositModal .topup-presets{order:3!important}
+#depositModal .deposit-promo-accordion{order:4!important}
+#depositModal #recipientState{order:5!important}
+#depositModal #depositProgress{order:6!important}
+#depositModal .deposit-foot{display:none!important}
+#depositModal #topupAction{order:20!important;margin-top:2px!important}
+#depositModal .embedded-input{width:100%!important;min-width:0!important;height:44px!important;padding:0 2px!important;color:#f2f4f6!important;font-size:16px!important;font-weight:720!important}
+#depositModal #depositPromoCode{font-size:13px!important;font-weight:650!important;letter-spacing:.01em!important}
+
+/* Upgrade chance: label and value can never overlap. */
+#upgradePage .upgrade-chance{grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;gap:12px!important;min-width:0!important;overflow:hidden!important}
+#upgradePage .upgrade-chance-value{display:flex!important;align-items:baseline!important;justify-content:flex-start!important;gap:8px!important;min-width:0!important;white-space:nowrap!important;line-height:1!important}
+#upgradePage .upgrade-chance-value>span{min-width:0!important;color:#8e979f!important;font-size:9.5px!important;line-height:1!important}
+#upgradePage .upgrade-chance-value>b{display:block!important;flex:none!important;margin:0!important;color:#f3f5f6!important;font-size:15px!important;font-weight:780!important;line-height:1!important;letter-spacing:-.015em!important;font-variant-numeric:tabular-nums!important}
+#upgradePage .upgrade-chance-legend{flex:none!important;min-width:max-content!important}
+
+/* Selected Upgrade source is a clean horizontal ticket. */
+#upgradePage .upgrade-pick.gift-source,#upgradePage .upgrade-pick.ton-source{
+  min-height:86px!important;height:86px!important;padding:10px!important;text-align:left!important;
+  display:grid!important;align-items:center!important;gap:9px!important;overflow:hidden!important;
+}
+#upgradePage .upgrade-pick.gift-source{grid-template-columns:58px minmax(0,1fr) auto!important}
+#upgradePage .upgrade-pick.gift-source>small,#upgradePage .upgrade-pick.ton-source>small{display:none!important}
+#upgradePage .upgrade-pick.gift-source .pick-art{grid-column:1!important;grid-row:1!important;width:58px!important;height:58px!important;margin:0!important}
+#upgradePage .upgrade-pick.gift-source .pick-art img{width:58px!important;height:58px!important;max-width:58px!important;object-fit:contain!important}
+#upgradePage .upgrade-pick.gift-source #upgradeMineName{grid-column:2!important;grid-row:1!important;display:block!important;min-width:0!important;font-size:14px!important;font-weight:760!important;color:#f3f5f7!important;white-space:normal!important;line-height:1.12!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
+#upgradePage .upgrade-pick.gift-source #upgradeMinePrice{grid-column:3!important;grid-row:1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:5px!important;min-width:max-content!important;color:#f5f6f7!important;font-size:13px!important;font-weight:780!important;white-space:nowrap!important}
+#upgradePage .upgrade-pick.gift-source #upgradeMinePrice>small{display:none!important}
+#upgradePage .upgrade-price-ton{width:17px!important;height:17px!important;object-fit:contain!important;flex:none!important}
+#upgradePage .upgrade-pick.ton-source{grid-template-columns:minmax(0,1fr) auto!important}
+#upgradePage .upgrade-pick.ton-source .pick-art{display:none!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMineName{grid-column:1!important;grid-row:1!important;font-size:23px!important;font-weight:790!important;color:#f5f6f7!important;line-height:1!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMinePrice{grid-column:2!important;grid-row:1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;margin:0!important}
+#upgradePage .upgrade-source-ton-only{width:25px!important;height:25px!important;object-fit:contain!important}
+
+/* Keep last wins visually still; never redraw them while the pointer is moving. */
+#upgradePage .upgrade-win-row,#upgradePage .upgradeRecentWins,.upgrade-wins-card .top-drop:before{animation:none!important;transition:none!important}
+#upgradePage .upgrade-win-row{transform:none!important;opacity:1!important}
+#upgradePage .upgrade-wins-card{contain:layout style!important}
+html.upgrade-spin-lock #nav.nav{animation:none!important;transition:none!important;transform:translateX(-50%) translateZ(0)!important}
+html.upgrade-spin-lock .app{transform:none!important}
+#upgradePage{overflow-x:clip!important}
+
+/* Loss result: compensation stays secondary and quiet. */
+#upgradeResultModal .upgrade-compensation{display:grid!important;gap:3px!important;margin:5px 0 12px!important;text-align:center!important}
+#upgradeResultModal .upgrade-compensation.hidden{display:none!important}
+#upgradeResultModal .upgrade-compensation-line,#upgradeResultModal .upgrade-compensation-line.promo-awarded{
+  display:block!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;
+  color:#858e97!important;font-size:9.5px!important;font-weight:540!important;line-height:1.45!important;text-align:center!important;
+}
+#upgradeResultModal .upgrade-compensation-line.promo-awarded{color:#78828b!important}
+
+/* Transfer: commission only belongs to the confirmation step. */
+#transferModal #transferFee{display:none!important}
+#transferModal #transferConfirmSummary{display:block!important;padding:10px 11px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:11px!important;background:rgba(255,255,255,.025)!important;color:#aeb5bc!important;line-height:1.45!important}
+
+/* Admin override for a player's public maximum drop. */
+#userPage .admin-max-drop-panel{gap:8px!important}
+#userPage .admin-max-drop-current{padding:9px 10px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:rgba(255,255,255,.025);color:#aeb5bc;font-size:10px;line-height:1.35}
+#userPage .admin-max-drop-panel .row{display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important}
+#userPage .admin-max-drop-panel .row button{width:100%!important;min-height:40px!important}
+
+@media(max-width:390px){
+  #upgradePage .upgrade-chance{gap:7px!important;padding:10px!important}
+  #upgradePage .upgrade-chance-value{gap:6px!important}
+  #upgradePage .upgrade-chance-value>span{font-size:8.8px!important}
+  #upgradePage .upgrade-chance-value>b{font-size:14px!important}
+  #upgradePage .upgrade-chance-legend{font-size:8px!important;gap:4px!important}
+  #upgradePage .upgrade-pick.gift-source{grid-template-columns:50px minmax(0,1fr) auto!important;height:78px!important;min-height:78px!important;padding:8px!important;gap:7px!important}
+  #upgradePage .upgrade-pick.gift-source .pick-art,#upgradePage .upgrade-pick.gift-source .pick-art img{width:50px!important;height:50px!important;max-width:50px!important}
+  #upgradePage .upgrade-pick.gift-source #upgradeMineName{font-size:12px!important}
+  #upgradePage .upgrade-pick.gift-source #upgradeMinePrice{font-size:11.5px!important;gap:4px!important}
+  #upgradePage .upgrade-price-ton{width:15px!important;height:15px!important}
+}
+#upgradePage .upgrade-win-chip.ton-only{grid-template-columns:auto auto!important;display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:4px!important;padding:6px 8px!important}
+#upgradePage .upgrade-win-chip.ton-only .upgrade-win-ton-image{width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important}
+
+/* Build 32 — craft page full styling + upgrade pick parity. */
+#craftPage{
+  position:relative!important;
+  padding-bottom:24px!important;
+  background:radial-gradient(ellipse 95% 46% at 50% 0%,rgba(96,164,202,.10),transparent 62%),linear-gradient(180deg,transparent,transparent)!important;
+}
+#craftPage .craft-top{margin:0 0 16px!important}
+#craftPage .craft-top h1{margin:0!important;font-size:30px!important;font-weight:760!important;letter-spacing:-.045em!important}
+#craftPage .craft-grid{
+  gap:10px!important;
+  margin:0 0 14px!important;
+  padding:12px!important;
+  border:1px solid rgba(255,255,255,.08)!important;
+  border-radius:22px!important;
+  background:rgba(255,255,255,.03)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.04)!important;
+}
+#craftPage .craft-slot{
+  position:relative!important;
+  display:grid!important;
+  grid-template-rows:1fr auto!important;
+  gap:8px!important;
+  align-items:center!important;
+  justify-items:center!important;
+  min-width:0!important;
+  overflow:hidden!important;
+  aspect-ratio:1/1!important;
+  padding:8px!important;
+  border:1px solid rgba(255,255,255,.085)!important;
+  border-radius:18px!important;
+  background:linear-gradient(160deg,rgba(37,43,51,.92),rgba(20,24,30,.96))!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.045),0 10px 20px rgba(0,0,0,.16)!important;
+}
+#craftPage .craft-slot:before{
+  content:""!important;position:absolute!important;inset:0!important;
+  background:radial-gradient(circle at 18% 16%,rgba(255,255,255,.08),transparent 34%)!important;
+  pointer-events:none!important;
+}
+#craftPage .craft-slot.filled{border-color:rgba(118,186,223,.30)!important;background:linear-gradient(160deg,rgba(30,38,48,.98),rgba(14,19,25,.98))!important}
+#craftPage .craft-slot img{width:58px!important;height:58px!important;max-width:58px!important;max-height:58px!important;object-fit:contain!important;display:block!important;filter:drop-shadow(0 6px 10px rgba(0,0,0,.26))!important}
+#craftPage .craft-slot-meta{display:grid!important;gap:3px!important;width:100%!important;min-width:0!important;text-align:center!important}
+#craftPage .craft-slot-meta b{display:block!important;min-width:0!important;font-size:10px!important;line-height:1.15!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;color:#eef4f8!important}
+#craftPage .craft-slot-meta span{display:flex!important;justify-content:center!important;align-items:center!important;gap:4px!important;font-size:10px!important;font-weight:800!important;color:#dbe7f1!important}
+#craftPage .craft-slot-meta span img{width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important}
+#craftPage .craft-slot-plus{display:grid!important;place-items:center!important;width:42px!important;height:42px!important;border-radius:15px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.05)!important;box-shadow:inset 0 1px rgba(255,255,255,.045)!important}
+#craftPage .craft-slot-plus i{position:relative!important;display:block!important;width:16px!important;height:16px!important}
+#craftPage .craft-slot-plus i:before,#craftPage .craft-slot-plus i:after{content:""!important;position:absolute!important;left:50%!important;top:50%!important;background:#a7d7ef!important;border-radius:999px!important;transform:translate(-50%,-50%)!important}
+#craftPage .craft-slot-plus i:before{width:16px!important;height:2px!important}
+#craftPage .craft-slot-plus i:after{width:2px!important;height:16px!important}
+#craftPage .craft-slot small{position:relative!important;z-index:1!important;color:#8da0b2!important;font-size:10px!important;font-weight:700!important;letter-spacing:.01em!important}
+#craftPage .craft-slot-remove{position:absolute!important;top:6px!important;right:6px!important;width:22px!important;height:22px!important;display:grid!important;place-items:center!important;border-radius:999px!important;border:1px solid rgba(255,255,255,.09)!important;background:rgba(8,12,16,.72)!important;color:#edf6fb!important;font-size:14px!important;line-height:1!important}
+#craftPage .craft-summary{gap:10px!important}
+#craftPage .craft-range,
+#craftPage .craft-summary-empty{padding:13px 14px!important;border-radius:18px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(255,255,255,.035)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important}
+#craftPage .craft-summary-empty{color:#93a8bb!important;text-align:center!important}
+#craftPage .craft-range{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)!important;gap:10px!important}
+#craftPage .craft-range-card{min-width:0!important;gap:8px!important}
+#craftPage .craft-range-card img{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important}
+#craftPage .craft-range-card strong{font-size:11px!important;color:#f4f7f9!important}
+#craftPage .craft-range-card span{display:flex!important;align-items:center!important;gap:4px!important;font-size:12px!important;font-weight:800!important;color:#e8f0f6!important}
+#craftPage .craft-range-card span img,
+#craftPage .craft-range-card span .ton{width:14px!important;height:14px!important;max-width:14px!important;max-height:14px!important}
+#craftPage .craft-range-arrow{padding:0 8px!important;border-radius:999px!important;background:rgba(114,179,213,.08)!important;border:1px solid rgba(114,179,213,.14)!important;color:#9fd8f0!important;font-size:10px!important;display:grid!important;place-items:center!important;white-space:nowrap!important}
+#craftPage .craft-action{height:52px!important;min-height:52px!important;border-radius:15px!important;font-size:15px!important;font-weight:800!important}
+#craftPage .craft-inventory-grid{gap:10px!important;padding:2px!important}
+#craftPage .craft-inventory-item{gap:8px!important;padding:10px!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:16px!important;background:rgba(255,255,255,.03)!important;box-shadow:inset 0 1px rgba(255,255,255,.03)!important}
+#craftPage .craft-inventory-item img{width:100%!important;aspect-ratio:1/1!important;max-width:none!important;object-fit:contain!important}
+#craftPage .craft-inventory-item strong{font-size:11px!important;line-height:1.2!important;color:#edf2f6!important}
+#craftPage .craft-inventory-item span{display:flex!important;justify-content:center!important;align-items:center!important;gap:4px!important;font-weight:800!important;color:#e8f0f5!important}
+#craftPage .craft-inventory-item span img{width:14px!important;height:14px!important;max-width:14px!important;max-height:14px!important}
+#craftPage .craft-win-row{border:1px solid rgba(255,255,255,.08)!important;border-radius:15px!important;background:rgba(255,255,255,.03)!important}
+#craftPage .craft-win-chip{background:rgba(255,255,255,.04)!important;border:1px solid rgba(255,255,255,.075)!important}
+#craftPage .craft-win-chip img{width:22px!important;height:22px!important;max-width:22px!important;max-height:22px!important}
+#craftPage .craft-result-card{border:1px solid rgba(255,255,255,.1)!important;border-radius:24px!important;background:rgba(24,27,32,.96)!important;box-shadow:inset 0 1px rgba(255,255,255,.06),0 28px 88px rgba(0,0,0,.5)!important}
+#craftPage .craft-result-price{display:inline-flex!important;align-items:center!important;gap:6px!important}
+#craftPage .craft-result-price img{width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important}
+
+/* Better craft icon in bottom nav. */
+#nav.nav button[data-page="craftPage"] svg{width:19px!important;height:19px!important;stroke-width:1.8!important}
+
+/* Keep upgrade bet/target cards visually equal. */
+#upgradePage .upgrade-pick.gift-source,
+#upgradePage .upgrade-pick.ton-source,
+#upgradePage .upgrade-pick.target.gift-target{
+  min-height:84px!important;
+  height:84px!important;
+  padding:10px!important;
+  border-radius:17px!important;
+}
+#upgradePage .upgrade-pick.target.gift-target{
+  display:grid!important;
+  grid-template-columns:58px minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:9px!important;
+  text-align:left!important;
+}
+#upgradePage .upgrade-pick.target.gift-target>small{display:none!important}
+#upgradePage .upgrade-pick.target.gift-target .pick-art{grid-column:1!important;grid-row:1!important;width:58px!important;height:58px!important;margin:0!important}
+#upgradePage .upgrade-pick.target.gift-target .pick-art img{width:58px!important;height:58px!important;max-width:58px!important;max-height:58px!important;object-fit:contain!important}
+#upgradePage .upgrade-pick.target.gift-target #upgradeTargetName{grid-column:2!important;grid-row:1!important;display:block!important;min-width:0!important;font-size:14px!important;font-weight:760!important;color:#f4f6f8!important;line-height:1.12!important;white-space:normal!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
+#upgradePage .upgrade-pick.target.gift-target #upgradeTargetPrice{grid-column:3!important;grid-row:1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:5px!important;min-width:max-content!important;font-size:13px!important;font-weight:780!important;color:#f4f6f8!important}
+#upgradePage .upgrade-pick.ton-source{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;text-align:left!important}
+#upgradePage .upgrade-pick.ton-source>small{display:none!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMineName{font-size:22px!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMinePrice{justify-self:end!important}
+
+@media(max-width:380px){
+  #craftPage .craft-grid{gap:8px!important;padding:10px!important}
+  #craftPage .craft-slot{padding:6px!important;border-radius:16px!important}
+  #craftPage .craft-slot img{width:46px!important;height:46px!important;max-width:46px!important;max-height:46px!important}
+  #craftPage .craft-slot-meta b{font-size:9px!important}
+  #craftPage .craft-slot-meta span{font-size:9px!important}
+  #craftPage .craft-range{grid-template-columns:1fr!important}
+  #craftPage .craft-range-arrow{min-height:30px!important}
+  #upgradePage .upgrade-pick.gift-source,
+  #upgradePage .upgrade-pick.ton-source,
+  #upgradePage .upgrade-pick.target.gift-target{min-height:78px!important;height:78px!important}
+  #upgradePage .upgrade-pick.target.gift-target{grid-template-columns:50px minmax(0,1fr) auto!important;gap:7px!important}
+  #upgradePage .upgrade-pick.target.gift-target .pick-art,
+  #upgradePage .upgrade-pick.target.gift-target .pick-art img{width:50px!important;height:50px!important;max-width:50px!important;max-height:50px!important}
+  #upgradePage .upgrade-pick.target.gift-target #upgradeTargetName{font-size:12px!important}
+  #upgradePage .upgrade-pick.target.gift-target #upgradeTargetPrice{font-size:11.5px!important}
+}
+
+/* Build 33 — Craft rebuilt as a complete Apple-like component. */
+#craftPage{
+  --craft-surface:rgba(29,32,38,.78);
+  --craft-surface-strong:rgba(34,38,45,.92);
+  --craft-line:rgba(255,255,255,.095);
+  --craft-line-strong:rgba(255,255,255,.15);
+  --craft-text:#f5f7f9;
+  --craft-muted:#8f98a4;
+  --craft-accent:#8bdcf5;
+}
+#craftPage .craft-top{
+  display:flex!important;align-items:center!important;justify-content:space-between!important;
+  gap:12px!important;margin:0 0 18px!important;
+}
+#craftPage .craft-top h1{margin:0!important;font-size:30px!important;font-weight:760!important;letter-spacing:-.045em!important;color:var(--craft-text)!important}
+#craftPage .craft-top .top-actions{display:flex!important;align-items:center!important;gap:8px!important}
+#craftPage .craft-top .balance,#craftPage .craft-top .deposit-mini{
+  min-height:42px!important;height:42px!important;border:1px solid var(--craft-line)!important;
+  background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.045)!important;
+}
+#craftPage .craft-grid{
+  display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:10px!important;
+  margin:0 0 14px!important;padding:12px!important;border:1px solid var(--craft-line)!important;
+  border-radius:22px!important;background:rgba(255,255,255,.028)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.04),0 16px 38px rgba(0,0,0,.16)!important;
+  -webkit-backdrop-filter:blur(18px)!important;backdrop-filter:blur(18px)!important;
+  transition:opacity .26s ease,transform .26s ease,filter .26s ease!important;
+}
+#craftPage .craft-slot{
+  position:relative!important;display:grid!important;place-items:center!important;aspect-ratio:1!important;
+  min-width:0!important;margin:0!important;padding:8px!important;border:1px solid var(--craft-line)!important;
+  border-radius:18px!important;background:linear-gradient(155deg,rgba(255,255,255,.055),rgba(255,255,255,.022))!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.05),0 8px 20px rgba(0,0,0,.16)!important;
+  overflow:hidden!important;transition:transform .18s ease,border-color .18s ease,background .18s ease,opacity .18s ease!important;
+}
+#craftPage .craft-slot:before{
+  content:""!important;position:absolute!important;inset:0!important;pointer-events:none!important;
+  background:radial-gradient(circle at 26% 18%,rgba(255,255,255,.095),transparent 36%)!important;
+}
+#craftPage .craft-slot:hover{border-color:rgba(139,220,245,.25)!important;background:linear-gradient(155deg,rgba(255,255,255,.072),rgba(255,255,255,.028))!important}
+#craftPage .craft-slot:active{transform:scale(.965)!important}
+#craftPage .craft-slot.filled{border-color:rgba(139,220,245,.28)!important;background:linear-gradient(155deg,rgba(63,84,99,.28),rgba(255,255,255,.025))!important}
+#craftPage .craft-slot>img{
+  display:block!important;width:72%!important;height:72%!important;max-width:64px!important;max-height:64px!important;
+  object-fit:contain!important;position:relative!important;z-index:1!important;filter:drop-shadow(0 7px 11px rgba(0,0,0,.26))!important;
+}
+#craftPage .craft-slot-plus{
+  position:relative!important;z-index:1!important;display:grid!important;place-items:center!important;
+  width:42px!important;height:42px!important;border-radius:14px!important;border:1px solid rgba(255,255,255,.10)!important;
+  background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.05)!important;
+}
+#craftPage .craft-slot-plus i{position:relative!important;display:block!important;width:16px!important;height:16px!important}
+#craftPage .craft-slot-plus i:before,#craftPage .craft-slot-plus i:after{
+  content:""!important;position:absolute!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;
+  border-radius:99px!important;background:#b7d9e7!important;
+}
+#craftPage .craft-slot-plus i:before{width:16px!important;height:2px!important}
+#craftPage .craft-slot-plus i:after{width:2px!important;height:16px!important}
+#craftPage .craft-slot-remove{
+  position:absolute!important;z-index:3!important;top:5px!important;right:5px!important;display:grid!important;place-items:center!important;
+  width:22px!important;height:22px!important;padding:0!important;border:1px solid rgba(255,255,255,.10)!important;border-radius:999px!important;
+  background:rgba(8,10,13,.76)!important;color:#dbe2e8!important;font-size:14px!important;font-weight:500!important;line-height:1!important;
+  -webkit-backdrop-filter:blur(10px)!important;backdrop-filter:blur(10px)!important;
+}
+#craftPage .craft-summary{display:grid!important;gap:10px!important;margin:0 0 16px!important;transition:opacity .24s ease,transform .24s ease!important}
+#craftPage .craft-summary-empty,#craftPage .craft-range{
+  border:1px solid var(--craft-line)!important;border-radius:18px!important;background:var(--craft-surface)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.035)!important;-webkit-backdrop-filter:blur(18px)!important;backdrop-filter:blur(18px)!important;
+}
+#craftPage .craft-summary-empty{padding:14px!important;color:var(--craft-muted)!important;text-align:center!important;font-size:11px!important}
+#craftPage .craft-range{display:grid!important;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)!important;align-items:center!important;gap:10px!important;padding:12px!important}
+#craftPage .craft-range-card{display:grid!important;grid-template-columns:42px minmax(0,1fr)!important;align-items:center!important;gap:8px!important;min-width:0!important}
+#craftPage .craft-range-card>img{display:block!important;width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important}
+#craftPage .craft-range-card strong{display:block!important;min-width:0!important;color:var(--craft-text)!important;font-size:11px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+#craftPage .craft-range-card span{display:flex!important;align-items:center!important;gap:4px!important;margin-top:3px!important;color:#dfe8ef!important;font-size:11px!important;font-weight:800!important}
+#craftPage .craft-range-card span img{display:block!important;width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important;object-fit:contain!important}
+#craftPage .craft-range-arrow{display:grid!important;place-items:center!important;min-height:30px!important;padding:0 9px!important;border:1px solid rgba(139,220,245,.13)!important;border-radius:999px!important;background:rgba(139,220,245,.055)!important;color:#9ed8ee!important;font-size:9px!important;font-weight:750!important;white-space:nowrap!important}
+#craftPage .craft-action{height:52px!important;min-height:52px!important;padding:0 16px!important;border-radius:15px!important;font-size:15px!important;font-weight:800!important;letter-spacing:-.01em!important}
+
+/* Inventory picker lives outside #craftPage, so it needs its own full styles. */
+#craftInventoryModal{padding:14px!important;background:rgba(0,0,0,.62)!important;-webkit-backdrop-filter:blur(18px)!important;backdrop-filter:blur(18px)!important}
+#craftInventoryModal .upgrade-list-card{
+  position:relative!important;width:min(100%,420px)!important;max-height:min(84dvh,700px)!important;padding:18px!important;
+  border:1px solid rgba(255,255,255,.105)!important;border-radius:25px!important;background:rgba(24,27,32,.97)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.07),0 30px 90px rgba(0,0,0,.58)!important;
+  -webkit-backdrop-filter:blur(28px) saturate(120%)!important;backdrop-filter:blur(28px) saturate(120%)!important;
+}
+#craftInventoryModal .craft-modal-heading{padding:0 42px 12px 1px!important;border-bottom:1px solid rgba(255,255,255,.065)!important;margin-bottom:12px!important}
+#craftInventoryModal .craft-modal-heading h2{margin:0!important;color:#f5f6f7!important;font-size:20px!important;font-weight:730!important;letter-spacing:-.035em!important}
+#craftInventoryModal .craft-modal-heading p{margin:5px 0 0!important;color:#8f969f!important;font-size:10px!important;line-height:1.4!important}
+#craftInventoryModal #closeCraftInventory,#craftResultModal #closeCraftResult{
+  position:absolute!important;z-index:5!important;top:13px!important;right:13px!important;display:grid!important;place-items:center!important;
+  width:33px!important;height:33px!important;min-height:33px!important;margin:0!important;padding:0!important;border:1px solid rgba(255,255,255,.095)!important;
+  border-radius:999px!important;background:rgba(255,255,255,.055)!important;color:#c8cdd3!important;font-size:17px!important;font-weight:400!important;line-height:1!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.045)!important;
+}
+#craftInventoryModal .craft-inventory-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:9px!important;max-height:60dvh!important;overflow:auto!important;padding:1px 2px 2px!important}
+#craftInventoryModal .craft-inventory-item{
+  display:grid!important;grid-template-rows:auto auto auto!important;gap:7px!important;min-width:0!important;padding:9px!important;
+  border:1px solid rgba(255,255,255,.075)!important;border-radius:16px!important;background:rgba(255,255,255,.035)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.03)!important;color:#eef1f4!important;text-align:center!important;
+}
+#craftInventoryModal .craft-inventory-item:hover{background:rgba(255,255,255,.055)!important;border-color:rgba(139,220,245,.20)!important}
+#craftInventoryModal .craft-inventory-item:disabled{opacity:.28!important;filter:saturate(.5)!important}
+#craftInventoryModal .craft-inventory-item>img{
+  display:block!important;width:72px!important;height:72px!important;max-width:100%!important;aspect-ratio:auto!important;object-fit:contain!important;margin:0 auto!important;
+  filter:drop-shadow(0 7px 11px rgba(0,0,0,.22))!important;
+}
+#craftInventoryModal .craft-inventory-item strong{display:block!important;min-width:0!important;min-height:26px!important;color:#edf1f4!important;font-size:10px!important;line-height:1.25!important;overflow:hidden!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important}
+#craftInventoryModal .craft-inventory-item>span{display:flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;color:#dfe9ef!important;font-size:10px!important;font-weight:800!important}
+#craftInventoryModal .craft-inventory-item>span>span{font:inherit!important;color:inherit!important}
+#craftInventoryModal .craft-inventory-item>span>img{display:block!important;width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important;aspect-ratio:auto!important;object-fit:contain!important;margin:0!important;filter:none!important}
+
+/* Result modal: one gift, one price, one clear action. */
+#craftResultModal{padding:14px!important;background:rgba(0,0,0,.66)!important;-webkit-backdrop-filter:blur(18px)!important;backdrop-filter:blur(18px)!important}
+#craftResultModal .craft-result-card{
+  position:relative!important;width:min(100%,360px)!important;padding:20px 18px 18px!important;border:1px solid rgba(255,255,255,.105)!important;
+  border-radius:25px!important;background:rgba(24,27,32,.97)!important;box-shadow:inset 0 1px rgba(255,255,255,.07),0 30px 90px rgba(0,0,0,.58)!important;
+  text-align:center!important;-webkit-backdrop-filter:blur(28px) saturate(120%)!important;backdrop-filter:blur(28px) saturate(120%)!important;
+}
+#craftResultModal .craft-result-kicker{margin:1px 40px 3px!important;color:#7f8994!important;font-size:8px!important;font-weight:800!important;letter-spacing:.11em!important}
+#craftResultModal h2{margin:0!important;color:#f5f6f7!important;font-size:22px!important;font-weight:740!important;letter-spacing:-.035em!important}
+#craftResultModal .craft-result-art{display:grid!important;place-items:center!important;height:126px!important;margin:10px 0 8px!important}
+#craftResultModal .craft-result-art>img{display:block!important;width:118px!important;height:118px!important;max-width:118px!important;max-height:118px!important;object-fit:contain!important;filter:drop-shadow(0 14px 20px rgba(0,0,0,.30))!important}
+#craftResultModal #craftResultName{display:block!important;margin:0 0 8px!important;color:#f5f6f7!important;font-size:16px!important;font-weight:760!important}
+#craftResultModal .craft-result-price{display:inline-flex!important;align-items:center!important;gap:5px!important;margin:0 0 7px!important;padding:7px 10px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:999px!important;background:rgba(255,255,255,.035)!important;color:#e8eff4!important;font-size:12px!important;font-weight:800!important}
+#craftResultModal .craft-result-price img{display:block!important;width:14px!important;height:14px!important;max-width:14px!important;max-height:14px!important;object-fit:contain!important}
+#craftResultModal .craft-result-note{margin:0 0 12px!important;color:#8d98a3!important;font-size:10px!important}
+#craftResultModal #claimCraftReward{min-height:46px!important;border-radius:13px!important}
+
+/* Craft animation: grid and controls dissolve before the result appears. */
+#craftPage .craft-grid.crafting .craft-slot{animation:gdCraftDissolve .46s cubic-bezier(.4,0,.2,1) forwards!important;animation-delay:var(--craft-delay,0ms)!important;pointer-events:none!important}
+#craftPage.crafting-ui .craft-summary{animation:gdCraftUiFade .3s ease .12s forwards!important;pointer-events:none!important}
+#craftPage.craft-result-open .craft-grid,#craftPage.craft-result-open .craft-summary{opacity:0!important;transform:translateY(8px) scale(.985)!important;filter:blur(4px)!important;pointer-events:none!important}
+@keyframes gdCraftDissolve{0%{opacity:1;transform:scale(1);filter:blur(0)}55%{opacity:.48;transform:scale(.91);filter:blur(1px)}100%{opacity:0;transform:scale(.74) translateY(-8px);filter:blur(5px)}}
+@keyframes gdCraftUiFade{to{opacity:0;transform:translateY(5px)}}
+@media(prefers-reduced-motion:reduce){#craftPage .craft-grid.crafting .craft-slot,#craftPage.crafting-ui .craft-summary{animation-duration:.01ms!important;animation-delay:0ms!important}}
+
+/* Admin win feed now includes Craft. */
+#winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+#winsAdminPage .wins-admin-stat{border-color:rgba(255,255,255,.08)!important;background:rgba(255,255,255,.035)!important;border-radius:15px!important}
+#winsAdminPage .wins-admin-stat span{color:#8f99a4!important;font-size:10px!important}
+#winsAdminPage .wins-admin-stat strong{color:#f1f4f6!important;font-size:22px!important}
+
+@media(max-width:420px){
+  #craftPage .craft-grid{gap:8px!important;padding:10px!important;border-radius:20px!important}
+  #craftPage .craft-slot{padding:6px!important;border-radius:16px!important}
+  #craftPage .craft-slot>img{width:70%!important;height:70%!important;max-width:52px!important;max-height:52px!important}
+  #craftPage .craft-slot-plus{width:38px!important;height:38px!important;border-radius:13px!important}
+  #craftPage .craft-range{grid-template-columns:1fr!important;gap:8px!important}
+  #craftPage .craft-range-arrow{min-height:28px!important}
+  #craftInventoryModal .upgrade-list-card{padding:16px!important;border-radius:23px!important}
+  #craftInventoryModal .craft-inventory-grid{gap:8px!important}
+  #craftInventoryModal .craft-inventory-item{padding:8px 6px!important;border-radius:14px!important}
+  #craftInventoryModal .craft-inventory-item>img{width:60px!important;height:60px!important}
+  #winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important}
+  #winsAdminPage .wins-admin-stat{padding:10px 5px!important;text-align:center!important}
+  #winsAdminPage .wins-admin-stat strong{font-size:18px!important}
+}
+
+/* Build 34 — Craft feed layout restored after inline-style cleanup. */
+#craftPage .recent-wins-card{width:100%!important;min-width:0!important;overflow:visible!important}
+#craftPage #craftRecentWins{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:9px!important;width:100%!important;min-width:0!important}
+#craftPage .craft-win-row{
+  display:grid!important;
+  grid-template-columns:42px minmax(0,1fr)!important;
+  align-items:center!important;
+  gap:10px!important;
+  width:100%!important;
+  min-width:0!important;
+  padding:10px 11px!important;
+  border:1px solid rgba(255,255,255,.085)!important;
+  border-radius:15px!important;
+  background:rgba(255,255,255,.03)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.025)!important;
+  overflow:hidden!important;
+}
+#craftPage .craft-win-row .recent-win-avatar{width:42px!important;height:42px!important;min-width:42px!important;border-radius:13px!important;overflow:hidden!important}
+#craftPage .craft-win-main{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:7px!important;min-width:0!important;width:100%!important}
+#craftPage .craft-win-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:9px!important;min-width:0!important}
+#craftPage .craft-win-head strong{display:block!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#f1f4f7!important;font-size:12px!important;font-weight:740!important;cursor:pointer!important}
+#craftPage .craft-win-mult{flex:none!important;padding:4px 7px!important;border-radius:999px!important;border:1px solid rgba(118,190,225,.17)!important;background:rgba(118,190,225,.07)!important;color:#a9def4!important;font-size:10px!important;font-weight:800!important;line-height:1!important}
+#craftPage .craft-win-flow{display:grid!important;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr)!important;align-items:center!important;gap:6px!important;min-width:0!important;width:100%!important}
+#craftPage .craft-win-chip{display:flex!important;align-items:center!important;gap:6px!important;min-width:0!important;max-width:100%!important;padding:6px 8px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:11px!important;background:rgba(255,255,255,.035)!important;color:#e9f2f7!important;overflow:hidden!important}
+#craftPage .craft-win-chip img{display:block!important;flex:none!important;width:23px!important;height:23px!important;max-width:23px!important;max-height:23px!important;object-fit:contain!important}
+#craftPage .craft-win-chip div{min-width:0!important;overflow:hidden!important}
+#craftPage .craft-win-chip b{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:10.5px!important;font-weight:760!important;color:#eef4f7!important}
+#craftPage .craft-win-arrow{display:grid!important;place-items:center!important;width:18px!important;color:#71899b!important;font-size:11px!important;font-weight:800!important}
+#craftPage #craftTopDrop{width:100%!important;min-width:0!important}
+#craftPage #craftTopDrop .top-drop-body{min-width:0!important}
+
+@media(max-width:370px){
+  #craftPage .craft-win-row{grid-template-columns:36px minmax(0,1fr)!important;gap:8px!important;padding:9px!important}
+  #craftPage .craft-win-row .recent-win-avatar{width:36px!important;height:36px!important;min-width:36px!important}
+  #craftPage .craft-win-flow{grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr)!important;gap:4px!important}
+  #craftPage .craft-win-chip{padding:5px 6px!important;gap:5px!important}
+  #craftPage .craft-win-chip img{width:20px!important;height:20px!important;max-width:20px!important;max-height:20px!important}
+  #craftPage .craft-win-chip b{font-size:9.5px!important}
+  #craftPage .craft-win-mult{font-size:9px!important;padding:4px 6px!important}
+}

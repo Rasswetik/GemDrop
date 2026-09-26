@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '25-bundles-bonus-upgrade-polish'
+BUILD_ID = '26-upgrade-startbuttons-emoji'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2921,17 +2921,13 @@ def resolve_post_custom_emojis(text, rows=None):
 
 
 def rich_custom_emoji_html(text):
-    """Convert standard Bot API custom emoji HTML to Rich Message HTML.
+    """Return Rich HTML using the same official <tg-emoji> syntax as /start.
 
-    Bot API 10.3 supports custom emoji in Rich Messages via tg://emoji media
-    references. Using this representation avoids relying on normal message
-    parse_mode when a post contains premium emoji.
+    Bot API 10.3 accepts <tg-emoji> in Rich HTML as well as the tg://emoji
+    image form. Keeping the exact same representation as the proven /start
+    path avoids needless differences between bot greetings and publications.
     """
-    def repl(match):
-        emoji_id = match.group(1)
-        fallback = unescape(match.group(2))
-        return f'<img src="tg://emoji?id={emoji_id}" alt="{escape(fallback, quote=True)}"/>'
-    return CUSTOM_EMOJI_TAG_RE.sub(repl, str(text or ''))
+    return str(text or '')
 
 
 def emojis_in_post(text, rows=None):
@@ -3042,23 +3038,149 @@ def validate_greeting(text):
         raise ValueError('Приветствие слишком длинное: максимум 4096 символов.')
 
 
+def normalize_start_buttons(raw):
+    """Validate the editable /start inline keyboard and keep an editor-friendly shape."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError('Кнопки /start должны быть переданы рядами.')
+    rows, total = [], 0
+    for raw_row in raw[:10]:
+        if not isinstance(raw_row, list):
+            continue
+        row = []
+        for item in raw_row[:6]:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text') or '').strip()[:64]
+            if not text:
+                continue
+            kind = str(item.get('type') or 'web_app').strip().lower()
+            value = str(item.get('value') or '').strip()
+            style = str(item.get('style') or '').strip().lower()
+            icon = str(item.get('icon_custom_emoji_id') or '').strip()
+            if style not in ('', 'primary', 'success', 'danger'):
+                raise ValueError(f'Некорректный стиль кнопки «{text}».')
+            if icon and not re.fullmatch(r'[0-9]{5,30}', icon):
+                raise ValueError(f'Некорректный ID premium emoji у кнопки «{text}».')
+            if kind == 'web_app':
+                if value and not re.match(r'^https://', value, re.I):
+                    raise ValueError(f'Web App URL кнопки «{text}» должен начинаться с https://.')
+                value = value[:2048]
+            elif kind == 'url':
+                if not re.match(r'^(https?://|tg://)', value, re.I):
+                    raise ValueError(f'У кнопки «{text}» должна быть ссылка http(s):// или tg://.')
+                value = value[:2048]
+            elif kind == 'copy':
+                if not value:
+                    raise ValueError(f'У кнопки «{text}» нет текста для копирования.')
+                value = value[:256]
+            elif kind == 'callback':
+                if not value:
+                    raise ValueError(f'У кнопки «{text}» нет callback.')
+                callback_value = value if value.startswith('start:') else 'start:' + value
+                if len(callback_value.encode('utf-8')) > 64:
+                    raise ValueError(f'Callback кнопки «{text}» слишком длинный.')
+                value = value[:58]
+            else:
+                raise ValueError(f'Неизвестный тип кнопки «{text}».')
+            clean = {'text': text, 'type': kind, 'value': value}
+            if style:
+                clean['style'] = style
+            if icon:
+                clean['icon_custom_emoji_id'] = icon
+            row.append(clean)
+            total += 1
+            if total >= 36:
+                break
+        if row:
+            rows.append(row)
+        if total >= 36:
+            break
+    return rows
+
+
+def start_buttons_for_api(settings):
+    rows = settings.get('buttons') if isinstance(settings, dict) else None
+    if isinstance(rows, list):
+        return rows
+    return [[{'text': '🎮 Играть', 'type': 'web_app', 'value': '', 'style': 'primary'}]]
+
+
+def build_start_keyboard(uid, referrer=None):
+    settings = read_document('bot_settings') or {}
+    editor_rows = start_buttons_for_api(settings)
+    play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
+    inline = []
+    for row in editor_rows:
+        built = []
+        for item in row if isinstance(row, list) else []:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text') or '').strip()[:64]
+            if not text:
+                continue
+            kind = str(item.get('type') or 'web_app').lower()
+            value = str(item.get('value') or '').strip()
+            button = {'text': text}
+            style = str(item.get('style') or '').lower()
+            if style in ('primary', 'success', 'danger'):
+                button['style'] = style
+            icon = str(item.get('icon_custom_emoji_id') or '').strip()
+            if re.fullmatch(r'[0-9]{5,30}', icon):
+                button['icon_custom_emoji_id'] = icon
+            if kind == 'web_app':
+                target = value or play_url
+                target = target.replace('{webapp_url}', play_url)
+                if not target.startswith('https://'):
+                    target = play_url
+                button['web_app'] = {'url': target[:2048]}
+            elif kind == 'url':
+                target = value.replace('{webapp_url}', play_url)
+                if not re.match(r'^(https?://|tg://)', target, re.I):
+                    continue
+                button['url'] = target[:2048]
+            elif kind == 'copy':
+                if not value:
+                    continue
+                button['copy_text'] = {'text': value[:256]}
+            elif kind == 'callback':
+                callback_value = value if value.startswith('start:') else 'start:' + value
+                if not value or len(callback_value.encode('utf-8')) > 64:
+                    continue
+                button['callback_data'] = callback_value
+            else:
+                continue
+            built.append(button)
+        if built:
+            inline.append(built)
+    if not inline:
+        inline = [[{'text': '🎮 Играть', 'web_app': {'url': play_url}, 'style': 'primary'}]]
+    if uid in ADMIN_IDS:
+        inline.append([{'text': 'Определить ID эмодзи', 'callback_data': 'admin:emoji'}])
+        inline.append([{'text': 'Импортировать пост', 'callback_data': 'admin:post'}])
+    return {'inline_keyboard': inline}
+
+
 @app.route('/api/admin/bot/settings', methods=['GET', 'POST'])
 @admin_required
 def admin_bot_settings():
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
-        text = str(data.get('welcome_text') or '').strip()
+        current = read_document('bot_settings') or {}
+        text = str(data.get('welcome_text', current.get('welcome_text', '')) or '').strip()
         if len(text) > 16000:
             return error('Приветствие слишком длинное.')
         try:
             validate_greeting(text)
+            buttons = normalize_start_buttons(data.get('buttons', start_buttons_for_api(current)))
         except ValueError as exc:
             return error(str(exc))
-        save_document('bot_settings', dict(welcome_text=text))
-        remember_emojis(emojis_in_post(text))
+        save_document('bot_settings', dict(welcome_text=text, buttons=buttons))
+        remember_emojis(emojis_in_post(text, buttons))
     data = read_document('bot_settings') or {}
     return jsonify(ok=True, welcome_text=data.get('welcome_text', ''),
-                   effective_text=welcome_text(), emoji_notice=EMOJI_NOTICE)
+                   effective_text=welcome_text(), buttons=start_buttons_for_api(data), emoji_notice=EMOJI_NOTICE)
 
 
 @app.get('/api/admin/emojis')
@@ -4138,24 +4260,27 @@ def admin_publish_post():
     silent = str(data.get('silent') or '').lower() in ('1', 'true', 'on', 'yes') if multipart else bool(data.get('silent'))
     protect = str(data.get('protect') or '').lower() in ('1', 'true', 'on', 'yes') if multipart else bool(data.get('protect'))
     base_payload = {'chat_id': settings['chat_id'], 'disable_notification': silent, 'protect_content': protect}
+    transport_used = 'html_message'
     def send_post_text(post_text, markup=None):
-        # Bot API 10.3: premium emoji posts use Rich Messages even when short.
-        # The Rich HTML representation uses tg://emoji references, while plain
-        # posts can continue to use the normal HTML parse mode.
+        # Mirror the proven /start transport: ordinary posts, including premium
+        # emoji, go through sendMessage + HTML. Rich Messages are only needed
+        # when the parsed text is longer than the normal 4096-character limit.
+        nonlocal transport_used
         visible_len = len(re.sub(r'<[^>]+>', '', post_text or ''))
-        has_custom_emoji = bool(CUSTOM_EMOJI_TAG_RE.search(post_text or ''))
-        if has_custom_emoji or visible_len > 4096:
-            rich_html = rich_custom_emoji_html(post_text)
-            if len(rich_html.encode('utf-8')) > 32768:
-                raise RuntimeError('Текст поста превышает лимит Rich Message (32 768 UTF-8 символов).')
-            payload = dict(base_payload, rich_message={'html': rich_html})
+        if visible_len <= 4096:
+            payload = dict(base_payload, text=post_text, parse_mode='HTML')
             if markup:
                 payload['reply_markup'] = markup
-            return telegram_api('sendRichMessage', payload, timeout=(3, 18))
-        payload = dict(base_payload, text=post_text, parse_mode='HTML')
+            transport_used = 'html_message'
+            return telegram_api('sendMessage', payload, timeout=(3, 15))
+        rich_html = rich_custom_emoji_html(post_text)
+        if len(rich_html.encode('utf-8')) > 32768:
+            raise RuntimeError('Текст поста превышает лимит Rich Message (32 768 UTF-8 символов).')
+        payload = dict(base_payload, rich_message={'html': rich_html})
         if markup:
             payload['reply_markup'] = markup
-        return telegram_api('sendMessage', payload, timeout=(3, 15))
+        transport_used = 'rich_message'
+        return telegram_api('sendRichMessage', payload, timeout=(3, 18))
 
     try:
         sent = None
@@ -4190,52 +4315,34 @@ def admin_publish_post():
             payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
             if reply_markup:
                 payload['reply_markup'] = reply_markup
+            transport_used = 'rich_message'
             sent = remember_sent(telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30)))
         elif total_media == 1:
-            has_custom_emoji = bool(CUSTOM_EMOJI_TAG_RE.search(text or ''))
-            if has_custom_emoji:
-                # Keep image + premium emoji text in one Bot API 10.3 Rich Message.
-                media_id = 'post0'
-                media = []
-                files = {}
-                if photo_files:
-                    photo_file = photo_files[0]
-                    attach_name = 'post_file_0'
-                    media.append({'id': media_id, 'media': {'type': 'photo', 'media': f'attach://{attach_name}'}})
-                    files[attach_name] = (photo_file.filename or 'post.jpg', photo_file.stream, photo_file.mimetype or 'application/octet-stream')
-                else:
-                    media.append({'id': media_id, 'media': {'type': 'photo', 'media': image_refs[0]}})
-                rich_html = f'<img src="tg://photo?id={media_id}"/>'
-                if text:
-                    rich_html += '\n' + rich_custom_emoji_html(text)
-                payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
-                if reply_markup:
+            caption_ok = bool(text) and len(re.sub(r'<[^>]+>', '', text)) <= 1024
+            if photo_files:
+                photo_file = photo_files[0]
+                payload = dict(base_payload)
+                if reply_markup and not text:
                     payload['reply_markup'] = reply_markup
-                sent = remember_sent(telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 24)))
+                if caption_ok:
+                    payload.update(caption=text, parse_mode='HTML')
+                    if reply_markup:
+                        payload['reply_markup'] = reply_markup
+                files = {'photo': (photo_file.filename or 'post.jpg', photo_file.stream, photo_file.mimetype or 'application/octet-stream')}
+                sent = remember_sent(telegram_api('sendPhoto', payload, files=files, timeout=(3, 20)))
             else:
-                caption_ok = bool(text) and len(re.sub(r'<[^>]+>', '', text)) <= 1024
-                if photo_files:
-                    photo_file = photo_files[0]
-                    payload = dict(base_payload)
-                    if reply_markup and not text:
+                payload = dict(base_payload, photo=image_refs[0])
+                if reply_markup and not text:
+                    payload['reply_markup'] = reply_markup
+                if caption_ok:
+                    payload.update(caption=text, parse_mode='HTML')
+                    if reply_markup:
                         payload['reply_markup'] = reply_markup
-                    if caption_ok:
-                        payload.update(caption=text, parse_mode='HTML')
-                        if reply_markup:
-                            payload['reply_markup'] = reply_markup
-                    files = {'photo': (photo_file.filename or 'post.jpg', photo_file.stream, photo_file.mimetype or 'application/octet-stream')}
-                    sent = remember_sent(telegram_api('sendPhoto', payload, files=files, timeout=(3, 20)))
-                else:
-                    payload = dict(base_payload, photo=image_refs[0])
-                    if reply_markup and not text:
-                        payload['reply_markup'] = reply_markup
-                    if caption_ok:
-                        payload.update(caption=text, parse_mode='HTML')
-                        if reply_markup:
-                            payload['reply_markup'] = reply_markup
-                    sent = remember_sent(telegram_api('sendPhoto', payload, timeout=(3, 15)))
-                if text and not caption_ok:
-                    sent = remember_sent(send_post_text(text, reply_markup))
+                sent = remember_sent(telegram_api('sendPhoto', payload, timeout=(3, 15)))
+            if caption_ok:
+                transport_used = 'html_caption'
+            if text and not caption_ok:
+                sent = remember_sent(send_post_text(text, reply_markup))
         else:
             sent = remember_sent(send_post_text(text, reply_markup))
         expected = {e['id'] for e in emojis_in_post(text)}
@@ -4277,7 +4384,7 @@ def admin_publish_post():
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
-        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings, premium_emoji_verified=bool((expected or expected_icons) and not missing_text and not missing_icons), premium_emoji_transport=('rich_message' if expected else 'reply_markup' if expected_icons else 'none'))
+        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings, premium_emoji_verified=bool((expected or expected_icons) and not missing_text and not missing_icons), premium_emoji_transport=(transport_used if expected else 'reply_markup' if expected_icons else transport_used))
     except RuntimeError as exc:
         # If a multi-step publish managed to send media before Telegram rejected
         # the formatted text/keyboard, clean the partial publication as well.
@@ -5703,6 +5810,12 @@ def telegram_webhook():
             command_message = {'from': {'id': uid}, 'chat': {'type': 'private'},
                                'text': '/emoji' if callback_data == 'admin:emoji' else '/post'}
             return jsonify(**handle_admin_emoji_message(command_message))
+        if callback_data.startswith('start:'):
+            try:
+                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id, 'text': 'Готово'})
+            except RuntimeError:
+                pass
+            return jsonify(ok=True)
         if callback_data.startswith('freebet_check:'):
             code = callback_data.split(':',1)[1].strip().upper()
             try:
@@ -5797,14 +5910,10 @@ def telegram_webhook():
                 app.logger.exception('Freebet activation failed for %s', uid)
                 return jsonify(method='sendMessage', chat_id=chat['id'],
                                text='Не удалось активировать фрибет. Попробуйте ещё раз через несколько секунд.')
-        play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
-        button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}, 'style': 'primary'}]]}
+        button = build_start_keyboard(uid, referrer)
         save_document('bot_input:' + str(uid), {'mode': ''})
-        if uid in ADMIN_IDS:
-            button['inline_keyboard'].append([{'text': 'Определить ID эмодзи', 'callback_data': 'admin:emoji'}])
-            button['inline_keyboard'].append([{'text': 'Импортировать пост', 'callback_data': 'admin:post'}])
-        # Telegram can execute a Bot API method directly from the webhook response.
-        # This removes one extra outbound HTTP request and makes /start visibly faster.
+        # /start intentionally uses the same sendMessage + HTML path that is
+        # now also used by ordinary publications with premium emoji.
         return jsonify(method='sendMessage', chat_id=chat['id'], text=welcome_text(),
                        reply_markup=button, parse_mode='HTML')
     except (ValueError, KeyError, sqlite3.Error) as exc:

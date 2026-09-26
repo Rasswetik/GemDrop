@@ -238,6 +238,59 @@ html,body{touch-action:manipulation;overscroll-behavior:none}
 .profile-shortcut.referral{position:relative}.profile-shortcut.referral.has-bonus{box-shadow:inset 0 1px #ffffff30,0 0 14px #e7455055}.bonus-badge{position:absolute;top:-7px;right:-6px;display:grid;place-items:center;min-width:22px;height:22px;padding:0 5px;border-radius:12px;background:#ed3b50;color:#fff;border:2px solid #101820;font-size:10px;font-weight:950;line-height:1;box-shadow:0 3px 10px #f2385c80}.bonus-badge.hidden{display:none}.profile-shortcut.bonus-new{animation:bonus-arrived 1s ease-out 2}@keyframes bonus-arrived{50%{box-shadow:0 0 24px #ff526099}}
 
 .gift-expiry{display:block;margin-top:6px;padding:4px 6px;border:1px solid #7d4350;border-radius:7px;background:#2a1820;color:#ff9eae;font-size:8px;font-weight:800;line-height:1.25;text-align:center}.promo-gift-expiry{margin-top:8px;padding:8px 10px;border:1px solid #7d4350;border-radius:10px;background:#2a1820;color:#ffb0bd;font-size:10px;font-weight:800;text-align:center}.promo-expiry-settings{display:grid;gap:7px;margin-top:8px;padding:9px;border:1px solid #4d5967;border-radius:10px;background:#18242d}.promo-expiry-settings .multi-reward-line{margin:0}.promo-expiry-settings .caption{margin:0}.promo-expiry-settings.hidden{display:none!important}
+
+/* polish: mines layout, deposit promo, bottom nav, profile close */
+#setupControls .controls{grid-template-columns:minmax(0,1.52fr) 58px minmax(134px,.96fr);align-items:end;gap:10px}
+#setupControls .controls>div{min-width:0}
+#setupControls .gift-bet-slot{display:grid;align-content:end}
+#setupControls .gift-bet-slot .caption{visibility:visible;display:block;min-height:14px}
+#setupControls #betField.field,#setupControls .field.stepper,#setupControls .gift-bet-toggle{min-height:50px;height:50px}
+#setupControls .gift-bet-toggle{width:58px;border-radius:14px;display:grid;place-items:center}
+#setupControls .field.stepper{grid-template-columns:40px 1fr 40px;padding:4px 6px}
+#setupControls .field.stepper button{width:40px;height:40px;border-radius:11px}
+#setupControls .field.stepper strong{font-size:17px;letter-spacing:.02em}
+#setupControls.no-gift-bets .controls{grid-template-columns:minmax(0,1.45fr) minmax(130px,.95fr)}
+#setupControls.no-gift-bets .controls>div:last-child{justify-self:stretch}
+#setupControls.no-gift-bets .field.stepper{width:100%}
+#setupControls .quick button,#start{border-radius:14px}
+.recent-wins-card .top-drop{position:relative;overflow:hidden;border-color:#8a6d3b;box-shadow:0 10px 24px #0004,inset 0 1px rgba(255,255,255,.06)}
+.recent-wins-card .top-drop:before{content:'';position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,214,132,.08),transparent 34%,rgba(96,214,255,.06) 68%,transparent);pointer-events:none}
+.recent-wins-card .top-drop-label{display:flex;align-items:center;gap:6px}
+.recent-wins-card .top-drop-label:before{content:'★';color:#ffd989;font-size:11px}
+#depositModal .topup-row,
+#depositModal .deposit-promo-row,
+.upgrade-ton-row{padding:4px 12px;border:1px solid #53788c;border-radius:12px;background:#102431;align-items:center}
+#depositModal .deposit-promo-row{grid-template-columns:minmax(0,1fr)}
+#depositModal .topup-row input.text-input,
+#depositModal .deposit-promo-row input.text-input,
+.upgrade-ton-row input.text-input{margin:0;padding:0!important;min-height:40px;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .deposit-promo-row:focus-within,
+.upgrade-ton-row:focus-within{border-color:#96e2ed;box-shadow:0 0 0 2px #81e3e023}
+#depositModal .deposit-promo small{display:block;margin-top:2px}
+#depositPromoStatus.active{color:#9df0b8}
+#depositPromoStatus.error{color:#ff9eb0}
+#depositPromoStatus.checking{color:#9bd7f1}
+.upgrade-ton-row{grid-template-columns:minmax(0,1fr) 96px;gap:9px;margin:11px 0 6px}
+.upgrade-ton-row .primary{align-self:stretch;min-height:44px}
+.upgrade-chance{border-color:#3b5f72;box-shadow:inset 0 1px rgba(255,255,255,.02)}
+.upgrade-chance span:first-child,.upgrade-chance span:last-child{display:flex;align-items:center}
+.upgrade-compensation-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid #33424e;border-radius:12px;background:rgba(255,255,255,.03);text-align:left}
+.upgrade-compensation-line strong{font-size:11px;color:#dbe7ef}
+.upgrade-compensation-line span,.upgrade-compensation-line code{font-size:11px;font-weight:800;color:#e8f3fb}
+.upgrade-compensation-line small{display:block;margin-top:2px;color:#96a8b7;font-size:10px;line-height:1.4}
+.upgrade-compensation-line.promo-awarded{display:block;text-align:left}
+.upgrade-compensation-line.promo-awarded code{display:inline-flex;margin-top:6px;padding:6px 8px;border-radius:9px;border:1px solid #426173;background:#162734;color:#c4edff}
+.upgrade-compensation-line.promo-awarded button{margin-top:8px;width:100%}
+.public-profile-close span{display:grid;place-items:center;width:100%;height:100%;transform:none;line-height:1}
+#nav.nav{left:50%;transform:translateX(-50%);width:min(100%,460px);padding:7px 8px 8px;border-color:#29404f;box-shadow:0 14px 32px #0007}
+#nav.nav button{min-width:0}
+@media(max-width:380px){
+  #setupControls .controls{grid-template-columns:minmax(0,1.34fr) 52px minmax(118px,.9fr);gap:8px}
+  #setupControls .gift-bet-toggle{width:52px}
+  #setupControls .field.stepper{grid-template-columns:36px 1fr 36px;padding:4px}
+  #setupControls .field.stepper button{width:36px;height:36px}
+}
+
 </style><style id="gemdrop-ui">
 /* GemDrop UI: one consistent visual layer over the legacy page styles. */
 :root {
@@ -1061,8 +1114,157 @@ h1{font-weight:760;letter-spacing:-.045em}h2{font-weight:720;letter-spacing:-.02
 @supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){
   #nav.nav,.panel,.modal-card,.recent-wins-card,.profile-hero,.public-profile-card{background:#131c25!important}
 }
+
+/* final override patch */
+#setupControls .controls{grid-template-columns:minmax(0,1.52fr) 58px minmax(134px,.96fr)!important;align-items:end!important;gap:10px!important}
+#setupControls .controls>div{min-width:0}
+#setupControls .gift-bet-slot{display:grid;align-content:end}
+#setupControls .gift-bet-slot .caption{visibility:visible;display:block;min-height:14px}
+#setupControls #betField.field,#setupControls .field.stepper,#setupControls .gift-bet-toggle{min-height:50px;height:50px}
+#setupControls .gift-bet-toggle{width:58px;border-radius:14px;display:grid;place-items:center}
+#setupControls .field.stepper{grid-template-columns:40px 1fr 40px;padding:4px 6px}
+#setupControls .field.stepper button{width:40px;height:40px;border-radius:11px}
+#setupControls .field.stepper strong{font-size:17px;letter-spacing:.02em}
+#setupControls.no-gift-bets .controls,#minesPage .controls.no-gift-bets{grid-template-columns:minmax(0,1.45fr) minmax(130px,.95fr)!important}
+#setupControls.no-gift-bets .controls>div:last-child{justify-self:stretch}
+#setupControls.no-gift-bets .field.stepper,#minesPage .controls.no-gift-bets .field.stepper{width:100%}
+#depositModal .topup-row,#depositModal .deposit-promo-row,.upgrade-ton-row{padding:4px 12px;border:1px solid #53788c;border-radius:12px;background:#102431;align-items:center}
+#depositModal .deposit-promo-row{grid-template-columns:minmax(0,1fr)}
+#depositModal .topup-row input.text-input,#depositModal .deposit-promo-row input.text-input,.upgrade-ton-row input.text-input{margin:0;padding:0!important;min-height:40px;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .deposit-promo-row:focus-within,.upgrade-ton-row:focus-within{border-color:#96e2ed;box-shadow:0 0 0 2px #81e3e023}
+#depositPromoStatus.active{color:#9df0b8}
+#depositPromoStatus.error{color:#ff9eb0}
+#depositPromoStatus.checking{color:#9bd7f1}
+.upgrade-ton-row{grid-template-columns:minmax(0,1fr) 96px!important;gap:9px!important;margin:11px 0 6px!important}
+.upgrade-ton-row .primary{align-self:stretch;min-height:44px}
+.upgrade-compensation-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid #33424e;border-radius:12px;background:rgba(255,255,255,.03);text-align:left}
+.upgrade-compensation-line strong{font-size:11px;color:#dbe7ef}
+.upgrade-compensation-line span,.upgrade-compensation-line code{font-size:11px;font-weight:800;color:#e8f3fb}
+.upgrade-compensation-line small{display:block;margin-top:2px;color:#96a8b7;font-size:10px;line-height:1.4}
+.upgrade-compensation-line.promo-awarded{display:block;text-align:left}
+.upgrade-compensation-line.promo-awarded code{display:inline-flex;margin-top:6px;padding:6px 8px;border-radius:9px;border:1px solid #426173;background:#162734;color:#c4edff}
+.upgrade-compensation-line.promo-awarded button{margin-top:8px;width:100%}
+.public-profile-close span{display:grid!important;place-items:center!important;width:100%!important;height:100%!important;transform:none!important;line-height:1!important}
+#nav.nav{left:50%!important;transform:translateX(-50%)!important;width:min(100%,460px)!important;padding:7px 8px 8px!important;border-color:#29404f!important;box-shadow:0 14px 32px #0007!important}
+#nav.nav button{min-width:0}
+@media(max-width:380px){#setupControls .controls{grid-template-columns:minmax(0,1.34fr) 52px minmax(118px,.9fr)!important;gap:8px!important}#setupControls .gift-bet-toggle{width:52px}#setupControls .field.stepper{grid-template-columns:36px 1fr 36px;padding:4px}#setupControls .field.stepper button{width:36px;height:36px}}
+
+
+/* === Build 28: upgrade pointer + admin cleanup === */
+#upgradePage .upgrade-wheel-wrap{
+  overflow:visible;
+  margin-top:30px;
+}
+#upgradePage .upgrade-pointer{
+  overflow:visible;
+  opacity:1;
+}
+#upgradePage .upgrade-wheel-wrap:not(.ready) .upgrade-pointer{opacity:.48}
+#upgradePage .upgrade-pointer i{
+  position:absolute;
+  left:50%;
+  top:clamp(-20px,-5.5%,-12px);
+  width:clamp(38px,13%,48px);
+  height:clamp(36px,12%,44px);
+  border:0!important;
+  transform:translateX(-50%);
+  background:linear-gradient(180deg,#ffffff 0%,#ecfbff 44%,#bfeeff 100%);
+  clip-path:polygon(50% 100%,0 0,100% 0);
+  filter:drop-shadow(0 5px 5px rgba(0,0,0,.50)) drop-shadow(0 0 7px rgba(180,240,255,.20));
+  transform-origin:50% 50%;
+}
+#upgradePage .upgrade-wheel-wrap.ready .upgrade-pointer i{
+  filter:drop-shadow(0 5px 5px rgba(0,0,0,.52)) drop-shadow(0 0 8px rgba(173,239,255,.28));
+}
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i{
+  filter:drop-shadow(0 5px 5px rgba(0,0,0,.55)) drop-shadow(0 0 12px rgba(207,249,255,.52));
+}
+#upgradePage .upgrade-wheel-wrap:before{inset:-10px;border-width:7px}
+#upgradePage .upgrade-center{inset:28%;border-width:4px}
+#upgradePage .upgrade-chance{
+  min-height:58px;
+  align-items:center;
+  border-radius:15px;
+  padding:11px 13px;
+  background:rgba(22,34,43,.78);
+}
+#upgradePage .upgrade-chance-value{line-height:1.25}
+#upgradePage .upgrade-chance-legend{align-items:flex-end}
+
+/* Admin panel: flatter, quieter and easier to scan. */
+#adminPage .admin-heading{
+  margin:2px 0 17px;
+  padding:0 2px;
+  border:0;
+  background:none;
+}
+#adminPage .admin-heading span{color:#8fa7b7;font-size:9px;letter-spacing:.14em}
+#adminPage .admin-heading h1{margin:6px 0 0;font-size:28px;letter-spacing:-.04em}
+#adminPage .admin-heading p{display:none}
+#adminPage .admin-menu{gap:12px}
+#adminPage .admin-group{
+  padding:14px!important;
+  border:1px solid rgba(255,255,255,.075)!important;
+  border-radius:18px!important;
+  background:rgba(255,255,255,.025)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.025),0 10px 26px rgba(0,0,0,.12)!important;
+}
+#adminPage .admin-group h2{
+  margin:0 0 9px!important;
+  color:#98aab6;
+  font-size:10px;
+  font-weight:760;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+#adminPage .admin-actions{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px!important;
+}
+#adminPage .admin-actions button{
+  min-height:48px!important;
+  padding:10px 11px!important;
+  justify-content:flex-start;
+  border:1px solid rgba(255,255,255,.065)!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.032)!important;
+  color:#e5edf2;
+  font-size:11px;
+  font-weight:680;
+  box-shadow:none!important;
+}
+#adminPage .admin-actions button span{display:none}
+#adminPage .admin-actions button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(146,207,235,.20)!important}
+#adminPage .admin-actions button:active{transform:scale(.985);background:rgba(255,255,255,.075)!important}
+#adminPage .back{padding-bottom:14px;color:#8fcce6;font-size:12px}
+
+/* Remove a few redundant admin explanations without hiding actual settings. */
+#botSettingsPage .page-heading p,
+#postAdminPage>.muted,
+#postAdminPage .emoji-capability{display:none}
+#botSettingsPage .bot-tools-card p{margin-bottom:0}
+
+@media(max-width:430px){
+  #upgradePage .upgrade-pointer i{
+    top:-14px;
+    width:42px;
+    height:40px;
+  }
+  #upgradePage .upgrade-wheel-wrap{margin-top:31px}
+  #adminPage .admin-actions{grid-template-columns:1fr}
+  #adminPage .admin-actions button{min-height:46px!important}
+}
+@media(max-width:360px){
+  #upgradePage .upgrade-pointer i{
+    top:-13px;
+    width:40px;
+    height:39px;
+  }
+}
+
 </style>
-<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=26"></head><body>
+<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=28"></head><body>
 <div id="loader" class="loader"><div class="loader-inner"><img id="loaderImage" src="/static/gifs/shard.gif" alt=""><div class="progress"><i id="loaderBar"></i></div><div id="loaderText" class="loader-text">Загрузка…</div></div></div>
 <main class="app">
 <section id="auth" class="auth hidden"><h1>Вход в GemDrop</h1><p id="authText">Подключаем Telegram…</p><div id="webAuthPanel" class="web-auth-panel hidden"><p>Чтобы войти в свой аккаунт, отправьте боту эту команду в личном чате:</p><div class="web-auth-command"><code id="webAuthCommand">/auf …</code><button id="copyWebCommand" type="button" aria-label="Скопировать команду">Копировать</button></div><a id="webBotLink" class="web-bot-link hidden" target="_blank" rel="noopener noreferrer">Открыть бота →</a><small id="webAuthStatus" role="status">Ожидаем подтверждение в боте…</small><button id="webAuthRenew" class="secondary" type="button">Получить новый код</button></div><button id="retry" class="primary hidden">Повторить</button></section>
@@ -1093,7 +1295,7 @@ h1{font-weight:760;letter-spacing:-.045em}h2{font-weight:720;letter-spacing:-.02
 </div><nav id="nav" class="nav hidden"><button data-page="minesPage" class="active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-linecap="round" stroke-width="3"/></svg>Мины</button><button data-page="upgradePage"><svg viewBox="0 0 24 24"><path d="M4 18L18 4M9 4h9v9M4 9v9h9"/></svg>Апгрейд</button><button data-page="profilePage"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21c.5-4 3-6 7.5-6s7 2 7.5 6"/></svg>Профиль</button></nav></main>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="rewardModal" class="modal hidden"><div class="modal-card"><h2>Поздравляем!</h2><div id="rewardGift" class="promo-success-gift hidden"><img id="rewardImage" src="/static/img/ton.png" alt=""></div><div id="rewardGiftName" class="promo-success-name hidden"></div><div id="rewardTon" class="promo-success-ton hidden"><span id="rewardAmount">+0.00</span><img src="/static/img/ton.png" alt="TON"></div><p id="rewardExtra" class="modal-extra hidden"></p><button id="claimReward" class="primary">Забрать</button></div></div>
-<button id="levelNotice" class="level-notice hidden" type="button">Новый уровень! Нажмите, чтобы получить награду</button><div id="levelsModal" class="modal hidden"><div class="modal-card level-modal-card"><h2>Уровни и награды</h2><p id="levelsSummary">Ваш прогресс</p><div id="levelsList" class="level-list"></div><button id="closeLevels" class="primary" type="button">Закрыть</button></div></div><div id="levelRewardModal" class="modal hidden"><div class="modal-card level-reward-card"><h2>Награда получена!</h2><div id="levelRewardBody"></div><button id="closeLevelReward" class="primary" type="button">Готово</button></div></div><div id="upgradeListModal" class="modal hidden"><div class="modal-card upgrade-list-card"><h2 id="upgradeListTitle">Выберите подарок</h2><p id="upgradeListNote"></p><div id="upgradeTonPick" class="upgrade-ton-pick hidden"><div class="upgrade-ton-title"><img src="/static/img/ton.png" alt="TON"><b>Ставка TON</b></div><div class="upgrade-ton-row"><input id="upgradeTonAmount" class="text-input" type="text" inputmode="decimal" placeholder="0.10"><button id="upgradeSelectTon" class="primary" type="button">Выбрать</button></div><small id="upgradeTonBalance">Баланс: 0.00 TON</small></div><div id="upgradeList" class="upgrade-list"></div><button id="closeUpgradeList" class="secondary" type="button" style="margin-top:11px">Закрыть</button></div></div><div id="upgradeResultModal" class="modal hidden"><div id="upgradeResultCard" class="modal-card upgrade-result-card"><h2 id="upgradeResultHeading">Результат</h2><img id="upgradeResultImage" alt=""><p id="upgradeResultText"></p><div id="upgradeCompensation" class="upgrade-compensation hidden" role="status"></div><button id="closeUpgradeResult" class="primary" type="button">Продолжить</button></div></div><div id="transferModal" class="modal hidden"><div class="modal-card transfer-card"><div class="transfer-heading"><span>GEMDROP · ПЕРЕВОД</span><h2>Перевести TON</h2><p id="transferIntro">Отправьте TON игроку по его Telegram username</p></div><div id="transferLocked" class="transfer-locked hidden"></div><div id="transferForm" class="transfer-form"><label for="transferUsername">Username получателя</label><div class="row"><input id="transferUsername" class="text-input" placeholder="@username"><button id="lookupTransfer" class="mini-btn" type="button">Найти</button></div><div id="transferRecipient" class="transfer-user hidden"></div><label for="transferAmount">Сумма перевода, TON</label><input id="transferAmount" class="text-input" type="text" inputmode="decimal" placeholder="0.10"><div class="transfer-preview"><small>Баланс после перевода</small><div class="transfer-before-after"><del id="transferOld">0.00</del><span>→</span><b id="transferNew">0.00</b><img src="/static/img/ton.png" alt="TON" style="width:22px;height:22px"></div></div><div id="transferFee" class="transfer-meta">Комиссия 5%</div><button id="prepareTransfer" class="primary" type="button">Продолжить</button></div><div id="transferConfirm" class="hidden"><div id="transferConfirmSummary" class="transfer-meta"></div><div class="transfer-buttons"><button id="transferCancelConfirm" class="secondary" type="button">Назад</button><button id="sendTransfer" class="primary" type="button">Подтвердить</button></div></div><button id="closeTransfer" class="secondary" type="button" style="margin-top:12px">Закрыть</button></div></div><div id="transferReceiptModal" class="modal hidden"><div class="modal-card transfer-receipt"><div id="transferReceiptAvatar" class="avatar">G</div><h2 id="transferReceiptHeading">Перевод отправлен</h2><p id="transferReceiptText"></p><div class="transfer-before-after"><del id="transferReceiptOld">0.00</del><span>→</span><b id="transferReceiptNew">0.00</b><img src="/static/img/ton.png" alt="TON" style="width:22px;height:22px"></div><button id="transferReceiptContinue" class="primary" type="button">Продолжить</button></div></div><div id="giftModal" class="modal hidden"><div class="modal-card"><div class="modal-art"><img id="giftModalImage" src="/static/img/ton.png" alt=""></div><div id="giftModalName" class="modal-name"></div><div class="modal-price"><img src="/static/img/ton.png" alt="TON"><span id="giftModalPrice">0.00</span></div><div id="giftPromoBox" class="promo-wager-box hidden"><div class="promo-wager-title"><b>Промо-отыгрыш</b><span id="giftPromoX">X25</span></div><div class="promo-wager-progress"><i id="giftPromoBar"></i></div><div class="promo-wager-values"><span id="giftPromoProgress">0.00 TON</span><span id="giftPromoTarget">0.00 TON</span></div><div id="giftPromoExpiry" class="promo-gift-expiry hidden"></div><button id="claimPromoGift" class="primary promo-claim hidden">Получить подарок</button></div><div id="giftNormalActions" class="modal-actions"><button id="sellGift" class="primary">Продать</button><button id="withdrawGift" class="secondary">Вывести</button></div><button id="closeGiftModal" class="back" style="padding:18px 0 0">Закрыть</button></div></div><div id="depositModal" class="modal hidden"><div class="modal-card deposit-card"><div class="deposit-head"><span class="deposit-head-icon"><img src="/static/img/ton.png" alt="TON"></span><div><span class="deposit-kicker">КОШЕЛЁК · TON</span><h2>Пополнение</h2><p>Переведите TON из подключённого кошелька</p></div></div><div id="walletDisconnected" class="wallet-disconnected-panel"><div class="wallet-connect-icon"><svg viewBox="0 0 24 24"><path d="M4 7.5h14a2 2 0 0 1 2 2v8.5H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h12v3.5"/><path d="M15 11h7v4h-7a2 2 0 0 1 0-4Z"/></svg></div><b>Подключите TON-кошелёк</b><div id="walletState" class="wallet-state">Проверяем подключение…</div><button id="modalWalletButton" class="primary">Подключить кошелек</button></div><div id="walletConnected" class="wallet-connected-panel hidden"><div class="wallet-connected-head"><div class="wallet-logo"><img src="/static/img/ton.png" alt="TON"></div><div><small>Подключенный кошелёк</small><strong id="walletProvider">TON Wallet</strong></div><span class="wallet-live">Подключен</span></div><details class="wallet-details"><summary>Адрес и настройки кошелька</summary><div class="wallet-address-line"><span id="walletAddressFull" class="wallet-address-full">—</span><button id="refreshWalletBalance" class="wallet-refresh" type="button" aria-label="Обновить баланс"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.4-2.1L20 11M4 13l2.5 4.1A7 7 0 0 0 17.9 15"/></svg></button></div></details><div class="wallet-balance-card"><small>Баланс кошелька</small><div class="wallet-balance-value"><span id="walletBalance">—</span><img src="/static/img/ton.png" alt="TON"></div></div><button id="disconnectWallet" class="wallet-disconnect" type="button">Отвязать кошелек</button></div><div class="topup-box"><label class="caption" for="topupAmount">Сумма пополнения</label><div class="topup-row"><input id="topupAmount" class="text-input" type="text" inputmode="decimal" autocomplete="off" placeholder="0.10"><span>TON</span></div><div class="topup-presets"><button type="button" data-topup="1">1 TON</button><button type="button" data-topup="5">5 TON</button><button type="button" data-topup="10">10 TON</button></div><button id="topupAction" class="primary deposit-pay" disabled>Пополнить</button><details class="deposit-promo-accordion"><summary>Промокод <span>По желанию</span></summary><div class="deposit-promo"><label for="depositPromoCode">Промокод на пополнение</label><div class="deposit-promo-row"><input id="depositPromoCode" class="text-input" maxlength="32" placeholder="Введите код"><button id="activateDepositPromo" type="button">Применить</button></div><small id="depositPromoStatus">Бонус начислится вместе с подтверждённым пополнением.</small></div></details><div id="recipientState" class="wallet-state hidden"></div><div id="depositProgress" class="deposit-progress hidden"></div><div class="deposit-foot">Игровой баланс зачисляется только после подтверждения входящей транзакции в блокчейне TON.</div></div><button id="closeDeposit" class="secondary" style="margin-top:13px">Закрыть</button></div></div>
+<button id="levelNotice" class="level-notice hidden" type="button">Новый уровень! Нажмите, чтобы получить награду</button><div id="levelsModal" class="modal hidden"><div class="modal-card level-modal-card"><h2>Уровни и награды</h2><p id="levelsSummary">Ваш прогресс</p><div id="levelsList" class="level-list"></div><button id="closeLevels" class="primary" type="button">Закрыть</button></div></div><div id="levelRewardModal" class="modal hidden"><div class="modal-card level-reward-card"><h2>Награда получена!</h2><div id="levelRewardBody"></div><button id="closeLevelReward" class="primary" type="button">Готово</button></div></div><div id="upgradeListModal" class="modal hidden"><div class="modal-card upgrade-list-card"><h2 id="upgradeListTitle">Выберите подарок</h2><p id="upgradeListNote"></p><div id="upgradeTonPick" class="upgrade-ton-pick hidden"><div class="upgrade-ton-title"><img src="/static/img/ton.png" alt="TON"><b>Ставка TON</b></div><div class="upgrade-ton-row"><input id="upgradeTonAmount" class="text-input" type="text" inputmode="decimal" placeholder="0.10"><button id="upgradeSelectTon" class="primary" type="button">Выбрать</button></div><small id="upgradeTonBalance">Баланс: 0.00 TON</small></div><div id="upgradeList" class="upgrade-list"></div><button id="closeUpgradeList" class="secondary" type="button" style="margin-top:11px">Закрыть</button></div></div><div id="upgradeResultModal" class="modal hidden"><div id="upgradeResultCard" class="modal-card upgrade-result-card"><h2 id="upgradeResultHeading">Результат</h2><img id="upgradeResultImage" alt=""><p id="upgradeResultText"></p><div id="upgradeCompensation" class="upgrade-compensation hidden" role="status"></div><button id="closeUpgradeResult" class="primary" type="button">Продолжить</button></div></div><div id="transferModal" class="modal hidden"><div class="modal-card transfer-card"><div class="transfer-heading"><span>GEMDROP · ПЕРЕВОД</span><h2>Перевести TON</h2><p id="transferIntro">Отправьте TON игроку по его Telegram username</p></div><div id="transferLocked" class="transfer-locked hidden"></div><div id="transferForm" class="transfer-form"><label for="transferUsername">Username получателя</label><div class="row"><input id="transferUsername" class="text-input" placeholder="@username"><button id="lookupTransfer" class="mini-btn" type="button">Найти</button></div><div id="transferRecipient" class="transfer-user hidden"></div><label for="transferAmount">Сумма перевода, TON</label><input id="transferAmount" class="text-input" type="text" inputmode="decimal" placeholder="0.10"><div class="transfer-preview"><small>Баланс после перевода</small><div class="transfer-before-after"><del id="transferOld">0.00</del><span>→</span><b id="transferNew">0.00</b><img src="/static/img/ton.png" alt="TON" style="width:22px;height:22px"></div></div><div id="transferFee" class="transfer-meta">Комиссия 5%</div><button id="prepareTransfer" class="primary" type="button">Продолжить</button></div><div id="transferConfirm" class="hidden"><div id="transferConfirmSummary" class="transfer-meta"></div><div class="transfer-buttons"><button id="transferCancelConfirm" class="secondary" type="button">Назад</button><button id="sendTransfer" class="primary" type="button">Подтвердить</button></div></div><button id="closeTransfer" class="secondary" type="button" style="margin-top:12px">Закрыть</button></div></div><div id="transferReceiptModal" class="modal hidden"><div class="modal-card transfer-receipt"><div id="transferReceiptAvatar" class="avatar">G</div><h2 id="transferReceiptHeading">Перевод отправлен</h2><p id="transferReceiptText"></p><div class="transfer-before-after"><del id="transferReceiptOld">0.00</del><span>→</span><b id="transferReceiptNew">0.00</b><img src="/static/img/ton.png" alt="TON" style="width:22px;height:22px"></div><button id="transferReceiptContinue" class="primary" type="button">Продолжить</button></div></div><div id="giftModal" class="modal hidden"><div class="modal-card"><div class="modal-art"><img id="giftModalImage" src="/static/img/ton.png" alt=""></div><div id="giftModalName" class="modal-name"></div><div class="modal-price"><img src="/static/img/ton.png" alt="TON"><span id="giftModalPrice">0.00</span></div><div id="giftPromoBox" class="promo-wager-box hidden"><div class="promo-wager-title"><b>Промо-отыгрыш</b><span id="giftPromoX">X25</span></div><div class="promo-wager-progress"><i id="giftPromoBar"></i></div><div class="promo-wager-values"><span id="giftPromoProgress">0.00 TON</span><span id="giftPromoTarget">0.00 TON</span></div><div id="giftPromoExpiry" class="promo-gift-expiry hidden"></div><button id="claimPromoGift" class="primary promo-claim hidden">Получить подарок</button></div><div id="giftNormalActions" class="modal-actions"><button id="sellGift" class="primary">Продать</button><button id="withdrawGift" class="secondary">Вывести</button></div><button id="closeGiftModal" class="back" style="padding:18px 0 0">Закрыть</button></div></div><div id="depositModal" class="modal hidden"><div class="modal-card deposit-card"><div class="deposit-head"><span class="deposit-head-icon"><img src="/static/img/ton.png" alt="TON"></span><div><span class="deposit-kicker">КОШЕЛЁК · TON</span><h2>Пополнение</h2><p>Переведите TON из подключённого кошелька</p></div></div><div id="walletDisconnected" class="wallet-disconnected-panel"><div class="wallet-connect-icon"><svg viewBox="0 0 24 24"><path d="M4 7.5h14a2 2 0 0 1 2 2v8.5H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h12v3.5"/><path d="M15 11h7v4h-7a2 2 0 0 1 0-4Z"/></svg></div><b>Подключите TON-кошелёк</b><div id="walletState" class="wallet-state">Проверяем подключение…</div><button id="modalWalletButton" class="primary">Подключить кошелек</button></div><div id="walletConnected" class="wallet-connected-panel hidden"><div class="wallet-connected-head"><div class="wallet-logo"><img src="/static/img/ton.png" alt="TON"></div><div><small>Подключенный кошелёк</small><strong id="walletProvider">TON Wallet</strong></div><span class="wallet-live">Подключен</span></div><details class="wallet-details"><summary>Адрес и настройки кошелька</summary><div class="wallet-address-line"><span id="walletAddressFull" class="wallet-address-full">—</span><button id="refreshWalletBalance" class="wallet-refresh" type="button" aria-label="Обновить баланс"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.4-2.1L20 11M4 13l2.5 4.1A7 7 0 0 0 17.9 15"/></svg></button></div></details><div class="wallet-balance-card"><small>Баланс кошелька</small><div class="wallet-balance-value"><span id="walletBalance">—</span><img src="/static/img/ton.png" alt="TON"></div></div><button id="disconnectWallet" class="wallet-disconnect" type="button">Отвязать кошелек</button></div><div class="topup-box"><label class="caption" for="topupAmount">Сумма пополнения</label><div class="topup-row"><input id="topupAmount" class="text-input" type="text" inputmode="decimal" autocomplete="off" placeholder="0.10"><span>TON</span></div><div class="topup-presets"><button type="button" data-topup="1">1 TON</button><button type="button" data-topup="5">5 TON</button><button type="button" data-topup="10">10 TON</button></div><button id="topupAction" class="primary deposit-pay" disabled>Пополнить</button><details class="deposit-promo-accordion"><summary>Промокод <span>По желанию</span></summary><div class="deposit-promo"><label for="depositPromoCode">Промокод на пополнение</label><div class="deposit-promo-row"><input id="depositPromoCode" class="text-input" maxlength="32" placeholder="Введите код"></div><small id="depositPromoStatus">Бонус начислится вместе с подтверждённым пополнением.</small></div></details><div id="recipientState" class="wallet-state hidden"></div><div id="depositProgress" class="deposit-progress hidden"></div><div class="deposit-foot">Игровой баланс зачисляется только после подтверждения входящей транзакции в блокчейне TON.</div></div><button id="closeDeposit" class="secondary" style="margin-top:13px">Закрыть</button></div></div>
 <div id="promoModal" class="modal hidden"><div class="modal-card compact-modal"><h2>Промокод</h2><p class="modal-extra">Введите код и подтвердите</p><div id="promoPurposeText" class="promo-purpose-box hidden"></div><div class="promo-entry"><input id="promoInput" class="text-input" maxlength="32" autocomplete="off" placeholder="GEM-..."><button id="redeemPromo" class="promo-check" aria-label="Применить"><svg viewBox="0 0 24 24"><path d="m5 12 4.2 4.2L19 6.8"/></svg></button></div><button id="closePromoModal" class="modal-close-small">Закрыть</button></div></div>
 <div id="referralModal" class="modal hidden"><div class="modal-card bonus-modal-card"><div class="bonus-titlebar"><div><h2>Бонусы</h2><p>Промокоды и реферальные награды</p></div><button id="closeReferralModal" class="bonus-close" type="button" aria-label="Закрыть">×</button></div><div class="bonus-tabs"><button id="bonusPromoTab" class="active" type="button">Промокоды</button><button id="bonusReferralTab" type="button">Рефералы</button></div><div id="bonusPromoSection" class="bonus-section"><div class="bonus-section-head"><h3>Промокоды</h3><span id="myPromoCount">0 активных</span></div><div id="myPromoList" class="my-promos"><div class="bonus-empty">Загрузка…</div></div><button id="myPromoMore" class="my-promo-more hidden" type="button">Показать ещё</button></div><div id="bonusReferralSection" class="bonus-section hidden"><div class="bonus-section-head"><h3>Рефералы</h3><span>TON</span></div><p id="referralText" class="modal-extra">Загрузка…</p><div class="ref-stats"><div class="ref-stat"><b id="referralCount">0</b><small>приглашено</small></div><div class="ref-stat"><b id="referralDepositors">0</b><small>пополнили</small></div><div class="ref-stat"><b id="referralEarned">0.00</b><small>TON начислено</small></div></div><div id="referralLink" class="ref-link">—</div><div class="ref-actions"><button id="copyReferral" class="secondary">Копировать</button><button id="shareReferral" class="primary">Поделиться</button></div></div></div></div><div id="publicProfileModal" class="modal hidden"><div class="modal-card public-profile-card"><button id="closePublicProfile" class="public-profile-close" type="button" aria-label="Закрыть"><span aria-hidden="true">×</span></button><div class="public-profile-hero"><div id="publicProfileAvatar" class="public-profile-avatar">G</div><div class="public-profile-identity"><span class="public-section-kicker">ПРОФИЛЬ ИГРОКА</span><h2 id="publicProfileName">Игрок</h2><p id="publicProfileHandle">Telegram</p></div></div><div class="public-level-block"><div class="public-level-head"><strong id="publicProfileLevel">Уровень 1</strong><span id="publicProfileLevelValues">0 / — TON</span></div><div class="public-level-track"><i id="publicProfileLevelBar"></i></div></div><div class="public-stats"><div class="public-stat-card"><small>Игр Mines</small><b id="publicMinesCount">0</b></div><div class="public-stat-card"><small>Макс. X Mines</small><b id="publicMinesX">—</b></div><div class="public-stat-card"><small>Апгрейдов</small><b id="publicUpgradeCount">0</b></div><div class="public-stat-card"><small>Макс. X Upgrade</small><b id="publicUpgradeX">—</b></div></div><div id="publicMaxDrop" class="public-max-drop"><div class="public-max-drop-head"><span class="public-section-kicker">МАКСИМАЛЬНЫЙ ДРОП</span><span class="public-max-drop-mark">◆</span></div><div id="publicMaxDropBody" class="public-max-drop-body"><span class="public-empty">Пока нет дропа</span></div></div></div></div>
 <div id="promoRewardModal" class="modal hidden"><div class="modal-card"><h2 id="promoRewardHeading">Поздравляем!</h2><div id="promoRewardGift" class="promo-success-gift hidden"><img id="promoRewardGiftImage" src="/static/img/ton.png" alt=""></div><div id="promoRewardGiftName" class="promo-success-name hidden"></div><div id="promoRewardTon" class="promo-success-ton hidden"><span id="promoRewardAmount">0.00</span><img src="/static/img/ton.png" alt="TON"></div><div id="promoRewardBonus" class="promo-reward-bonus hidden"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M9 17h46v11a5 5 0 0 0 0 10v9H9v-9a5 5 0 0 0 0-10V17Z"/><path d="M32 22v20M23 32h18"/></svg><strong id="promoRewardBonusText"></strong></div><button id="closePromoReward" class="primary">Забрать</button></div></div>
@@ -1360,9 +1562,13 @@ async function saveAllLevels(silent=false){if(typeof silent!=='boolean')silent=f
 $('saveAllLevels').onclick=()=>saveAllLevels();$('addLevelAdmin').onclick=addLevelAdmin;
 async function loadLevelsAdmin(){try{let [l,c]=await Promise.all([api('/api/admin/levels'),api('/api/catalog')]);catalogItems=c.gifts||[];levelAdminRows=l.levels;renderLevelsAdmin()}catch(e){toast(e.message)}}
 let activeDepositBonus=null;
-function depositBonusLabel(d,amount=Number($('topupAmount').value.replace(',','.'))||0){if(!d?.active)return'Бонус начислится вместе с подтверждённым пополнением.';let bonus=d.bonus_percent?amount*d.bonus_percent/100:d.bonus_fixed;return amount<d.min_deposit?`${d.code}: пополните от ${money(d.min_deposit)} TON, чтобы получить бонус`:`${d.code}: сумма +${d.bonus_percent?d.bonus_percent+'%':money(bonus)+' TON'} к депозиту`}
-async function refreshDepositBonus(){try{let d=await api('/api/deposit-bonus');activeDepositBonus=d.active?d:null;$('depositPromoStatus').textContent=depositBonusLabel(activeDepositBonus);$('depositPromoStatus').classList.toggle('active',!!d.active);let section=document.querySelector('.deposit-promo-accordion');section.open=true;section.querySelector('summary span').textContent=d.active?'Применён':'По желанию';}catch(e){$('depositPromoStatus').textContent=e.message}}
-$('activateDepositPromo').onclick=async()=>{let b=$('activateDepositPromo');b.disabled=true;try{let d=await api('/api/promocodes/redeem',{method:'POST',body:JSON.stringify({code:$('depositPromoCode').value})});if(d.reward.type!=='deposit_bonus'){setUser(d.user);showPromoReward(d.reward)}$('depositPromoCode').value='';await refreshDepositBonus();loadMyPromos();toast(d.reward.type==='deposit_bonus'?'Промокод на депозит активирован':'Промокод активирован')}catch(e){toast(e.message)}finally{b.disabled=false}};$('topupAmount').addEventListener('input',()=>{$('depositPromoStatus').textContent=depositBonusLabel(activeDepositBonus)});
+function depositBonusLabel(d,amount=Number($('topupAmount').value.replace(',','.'))||0){if(!d?.active)return'Бонус начислится вместе с подтверждённым пополнением.';let bonus=d.bonus_percent?amount*d.bonus_percent/100:d.bonus_fixed;return amount<d.min_deposit?`${d.code}: пополните от ${money(d.min_deposit)} TON, чтобы получить бонус`:`${d.code}: бонус +${d.bonus_percent?d.bonus_percent+'%':money(bonus)+' TON'} к пополнению`}
+let depositPromoTimer=0,depositPromoSeq=0,depositPromoApplying=false;
+function setDepositPromoStatus(message,kind=''){let box=$('depositPromoStatus');box.textContent=message;box.classList.remove('active','error','checking');if(kind)box.classList.add(kind)}
+function syncDepositPromoSummary(){let section=document.querySelector('.deposit-promo-accordion');if(!section)return;section.open=true;section.querySelector('summary span').textContent=activeDepositBonus?'Применён':'По желанию'}
+async function refreshDepositBonus(){try{let d=await api('/api/deposit-bonus');activeDepositBonus=d.active?d:null;if(!$('depositPromoCode').value.trim())setDepositPromoStatus(depositBonusLabel(activeDepositBonus),activeDepositBonus?'active':'');syncDepositPromoSummary()}catch(e){setDepositPromoStatus(e.message,'error')}}
+async function validateDepositPromo(code){code=(code||'').trim().toUpperCase();depositPromoSeq++;let seq=depositPromoSeq;if(!code){$('depositPromoCode').value='';setDepositPromoStatus(depositBonusLabel(activeDepositBonus),activeDepositBonus?'active':'');return}setDepositPromoStatus('Проверяем промокод…','checking');try{let info=await api('/api/promocodes/check-deposit?code='+encodeURIComponent(code));if(seq!==depositPromoSeq)return;if(!info.valid){setDepositPromoStatus(info.message||'Промокод недействителен.','error');return}if(info.already_active){activeDepositBonus={active:true,code:info.code,bonus_percent:info.bonus_percent,bonus_fixed:info.bonus_fixed,min_deposit:info.min_deposit};setDepositPromoStatus(depositBonusLabel(activeDepositBonus),'active');syncDepositPromoSummary();return}if(depositPromoApplying)return;depositPromoApplying=true;setDepositPromoStatus('Активируем промокод…','checking');let d=await api('/api/promocodes/redeem',{method:'POST',body:JSON.stringify({code})});if(seq!==depositPromoSeq)return;if(d.user)setUser(d.user);$('depositPromoCode').value=code;await refreshDepositBonus();loadMyPromos();setDepositPromoStatus(depositBonusLabel(activeDepositBonus),'active')}catch(e){if(seq===depositPromoSeq)setDepositPromoStatus(e.message,'error')}finally{depositPromoApplying=false}}
+$('depositPromoCode').addEventListener('input',()=>{let input=$('depositPromoCode');input.value=input.value.toUpperCase().replace(/\s+/g,'');clearTimeout(depositPromoTimer);if(!input.value.trim()){depositPromoSeq++;setDepositPromoStatus(depositBonusLabel(activeDepositBonus),activeDepositBonus?'active':'');return}depositPromoTimer=setTimeout(()=>validateDepositPromo(input.value),420)});$('depositPromoCode').addEventListener('blur',()=>{clearTimeout(depositPromoTimer);validateDepositPromo($('depositPromoCode').value)});$('topupAmount').addEventListener('input',()=>{let code=$('depositPromoCode').value.trim();if(code&&activeDepositBonus&&activeDepositBonus.code===code)setDepositPromoStatus(depositBonusLabel(activeDepositBonus),'active');else if(!code)setDepositPromoStatus(depositBonusLabel(activeDepositBonus),activeDepositBonus?'active':'')});
 
 let upgradeLoading=false,upgradeLoadError="",upgradeListMode="mine";let upgradeInventory=[],upgradeCatalog=[],upgradeSettings={rtp:90,min_chance:0,max_chance:80,max_bet_ton:1000},upgradeSource=null,upgradeGoal=null,upgradePreviewData=null,upgradeBusy=false,upgradePendingId=null,upgradePointerAngle=0,upgradeKeepAfterResult=false,upgradeIdleTimer=0,upgradeIdleToken=0;
 function stopUpgradeIdle(){let pointer=$('upgradePointer');upgradeIdleToken++;if(upgradeIdleTimer){clearTimeout(upgradeIdleTimer);upgradeIdleTimer=0}if(pointer.classList.contains('idling')){let matrix=new DOMMatrix(getComputedStyle(pointer).transform);upgradePointerAngle=(Math.atan2(matrix.b,matrix.a)*180/Math.PI+360)%360;pointer.classList.remove('idling');pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`}}
@@ -1377,7 +1583,7 @@ function upgradeList(mode){upgradeListMode=mode;let mine=mode==='mine',items=min
 $('upgradeSelectTon').onclick=()=>{let value=$('upgradeTonAmount').value.trim().replace(',','.');if(!/^\d+(?:\.\d{1,2})?$/.test(value))return toast('Введите ставку TON с точностью до 0.01');let cents=Math.round(Number(value)*100);if(cents<10||cents>100000)return toast('Ставка от 0.10 до 1 000 TON');if(cents/100>Number(user?.balance||0))return toast('Недостаточно TON');upgradeSource={type:'ton',name:'TON',image_url:TON,price_ton:cents/100};upgradeGoal=null;upgradePreviewData=null;upgradePendingId=null;$('upgradeListModal').classList.add('hidden');paintUpgrade();upgradeList('target')};
 $('upgradeTonAmount').onkeydown=e=>{if(e.key==='Enter')$('upgradeSelectTon').click()};
 $('upgradeMine').onclick=()=>{if(!upgradeBusy)upgradeList('mine')};$('upgradeTarget').onclick=()=>{if(!upgradeBusy){if(!upgradeSource)upgradeList('mine');else upgradeList('target')}};$('closeUpgradeList').onclick=()=>$('upgradeListModal').classList.add('hidden');$('upgradeDeposit').onclick=openDeposit;
-function renderUpgradeCompensation(result){let box=$('upgradeCompensation'),comp=result.compensation||{};box.replaceChildren();box.classList.toggle('hidden',!!result.won||!comp.cashback&&!comp.promo);if(result.won)return;if(Number(comp.cashback)>0){let line=document.createElement('div');line.className='upgrade-compensation-line';let title=document.createElement('strong');title.textContent='Компенсация за проигрыш';let amount=document.createElement('span');amount.textContent=`+${money(comp.cashback)} TON`;line.append(title,amount);box.append(line)}if(comp.promo){let promo=document.createElement('div');promo.className='upgrade-compensation-line promo-awarded';let title=document.createElement('strong');title.textContent='Промокод на отыгрыш';let code=document.createElement('code');code.textContent=comp.promo.code;let info=document.createElement('small');info.textContent=comp.promo.purpose||'Сохранён в разделе «Бонусы».';let button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Открыть бонусы';button.onclick=()=>{$('closeUpgradeResult').click();show('profilePage');$('openReferralModal').click()};promo.append(title,code,info,button);box.append(promo)}}
+function renderUpgradeCompensation(result){let box=$('upgradeCompensation'),comp=result.compensation||{};box.replaceChildren();box.classList.toggle('hidden',!!result.won||!comp.cashback&&!comp.promo);if(result.won)return;if(Number(comp.cashback)>0){let line=document.createElement('div');line.className='upgrade-compensation-line';let meta=document.createElement('div');let title=document.createElement('strong');title.textContent='Компенсация за проигрыш';let note=document.createElement('small');note.textContent='Небольшой возврат уже зачислен на баланс.';meta.append(title,note);let amount=document.createElement('span');amount.textContent=`+${money(comp.cashback)} TON`;line.append(meta,amount);box.append(line)}if(comp.promo){let promo=document.createElement('div');promo.className='upgrade-compensation-line promo-awarded';let title=document.createElement('strong');title.textContent=comp.promo.reward_type==='gift'?'Подарок по промокоду':'Отыгрышный подарок';let code=document.createElement('code');code.textContent=comp.promo.code;let info=document.createElement('small');info.textContent=(comp.promo.purpose||'Компенсация сохранена в разделе «Бонусы».')+' Откройте бонусы, чтобы использовать её.';let button=document.createElement('button');button.type='button';button.className='secondary';button.textContent='Открыть бонусы';button.onclick=()=>{$('closeUpgradeResult').click();show('profilePage');$('openReferralModal').click()};promo.append(title,code,info,button);box.append(promo)}}
 $('upgradeAction').onclick=async()=>{if(upgradeBusy||!upgradePreviewData)return;let sourceBefore={...upgradeSource};upgradeBusy=true;stopUpgradeIdle();paintUpgrade();$('upgradeWheel').parentElement.classList.add('spinning');let token=upgradePendingId||(crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2)).replaceAll('-','');upgradePendingId=token;try{let d=await api('/api/upgrade/spin',{method:'POST',body:JSON.stringify({...(upgradeSource.type==='ton'?{amount:money(upgradeSource.price_ton)}:{inventory_id:upgradeSource.id}),gift_id:upgradeGoal.id,request_id:token}),timeoutMs:14000});upgradePendingId=null;setUser(d.user);loadUpgradeWins();if(d.new_level)showLevelNotice(d.new_level);let chance=d.chance,region=d.won?chance/2:chance+(100-chance)/2,goal=region*3.6,previous=((upgradePointerAngle%360)+360)%360,delta=(goal-previous+360)%360,reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,tempoRoll=Math.random(),duration=reduced?900:tempoRoll<.24?Math.round(3900+Math.random()*1500):tempoRoll<.78?Math.round(5700+Math.random()*2600):Math.round(8600+Math.random()*2800),turns=reduced?2:Math.max(6,Math.min(17,Math.round(duration/760)+Math.floor(Math.random()*4))),curves=['cubic-bezier(.055,.72,.08,1)','cubic-bezier(.095,.83,.055,1)','cubic-bezier(.035,.61,.12,1)','cubic-bezier(.14,.77,.045,1)','cubic-bezier(.075,.68,.095,1)'],curve=curves[Math.floor(Math.random()*curves.length)],startAngle=upgradePointerAngle;upgradePointerAngle+=360*turns+delta;let pointer=$('upgradePointer');pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${startAngle}deg)`;void pointer.offsetWidth;pointer.style.transition=`transform ${duration}ms ${curve}`;pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;$('upgradeStatus').textContent='';await new Promise(r=>setTimeout(r,duration+180));$('upgradeWheel').parentElement.classList.remove('spinning');let card=$('upgradeResultCard');card.classList.toggle('won',d.won);card.classList.toggle('lost',!d.won);card.classList.toggle('ton-loss-result',!d.won&&d.source_type==='ton');$('upgradeResultHeading').textContent=d.won?(d.reward_type==='wager_progress'?'Прогресс отыгрыша':'Апгрейд успешен!'):'В этот раз не повезло';$('upgradeResultImage').src=d.won&&d.reward_type!=='wager_progress'?d.target.image_url:d.source.image_url;$('upgradeResultText').classList.toggle('ton-loss',!d.won&&d.source_type==='ton');$('upgradeResultText').textContent=d.won?(d.reward_type==='wager_progress'?`${d.source.name}: ${money(d.wager_progress)} / ${money(d.wager_target)} TON отыграно`:`${d.target.name} добавлен в инвентарь`):(d.source_type==='ton'?`−${money(d.source.price_ton)}`:d.reward_type==='wager_progress'?`${d.source.name}: отыгрышный подарок сгорел`:`${d.source.name} использован в апгрейде`);if(!d.won&&d.source_type==='ton'){let icon=document.createElement('img');icon.src='/static/img/ton.png';icon.alt='TON';$('upgradeResultText').append(icon)}renderUpgradeCompensation(d);if(!d.won&&d.compensation?.promo)loadMyPromos();$('upgradeResultModal').classList.remove('hidden');$('upgradeStatus').textContent='';upgradeKeepAfterResult=d.source_type==='ton'||Boolean(d.won&&d.reward_type==='wager_progress'&&d.awarded_inventory_id);if(d.source_type==='ton'){upgradeSource=sourceBefore;upgradePreviewData=null}else if(upgradeKeepAfterResult){upgradeSource={...sourceBefore,id:d.awarded_inventory_id,promo_locked:true,wager_progress:d.wager_progress,wager_target:d.wager_target};upgradePreviewData=null}else{upgradeSource=null;upgradeGoal=null;upgradePreviewData=null}await loadInventory()}catch(e){toast(e.message);$('upgradeStatus').textContent=e.message}finally{$('upgradeWheel').parentElement.classList.remove('spinning');upgradeBusy=false;paintUpgrade()}};
 $('closeUpgradeResult').onclick=()=>{$('upgradeResultModal').classList.add('hidden');if(!upgradeKeepAfterResult){upgradeSource=null;upgradeGoal=null;upgradePreviewData=null}upgradeKeepAfterResult=false;upgradePointerAngle=0;$('upgradePointer').style.transition='none';$('upgradePointer').style.transform='translate(-50%,-50%) rotate(0deg)';loadUpgrade()};
 let transferStatus=null,transferResolved=null,transferPendingIncoming=null,transferPendingId=null;

@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '21-premium-emoji-system'
+BUILD_ID = '23-compensation-rtp-postfix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -1575,6 +1575,117 @@ def spin_roll(roll_id):
         db.close()
 
 
+def game_net_loss_cents(db, user_id):
+    """Approximate the player's realized gaming deficit in cents.
+
+    Promo-wager rounds are excluded because they do not spend the player's own
+    balance/gift value. Cash compensation already credited to balance reduces
+    the deficit so the adaptive promo boost follows the *current* loss, not the
+    gross amount ever wagered.
+    """
+    user_id = int(user_id)
+    loss = 0
+    rounds = db.execute("""SELECT bet,bet_type,bet_gift_price,state,win_total,payout
+                           FROM rounds WHERE user_id=? AND state IN ('won','lost')""", (user_id,)).fetchall()
+    for row in rounds:
+        if row['bet_type'] == 'promo_gift':
+            continue
+        stake = int(row['bet_gift_price'] or row['bet'] or 0) if row['bet_type'] == 'gift' else int(row['bet'] or 0)
+        returned = int((row['win_total'] if row['win_total'] is not None else row['payout']) or 0) if row['state'] == 'won' else 0
+        loss += stake - returned
+
+    spins = db.execute("""SELECT source_price,target_price,won,result_json FROM upgrade_spins
+                          WHERE user_id=?""", (user_id,)).fetchall()
+    for row in spins:
+        try:
+            result = json.loads(row['result_json'] or '{}')
+        except (TypeError, ValueError, json.JSONDecodeError):
+            result = {}
+        if result.get('reward_type') == 'wager_progress':
+            continue
+        stake = int(row['source_price'] or 0)
+        returned = int(row['target_price'] or 0) if row['won'] else 0
+        loss += stake - returned
+
+    # Roll outcomes are valued from the current Roll configuration. This is an
+    # approximation for old spins if an admin later changes the configuration.
+    try:
+        rolls = {str(r['id']): r for r in roll_config(db)}
+        for row in db.execute('SELECT roll_id,price,outcome,gift_name FROM roll_spins WHERE user_id=?', (user_id,)).fetchall():
+            returned = 0
+            if row['outcome'] == 'gift':
+                roll = rolls.get(str(row['roll_id'])) or {}
+                match = next((e for e in roll.get('entries', []) if e.get('kind') == 'gift' and e.get('name') == row['gift_name']), None)
+                returned = int((match or {}).get('price') or 0)
+            loss += int(row['price'] or 0) - returned
+    except Exception:
+        app.logger.debug('Could not include Roll in game deficit', exc_info=True)
+
+    cashback = db.execute("""SELECT COALESCE(SUM(amount),0) AS total FROM transactions
+                             WHERE user_id=? AND kind='upgrade_cashback'""", (user_id,)).fetchone()
+    loss -= int((cashback or {}).get('total') or 0)
+    return max(0, int(loss))
+
+
+def loss_rtp_max_boost():
+    try:
+        value = float((read_document('game_settings') or {}).get('loss_rtp_max_boost', 8.0))
+    except (TypeError, ValueError):
+        value = 8.0
+    return max(0.0, min(15.0, value))
+
+
+def loss_rtp_boost_points(loss_cents):
+    """Extra RTP percentage points for compensation wagering gifts.
+
+    The base curve reaches 8 pp at a 500 TON deficit. Admin can scale the
+    maximum between 0 and 15 pp without changing the loss thresholds.
+    """
+    ton = max(0.0, float(loss_cents or 0) / 100.0)
+    if ton < 1:
+        base = 0.0
+    elif ton < 5:
+        base = 0.5 + (ton - 1) * 1.5 / 4
+    elif ton < 25:
+        base = 2.0 + (ton - 5) * 2.0 / 20
+    elif ton < 100:
+        base = 4.0 + (ton - 25) * 2.0 / 75
+    elif ton < 500:
+        base = 6.0 + (ton - 100) * 2.0 / 400
+    else:
+        base = 8.0
+    return round(base * loss_rtp_max_boost() / 8.0, 4)
+
+
+def compensation_promo_info(db, code):
+    code = str(code or '').strip()
+    if not code:
+        return None
+    row = db.execute("""SELECT code,source_label,reward_type,reward_json FROM promo_codes
+                        WHERE code=?""", (code,)).fetchone()
+    if not row or row['reward_type'] != 'wager_gift' or row['source_label'] != 'Компенсация Upgrade':
+        return None
+    return row
+
+
+def promo_loss_adjusted_rtp(db, user_id, promo_code):
+    base = promo_game_rtp()
+    if not compensation_promo_info(db, promo_code):
+        return base, 0.0, game_net_loss_cents(db, user_id)
+    loss = game_net_loss_cents(db, user_id)
+    boost = loss_rtp_boost_points(loss)
+    return min(0.995, base + boost / 100.0), boost, loss
+
+
+def promo_loss_adjusted_upgrade_rtp_bp(db, user_id, promo_code):
+    base = upgrade_rtp_basis_points()
+    if not compensation_promo_info(db, promo_code):
+        return base, 0.0, game_net_loss_cents(db, user_id)
+    loss = game_net_loss_cents(db, user_id)
+    boost = loss_rtp_boost_points(loss)
+    return min(10000, base + round(boost * 100)), boost, loss
+
+
 def upgrade_target(gift_id):
     gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==str(gift_id)),None)
     if not gift:return None
@@ -1587,9 +1698,10 @@ def upgrade_target(gift_id):
                 image_url=image_url,price=price)
 
 
-def upgrade_chance(source_price,target_price):
+def upgrade_chance(source_price,target_price,rtp_bp=None):
     if source_price<1 or target_price<=source_price:return 0
-    numerator=upgrade_rtp_basis_points()*source_price
+    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
+    numerator=rtp_bp*source_price
     if numerator>8000*target_price:return 0
     return numerator/target_price
 
@@ -1634,11 +1746,18 @@ def upgrade_preview():
         source_view=dict(type='gift',**inventory_item(source))
     target=upgrade_target(request.args.get('gift_id'))
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
-    chance=upgrade_chance(source_price,target['price'])
+    effective_rtp_bp = upgrade_rtp_basis_points()
+    loss_boost = 0.0
+    game_loss = 0
+    if not amount_text and source and source['promo_locked']:
+        with connect() as db:
+            effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
+    chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
     if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
-                   probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
+                   probability=chance/10000,rtp=effective_rtp_bp/100,
+                   loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
 def wins_day_start_utc():
@@ -1739,7 +1858,10 @@ def upgrade_spin():
             if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
             if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
                 return error('Отыгрыш завершён — сначала получите подарок.')
-        chance=upgrade_chance(source_price,target['price'])
+        effective_rtp_bp = upgrade_rtp_basis_points()
+        if not amount_text and source['promo_locked']:
+            effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
+        chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
         if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
@@ -1749,7 +1871,7 @@ def upgrade_spin():
             return error('Подарок уже использован.',409)
         # Exact integer ratio permits rare wins without rounding the chance up
         # to 0.01% (or down to an impossible 0%).
-        won=secrets.randbelow(target['price']*10000)<upgrade_rtp_basis_points()*source_price
+        won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
         awarded=None
         wager=bool(source['promo_locked'])
         wager_target=int(source['promo_wager_target'] or 0) if wager else 0
@@ -2003,7 +2125,10 @@ def start():
                 return error('Недостаточно средств.')
 
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
-        rtp_snapshot = promo_game_rtp() if bet_type == 'promo_gift' else game_rtp()
+        if bet_type == 'promo_gift':
+            rtp_snapshot, promo_loss_boost, promo_game_loss = promo_loss_adjusted_rtp(db, session['uid'], snapshot['code'])
+        else:
+            rtp_snapshot, promo_loss_boost, promo_game_loss = game_rtp(), 0.0, 0
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
                        promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot,bet_expires_at)
@@ -2020,7 +2145,10 @@ def start():
         else:
             record_transaction(db, session['uid'], 'gift_bet', 0, 'round', row['id'], snapshot['name'])
         log_event(db,session['uid'],'mines_start',round_id=row['id'],mines=mines,bet=bet/100,
-                  bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'])
+                  bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'],
+                  promo_rtp=round(rtp_snapshot*100,2) if bet_type=='promo_gift' else None,
+                  loss_rtp_boost=round(promo_loss_boost,2) if bet_type=='promo_gift' else None,
+                  game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         new_level=increase_turnover(db,session['uid'],bet)
         db.commit()
         if new_level:
@@ -2064,7 +2192,21 @@ def open_cell():
         else:
             opened.append(cell)
             db.execute('UPDATE rounds SET opened=? WHERE id=?', (json.dumps(opened), row['id']))
-            if len(opened) == 25-row['mines']:
+
+            # A Mines round must finish as soon as there is nothing left to play for.
+            # 1) Normal rounds end after every safe cell has been opened.
+            # 2) Promo-wager rounds end on the first safe step whose potential payout
+            #    completes the remaining wager. This prevents the player from carrying
+            #    on past the exact point where the promo gift is already earned.
+            finish_round = len(opened) >= 25 - int(row['mines'])
+            if row['bet_type'] == 'promo_gift':
+                target = max(0, int(row['promo_wager_target'] or 0))
+                previous = max(0, int(row['promo_wager_progress'] or 0))
+                if target > 0:
+                    current_amount = payout_for(row, len(opened), round_rtp(row))
+                    if previous + current_amount >= target:
+                        finish_round = True
+            if finish_round:
                 award_round(db, row, len(opened))
         result = db.execute('SELECT * FROM rounds WHERE id=?', (row['id'],)).fetchone()
         log_event(db,session['uid'],'mines_cell',round_id=row['id'],cell=cell,
@@ -3433,31 +3575,54 @@ def unique_promo_code(db, prefix='GEM'):
 
 
 def create_upgrade_compensation_promo(db, user_id, source_price, force=False):
+    """Issue a rare loss-compensation promo with a hard wager requirement.
+
+    Compensation promos no longer fall back to deposit/balance rewards. They
+    are always wager-gift promos, with a 15x/25x/50x/100x target chosen from a
+    loss-sensitive distribution. The issue probability stays deliberately low;
+    pity only prevents an extremely long dry streak.
+    """
     source_ton = source_price / 100
     if source_ton < 2:
         return None
-    chance = (0.06 if source_ton < 10 else
-              0.12 + (source_ton-10)*0.08/40 if source_ton < 50 else
-              min(0.55,0.20+(source_ton-50)*0.35/950))
+    if source_ton < 5:
+        chance = 0.04
+    elif source_ton < 10:
+        chance = 0.08
+    elif source_ton < 50:
+        chance = 0.09
+    elif source_ton < 250:
+        chance = 0.105
+    else:
+        chance = 0.12
     if not force and secrets.randbelow(10000) >= round(chance * 10000):
         return None
-    code = unique_promo_code(db, 'UPG')
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-    kind = secrets.choice(['wager_gift']*5 + ['gift']*2 + ['deposit_bonus']*2 + ['balance'])
-    amount = 0
-    gift_id = gift_name = gift_image = ''
-    gift_price = 0
-    wager_multiplier = 0.0
-    bonus_percent = bonus_fixed = min_deposit = 0
-    description = ''
-    if kind in ('gift', 'wager_gift'):
+
+    try:
+        catalog = read_catalog().get('gifts', [])
+    except (OSError, ValueError, json.JSONDecodeError):
+        catalog = []
+
+    # Compensation gift value scales with the actual loss instead of using a
+    # fixed 20 TON ceiling for every stake. Approx. 20% at tiny losses, falling
+    # toward 3% for large losses, capped at 20 TON.
+    if source_ton <= 10:
+        budget = round(source_price * 0.20)
+    elif source_ton <= 50:
+        budget = round(source_price * 0.10)
+    else:
+        budget = round(source_price * 0.03)
+    budget = min(2000, max(100, budget))
+    floor_budget = max(1, round(budget * 0.35))
+    candidates = []
+    for gift in catalog:
         try:
-            catalog = read_catalog().get('gifts', [])
-        except (OSError, ValueError, json.JSONDecodeError):
-            catalog = []
-        budget = (min(2000, max(200, source_price * 10)) if kind == 'wager_gift'
-                  else min(100, max(10, round(source_price * 0.08))))
-        candidates = []
+            price = ton_to_cents(gift.get('price_ton'))
+        except (ValueError, TypeError, InvalidOperation):
+            continue
+        if floor_budget <= price <= budget and gift.get('id') and gift.get('name'):
+            candidates.append((price, gift))
+    if not candidates:
         for gift in catalog:
             try:
                 price = ton_to_cents(gift.get('price_ton'))
@@ -3465,37 +3630,48 @@ def create_upgrade_compensation_promo(db, user_id, source_price, force=False):
                 continue
             if 1 <= price <= budget and gift.get('id') and gift.get('name'):
                 candidates.append((price, gift))
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        if candidates:
-            _, gift = secrets.choice(candidates[:min(12, len(candidates))])
-            gift_id = str(gift['id'])
-            gift_name = str(gift['name'])[:140]
-            gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
-            gift_price = ton_to_cents(gift.get('price_ton'))
-            if kind == 'wager_gift':
-                wager_multiplier = float(10 + secrets.randbelow(21))
-                description = f'Компенсационный отыгрышный подарок «{gift_name}» · X{wager_multiplier:g}.'
-            else:
-                description = f'Компенсационный подарок «{gift_name}».'
-        else:
-            kind = 'deposit_bonus'
-    if kind == 'deposit_bonus':
-        bonus_percent = round(min(20.0, 5.0 + source_ton / 100.0), 1)
-        min_deposit = max(100, round(source_price * 0.10))
-        description = f'Компенсация Upgrade: +{bonus_percent:g}% к пополнению от {min_deposit/100:.2f} TON.'
-    elif kind == 'balance':
-        amount = max(10, round(source_price * 0.01))
-        description = f'Компенсационный бонус {amount/100:.2f} TON на баланс.'
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    _, gift = secrets.choice(candidates[:min(16, len(candidates))])
+    gift_id = str(gift['id'])
+    gift_name = str(gift['name'])[:140]
+    gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+    gift_price = ton_to_cents(gift.get('price_ton'))
+
+    if source_ton < 5:
+        multipliers = [15]*6 + [25]*3 + [50]
+    elif source_ton < 25:
+        multipliers = [15]*3 + [25]*5 + [50]*2 + [100]
+    elif source_ton < 100:
+        multipliers = [15] + [25]*4 + [50]*4 + [100]*2
+    else:
+        multipliers = [25]*2 + [50]*5 + [100]*3
+    wager_multiplier = float(secrets.choice(multipliers))
+
+    game_loss = game_net_loss_cents(db, user_id) + source_price
+    boost = loss_rtp_boost_points(game_loss)
+    code = unique_promo_code(db, 'UPG')
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    description = f'Отыгрышный подарок «{gift_name}» · X{wager_multiplier:g}.'
+    reward_json = json.dumps({
+        'compensation': True,
+        'source_loss_ton': round(source_ton, 2),
+        'game_loss_ton': round(game_loss / 100, 2),
+        'loss_rtp_boost': round(boost, 2),
+    }, ensure_ascii=False)
     db.execute("""INSERT INTO promo_codes(
         code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
         max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
         assigned_user_id,source_label,description,expires_at)
         VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
-        (code, kind, amount, gift_id, gift_name, gift_image, gift_price, wager_multiplier,
-         0, bonus_percent, bonus_fixed, min_deposit, '{}', user_id,
+        (code, 'wager_gift', 0, gift_id, gift_name, gift_image, gift_price, wager_multiplier,
+         0, 0, 0, 0, reward_json, user_id,
          'Компенсация Upgrade', description, expires_at))
     row = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
-    log_event(db,user_id,'promo_issued',code=code,source='Компенсация Upgrade')
+    log_event(db,user_id,'promo_issued',code=code,source='Компенсация Upgrade',
+              wager_multiplier=wager_multiplier,game_loss_ton=round(game_loss/100,2),loss_rtp_boost=round(boost,2))
     return promo_view(row)
 
 
@@ -3514,7 +3690,7 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
         row = db.execute('SELECT eligible_losses FROM upgrade_promo_pity WHERE user_id=?',
                          (user_id,)).fetchone()
         previous = int(row['eligible_losses'] or 0) if row else 0
-        limit = 3 if source_ton >= 100 else 5 if source_ton >= 10 else 8
+        limit = 7 if source_ton >= 100 else 9 if source_ton >= 10 else 11
         promo = create_upgrade_compensation_promo(db,user_id,source_price,force=previous>=limit-1)
         db.execute('''INSERT INTO upgrade_promo_pity(user_id,eligible_losses) VALUES(?,?)
                       ON CONFLICT(user_id) DO UPDATE SET eligible_losses=excluded.eligible_losses''',
@@ -3896,44 +4072,39 @@ def admin_publish_post():
         else:
             sent = remember_sent(send_post_text(text, reply_markup))
         expected = {e['id'] for e in emojis_in_post(text)}
-        actual = {str(e.get('custom_emoji_id')) for e in (sent or {}).get('entities', []) + (sent or {}).get('caption_entities', []) if e.get('type') == 'custom_emoji'}
         expected_icons = {b['icon_custom_emoji_id'] for row in buttons for b in row if b.get('icon_custom_emoji_id')}
-        actual_icons = {str(b.get('icon_custom_emoji_id')) for row in ((sent or {}).get('reply_markup') or {}).get('inline_keyboard', []) for b in row}
+
+        def collect_returned_custom_emojis(value, text_ids, icon_ids):
+            if isinstance(value, dict):
+                if value.get('type') == 'custom_emoji' and value.get('custom_emoji_id'):
+                    text_ids.add(str(value['custom_emoji_id']))
+                if value.get('custom_emoji_id') and ('alternative_text' in value or 'emoji' in value):
+                    text_ids.add(str(value['custom_emoji_id']))
+                if value.get('icon_custom_emoji_id'):
+                    icon_ids.add(str(value['icon_custom_emoji_id']))
+                for child in value.values():
+                    collect_returned_custom_emojis(child, text_ids, icon_ids)
+            elif isinstance(value, list):
+                for child in value:
+                    collect_returned_custom_emojis(child, text_ids, icon_ids)
+
+        actual, actual_icons = set(), set()
+        collect_returned_custom_emojis(sent or {}, actual, actual_icons)
         missing_text = expected - actual
         missing_icons = expected_icons - actual_icons
-        if missing_text or missing_icons:
-            # Do not leave a silently degraded post behind. If Telegram strips an
-            # explicitly requested premium emoji, remove the just-published post
-            # and return an actionable error instead of a false success.
-            for message in reversed(sent_messages):
-                try:
-                    telegram_api('deleteMessage', {'chat_id': settings['chat_id'], 'message_id': message['message_id']}, timeout=(2, 6))
-                except RuntimeError:
-                    pass
-            chat_type = settings.get('chat_type')
-            if not chat_type:
-                try:
-                    chat_type = str((telegram_api('getChat', {'chat_id': settings['chat_id']}) or {}).get('type') or '')
-                except RuntimeError:
-                    chat_type = ''
-            parts = []
-            if missing_text:
-                parts.append(f'не приняты emoji в тексте: {len(missing_text)}')
-            if missing_icons:
-                parts.append(f'не приняты emoji на кнопках: {len(missing_icons)}')
-            reason = '; '.join(parts)
-            if chat_type == 'channel':
-                detail = ('Telegram отклонил custom emoji в канальном сообщении (' + reason + '). '
-                          'Для каналов Premium владельца бота недостаточно: Bot API требует дополнительное имя бота, приобретённое через Fragment. '
-                          'Пост удалён автоматически, чтобы не оставлять публикацию без premium emoji.')
-            else:
-                detail = ('Telegram отклонил custom emoji (' + reason + '). Проверьте, что владелец бота имеет активный Telegram Premium. '
-                          'Пост удалён автоматически, чтобы не оставлять публикацию без premium emoji.')
-            return error(detail, 409)
+        warnings = []
+        # Telegram does not guarantee that every formatting detail is echoed in
+        # the same response fields for normal vs Rich Messages. A successful
+        # send must therefore never be auto-deleted just because verification is
+        # inconclusive. This was the regression that made posts appear to stop.
+        if missing_text:
+            warnings.append(f'Telegram принял пост, но ответ API не подтвердил {len(missing_text)} premium emoji в тексте.')
+        if missing_icons:
+            warnings.append(f'Telegram принял пост, но ответ API не подтвердил {len(missing_icons)} premium emoji на кнопках.')
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
-        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=[], premium_emoji_verified=bool(expected or expected_icons))
+        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings, premium_emoji_verified=bool((expected or expected_icons) and not missing_text and not missing_icons))
     except RuntimeError as exc:
         # If a multi-step publish managed to send media before Telegram rejected
         # the formatted text/keyboard, clean the partial publication as well.
@@ -4683,7 +4854,8 @@ def admin_transactions():
 @admin_required
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100,mode='global')
+                   upgrade_rtp=upgrade_rtp_basis_points()/100,
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
 
 
 @app.post('/api/admin/rtp')
@@ -4694,6 +4866,7 @@ def admin_rtp_set():
         percent = float(data.get('rtp'))
         promo_percent = float(data.get('promo_rtp', promo_game_rtp()*100))
         upgrade_percent = float(data.get('upgrade_rtp',upgrade_rtp_basis_points()/100))
+        loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
     if not math.isfinite(percent) or not 97 <= percent <= 99.9:
@@ -4704,12 +4877,16 @@ def admin_rtp_set():
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
         return error('RTP апгрейда должен быть от 1 до 100%.')
+    if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
+        return error('Максимальная прибавка RTP от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
                                     'upgrade_rtp_bp':round(upgrade_percent*100),
+                                    'loss_rtp_max_boost':round(loss_boost,2),
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100)
+                   upgrade_rtp=upgrade_rtp_basis_points()/100,
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
 
 
 def ton_settings():

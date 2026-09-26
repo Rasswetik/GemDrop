@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '30-upgrade-admin-stability'
+BUILD_ID = '32-craft-ui-fix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2415,12 +2415,13 @@ def craft_play():
             if pick < cursor:
                 winner = gift
                 break
-        db.executemany('DELETE FROM inventory WHERE id=? AND user_id=?', [(int(r['id']), session['uid']) for r in rows])
-        db.execute('INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,?)', (session['uid'], winner['id'], winner['name'], winner['image_url'], winner['price'], 'craft'))
-        reward_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+        for row in rows:
+            db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (int(row['id']), session['uid']))
+        reward_cur = db.execute('INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,?)', (session['uid'], winner['id'], winner['name'], winner['image_url'], winner['price'], 'craft'))
+        reward_id = reward_cur.lastrowid
         multiplier = round((winner['price'] / max(1, total)), 4)
-        db.execute('INSERT INTO craft_spins(user_id,input_count,input_total,min_price,max_price,reward_name,reward_image,reward_price,reward_multiplier) VALUES(?,?,?,?,?,?,?,?,?)', (session['uid'], len(rows), total, minimum, maximum, winner['name'], winner['image_url'], winner['price'], multiplier))
-        spin_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+        spin_row = db.execute('INSERT INTO craft_spins(user_id,input_count,input_total,min_price,max_price,reward_name,reward_image,reward_price,reward_multiplier) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id', (session['uid'], len(rows), total, minimum, maximum, winner['name'], winner['image_url'], winner['price'], multiplier)).fetchone()
+        spin_id = int(spin_row['id']) if spin_row and spin_row.get('id') is not None else None
         record_transaction(db, session['uid'], 'craft_consume', 0, 'craft', spin_id, f'Крафт из {len(rows)} подарков')
         record_transaction(db, session['uid'], 'craft_reward', 0, 'inventory', reward_id, f'Награда за крафт: {winner["name"]}')
         log_event(db, session['uid'], 'craft_play', spin_id=spin_id, input_count=len(rows), input_total=total/100, reward_name=winner['name'], reward_price=winner['price']/100, multiplier=multiplier)

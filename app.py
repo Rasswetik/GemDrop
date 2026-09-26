@@ -467,9 +467,6 @@ def increase_turnover(db, user_id, amount):
     new_turnover = previous_turnover + amount
     db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?', (amount, user_id))
     current = level_number(db, new_turnover)
-    # Promo-type level rewards are issued as soon as the level is reached, so they
-    # immediately appear in Profile -> Bonuses without an extra claim step.
-    sync_unlocked_level_promos(db, user_id, new_turnover)
     return current if current > previous else None
 
 
@@ -2109,7 +2106,8 @@ def create_upgrade_compensation_promo(db, user_id, source_price):
     source_ton = source_price / 100
     if source_ton < 50:
         return None
-    chance = min(0.50, 0.05 + max(0.0, source_ton - 50.0) * 0.45 / 950.0)
+    # Small, occasional compensation; larger lost stakes gradually improve the odds.
+    chance = min(0.30, 0.10 + max(0.0, source_ton - 50.0) * 0.20 / 950.0)
     if secrets.randbelow(10000) >= round(chance * 10000):
         return None
     code = unique_promo_code(db, 'UPG')
@@ -2185,7 +2183,6 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
 @login_required
 def my_promocodes():
     with connect() as db:
-        sync_unlocked_level_promos(db, session['uid'])
         claimed_codes = []
         for row in db.execute('SELECT reward_json FROM level_claims WHERE user_id=?', (session['uid'],)).fetchall():
             try:

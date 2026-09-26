@@ -188,6 +188,11 @@ def initialize():
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS web_login_challenges (
+            id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+            user_id INTEGER NOT NULL DEFAULT 0, used_at INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS promo_codes (
             code TEXT PRIMARY KEY, reward_type TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0,
             gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
@@ -420,6 +425,68 @@ def auth():
     session.clear()
     session['uid'] = user_id
     return jsonify(ok=True, user=profile())
+
+
+def web_login_hash(code):
+    return hmac.new(app.secret_key.encode(), code.encode(), hashlib.sha256).hexdigest()
+
+
+@app.post('/api/web-auth/start')
+def start_web_auth():
+    if not BOT_TOKEN:
+        return error('Для входа через сайт настройте BOT_TOKEN.', 503)
+    now = int(time.time())
+    if now - int(session.get('web_auth_started', 0)) < 12:
+        return error('Подождите несколько секунд перед новым кодом.', 429)
+    code = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(12))
+    challenge_id = secrets.token_urlsafe(24)
+    referrer = request.get_json(silent=True) or {}
+    try:
+        referrer_id = int(referrer.get('referrer_id') or 0)
+    except (TypeError, ValueError):
+        referrer_id = 0
+    with connect() as db:
+        db.execute('DELETE FROM web_login_challenges WHERE expires_at<? OR used_at>0', (now,))
+        old = session.get('web_auth_id')
+        if old:
+            db.execute('DELETE FROM web_login_challenges WHERE id=? AND user_id=0', (old,))
+        db.execute('INSERT INTO web_login_challenges(id,code_hash,created_at,expires_at) VALUES(?,?,?,?)',
+                   (challenge_id, web_login_hash(code), now, now+300))
+    session['web_auth_id'] = challenge_id
+    session['web_auth_started'] = now
+    session['web_auth_referrer'] = referrer_id if referrer_id > 0 else 0
+    return jsonify(command=f'/auf {code}', expires_in=300,
+                   bot_username=current_bot_username())
+
+
+@app.get('/api/web-auth/status')
+def web_auth_status():
+    challenge_id = session.get('web_auth_id')
+    if not challenge_id:
+        return jsonify(status='missing')
+    now = int(time.time())
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        challenge = db.execute('SELECT * FROM web_login_challenges WHERE id=?', (challenge_id,)).fetchone()
+        if not challenge or challenge['expires_at'] <= now or challenge['used_at']:
+            db.commit()
+            return jsonify(status='expired')
+        if not challenge['user_id']:
+            db.commit()
+            return jsonify(status='pending')
+        uid = int(challenge['user_id'])
+        if not db.execute('UPDATE web_login_challenges SET used_at=? WHERE id=? AND used_at=0',
+                          (now, challenge_id)).rowcount:
+            db.commit()
+            return jsonify(status='expired')
+        referrer = int(session.get('web_auth_referrer') or 0)
+        if referrer and referrer != uid and db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
+            db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid,referrer))
+        log_event(db,uid,'login',via='web_bot')
+        db.commit()
+    session.clear()
+    session['uid'] = uid
+    return jsonify(status='approved', user=profile())
 
 
 def current_user():
@@ -2013,10 +2080,14 @@ def my_referrals():
     with connect() as db:
         count = db.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=?',
                            (session['uid'],)).fetchone()[0]
+        depositors = db.execute('''SELECT COUNT(DISTINCT user_id) FROM deposits
+                                   WHERE referrer_id=? AND referral_bonus>0''',
+                                (session['uid'],)).fetchone()[0]
         total = db.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE user_id=? AND kind='referral_bonus'",
                            (session['uid'],)).fetchone()[0]
     username = current_bot_username()
-    return jsonify(count=count, earned=total/100, percent=referral_percent(), bot_username=username,
+    return jsonify(count=count, depositors=depositors, earned=total/100,
+                   percent=referral_percent(), bot_username=username,
                    link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
 
 
@@ -2107,15 +2178,16 @@ def unique_promo_code(db, prefix='GEM'):
 
 def create_upgrade_compensation_promo(db, user_id, source_price):
     source_ton = source_price / 100
-    if source_ton < 50:
+    if source_ton < 2:
         return None
-    # Small, occasional compensation; larger lost stakes gradually improve the odds.
-    chance = min(0.30, 0.10 + max(0.0, source_ton - 50.0) * 0.20 / 950.0)
+    # A low chance on small losses, growing gradually with the amount lost.
+    chance = (0.03 + (source_ton-2) * 0.07 / 48 if source_ton < 50 else
+              min(0.30, 0.10 + (source_ton-50) * 0.20 / 950))
     if secrets.randbelow(10000) >= round(chance * 10000):
         return None
     code = unique_promo_code(db, 'UPG')
     expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-    kind = secrets.choice(['deposit_bonus', 'gift', 'wager_gift', 'balance'])
+    kind = secrets.choice(['wager_gift']*5 + ['gift']*2 + ['deposit_bonus']*2 + ['balance'])
     amount = 0
     gift_id = gift_name = gift_image = ''
     gift_price = 0
@@ -2127,7 +2199,8 @@ def create_upgrade_compensation_promo(db, user_id, source_price):
             catalog = read_catalog().get('gifts', [])
         except (OSError, ValueError, json.JSONDecodeError):
             catalog = []
-        budget = max(50, min(5000, round(source_price * (0.035 if kind == 'gift' else 0.05))))
+        budget = (min(2000, max(200, source_price * 10)) if kind == 'wager_gift'
+                  else min(100, max(10, round(source_price * 0.08))))
         candidates = []
         for gift in catalog:
             try:
@@ -2144,12 +2217,12 @@ def create_upgrade_compensation_promo(db, user_id, source_price):
             gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
             gift_price = ton_to_cents(gift.get('price_ton'))
             if kind == 'wager_gift':
-                wager_multiplier = 10.0
-                description = f'Компенсационный отыгрышный подарок «{gift_name}» · X10.'
+                wager_multiplier = float(10 + secrets.randbelow(21))
+                description = f'Компенсационный отыгрышный подарок «{gift_name}» · X{wager_multiplier:g}.'
             else:
                 description = f'Компенсационный подарок «{gift_name}».'
         else:
-            kind = 'balance'
+            kind = 'deposit_bonus'
     if kind == 'deposit_bonus':
         bonus_percent = round(min(20.0, 5.0 + source_ton / 100.0), 1)
         min_deposit = max(100, round(source_price * 0.10))
@@ -2170,10 +2243,11 @@ def create_upgrade_compensation_promo(db, user_id, source_price):
 
 
 def apply_upgrade_loss_compensation(db, user_id, source_price):
-    if source_price < 1000:
+    if source_price < 100:
         return dict(cashback=0, cashback_percent=0, promo=None)
     source_ton = source_price / 100
-    percent = min(5.0, 0.5 + max(0.0, source_ton - 10.0) * 4.5 / 490.0)
+    max_percent = 3.0 if source_ton < 10 else 5.0
+    percent = 0.5 + secrets.randbelow(int((max_percent - 0.5) * 100) + 1) / 100
     cashback = max(1, round(source_price * percent / 100.0))
     db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cashback, user_id))
     record_transaction(db, user_id, 'upgrade_cashback', cashback, 'upgrade', '',
@@ -2217,6 +2291,36 @@ def my_promocodes():
     items.sort(key=lambda x: x['created_at'] or '', reverse=True)
     items.sort(key=lambda x: order.get(x['status'], 9))
     return jsonify(items=items)
+
+
+@app.get('/api/promocodes/unread-count')
+@login_required
+def unread_promocode_count():
+    with connect() as db:
+        rows = db.execute('''SELECT p.*,r.code AS redeemed,v.code AS viewed FROM promo_codes p
+            LEFT JOIN promo_redemptions r ON r.code=p.code AND r.user_id=?
+            LEFT JOIN promo_views v ON v.code=p.code AND v.user_id=?
+            WHERE p.assigned_user_id=?''', (session['uid'],session['uid'],session['uid'])).fetchall()
+        count = sum(1 for p in rows if p['active'] and not p['redeemed'] and not p['viewed']
+                    and not promo_is_expired(p) and
+                    (not p['max_uses'] or p['uses_count'] < p['max_uses']))
+        for claim in db.execute('SELECT reward_json FROM level_claims WHERE user_id=?',
+                                (session['uid'],)).fetchall():
+            try:
+                code = json.loads(claim['reward_json'] or '{}').get('code')
+            except (ValueError, TypeError, AttributeError):
+                continue
+            if not code:
+                continue
+            old = db.execute('''SELECT p.*,r.code AS redeemed,v.code AS viewed FROM promo_codes p
+                LEFT JOIN promo_redemptions r ON r.code=p.code AND r.user_id=?
+                LEFT JOIN promo_views v ON v.code=p.code AND v.user_id=?
+                WHERE p.code=? AND p.assigned_user_id<>?''',
+                (session['uid'],session['uid'],code,session['uid'])).fetchone()
+            if old and old['active'] and not old['redeemed'] and not old['viewed'] and \
+                    not promo_is_expired(old) and (not old['max_uses'] or old['uses_count'] < old['max_uses']):
+                count += 1
+    return jsonify(count=count)
 
 
 @app.post('/api/promocodes/<code>/view')
@@ -2538,10 +2642,15 @@ def admin_user(user_id):
             return error('Пользователь не найден.', 404)
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (user_id,)).fetchall()
+        promos = db.execute('SELECT * FROM promo_codes WHERE assigned_user_id=? ORDER BY created_at DESC LIMIT 20',
+                            (user_id,)).fetchall()
         level=level_number(db,int(user['turnover_cents'] or 0))
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
                              balance=user['balance']/100,level=level,
-                             turnover=user['turnover_cents']/100),items=[inventory_item(x) for x in items])
+                             turnover=user['turnover_cents']/100),items=[inventory_item(x) for x in items],
+                   promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
+                                active=bool(p['active'] and not promo_is_expired(p)),
+                                used=bool(p['uses_count'])) for p in promos])
 
 
 @app.post('/api/admin/users/<int:user_id>/promocodes')
@@ -3468,6 +3577,31 @@ def telegram_webhook():
     sender = message.get('from') or {}
     chat = message.get('chat') or {}
     command = str(message.get('text') or '').split(maxsplit=1)
+    if (chat.get('type') == 'private' and command and
+            command[0].split('@')[0].lower() in ('/auf','auf') and isinstance(sender.get('id'), int)):
+        code = command[1].strip().upper() if len(command) == 2 else ''
+        uid = sender['id']
+        success = False
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)',
+                              (int(update['update_id']),)).rowcount:
+                db.commit()
+                return jsonify(ok=True)
+            if re.fullmatch(r'[A-HJ-NP-Z2-9]{12}', code):
+                db.execute('''INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)''',
+                           (uid,str(sender.get('first_name') or 'Игрок')[:80],
+                            str(sender.get('username') or '')[:80]))
+                db.execute('UPDATE users SET name=?,username=? WHERE id=?',
+                           (str(sender.get('first_name') or 'Игрок')[:80],
+                            str(sender.get('username') or '')[:80],uid))
+                success = bool(db.execute('''UPDATE web_login_challenges SET user_id=?
+                    WHERE code_hash=? AND user_id=0 AND used_at=0 AND expires_at>?''',
+                    (uid,web_login_hash(code),int(time.time()))).rowcount)
+            db.commit()
+        return jsonify(method='sendMessage',chat_id=chat['id'],
+                       text=('✅ Вход подтверждён. Вернитесь на страницу GemDrop.' if success else
+                             'Код неверный или срок его действия истёк. Получите новый код на сайте.'))
     if (chat.get('type') != 'private' or not command or
             command[0].split('@')[0] != '/start' or not isinstance(sender.get('id'), int)):
         return jsonify(ok=True)

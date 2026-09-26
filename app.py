@@ -203,6 +203,11 @@ def initialize():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(code,user_id)
         );
+        CREATE TABLE IF NOT EXISTS promo_views (
+            user_id INTEGER NOT NULL, code TEXT NOT NULL,
+            viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id,code)
+        );
         CREATE TABLE IF NOT EXISTS user_wallets (
             user_id INTEGER PRIMARY KEY, address TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -2069,11 +2074,8 @@ def promo_purpose(promo):
     return 'Бонусный промокод GemDrop.'
 
 
-def promo_view(promo, redemption=None):
-    reusable = bool(redemption and promo['reward_type'] in ('deposit_bonus','multi') and
-                    redemption['reward_type'] == 'deposit_bonus' and redemption['deactivated_at'] and
-                    not redemption['consumed_at'])
-    used = bool(redemption and not reusable)
+def promo_view(promo, redemption=None, viewed=False):
+    used = bool(redemption)
     expired = promo_is_expired(promo)
     exhausted = bool(int(promo['max_uses'] or 0) > 0 and int(promo['uses_count'] or 0) >= int(promo['max_uses'] or 0))
     if used:
@@ -2088,7 +2090,8 @@ def promo_view(promo, redemption=None):
     return dict(
         code=promo['code'], reward_type=promo['reward_type'], purpose=promo_purpose(promo),
         source=(promo['source_label'] or 'Промокод GemDrop'), status=status,
-        active=status == 'active', expires_at=expires.isoformat() if expires else None,
+        active=status == 'active', unread=status == 'active' and not viewed,
+        expires_at=expires.isoformat() if expires else None,
         used_at=redemption['created_at'] if redemption and status == 'used' else None,
         created_at=promo['created_at'],
     )
@@ -2183,6 +2186,8 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
 @login_required
 def my_promocodes():
     with connect() as db:
+        viewed_codes = {row['code'] for row in db.execute(
+            'SELECT code FROM promo_views WHERE user_id=?', (session['uid'],)).fetchall()}
         claimed_codes = []
         for row in db.execute('SELECT reward_json FROM level_claims WHERE user_id=?', (session['uid'],)).fetchall():
             try:
@@ -2207,11 +2212,34 @@ def my_promocodes():
         for promo in by_code.values():
             redemption = db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',
                                     (promo['code'], session['uid'])).fetchone()
-            items.append(promo_view(promo, redemption))
+            items.append(promo_view(promo, redemption, promo['code'] in viewed_codes))
     order = {'active':0, 'expired':1, 'disabled':2, 'used':3}
     items.sort(key=lambda x: x['created_at'] or '', reverse=True)
     items.sort(key=lambda x: order.get(x['status'], 9))
     return jsonify(items=items)
+
+
+@app.post('/api/promocodes/<code>/view')
+@login_required
+def view_personal_promocode(code):
+    code = str(code).strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Промокод не найден.', 404)
+    with connect() as db:
+        promo = db.execute('SELECT assigned_user_id FROM promo_codes WHERE code=?', (code,)).fetchone()
+        owned = bool(promo and int(promo['assigned_user_id'] or 0) == int(session['uid']))
+        if not owned:
+            for row in db.execute('SELECT reward_json FROM level_claims WHERE user_id=?', (session['uid'],)).fetchall():
+                try:
+                    if json.loads(row['reward_json'] or '{}').get('code') == code:
+                        owned = True
+                        break
+                except (ValueError, TypeError, AttributeError):
+                    continue
+        if not owned:
+            return error('Промокод не найден.', 404)
+        db.execute('INSERT OR IGNORE INTO promo_views(user_id,code) VALUES(?,?)', (session['uid'], code))
+    return jsonify(ok=True)
 
 
 @app.post('/api/promocodes/redeem')
@@ -2231,21 +2259,9 @@ def redeem_promocode():
         if promo_is_expired(promo):
             return error('Срок действия промокода истёк.', 409)
         prior=db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',(code,session['uid'])).fetchone()
-        reusable=bool(prior and promo['reward_type'] in ('deposit_bonus','multi') and
-                      prior['reward_type']=='deposit_bonus' and prior['deactivated_at'] and not prior['consumed_at'])
-        if prior and not reusable:return error('Вы уже активировали этот промокод.',409)
-        if not reusable and promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
+        if prior:return error('Вы уже активировали этот промокод.',409)
+        if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
             return error('Лимит активаций этого промокода исчерпан.', 409)
-        if reusable:
-            if db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
-                             AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
-                return error('У вас уже есть активный промокод на пополнение.',409)
-            db.execute('UPDATE promo_redemptions SET deactivated_at=NULL WHERE code=? AND user_id=?',(code,session['uid']))
-            db.commit()
-            return jsonify(ok=True,reward=dict(type='deposit_bonus',code=code,
-                           bonus_percent=float(promo['bonus_percent'] or 0),
-                           bonus_fixed=int(promo['bonus_fixed'] or 0)/100,
-                           min_deposit=int(promo['min_deposit'] or 0)/100),user=profile())
         inventory_id = None
         if promo['reward_type'] == 'balance':
             amount = max(0, int(promo['amount']))
@@ -2280,9 +2296,6 @@ def redeem_promocode():
         elif promo['reward_type']=='multi':
             components=json.loads(promo['reward_json'] or '{}').get('components',{})
             if not components:return error('Мультипромокод настроен неверно.',500)
-            if 'deposit_bonus' in components and db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=?
-               AND reward_type='deposit_bonus' AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
-                return error('Сначала используйте или уберите активный промокод на пополнение.',409)
             rewards=[]
             if 'balance' in components:
                 amount=int(components['balance']['amount'])
@@ -2315,14 +2328,15 @@ def redeem_promocode():
                   min_deposit=int(comp.get('min_deposit') or 0)/100))
             reward=dict(type='multi',rewards=rewards)
         elif promo['reward_type'] == 'deposit_bonus':
-            if db.execute("""SELECT 1 FROM promo_redemptions WHERE user_id=? AND reward_type='deposit_bonus'
-                             AND consumed_at IS NULL AND deactivated_at IS NULL""",(session['uid'],)).fetchone():
-                return error('У вас уже есть активный промокод на пополнение.',409)
             reward=dict(type='deposit_bonus',code=code,bonus_percent=float(promo['bonus_percent'] or 0),
                         bonus_fixed=int(promo['bonus_fixed'] or 0)/100,min_deposit=int(promo['min_deposit'] or 0)/100)
         else:
             return error('Награда промокода настроена неверно.', 500)
         redemption_type='deposit_bonus' if promo['reward_type']=='multi' and 'deposit_bonus' in components else promo['reward_type']
+        if redemption_type == 'deposit_bonus':
+            db.execute('''UPDATE promo_redemptions SET deactivated_at=CURRENT_TIMESTAMP
+                          WHERE user_id=? AND reward_type='deposit_bonus' AND code<>?
+                          AND consumed_at IS NULL AND deactivated_at IS NULL''', (session['uid'], code))
         db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
                    (code, session['uid'],redemption_type, int(promo['amount'] or 0), inventory_id))
         db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))

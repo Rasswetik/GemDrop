@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '32-craft-ui-fix'
+BUILD_ID = '33-craft-polish'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2621,34 +2621,34 @@ def admin_wins_feeds():
     with connect() as db:
         mines_time, mines_id = wins_feed_cutoff(db, 'mines')
         upgrade_time, _ = wins_feed_cutoff(db, 'upgrade')
-        mines = db.execute("""SELECT COUNT(*) AS total FROM rounds
-                              WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift'
-                              AND (id>? OR settled_at>?)""", (mines_id,mines_time)).fetchone()['total']
-        upgrade = db.execute('SELECT COUNT(*) AS total FROM upgrade_spins WHERE won=1 AND created_at>?',
-                             (upgrade_time,)).fetchone()['total']
-    return jsonify(mines=mines,upgrade=upgrade,
-                   cleared_at=dict(mines=mines_time or None,upgrade=upgrade_time or None))
+        craft_time, _ = wins_feed_cutoff(db, 'craft')
+        mines = db.execute("SELECT COUNT(*) AS total FROM rounds WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift' AND (id>? OR settled_at>?)", (mines_id,mines_time)).fetchone()['total']
+        upgrade = db.execute('SELECT COUNT(*) AS total FROM upgrade_spins WHERE won=1 AND created_at>?', (upgrade_time,)).fetchone()['total']
+        craft = db.execute('SELECT COUNT(*) AS total FROM craft_spins WHERE created_at>?', (craft_time,)).fetchone()['total']
+    return jsonify(mines=mines,upgrade=upgrade,craft=craft,
+                   cleared_at=dict(mines=mines_time or None,upgrade=upgrade_time or None,craft=craft_time or None))
 
 
 @app.post('/api/admin/wins-feeds/clear')
 @admin_required
 def admin_clear_wins_feeds():
     mode = str((request.get_json(silent=True) or {}).get('mode') or '')
-    if mode not in ('mines','upgrade','both'):
-        return error('Выберите Мины, Апгрейд или оба раздела.')
-    kinds = ['mines','upgrade'] if mode == 'both' else [mode]
+    if mode not in ('mines','upgrade','craft','both','all'):
+        return error('Выберите Мины, Апгрейд, Крафт или все разделы.')
+    if mode == 'both':
+        kinds = ['mines','upgrade']
+    elif mode == 'all':
+        kinds = ['mines','upgrade','craft']
+    else:
+        kinds = [mode]
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         for kind in kinds:
             highest_round = db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM rounds').fetchone()['last_id'] if kind=='mines' else 0
-            db.execute('''INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id)
-                          VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET
-                          cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id''',
-                       (kind,timestamp,highest_round))
-        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'],session['uid'],'wins_feed_clear',mode))
+            db.execute('INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id', (kind,timestamp,highest_round))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'],session['uid'],'wins_feed_clear',mode))
         db.commit()
         return jsonify(ok=True,mode=mode)
     finally:

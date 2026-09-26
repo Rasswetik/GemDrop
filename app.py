@@ -38,6 +38,7 @@ MIN_GAME_RTP = 0.97
 MIN_PROMO_RTP = 0.89
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
+MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
@@ -931,7 +932,10 @@ def parse_amount(value):
 
 @app.get('/')
 def index():
-    return render_template('index.html')
+    # Keep the app's complete theme with the page: older cached static CSS left
+    # the bonus controls and the new Upgrade feed without their sizing rules.
+    ui_css = (BASE / 'static/css/gemdrop-ui.css').read_text(encoding='utf-8')
+    return render_template('index.html', ui_css=ui_css)
 
 
 @app.get('/health')
@@ -1354,8 +1358,8 @@ def upgrade_target(gift_id):
 def upgrade_chance(source_price,target_price):
     if source_price<1 or target_price<=source_price:return 0
     numerator=upgrade_rtp_basis_points()*source_price
-    if numerator<100*target_price or numerator>8000*target_price:return 0
-    return round(numerator/target_price)
+    if numerator>8000*target_price:return 0
+    return numerator/target_price
 
 
 def upgrade_rtp_basis_points():
@@ -1366,7 +1370,8 @@ def upgrade_rtp_basis_points():
 @app.get('/api/upgrade/settings')
 @login_required
 def upgrade_settings():
-    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80)
+    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=0,max_chance=80,
+                   max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
 @app.get('/api/upgrade/preview')
@@ -1378,7 +1383,7 @@ def upgrade_preview():
     if amount_text:
         try:source_price=parse_amount(amount_text)
         except (ValueError,InvalidOperation,TypeError):return error('Укажите ставку в TON с точностью до 0.01.')
-        if not 10<=source_price<=100000000:return error('Ставка TON: от 0.10 до 1 000 000.')
+        if not 10<=source_price<=MAX_UPGRADE_BET_CENTS:return error('Ставка TON: от 0.10 до 1 000.')
         with connect() as db:
             balance=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()['balance']
         if balance<source_price:return error('Недостаточно TON для ставки.')
@@ -1392,11 +1397,12 @@ def upgrade_preview():
         if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
             return error('Отыгрыш завершён — сначала получите подарок.')
         source_price=int(source['floor_price'] or 0)
+        if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
         source_view=dict(type='gift',**inventory_item(source))
     target=upgrade_target(request.args.get('gift_id'))
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
     chance=upgrade_chance(source_price,target['price'])
-    if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
+    if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
                    probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
@@ -1424,7 +1430,7 @@ def upgrade_recent_wins():
                                       price_ton=row['source_price']/100),
                           target=dict(name=row['target_name'],image_url=row['target_image'],
                                       price_ton=row['target_price']/100),
-                          chance=row['chance_bp']/100,
+                          chance=result.get('chance',row['chance_bp']/100),
                           reward_type=result.get('reward_type') or 'gift',
                           created_at=row['created_at']))
     return jsonify(items=items)
@@ -1442,7 +1448,7 @@ def upgrade_spin():
     if amount_text:
         try:ton_price=parse_amount(amount_text)
         except (ValueError,InvalidOperation,TypeError):return error('Укажите ставку в TON с точностью до 0.01.')
-        if not 10<=ton_price<=100000000:return error('Ставка TON: от 0.10 до 1 000 000.')
+        if not 10<=ton_price<=MAX_UPGRADE_BET_CENTS:return error('Ставка TON: от 0.10 до 1 000.')
     else:
         try:source_id=int(item_text)
         except (ValueError,TypeError):return error('Выберите свой подарок.')
@@ -1464,17 +1470,20 @@ def upgrade_spin():
                               (source_id,session['uid'])).fetchone()
             if not source:return error('Подарок недоступен для апгрейда.',409)
             source_price=int(source['floor_price'] or 0)
+            if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
             if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
                 return error('Отыгрыш завершён — сначала получите подарок.')
         chance=upgrade_chance(source_price,target['price'])
-        if not chance:return error('Цена цели должна давать шанс от 1% до 80%.')
+        if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
-        won=secrets.randbelow(10000)<chance
+        # Exact integer ratio permits rare wins without rounding the chance up
+        # to 0.01% (or down to an impossible 0%).
+        won=secrets.randbelow(target['price']*10000)<upgrade_rtp_basis_points()*source_price
         awarded=None
         wager=bool(source['promo_locked'])
         wager_target=int(source['promo_wager_target'] or 0) if wager else 0
@@ -1491,7 +1500,7 @@ def upgrade_spin():
                 cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
                                (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             awarded=cur.lastrowid
-        else:
+        elif not wager:
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price)
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
@@ -1503,7 +1512,7 @@ def upgrade_spin():
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
-                    target['name'],target['image_url'],target['price'],chance,int(won),json.dumps(result,ensure_ascii=False),
+                    target['name'],target['image_url'],target['price'],round(chance),int(won),json.dumps(result,ensure_ascii=False),
                     datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')

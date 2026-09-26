@@ -582,3 +582,127 @@ html.upgrade-spin-lock .app{transform:none!important}
 }
 #upgradePage .upgrade-win-chip.ton-only{grid-template-columns:auto auto!important;display:inline-flex!important;align-items:center!important;justify-content:flex-start!important;gap:4px!important;padding:6px 8px!important}
 #upgradePage .upgrade-win-chip.ton-only .upgrade-win-ton-image{width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important}
+
+/* Build 32 — craft page full styling + upgrade pick parity. */
+#craftPage{
+  position:relative!important;
+  padding-bottom:24px!important;
+  background:radial-gradient(ellipse 95% 46% at 50% 0%,rgba(96,164,202,.10),transparent 62%),linear-gradient(180deg,transparent,transparent)!important;
+}
+#craftPage .craft-top{margin:0 0 16px!important}
+#craftPage .craft-top h1{margin:0!important;font-size:30px!important;font-weight:760!important;letter-spacing:-.045em!important}
+#craftPage .craft-grid{
+  gap:10px!important;
+  margin:0 0 14px!important;
+  padding:12px!important;
+  border:1px solid rgba(255,255,255,.08)!important;
+  border-radius:22px!important;
+  background:rgba(255,255,255,.03)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.04)!important;
+}
+#craftPage .craft-slot{
+  position:relative!important;
+  display:grid!important;
+  grid-template-rows:1fr auto!important;
+  gap:8px!important;
+  align-items:center!important;
+  justify-items:center!important;
+  min-width:0!important;
+  overflow:hidden!important;
+  aspect-ratio:1/1!important;
+  padding:8px!important;
+  border:1px solid rgba(255,255,255,.085)!important;
+  border-radius:18px!important;
+  background:linear-gradient(160deg,rgba(37,43,51,.92),rgba(20,24,30,.96))!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.045),0 10px 20px rgba(0,0,0,.16)!important;
+}
+#craftPage .craft-slot:before{
+  content:""!important;position:absolute!important;inset:0!important;
+  background:radial-gradient(circle at 18% 16%,rgba(255,255,255,.08),transparent 34%)!important;
+  pointer-events:none!important;
+}
+#craftPage .craft-slot.filled{border-color:rgba(118,186,223,.30)!important;background:linear-gradient(160deg,rgba(30,38,48,.98),rgba(14,19,25,.98))!important}
+#craftPage .craft-slot img{width:58px!important;height:58px!important;max-width:58px!important;max-height:58px!important;object-fit:contain!important;display:block!important;filter:drop-shadow(0 6px 10px rgba(0,0,0,.26))!important}
+#craftPage .craft-slot-meta{display:grid!important;gap:3px!important;width:100%!important;min-width:0!important;text-align:center!important}
+#craftPage .craft-slot-meta b{display:block!important;min-width:0!important;font-size:10px!important;line-height:1.15!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;color:#eef4f8!important}
+#craftPage .craft-slot-meta span{display:flex!important;justify-content:center!important;align-items:center!important;gap:4px!important;font-size:10px!important;font-weight:800!important;color:#dbe7f1!important}
+#craftPage .craft-slot-meta span img{width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important}
+#craftPage .craft-slot-plus{display:grid!important;place-items:center!important;width:42px!important;height:42px!important;border-radius:15px!important;border:1px solid rgba(255,255,255,.10)!important;background:rgba(255,255,255,.05)!important;box-shadow:inset 0 1px rgba(255,255,255,.045)!important}
+#craftPage .craft-slot-plus i{position:relative!important;display:block!important;width:16px!important;height:16px!important}
+#craftPage .craft-slot-plus i:before,#craftPage .craft-slot-plus i:after{content:""!important;position:absolute!important;left:50%!important;top:50%!important;background:#a7d7ef!important;border-radius:999px!important;transform:translate(-50%,-50%)!important}
+#craftPage .craft-slot-plus i:before{width:16px!important;height:2px!important}
+#craftPage .craft-slot-plus i:after{width:2px!important;height:16px!important}
+#craftPage .craft-slot small{position:relative!important;z-index:1!important;color:#8da0b2!important;font-size:10px!important;font-weight:700!important;letter-spacing:.01em!important}
+#craftPage .craft-slot-remove{position:absolute!important;top:6px!important;right:6px!important;width:22px!important;height:22px!important;display:grid!important;place-items:center!important;border-radius:999px!important;border:1px solid rgba(255,255,255,.09)!important;background:rgba(8,12,16,.72)!important;color:#edf6fb!important;font-size:14px!important;line-height:1!important}
+#craftPage .craft-summary{gap:10px!important}
+#craftPage .craft-range,
+#craftPage .craft-summary-empty{padding:13px 14px!important;border-radius:18px!important;border:1px solid rgba(255,255,255,.08)!important;background:rgba(255,255,255,.035)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important}
+#craftPage .craft-summary-empty{color:#93a8bb!important;text-align:center!important}
+#craftPage .craft-range{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)!important;gap:10px!important}
+#craftPage .craft-range-card{min-width:0!important;gap:8px!important}
+#craftPage .craft-range-card img{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important}
+#craftPage .craft-range-card strong{font-size:11px!important;color:#f4f7f9!important}
+#craftPage .craft-range-card span{display:flex!important;align-items:center!important;gap:4px!important;font-size:12px!important;font-weight:800!important;color:#e8f0f6!important}
+#craftPage .craft-range-card span img,
+#craftPage .craft-range-card span .ton{width:14px!important;height:14px!important;max-width:14px!important;max-height:14px!important}
+#craftPage .craft-range-arrow{padding:0 8px!important;border-radius:999px!important;background:rgba(114,179,213,.08)!important;border:1px solid rgba(114,179,213,.14)!important;color:#9fd8f0!important;font-size:10px!important;display:grid!important;place-items:center!important;white-space:nowrap!important}
+#craftPage .craft-action{height:52px!important;min-height:52px!important;border-radius:15px!important;font-size:15px!important;font-weight:800!important}
+#craftPage .craft-inventory-grid{gap:10px!important;padding:2px!important}
+#craftPage .craft-inventory-item{gap:8px!important;padding:10px!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:16px!important;background:rgba(255,255,255,.03)!important;box-shadow:inset 0 1px rgba(255,255,255,.03)!important}
+#craftPage .craft-inventory-item img{width:100%!important;aspect-ratio:1/1!important;max-width:none!important;object-fit:contain!important}
+#craftPage .craft-inventory-item strong{font-size:11px!important;line-height:1.2!important;color:#edf2f6!important}
+#craftPage .craft-inventory-item span{display:flex!important;justify-content:center!important;align-items:center!important;gap:4px!important;font-weight:800!important;color:#e8f0f5!important}
+#craftPage .craft-inventory-item span img{width:14px!important;height:14px!important;max-width:14px!important;max-height:14px!important}
+#craftPage .craft-win-row{border:1px solid rgba(255,255,255,.08)!important;border-radius:15px!important;background:rgba(255,255,255,.03)!important}
+#craftPage .craft-win-chip{background:rgba(255,255,255,.04)!important;border:1px solid rgba(255,255,255,.075)!important}
+#craftPage .craft-win-chip img{width:22px!important;height:22px!important;max-width:22px!important;max-height:22px!important}
+#craftPage .craft-result-card{border:1px solid rgba(255,255,255,.1)!important;border-radius:24px!important;background:rgba(24,27,32,.96)!important;box-shadow:inset 0 1px rgba(255,255,255,.06),0 28px 88px rgba(0,0,0,.5)!important}
+#craftPage .craft-result-price{display:inline-flex!important;align-items:center!important;gap:6px!important}
+#craftPage .craft-result-price img{width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important}
+
+/* Better craft icon in bottom nav. */
+#nav.nav button[data-page="craftPage"] svg{width:19px!important;height:19px!important;stroke-width:1.8!important}
+
+/* Keep upgrade bet/target cards visually equal. */
+#upgradePage .upgrade-pick.gift-source,
+#upgradePage .upgrade-pick.ton-source,
+#upgradePage .upgrade-pick.target.gift-target{
+  min-height:84px!important;
+  height:84px!important;
+  padding:10px!important;
+  border-radius:17px!important;
+}
+#upgradePage .upgrade-pick.target.gift-target{
+  display:grid!important;
+  grid-template-columns:58px minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:9px!important;
+  text-align:left!important;
+}
+#upgradePage .upgrade-pick.target.gift-target>small{display:none!important}
+#upgradePage .upgrade-pick.target.gift-target .pick-art{grid-column:1!important;grid-row:1!important;width:58px!important;height:58px!important;margin:0!important}
+#upgradePage .upgrade-pick.target.gift-target .pick-art img{width:58px!important;height:58px!important;max-width:58px!important;max-height:58px!important;object-fit:contain!important}
+#upgradePage .upgrade-pick.target.gift-target #upgradeTargetName{grid-column:2!important;grid-row:1!important;display:block!important;min-width:0!important;font-size:14px!important;font-weight:760!important;color:#f4f6f8!important;line-height:1.12!important;white-space:normal!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
+#upgradePage .upgrade-pick.target.gift-target #upgradeTargetPrice{grid-column:3!important;grid-row:1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:5px!important;min-width:max-content!important;font-size:13px!important;font-weight:780!important;color:#f4f6f8!important}
+#upgradePage .upgrade-pick.ton-source{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;text-align:left!important}
+#upgradePage .upgrade-pick.ton-source>small{display:none!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMineName{font-size:22px!important}
+#upgradePage .upgrade-pick.ton-source #upgradeMinePrice{justify-self:end!important}
+
+@media(max-width:380px){
+  #craftPage .craft-grid{gap:8px!important;padding:10px!important}
+  #craftPage .craft-slot{padding:6px!important;border-radius:16px!important}
+  #craftPage .craft-slot img{width:46px!important;height:46px!important;max-width:46px!important;max-height:46px!important}
+  #craftPage .craft-slot-meta b{font-size:9px!important}
+  #craftPage .craft-slot-meta span{font-size:9px!important}
+  #craftPage .craft-range{grid-template-columns:1fr!important}
+  #craftPage .craft-range-arrow{min-height:30px!important}
+  #upgradePage .upgrade-pick.gift-source,
+  #upgradePage .upgrade-pick.ton-source,
+  #upgradePage .upgrade-pick.target.gift-target{min-height:78px!important;height:78px!important}
+  #upgradePage .upgrade-pick.target.gift-target{grid-template-columns:50px minmax(0,1fr) auto!important;gap:7px!important}
+  #upgradePage .upgrade-pick.target.gift-target .pick-art,
+  #upgradePage .upgrade-pick.target.gift-target .pick-art img{width:50px!important;height:50px!important;max-width:50px!important;max-height:50px!important}
+  #upgradePage .upgrade-pick.target.gift-target #upgradeTargetName{font-size:12px!important}
+  #upgradePage .upgrade-pick.target.gift-target #upgradeTargetPrice{font-size:11.5px!important}
+}

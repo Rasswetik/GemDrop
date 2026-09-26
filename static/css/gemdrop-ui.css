@@ -1,0 +1,416 @@
+/* GemDrop UI: one consistent visual layer over the legacy page styles. */
+:root {
+  --bg:#0b1119;
+  --surface:#151f2b;
+  --surface2:#1b2937;
+  --line:#334455;
+  --text:#edf6fc;
+  --muted:#a1b3c2;
+  --accent:#83dbef;
+  --blue:#56bade;
+  --danger:#f27c91;
+}
+html { -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+body {
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  font-size:14px;line-height:1.45;letter-spacing:0;
+  color:var(--text);background:linear-gradient(180deg,#101a26 0,#0b1119 290px);
+}
+button,input,select { font-family:inherit;letter-spacing:normal; }
+button { -webkit-tap-highlight-color:transparent; }
+button:focus-visible,input:focus-visible,select:focus-visible {
+  outline:2px solid #90e7fb;outline-offset:2px;
+}
+h1,h2,h3,strong,b { letter-spacing:-.015em; }
+h1 { font-size:clamp(25px,6.5vw,30px);font-weight:750;line-height:1.18; }
+h2 { font-size:18px;font-weight:700;line-height:1.28; }
+p,.muted,.caption,.notice,small { line-height:1.5; }
+.caption { font-size:12px;font-weight:650; }
+.panel,.modal-card {
+  border:1px solid #354a5e;
+  background:linear-gradient(155deg,#1a2735,#121c28 76%);
+  box-shadow:inset 0 1px #ffffff0c,0 12px 30px #0309112b;
+}
+.panel { border-radius:18px;padding:16px; }
+.modal-card { border-radius:22px; }
+.primary,.secondary,.mini-btn,.back {
+  font-size:13px;font-weight:700;letter-spacing:0;
+  transition:background-color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease;
+}
+.primary:active,.secondary:active,.mini-btn:active,.back:active { transform:scale(.985); }
+.primary { background:linear-gradient(130deg,#9fe8ed,#61bddc);color:#0b2029; }
+.secondary { background:#20303e;border:1px solid #405b6f;color:#def6ff; }
+.text-input,input[type="text"],input[type="number"],select {
+  min-width:0;min-height:43px;font-size:14px;
+  background-color:#111b26;color:#eaf6ff;border-color:#415468;
+}
+.text-input::placeholder,input::placeholder { color:#8499ab;opacity:1; }
+.panel-head h2,.bonus-section-head h3 { margin:0;font-size:15px;font-weight:720; }
+.nav { background:#121d29f2;border:1px solid #30475b;border-bottom:0;box-shadow:0 -7px 28px #02070d70; }
+.nav button { font-size:11px;font-weight:650; }
+.nav button.active { color:#a8ecf4; }
+.profile-shortcut { font-size:13px;font-weight:720; }
+.profile-shortcut.referral { background:linear-gradient(135deg,#1b536c,#2c7390); }
+
+/* Readable inventory: full image and full name, two cards per row. */
+#profilePage .inventory { grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;align-items:stretch; }
+#profilePage .gift {
+  display:flex;flex-direction:column;height:100%;min-width:0;padding:10px;
+  border-radius:16px;overflow:visible;box-shadow:inset 0 1px #ffffff19,0 9px 20px #02070c30;
+}
+#profilePage .gift-art {
+  display:grid;place-items:center;width:100%;height:clamp(112px,34vw,158px);min-height:0;
+  margin:0 0 10px;padding:12px;border-radius:12px;overflow:visible;
+}
+#profilePage .gift-art img {
+  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;object-position:center;transform:none;filter:none;
+}
+#profilePage .gift strong {
+  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
+  -webkit-line-clamp:unset;overflow-wrap:anywhere;font-size:12px;font-weight:690;line-height:1.35;
+}
+#profilePage .gift>small {
+  display:flex;align-items:center;margin-top:auto;padding-top:8px;
+  color:#d1edfa;font-size:12px;font-weight:720;white-space:nowrap;
+}
+#profilePage .gift.promo-wager .promo-ribbon { right:5px;top:5px; }
+
+/* Bonus badge counts codes that have not been opened. */
+.profile-shortcut.referral.has-bonus { box-shadow:inset 0 1px #ffffff30,0 0 11px #ec576044; }
+.my-promo-card { border-radius:13px;padding:12px; }
+.my-promo-card strong { font-size:13px;font-weight:740; }
+.my-promo-card small { font-size:11px;line-height:1.45; }
+.my-promo-card.unread { border-color:#de6b82;box-shadow:inset 3px 0 #ef6078; }
+.my-promo-card.unread .promo-status { color:#ff9cae; }
+.bonus-section-head span { font-size:11px; }
+.bonus-badge { font-size:11px;font-weight:800; }
+
+/* Wallet promo: current bonus is informational; the field remains editable. */
+.deposit-promo { background:#172637;border-color:#416176; }
+.deposit-promo label { font-size:12px;font-weight:710; }
+.deposit-promo-row { grid-template-columns:minmax(0,1fr) 100px; }
+.deposit-promo-row button { border-radius:11px;font-weight:700; }
+#depositPromoStatus { display:block;font-size:11px;overflow-wrap:anywhere; }
+
+/* Admin console: grouped actions and readable form rhythm. */
+#adminPage .admin-heading {
+  margin:12px 0 17px;padding:20px 17px;border-radius:18px;
+  border:1px solid #406277;background:radial-gradient(circle at 92% 14%,#2b697a6b,transparent 60%),#182939;
+}
+#adminPage .admin-heading span { color:#94e2ef;font-size:10px;font-weight:750;letter-spacing:.13em; }
+#adminPage .admin-heading h1 { margin:7px 0 4px; }
+#adminPage .admin-heading p { margin:0;color:#aec4d2;font-size:12px; }
+#adminPage .admin-menu { display:grid;gap:13px; }
+#adminPage .admin-group {
+  padding:14px;border:1px solid #344a5b;border-radius:17px;background:#152330;
+}
+#adminPage .admin-group h2 { margin:0 0 11px;color:#c6dfeb;font-size:13px;font-weight:700; }
+#adminPage .admin-actions { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
+#adminPage .admin-actions button {
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  min-height:57px;padding:11px;text-align:left;line-height:1.3;
+  font-size:12px;font-weight:650;white-space:normal;overflow-wrap:anywhere;
+  border:1px solid #3c5669;border-radius:12px;background:#203140;color:#e5f4fb;
+}
+#adminPage .admin-actions button span { flex:none;color:#82d7ec;font-size:17px; }
+#adminPage .admin-actions button:active { background:#2c4354;transform:scale(.985); }
+#userPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
+#portalPage .panel,#rtpPage .panel,#loaderSettingsPage .panel { margin:12px 0;padding:15px; }
+#userPage .panel h2,#promocodesPage .panel h2 { margin-bottom:9px;font-size:15px; }
+#userPage .row,#promocodesPage .row { min-width:0;align-items:center; }
+#userPage .panel.stack,#promocodesPage .promo-admin-form { gap:9px; }
+#userPage .user-row,#usersPage .user-row { background:#1c2b39;border-color:#364e60; }
+#usersPage .user-row { min-height:56px; }
+#usersPage .user-row small { color:#a7bdca; }
+#promocodesPage .caption,#userPage .caption { color:#b6d2df;font-size:11px; }
+#promocodesPage .promo-admin-extra { gap:12px; }
+
+/* Mines: crisp cell transitions, short feedback after a round starts or ends. */
+#minesPage .board { isolation:isolate; }
+#minesPage .cell {
+  border-color:#304659;background:linear-gradient(145deg,#223344,#16232f);
+  box-shadow:inset 0 1px #ffffff14,0 5px 13px #0005;
+}
+#minesPage .cell:not(:disabled):active { transform:scale(.92); }
+#minesPage .cell.open { border-color:#72d7eb;background:radial-gradient(circle at 50% 38%,#235673,#152736 73%); }
+#minesPage .cell.mine { border-color:#c4677a;background:radial-gradient(circle at 50% 38%,#673447,#231a27 75%); }
+#minesPage .board.round-start .cell { animation:cellSettle .36s both; }
+#minesPage .board.round-start .cell:nth-child(5n+2) { animation-delay:35ms; }
+#minesPage .board.round-start .cell:nth-child(5n+3) { animation-delay:65ms; }
+#minesPage .board.round-start .cell:nth-child(5n+4) { animation-delay:95ms; }
+#minesPage .board.round-start .cell:nth-child(5n+5) { animation-delay:125ms; }
+#minesPage .board.round-loss { animation:boardLoss .36s ease-in-out; }
+#minesPage .cell.reveal.open { animation:cellFound .45s cubic-bezier(.17,1.2,.34,1); }
+#minesPage .cell.reveal.mine { animation:cellLost .48s ease-out; }
+@keyframes cellSettle { from{transform:translateY(8px) scale(.94);opacity:.65} to{transform:none;opacity:1} }
+@keyframes cellFound { 45%{transform:scale(1.08);box-shadow:0 0 20px #68dcff80} to{transform:scale(1)} }
+@keyframes cellLost { 30%{transform:scale(.92);box-shadow:0 0 24px #ff6d9380} to{transform:scale(1)} }
+@keyframes boardLoss { 20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)} }
+
+/* Upgrade: depth and movement follow the actual server result. */
+#upgradePage .upgrade-heading { font-size:29px;font-weight:750; }
+#upgradePage .upgrade-pick { border-radius:17px; }
+#upgradePage .upgrade-wheel-wrap { transition:box-shadow .3s ease; }
+#upgradePage .upgrade-wheel-wrap.ready { box-shadow:0 18px 42px #0009,0 0 22px #48d7b22f; }
+#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1.25s ease-in-out infinite; }
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { box-shadow:0 0 0 6px #12232ab0,0 0 26px #d0f8ee88; }
+@keyframes upgradeGlow { 50%{box-shadow:0 19px 46px #000b,0 0 32px #72efd380} }
+#upgradeResultModal:not(.hidden) .upgrade-result-card { animation:resultArrive .42s cubic-bezier(.2,1.2,.35,1) both; }
+#upgradeResultModal .upgrade-result-card.won { background:radial-gradient(circle at 50% 18%,#245044,#17272a 70%); }
+#upgradeResultModal .upgrade-result-card.lost { background:radial-gradient(circle at 50% 18%,#493343,#221b29 70%); }
+@keyframes resultArrive { from{opacity:0;transform:translateY(17px) scale(.94)} to{opacity:1;transform:none} }
+
+@media(max-width:370px) {
+  #adminPage .admin-actions { grid-template-columns:1fr; }
+  #adminPage .admin-actions button { min-height:48px; }
+  #profilePage .gift-art { height:112px;padding:9px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation-duration:.01ms!important;transition-duration:.01ms!important; }
+}
+
+/* Direct browser login backed by a one-time Telegram bot command. */
+#auth { max-width:410px;margin:12vh auto 0;padding:24px;border:1px solid #38596e;
+  border-radius:24px;background:linear-gradient(160deg,#1b3142,#131f2c);box-shadow:0 24px 55px #0006;text-align:left; }
+#auth h1 { margin:0 0 8px; }
+#authText { color:#a9c9d7;font-size:13px; }
+.web-auth-panel { display:grid;gap:14px;margin-top:18px; }
+.web-auth-panel p { margin:0;font-size:13px;color:#d5eaf3;line-height:1.55; }
+.web-auth-command { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;
+  border:1px solid #6bacca;border-radius:13px;background:#10202d; }
+.web-auth-command code { min-width:0;padding:6px 2px;overflow-wrap:anywhere;font-size:17px;font-weight:750;color:#b3efff;letter-spacing:.04em; }
+.web-auth-command button { padding:9px 10px;border-radius:9px;background:#2e5971;color:#e6f9ff;font-size:11px;font-weight:700; }
+.web-auth-panel small { color:#a9c0cf;font-size:12px; }
+.web-bot-link { color:#91e1ee;text-decoration:none;font-size:13px;font-weight:700; }
+#webAuthRenew { margin-top:2px; }
+
+/* Personal promo is created in the player's admin card; templates are optional. */
+#userPage .user-promo-panel { display:grid;gap:9px;margin-block:20px;padding:18px; }
+#userPage .user-promo-panel h2 { margin:0; }
+#userPage .user-promo-panel p { margin:0 0 4px;font-size:12px; }
+#userPage .user-promo-panel .caption { display:block;margin:6px 0 4px; }
+#userPage .user-promo-panel .text-input { display:block;width:100%; }
+#userPage .user-promo-panel .text-input.hidden { display:none!important; }
+#userPage .user-promo-panel .primary { margin-top:9px; }
+.user-promo-issued { display:grid;gap:5px;max-height:150px;overflow:auto; }
+.user-promo-line { padding:8px 10px;border:1px solid #354a59;border-radius:9px;background:#13202b;
+  color:#bcd3df;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
+.user-promo-extra { border-top:1px solid #3b5666;padding-top:12px; }
+.user-promo-extra summary { cursor:pointer;color:#a5e1f0;font-size:12px;font-weight:700; }
+.user-promo-extra .secondary { margin:10px 0; }
+.user-promo-extra .text-input { margin-bottom:9px; }
+
+/* Bonuses: separate browsing and referrals with clear unread status. */
+.bonus-modal-card { padding:20px 17px;max-height:88dvh; }
+.bonus-heading { text-align:left;padding:3px 4px 12px; }
+.bonus-heading span { color:#87e1ed;font-size:10px;font-weight:760;letter-spacing:.12em; }
+.bonus-heading h2 { margin:5px 0 2px;font-size:23px; }
+.bonus-heading p { margin:0;color:#a7bfce;font-size:12px; }
+.bonus-tabs { display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border:1px solid #334c5e;
+  border-radius:12px;background:#101c27; }
+.bonus-tabs button { min-height:38px;border-radius:8px;background:transparent;color:#9db4c3;font-size:12px;font-weight:700; }
+.bonus-tabs button.active { background:#2c5267;color:#eafcff;box-shadow:inset 0 1px #ffffff24; }
+.bonus-modal-card .bonus-section { margin-top:13px;background:#14212c;border-color:#344d5e; }
+.bonus-hint { margin:0 0 10px;color:#98afbd;font-size:11px;text-align:left; }
+.bonus-modal-card .ref-stats { grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }
+.bonus-modal-card .ref-stat { min-width:0;padding:9px 5px;text-align:center; }
+.bonus-modal-card .ref-stat b { font-size:16px; }
+.bonus-modal-card .ref-stat small { font-size:9px;line-height:1.25; }
+.bonus-modal-card .ref-link { overflow-wrap:anywhere; }
+
+/* Transfer panel with one readable progression. */
+#transferModal .transfer-card { width:min(100%,405px);padding:19px;text-align:left;border-color:#49768b;
+  background:linear-gradient(155deg,#1d3647,#142431 65%,#111c28); }
+.transfer-heading { padding:2px 2px 15px;border-bottom:1px solid #385366;margin-bottom:16px; }
+.transfer-heading span { color:#80d8e8;font-size:10px;font-weight:750;letter-spacing:.13em; }
+.transfer-heading h2 { margin:5px 0 3px;font-size:24px;line-height:1.2; }
+.transfer-heading p { margin:0;color:#a7c2d2;font-size:12px; }
+#transferModal .transfer-form { gap:10px; }
+#transferModal .transfer-form label { margin:2px 0 -4px;font-size:12px;font-weight:680;color:#c8e4ee; }
+#transferModal .transfer-form>.row { display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:7px; }
+#transferModal .transfer-form>.row .mini-btn { padding-inline:7px; }
+#transferModal .transfer-user { border-radius:12px;background:#1a3341;border-color:#426477; }
+#transferModal .transfer-preview { margin-top:6px;padding:13px;border:1px solid #385e6d;border-radius:14px;background:#132b37; }
+.transfer-preview>small { display:block;color:#a0bccb;font-size:11px; }
+#transferModal .transfer-before-after { border:0;background:none;box-shadow:none;margin:6px 0 0;padding:0;font-size:19px; }
+#transferModal .transfer-meta { margin-bottom:6px;color:#b8d0dc;font-size:12px;line-height:1.55; }
+#transferModal .transfer-buttons { gap:9px; }
+#transferModal #transferConfirmSummary { padding:15px;border:1px solid #406073;border-radius:12px;background:#142a38; }
+
+/* Extra breathing room for games and management screens. */
+#upgradePage { padding-bottom:34px; }
+#upgradePage .upgrade-heading { margin:25px 0 18px; }
+#upgradePage .upgrade-picks { gap:13px;margin-bottom:12px; }
+#upgradePage .upgrade-pick { min-height:165px;padding:15px 11px; }
+#upgradePage .upgrade-wheel-wrap { margin:26px auto 24px; }
+#upgradePage .upgrade-chance { margin:13px 0 19px;padding:13px; }
+#upgradePage .upgrade-action { margin-top:7px; }
+#adminPage .admin-menu { gap:20px; }
+#adminPage .admin-group { padding:17px; }
+#adminPage .admin-actions { gap:11px; }
+#adminPage .admin-group h2 { margin-bottom:13px; }
+#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
+#rtpPage .panel,#loaderSettingsPage .panel { margin-block:19px; }
+@media(max-height:710px) { #upgradePage .upgrade-wheel-wrap { margin:15px auto; } }
+
+/* A separate, readable feed for successful Upgrade spins. */
+#upgradePage .upgrade-wins-card { margin:23px 0 12px;border-color:#345567;background:linear-gradient(155deg,#172c38,#111c29); }
+#upgradePage .upgrade-wins-card h2 { color:#a9d9e8;font-size:12px;font-weight:760;letter-spacing:.035em;text-transform:none; }
+.upgrade-win-row { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;min-width:0;padding:12px;border-bottom:1px solid #2b4150; }
+.upgrade-win-row:last-child { border-bottom:0; }
+.upgrade-win-row .recent-win-avatar { width:38px;height:38px;align-self:start; }
+.upgrade-win-main { min-width:0; }
+.upgrade-win-head { display:flex;justify-content:space-between;align-items:center;gap:7px;min-width:0;margin-bottom:7px; }
+.upgrade-win-head strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
+.upgrade-win-chance { flex:none;padding:3px 6px;border:1px solid #3b786c;border-radius:7px;background:#173c39;color:#a1f1d0;font-size:10px;font-weight:740; }
+.upgrade-win-flow { display:flex;align-items:center;gap:7px;min-width:0; }
+.upgrade-win-chip { display:flex;align-items:center;gap:4px;min-width:0;padding:5px 7px;border:1px solid #3c5770;border-radius:10px;background:#152332;color:#dceefb;font-size:11px;font-weight:760;white-space:nowrap; }
+.upgrade-win-chip.target { border-color:#3b846c;background:#193c33;color:#d1ffe9; }
+.upgrade-win-chip img:first-child { width:27px;height:27px;min-width:27px;object-fit:contain; }
+.upgrade-win-chip img:last-child { width:14px;height:14px;object-fit:contain; }
+.upgrade-win-chip span { overflow:hidden;text-overflow:ellipsis; }
+.upgrade-win-arrow { flex:none;color:#90bbc8;font-size:11px;font-weight:800;line-height:1; }
+.upgrade-win-note { display:block;margin-top:5px;color:#9cb8c8;font-size:10px; }
+@media(max-width:355px) { .upgrade-win-row { grid-template-columns:31px minmax(0,1fr);gap:7px;padding:10px 7px; }.upgrade-win-row .recent-win-avatar { width:31px;height:31px; }.upgrade-win-chip { padding:4px;gap:3px;font-size:10px; }.upgrade-win-chip img:first-child { width:22px;height:22px;min-width:22px; } }
+
+/* Loss rewards stay visible until the player closes the result. */
+#upgradeResultModal .upgrade-compensation { display:grid;gap:9px;margin:15px 0!important;color:#dbeef5!important;font-size:12px!important;text-align:left; }
+#upgradeResultModal .upgrade-compensation.hidden { display:none!important; }
+.upgrade-compensation-line { display:grid;gap:4px;padding:11px 12px;border:1px solid #426c69;border-radius:12px;background:#17312f; }
+.upgrade-compensation-line strong { color:#bef5dd;font-size:12px; }
+.upgrade-compensation-line.promo-awarded { border-color:#6682aa;background:#1b3148; }
+.upgrade-compensation-line.promo-awarded strong { color:#bde9ff; }
+.upgrade-compensation-line code { overflow-wrap:anywhere;color:#fff;font-size:17px;font-weight:780;letter-spacing:.03em; }
+.upgrade-compensation-line small { color:#bdd2e0;font-size:11px; }
+.upgrade-compensation-line button { width:100%;min-height:39px;margin-top:5px;border-radius:10px; }
+
+/* /auf login, with visible steps and controls on narrow browser windows. */
+#auth { width:min(100%,420px);margin:clamp(16px,9vh,75px) auto 0;padding:clamp(18px,5vw,27px);border-color:#568ba4;background:radial-gradient(circle at 90% 0%,#254c62,#182d3d 52%,#121f2c); }
+#auth h1 { color:#effbff;font-size:clamp(23px,6vw,30px); }
+#authText { margin:6px 0 0;line-height:1.5; }
+#webAuthPanel { min-width:0;gap:13px; }
+#webAuthPanel p { padding:12px;border:1px solid #385970;border-radius:12px;background:#122536; }
+#webAuthPanel .web-auth-command { min-width:0;flex-wrap:wrap;border-color:#71c3d8;background:#0f2635;box-shadow:inset 0 1px #ffffff16; }
+#webAuthPanel .web-auth-command code { flex:1 1 160px;min-width:0;font-size:clamp(15px,4.2vw,19px); }
+#webAuthPanel .web-auth-command button,#webAuthRenew,#webBotLink { min-height:42px;padding:10px 13px;border:1px solid #619cb5;border-radius:11px;background:#244e63;color:#e6faff;text-align:center;font-size:12px;font-weight:740;text-decoration:none;cursor:pointer; }
+#webAuthPanel #webBotLink { display:grid;place-items:center;background:linear-gradient(120deg,#87dded,#5ab8d8);border-color:#99e9f4;color:#10232e; }
+#webAuthPanel #webBotLink.hidden { display:none!important; }
+#webAuthStatus { display:block;padding:9px 12px;border-left:3px solid #7bd7dc;border-radius:7px;background:#122c39;color:#c7e4ef; }
+
+/* Every clickable control in the bonus and promo dialogs has a clear state. */
+#referralModal button,#promoModal button { font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;transition:background .18s,border-color .18s,transform .18s,box-shadow .18s; }
+#referralModal button:active,#promoModal button:active { transform:scale(.98); }
+#referralModal button:disabled,#promoModal button:disabled { opacity:.55;cursor:default; }
+#referralModal .bonus-tabs button { border:1px solid transparent; }
+#referralModal .bonus-tabs button.active { border-color:#68b7ce;background:#305a6d;color:#f3ffff; }
+#referralModal .my-promo-card { min-height:64px;border-color:#476c82;background:#1a3140;color:#effaff;text-align:left; }
+#referralModal .my-promo-card.unread { border-color:#d7839b; }
+#referralModal .my-promo-card:not(:disabled):hover { background:#264356; }
+#referralModal .my-promo-card:disabled { background:#1d2229;color:#8e9aa5; }
+#referralModal .my-promo-more { min-height:42px;border-color:#4b869c;background:#1b4357;color:#def8ff; }
+#referralModal .ref-actions { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0; }
+#referralModal .ref-actions button { min-height:44px;border-radius:11px; }
+#referralModal .modal-close-small,#promoModal .modal-close-small { display:block;width:100%;min-height:43px;padding:10px;margin-top:12px;border:1px solid #4a6a7f;border-radius:11px;background:#213848;color:#d8edfa; }
+#promoModal .promo-check { display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid #8de3d7;border-radius:11px;background:#54c7ad;color:#092725; }
+#promoModal .promo-check svg { width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:2.5; }
+@media(max-width:370px) { #referralModal .bonus-modal-card { padding:17px 12px; }.bonus-modal-card .ref-stats { gap:4px; } }
+
+/* Upgrade feed: fixed art dimensions even when source PNGs are very large. */
+#upgradePage .upgrade-win-flow { overflow:hidden; }
+#upgradePage .upgrade-win-chip { flex:0 1 auto;overflow:hidden;max-width:calc(50% - 23px); }
+#upgradePage .upgrade-win-chip .upgrade-win-gift-image { display:block;flex:none;width:26px;height:26px;min-width:26px;max-width:26px;min-height:26px;max-height:26px;object-fit:contain; }
+#upgradePage .upgrade-win-chip .upgrade-win-ton-image { display:block;flex:none;width:13px;height:13px;min-width:13px;max-width:13px;min-height:13px;max-height:13px;object-fit:contain; }
+#upgradePage .upgrade-win-row { animation:upgradeFeedAppear .42s ease both; }
+#upgradePage .upgrade-win-row:nth-child(2) { animation-delay:.07s; }
+#upgradePage .upgrade-win-row:nth-child(3) { animation-delay:.14s; }
+#upgradePage .upgrade-win-row:nth-child(4) { animation-delay:.2s; }
+@keyframes upgradeFeedAppear { from { opacity:0;transform:translateY(7px) } to { opacity:1;transform:translateY(0) } }
+
+/* Spin has a clear active phase and a short settled result. */
+#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1s ease-in-out infinite; }
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before { content:"";position:absolute;z-index:2;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,#ffffff40 24deg,transparent 52deg);animation:upgradeSweep 1.35s linear infinite;pointer-events:none; }
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { animation:upgradeCenterBeat .72s ease-in-out infinite alternate; }
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i { filter:drop-shadow(0 0 9px #f2fffe) drop-shadow(0 4px 4px #0009); }
+#upgradePage .upgrade-wheel-wrap.spinning+.upgrade-chance { border-color:#5ba6a1;box-shadow:0 0 17px #53d9a120; }
+@keyframes upgradeSweep { to { transform:rotate(360deg) } }
+@keyframes upgradeCenterBeat { to { box-shadow:0 0 0 7px #12232ab0,0 0 34px #a6ffdc88;transform:scale(1.045) } }
+
+/* Bonus navigation, links and status all have consistent button affordances. */
+#referralModal .bonus-tabs { background:#101f2b;border-color:#486a7e; }
+#referralModal .bonus-tabs button { padding:9px 6px;color:#b2cad8;border-radius:9px; }
+#referralModal .bonus-tabs button.active { background:linear-gradient(140deg,#317089,#254c64);box-shadow:0 2px 10px #07131c9e;color:#fff; }
+#referralModal .ref-actions .secondary { border:1px solid #6396ad;background:#23475a;color:#eefaff; }
+#referralModal .ref-actions .primary { border:1px solid #a0eff2;background:linear-gradient(130deg,#9debea,#66bfdc);color:#0d2833; }
+#referralModal .my-promo-card .promo-status { padding:5px 7px;border-radius:8px;background:#173d4e; }
+#referralModal .my-promo-card.unread .promo-status { background:#53313e;color:#ffb9c8; }
+#referralModal .my-promo-card:disabled .promo-status { background:#252a30;color:#8c959e; }
+
+/* Administrative screens share a calm grid and readable controls. */
+#adminPage,#usersPage,#userPage,#withdrawalsPage,#transactionsPage,#depositSettingsPage,#promocodesPage,
+#rtpPage,#loaderSettingsPage,#portalPage,#transferSettingsPage,#userActivityPage,#levelsAdminPage,#rollAdminPage { min-width:0;padding-bottom:25px; }
+#adminPage .admin-heading { margin-bottom:18px; }
+#adminPage .admin-group { min-width:0;padding:17px;background:linear-gradient(160deg,#192c3b,#14212e); }
+#adminPage .admin-group h2 { margin:0 0 13px; }
+#adminPage .admin-actions button { min-width:0;min-height:57px;padding:10px 11px; }
+#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
+#rtpPage .panel,#loaderSettingsPage .panel,#usersPage .panel,#transactionsPage .panel { min-width:0;margin-block:17px;padding:16px; }
+#userPage .panel.stack,#promocodesPage .promo-admin-form { display:grid;gap:11px; }
+#userPage .panel .row,#usersPage .panel.row,#transactionsPage .panel.row { display:flex;gap:8px;align-items:center;min-width:0; }
+#userPage .panel .row .text-input,#usersPage .panel.row .text-input,#transactionsPage .panel.row .text-input { min-width:0;flex:1; }
+#userPage .panel .row .mini-btn,#usersPage .panel.row .mini-btn,#transactionsPage .panel.row .mini-btn { flex:none;min-height:42px;padding:9px 11px;border-radius:10px; }
+#userPage .panel button,#promocodesPage .panel button,#depositSettingsPage .panel button { min-height:42px;border-radius:10px; }
+#userPage .panel .text-input,#promocodesPage .panel .text-input { max-width:100%; }
+@media(max-width:440px) {
+  #adminPage .admin-actions { grid-template-columns:1fr;gap:8px; }
+  #adminPage .admin-actions button { min-height:45px; }
+  #adminPage .admin-menu { gap:15px; }
+  #adminPage .admin-group { padding:14px; }
+  #promocodesPage .promo-admin-extra { grid-template-columns:minmax(0,1fr); }
+  #promocodesPage .promo-admin-extra .full { grid-column:1; }
+  #upgradePage .upgrade-win-chip { padding:4px 5px;gap:3px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  #upgradePage .upgrade-wheel-wrap.spinning,#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before,
+  #upgradePage .upgrade-wheel-wrap.spinning .upgrade-center,#upgradePage .upgrade-win-row { animation:none!important; }
+}
+
+/* Profile inventory: three complete gifts in each row, including narrow phones. */
+#profilePage #inventoryGrid.inventory {
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
+  align-items:stretch;min-width:0;width:100%;
+}
+#profilePage #inventoryGrid .gift {
+  box-sizing:border-box;display:flex;flex-direction:column;min-width:0;width:100%;height:100%;
+  padding:7px;border-radius:12px;overflow:visible;
+}
+#profilePage #inventoryGrid .gift-art {
+  display:grid;place-items:center;min-width:0;width:100%;height:clamp(88px,27vw,118px);
+  min-height:0;margin:0 0 7px;padding:7px;border-radius:9px;overflow:visible;
+}
+#profilePage #inventoryGrid .gift-art img {
+  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
+  object-fit:contain;object-position:center;transform:none;filter:none;
+}
+#profilePage #inventoryGrid .gift strong {
+  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
+  text-overflow:clip;overflow-wrap:anywhere;-webkit-line-clamp:unset;
+  font-size:11px;line-height:1.3;font-weight:710;
+}
+#profilePage #inventoryGrid .gift>small {
+  display:flex;align-items:center;flex-wrap:wrap;gap:3px;min-width:0;
+  margin-top:auto;padding-top:7px;white-space:normal;overflow-wrap:anywhere;
+  font-size:10px;line-height:1.25;
+}
+#profilePage #inventoryGrid .gift>small img {
+  width:13px;height:13px;min-width:13px;max-width:13px;object-fit:contain;
+}
+#profilePage #inventoryGrid .gift-progress { width:100%;min-width:0; }
+#profilePage #inventoryGrid .gift-progress small { display:block;overflow-wrap:anywhere;white-space:normal;font-size:9px; }
+#profilePage #inventoryGrid .promo-ribbon { top:4px;right:4px;padding:3px 4px;font-size:8px; }
+@media(max-width:360px) {
+  #profilePage #inventoryGrid.inventory { gap:6px; }
+  #profilePage #inventoryGrid .gift { padding:5px; }
+  #profilePage #inventoryGrid .gift-art { height:86px;padding:5px; }
+  #profilePage #inventoryGrid .gift strong { font-size:10px; }
+}

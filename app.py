@@ -2209,7 +2209,8 @@ def my_promocodes():
                                     (promo['code'], session['uid'])).fetchone()
             items.append(promo_view(promo, redemption))
     order = {'active':0, 'expired':1, 'disabled':2, 'used':3}
-    items.sort(key=lambda x: (order.get(x['status'], 9), x['created_at'] or ''))
+    items.sort(key=lambda x: x['created_at'] or '', reverse=True)
+    items.sort(key=lambda x: order.get(x['status'], 9))
     return jsonify(items=items)
 
 
@@ -2527,6 +2528,40 @@ def admin_user(user_id):
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
                              balance=user['balance']/100,level=level,
                              turnover=user['turnover_cents']/100),items=[inventory_item(x) for x in items])
+
+
+@app.post('/api/admin/users/<int:user_id>/promocodes')
+@admin_required
+def admin_issue_user_promocode(user_id):
+    code = str((request.get_json(silent=True) or {}).get('template_code') or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Выберите промокод из списка.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Пользователь не найден.', 404)
+        template = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+        if not template or int(template['assigned_user_id'] or 0) or not template['active'] or promo_is_expired(template):
+            return error('Этот промокод недоступен для выдачи.', 409)
+        issued_code = unique_promo_code(db, 'ADM')
+        db.execute('''INSERT INTO promo_codes(
+            code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
+            max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
+            assigned_user_id,source_label,description,expires_at)
+            VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+            (issued_code,template['reward_type'],template['amount'],template['gift_id'],
+             template['gift_name'],template['gift_image_url'],template['gift_price'],
+             template['wager_multiplier'],session['uid'],template['bonus_percent'],
+             template['bonus_fixed'],template['min_deposit'],template['reward_json'],
+             user_id,'Выдан администратором',promo_purpose(template),template['expires_at']))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],user_id,'promo_issue',f'{code} → {issued_code}'))
+        log_event(db,user_id,'promo_issued',code=issued_code,source='Администрация')
+        db.commit()
+        return jsonify(ok=True,code=issued_code)
+    finally:
+        db.close()
 
 
 @app.post('/api/admin/users/<int:user_id>/level')

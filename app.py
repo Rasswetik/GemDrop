@@ -245,6 +245,13 @@ def initialize():
             chance_bp INTEGER NOT NULL,won INTEGER NOT NULL,result_json TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS wins_feed_clears (
+            kind TEXT PRIMARY KEY, cleared_at TEXT NOT NULL,
+            max_round_id INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS upgrade_promo_pity (
+            user_id INTEGER PRIMARY KEY, eligible_losses INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS transfer_rates (
             level INTEGER PRIMARY KEY,fee_percent REAL NOT NULL DEFAULT 5,
             enabled INTEGER NOT NULL DEFAULT 1
@@ -280,6 +287,7 @@ def initialize():
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
+            ('settled_at', 'TEXT'),
             ('win_multiplier', 'REAL'), ('win_gift_name', "TEXT NOT NULL DEFAULT ''"),
             ('win_gift_image', "TEXT NOT NULL DEFAULT ''"), ('win_gift_price', 'INTEGER'),
             ('bet_type', "TEXT NOT NULL DEFAULT 'ton'"), ('bet_inventory_id', 'INTEGER'),
@@ -814,6 +822,7 @@ def award_round(db, row, opened_count):
     rtp = round_rtp(row)
     factor = multiplier_for(row['mines'], opened_count, rtp)
     amount = payout_for(row, opened_count, rtp)
+    settled_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
 
     if row['bet_type'] == 'promo_gift':
         target = max(0, int(row['promo_wager_target'] or 0))
@@ -827,8 +836,9 @@ def award_round(db, row, opened_count):
                              row['bet_gift_price'], row['id'], float(row['promo_wager_multiplier'] or 0),
                              target, progress, row['promo_code'] or ''))
         db.execute("""UPDATE rounds SET state='won',payout=0,prize_inventory_id=?,win_total=?,win_multiplier=?,
-                      promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL WHERE id=?""",
-                   (cursor.lastrowid, amount, factor, progress, row['id']))
+                      promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL,
+                      settled_at=? WHERE id=?""",
+                   (cursor.lastrowid, amount, factor, progress, settled_at, row['id']))
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'],
                            f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
         return
@@ -844,10 +854,10 @@ def award_round(db, row, opened_count):
                              image_url, cents, row['id']))
         db.execute("""UPDATE rounds
                       SET state='won',payout=?,prize_inventory_id=?,win_total=?,win_multiplier=?,
-                          win_gift_name=?,win_gift_image=?,win_gift_price=?
+                          win_gift_name=?,win_gift_image=?,win_gift_price=?,settled_at=?
                       WHERE id=?""",
                    (remainder, cursor.lastrowid, amount, factor, str(prize['name'])[:140],
-                    image_url, cents, row['id']))
+                    image_url, cents, settled_at, row['id']))
         if remainder:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, row['user_id']))
             record_transaction(db, row['user_id'], 'game_win_ton', remainder, 'round', row['id'],
@@ -855,8 +865,8 @@ def award_round(db, row, opened_count):
         record_transaction(db, row['user_id'], 'gift_win', 0, 'round', row['id'], str(prize['name']))
     else:
         db.execute("""UPDATE rounds SET state='won',payout=?,win_total=?,win_multiplier=?,
-                      win_gift_name='',win_gift_image='',win_gift_price=NULL WHERE id=?""",
-                   (amount, amount, factor, row['id']))
+                      win_gift_name='',win_gift_image='',win_gift_price=NULL,settled_at=? WHERE id=?""",
+                   (amount, amount, factor, settled_at, row['id']))
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, row['user_id']))
         record_transaction(db, row['user_id'], 'game_win_ton', amount, 'round', row['id'], 'Выигрыш Mines')
 
@@ -1405,32 +1415,55 @@ def upgrade_preview():
                    probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
 
 
+def wins_day_start_utc():
+    return datetime.now(timezone(timedelta(hours=3))).replace(
+        hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def wins_feed_cutoff(db, kind):
+    row = db.execute('SELECT cleared_at,max_round_id FROM wins_feed_clears WHERE kind=?', (kind,)).fetchone()
+    return (row['cleared_at'], int(row['max_round_id'] or 0)) if row else ('', 0)
+
+
 @app.get('/api/upgrade/recent-wins')
 @login_required
 def upgrade_recent_wins():
     with connect() as db:
+        cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
                                    s.result_json,s.created_at,u.name,u.username,u.photo_url
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
-                            WHERE s.won=1 ORDER BY s.created_at DESC,s.id DESC LIMIT 15''').fetchall()
+                            WHERE s.won=1 AND s.created_at>?
+                            ORDER BY s.created_at DESC,s.id DESC LIMIT 15''', (cutoff,)).fetchall()
+        top_row = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
+                                      s.target_name,s.target_image,s.target_price,s.chance_bp,
+                                      s.result_json,s.created_at,u.name,u.username,u.photo_url
+                               FROM upgrade_spins s JOIN users u ON u.id=s.user_id
+                               WHERE s.won=1 AND s.created_at>? AND s.created_at>=?
+                               AND s.result_json NOT LIKE '%"reward_type": "wager_progress"%'
+                               AND s.result_json NOT LIKE '%"reward_type":"wager_progress"%'
+                               ORDER BY s.target_price DESC,s.created_at DESC LIMIT 1''',
+                             (cutoff,wins_day_start_utc())).fetchone()
+    def upgrade_win_item(row, result=None):
+        if result is None:
+            try:result = json.loads(row['result_json'] or '{}')
+            except (TypeError, ValueError):result = {}
+        return dict(id=row['id'],name=row['name'],username=row['username'],
+                    photo_url=row['photo_url'],source_type=result.get('source_type') or
+                    ('ton' if row['source_name']=='TON' else 'gift'),
+                    source=dict(name=row['source_name'],image_url=row['source_image'],
+                                price_ton=row['source_price']/100),
+                    target=dict(name=row['target_name'],image_url=row['target_image'],
+                                price_ton=row['target_price']/100),
+                    chance=result.get('chance',row['chance_bp']/100),
+                    reward_type=result.get('reward_type') or 'gift',
+                    created_at=row['created_at'])
     items = []
     for row in rows:
-        try:
-            result = json.loads(row['result_json'] or '{}')
-        except (TypeError, ValueError):
-            result = {}
-        items.append(dict(id=row['id'],name=row['name'],username=row['username'],
-                          photo_url=row['photo_url'],source_type=result.get('source_type') or
-                          ('ton' if row['source_name']=='TON' else 'gift'),
-                          source=dict(name=row['source_name'],image_url=row['source_image'],
-                                      price_ton=row['source_price']/100),
-                          target=dict(name=row['target_name'],image_url=row['target_image'],
-                                      price_ton=row['target_price']/100),
-                          chance=result.get('chance',row['chance_bp']/100),
-                          reward_type=result.get('reward_type') or 'gift',
-                          created_at=row['created_at']))
-    return jsonify(items=items)
+        items.append(upgrade_win_item(row))
+    top_drop = upgrade_win_item(top_row) if top_row else None
+    return jsonify(items=items,top_drop=top_drop)
 
 
 @app.post('/api/upgrade/spin')
@@ -1812,25 +1845,71 @@ def cashout():
 @login_required
 def recent_wins():
     with connect() as db:
-        rows = db.execute("""SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
+        cutoff, max_round_id = wins_feed_cutoff(db, 'mines')
+        selection = """SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
                                     u.id AS user_id,u.name,u.username,u.photo_url
                              FROM rounds r JOIN users u ON u.id=r.user_id
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
-                             ORDER BY r.id DESC LIMIT 15""").fetchall()
-    items = []
-    for row in rows:
+                               AND (r.id>? OR r.settled_at>?)"""
+        rows = db.execute(selection+' ORDER BY COALESCE(r.settled_at,r.created_at) DESC,r.id DESC LIMIT 15',
+                          (max_round_id,cutoff)).fetchall()
+        top = db.execute(selection+''' AND COALESCE(r.settled_at,r.created_at)>=?
+                           ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC LIMIT 1''',
+                         (max_round_id,cutoff,wins_day_start_utc())).fetchone()
+    def mines_win_item(row):
         opened_count = len(json.loads(row['opened'] or '[]'))
         factor = float(row['win_multiplier']) if row['win_multiplier'] is not None else multiplier_for(row['mines'], opened_count)
         total = row['win_total'] if row['win_total'] is not None else row['payout']
-        items.append(dict(
+        return dict(
             id=row['id'], user_id=row['user_id'], name=row['name'], username=row['username'],
             photo_url=row['photo_url'], bet=row['bet']/100, multiplier=round(max(1.01, factor), 6),
             amount=(total or 0)/100, gift=(dict(name=row['win_gift_name'], image_url=row['win_gift_image'],
                                                price_ton=(row['win_gift_price'] or 0)/100)
                                            if row['win_gift_name'] else None),
-            created_at=row['created_at']))
-    return jsonify(items=items)
+            created_at=row['created_at'])
+    return jsonify(items=[mines_win_item(row) for row in rows],
+                   top_drop=mines_win_item(top) if top else None)
+
+
+@app.get('/api/admin/wins-feeds')
+@admin_required
+def admin_wins_feeds():
+    with connect() as db:
+        mines_time, mines_id = wins_feed_cutoff(db, 'mines')
+        upgrade_time, _ = wins_feed_cutoff(db, 'upgrade')
+        mines = db.execute("""SELECT COUNT(*) AS total FROM rounds
+                              WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift'
+                              AND (id>? OR settled_at>?)""", (mines_id,mines_time)).fetchone()['total']
+        upgrade = db.execute('SELECT COUNT(*) AS total FROM upgrade_spins WHERE won=1 AND created_at>?',
+                             (upgrade_time,)).fetchone()['total']
+    return jsonify(mines=mines,upgrade=upgrade,
+                   cleared_at=dict(mines=mines_time or None,upgrade=upgrade_time or None))
+
+
+@app.post('/api/admin/wins-feeds/clear')
+@admin_required
+def admin_clear_wins_feeds():
+    mode = str((request.get_json(silent=True) or {}).get('mode') or '')
+    if mode not in ('mines','upgrade','both'):
+        return error('Выберите Мины, Апгрейд или оба раздела.')
+    kinds = ['mines','upgrade'] if mode == 'both' else [mode]
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+        for kind in kinds:
+            highest_round = db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM rounds').fetchone()['last_id'] if kind=='mines' else 0
+            db.execute('''INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id)
+                          VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET
+                          cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id''',
+                       (kind,timestamp,highest_round))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'wins_feed_clear',mode))
+        db.commit()
+        return jsonify(ok=True,mode=mode)
+    finally:
+        db.close()
 
 
 @app.get('/api/catalog')
@@ -2212,14 +2291,14 @@ def unique_promo_code(db, prefix='GEM'):
     return generated_promo_code()
 
 
-def create_upgrade_compensation_promo(db, user_id, source_price):
+def create_upgrade_compensation_promo(db, user_id, source_price, force=False):
     source_ton = source_price / 100
     if source_ton < 2:
         return None
-    # A low chance on small losses, growing gradually with the amount lost.
-    chance = (0.03 + (source_ton-2) * 0.07 / 48 if source_ton < 50 else
-              min(0.30, 0.10 + (source_ton-50) * 0.20 / 950))
-    if secrets.randbelow(10000) >= round(chance * 10000):
+    chance = (0.06 if source_ton < 10 else
+              0.12 + (source_ton-10)*0.08/40 if source_ton < 50 else
+              min(0.55,0.20+(source_ton-50)*0.35/950))
+    if not force and secrets.randbelow(10000) >= round(chance * 10000):
         return None
     code = unique_promo_code(db, 'UPG')
     expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
@@ -2275,6 +2354,7 @@ def create_upgrade_compensation_promo(db, user_id, source_price):
          0, bonus_percent, bonus_fixed, min_deposit, '{}', user_id,
          'Компенсация Upgrade', description, expires_at))
     row = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+    log_event(db,user_id,'promo_issued',code=code,source='Компенсация Upgrade')
     return promo_view(row)
 
 
@@ -2288,7 +2368,16 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
     db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cashback, user_id))
     record_transaction(db, user_id, 'upgrade_cashback', cashback, 'upgrade', '',
                        f'Кэшбэк за неудачный Upgrade · {percent:.2f}%')
-    promo = create_upgrade_compensation_promo(db, user_id, source_price)
+    promo = None
+    if source_price >= 200:
+        row = db.execute('SELECT eligible_losses FROM upgrade_promo_pity WHERE user_id=?',
+                         (user_id,)).fetchone()
+        previous = int(row['eligible_losses'] or 0) if row else 0
+        limit = 3 if source_ton >= 100 else 5 if source_ton >= 10 else 8
+        promo = create_upgrade_compensation_promo(db,user_id,source_price,force=previous>=limit-1)
+        db.execute('''INSERT INTO upgrade_promo_pity(user_id,eligible_losses) VALUES(?,?)
+                      ON CONFLICT(user_id) DO UPDATE SET eligible_losses=excluded.eligible_losses''',
+                   (user_id,0 if promo else previous+1))
     return dict(cashback=cashback/100, cashback_percent=round(percent, 2), promo=promo)
 
 
@@ -2687,6 +2776,78 @@ def admin_user(user_id):
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
                                 active=bool(p['active'] and not promo_is_expired(p)),
                                 used=bool(p['uses_count'])) for p in promos])
+
+
+@app.post('/api/admin/users/<int:user_id>/promocodes/new')
+@admin_required
+def admin_create_user_promocode(user_id):
+    data = request.get_json(silent=True) or {}
+    kind = str(data.get('reward_type') or '')
+    if kind not in ('balance','deposit_bonus','gift','wager_gift'):
+        return error('Выберите награду личного промокода.')
+    code = str(data.get('code') or '').strip().upper()
+    if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: от 3 до 32 символов, латинские буквы, цифры, _ или -.')
+    try:
+        days = int(data.get('expires_in_days') or 0)
+        if not 0 <= days <= 3650:raise ValueError()
+    except (TypeError,ValueError):
+        return error('Срок действия: от 0 до 3650 дней.')
+    amount=gift_price=min_deposit=0
+    gift_id=gift_name=gift_image=''
+    bonus_percent=wager_multiplier=0.0
+    if kind=='balance':
+        try:amount=parse_amount(data.get('amount'))
+        except (ValueError,TypeError,InvalidOperation):return error('Укажите сумму TON с точностью до 0.01.')
+        if not 1<=amount<=100000000:return error('Сумма: от 0.01 до 1 000 000 TON.')
+    elif kind=='deposit_bonus':
+        try:
+            bonus_percent=float(data.get('bonus_percent') or 0)
+            min_deposit=parse_amount(data.get('min_deposit') or 0)
+        except (ValueError,TypeError,InvalidOperation):return error('Проверьте процент и минимальный депозит.')
+        if not math.isfinite(bonus_percent) or not 0<bonus_percent<=100 or not 0<=min_deposit<=100000000:
+            return error('Бонус от 0.1 до 100%; депозит от 0 до 1 000 000 TON.')
+    else:
+        gift_id=str(data.get('gift_id') or '')
+        try:gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==gift_id),None)
+        except (OSError,ValueError,json.JSONDecodeError):gift=None
+        if not gift:return error('Подарок не найден в каталоге Portal.')
+        gift_name=str(gift.get('name') or 'Подарок')[:140]
+        gift_image=safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+        try:gift_price=ton_to_cents(gift.get('price_ton'))
+        except (ValueError,TypeError,InvalidOperation):return error('Цена подарка не задана.')
+        if gift_price<=0:return error('Цена подарка не задана.')
+        if kind=='wager_gift':
+            try:wager_multiplier=float(data.get('wager_multiplier') or 0)
+            except (ValueError,TypeError):return error('Укажите X отыгрыша.')
+            if not math.isfinite(wager_multiplier) or not 1<=wager_multiplier<=1000:
+                return error('X отыгрыша: от 1 до 1000.')
+    expires_at=(datetime.now(timezone.utc)+timedelta(days=days)).isoformat() if days else None
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM users WHERE id=?',(user_id,)).fetchone():
+            return error('Пользователь не найден.',404)
+        code=code or unique_promo_code(db,'PERS')
+        db.execute('''INSERT INTO promo_codes(
+                      code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
+                      max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
+                      assigned_user_id,source_label,description,expires_at)
+                      VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+                   (code,kind,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
+                    session['uid'],bonus_percent,0,min_deposit,'{}',user_id,'Администрация','',expires_at))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],user_id,'promo_issue',code))
+        log_event(db,user_id,'promo_issued',code=code,source='Администрация')
+        db.commit()
+        return jsonify(ok=True,code=code)
+    except Exception as exc:
+        if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
+            return error('Такой код уже существует. Введите другой.',409)
+        app.logger.exception('Не удалось создать личный промокод')
+        return error('Не удалось выдать промокод. Повторите попытку.',500)
+    finally:
+        db.close()
 
 
 @app.post('/api/admin/users/<int:user_id>/promocodes')

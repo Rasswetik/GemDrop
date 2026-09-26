@@ -414,3 +414,79 @@ p,.muted,.caption,.notice,small { line-height:1.5; }
   #profilePage #inventoryGrid .gift-art { height:86px;padding:5px; }
   #profilePage #inventoryGrid .gift strong { font-size:10px; }
 }
+
+/* Victory feeds: highlight today's best drop without overfilling the page. */
+.recent-wins-card .top-drop { display:grid;gap:7px;margin:10px 10px 5px;padding:10px 11px;border:1px solid #755d37;border-radius:12px;background:linear-gradient(125deg,#3c2e22,#203540 65%,#172632); }
+.recent-wins-card .top-drop-label { color:#ffe0a0;font-size:10px;font-weight:780;letter-spacing:.09em; }
+.recent-wins-card .top-drop-empty { color:#aebbc6;font-size:11px; }
+.recent-wins-card .top-drop-body { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:9px;min-width:0; }
+.recent-wins-card .top-drop-art { width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 3px 6px #0009); }
+.recent-wins-card .top-drop-info { display:grid;gap:2px;min-width:0; }
+.recent-wins-card .top-drop-info strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f8f1dc;font-size:12px; }
+.recent-wins-card .top-drop-info span { color:#c9e3ed;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
+#upgradePage .upgrade-wins-card { margin-top:20px; }
+#upgradePage .upgrade-win-row { padding:9px 11px;gap:8px; }
+#upgradePage .upgrade-win-head { margin-bottom:5px; }
+#upgradePage .upgrade-win-chip { min-height:31px; }
+#upgradePage .upgrade-win-chip .upgrade-win-gift-image { width:22px;height:22px;min-width:22px;max-width:22px;min-height:22px;max-height:22px; }
+#upgradePage .upgrade-win-chip .upgrade-win-ton-image { width:12px;height:12px;min-width:12px;max-width:12px;min-height:12px;max-height:12px; }
+#upgradePage .upgrade-wins-more { display:block;width:calc(100% - 20px);min-height:36px;margin:7px 10px 11px;border:1px solid #426a7c;border-radius:9px;background:#1c3545;color:#c7edf8;font-size:11px;font-weight:730; }
+#upgradePage .upgrade-wins-more.hidden { display:none!important; }
+
+/* A compact navigation bar keeps all three destinations clear. */
+#nav.nav { gap:3px;justify-content:space-evenly;padding:6px 9px calc(6px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)));border-color:#345367;background:#14232ff2; }
+#nav.nav button { flex:1;min-width:0;min-height:48px;gap:2px;padding:5px 3px;border-radius:10px;font-size:10px;font-weight:710;transition:background .16s,color .16s,transform .16s; }
+#nav.nav button svg { width:20px;height:20px; }
+#nav.nav button.active { background:#2a5367;color:#e8fcff; }
+#nav.nav button:active { transform:scale(.96); }
+
+/* Focused admin controls for the two public feeds. */
+#winsAdminPage .wins-admin-panel { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px; }
+#winsAdminPage .wins-admin-stat { padding:13px;border:1px solid #426174;border-radius:12px;background:#152a38; }
+#winsAdminPage .wins-admin-stat span { display:block;color:#a6c3d4;font-size:11px; }
+#winsAdminPage .wins-admin-stat strong { font-size:24px;color:#e8f9ff; }
+#winsAdminPage .wins-admin-panel button,#winsAdminPage #winsAdminStatus { grid-column:1/-1; }
+#winsAdminPage .wins-admin-panel button { min-height:44px;border-radius:11px; }
+#winsAdminPage .wins-admin-panel .danger-btn { border:1px solid #bc7284;background:#643548;color:#ffe9ed; }
+#winsAdminPage #winsAdminStatus { margin:1px 0 0;font-size:12px; }
+
+/* Deposit: one clear amount, a strong action, optional details. */
+#depositModal .deposit-card { width:min(100%,420px);max-height:calc(100dvh - 36px - env(safe-area-inset-bottom));overflow:auto;padding:19px;border:1px solid #4a7188;border-radius:22px;background:radial-gradient(circle at 90% 0%,#295e7266,transparent 50%),linear-gradient(160deg,#1b3142,#111e2b 78%);animation:depositArrive .36s cubic-bezier(.2,1,.3,1) both; }
+#depositModal .deposit-head { display:flex;align-items:center;gap:12px;padding-bottom:13px;margin-bottom:15px;border-bottom:1px solid #385263; }
+#depositModal .deposit-head-icon { display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:12px;background:#2b5269; }
+#depositModal .deposit-head-icon img { width:27px;height:27px;object-fit:contain; }
+#depositModal .deposit-kicker { font-size:9px;font-weight:790;letter-spacing:.12em;color:#8cdae9; }
+#depositModal .deposit-head h2 { margin:2px 0;font-size:21px; }
+#depositModal .deposit-head p { margin:0;color:#a9c5d2;font-size:11px; }
+#depositModal .wallet-disconnected-panel,#depositModal .wallet-connected-panel { margin:0 0 14px;padding:14px;border:1px solid #3f6175;border-radius:15px;background:#152b3a; }
+#depositModal .wallet-disconnected-panel { display:grid;justify-items:center;gap:8px;text-align:center; }
+#depositModal .wallet-disconnected-panel #modalWalletButton { width:100%;min-height:44px;margin-top:5px;border-radius:10px; }
+#depositModal .wallet-connected-head { margin-bottom:9px; }
+#depositModal .wallet-live { animation:depositConnectedGlow 2s ease-in-out infinite; }
+#depositModal .wallet-details { margin:5px 0 10px; }
+#depositModal .wallet-details summary { cursor:pointer;color:#99d9e9;font-size:11px;font-weight:720; }
+#depositModal .wallet-details .wallet-address-line { margin:9px 0 0; }
+#depositModal .wallet-balance-card { padding:9px 12px;border-radius:11px; }
+#depositModal .wallet-disconnect { display:block;margin:9px 0 0 auto; }
+#depositModal .topup-box { display:grid;gap:10px;margin:0; }
+#depositModal .topup-box>label { margin:0;color:#d7ecf5;font-size:12px; }
+#depositModal .topup-row { display:flex;align-items:center;gap:7px;padding:4px 12px;border:1px solid #53788c;border-radius:12px;background:#102431; }
+#depositModal .topup-row input { flex:1;min-width:0;min-height:39px;padding:5px 2px;border:0;outline:0;background:transparent;font-size:20px;font-weight:780; }
+#depositModal .topup-row span { color:#9ddfea;font-size:12px;font-weight:790; }
+#depositModal .topup-row:focus-within { border-color:#96e2ed;box-shadow:0 0 0 2px #81e3e023; }
+#depositModal .topup-presets { display:grid;grid-template-columns:repeat(3,1fr);gap:7px; }
+#depositModal .topup-presets button { min-height:35px;border:1px solid #416b80;border-radius:9px;background:#204052;color:#daeff8;font-size:11px;font-weight:730; }
+#depositModal .topup-presets button:active { transform:scale(.97); }
+#depositModal .deposit-pay { width:100%;min-height:49px;border-radius:12px;font-size:14px;font-weight:800; }
+#depositModal .deposit-promo-accordion { margin-top:3px;border:1px solid #345668;border-radius:12px;background:#142b39; }
+#depositModal .deposit-promo-accordion summary { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;cursor:pointer;color:#d6edf5;font-size:12px;font-weight:750;list-style:none; }
+#depositModal .deposit-promo-accordion summary::-webkit-details-marker { display:none; }
+#depositModal .deposit-promo-accordion summary span { color:#88cddc;font-size:10px;font-weight:680; }
+#depositModal .deposit-promo { margin:0;padding:0 11px 11px;border:0;background:transparent; }
+#depositModal .deposit-promo-row { grid-template-columns:minmax(0,1fr) 93px; }
+#depositModal .deposit-promo-row button { border-radius:10px; }
+#depositModal .wallet-state,#depositModal .deposit-foot,#depositModal #recipientState { font-size:10px;line-height:1.45; }
+#depositModal #closeDeposit { width:100%;min-height:40px;margin-top:12px!important;border-radius:11px; }
+@keyframes depositArrive { from { opacity:0;transform:translateY(12px) scale(.97) } to { opacity:1;transform:none } }
+@keyframes depositConnectedGlow { 50% { box-shadow:0 0 12px #6eecce88 } }
+@media(prefers-reduced-motion:reduce) { #depositModal .deposit-card,#depositModal .wallet-live { animation:none!important; } }

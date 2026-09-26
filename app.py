@@ -932,10 +932,7 @@ def parse_amount(value):
 
 @app.get('/')
 def index():
-    # Keep the app's complete theme with the page: older cached static CSS left
-    # the bonus controls and the new Upgrade feed without their sizing rules.
-    ui_css = (BASE / 'static/css/gemdrop-ui.css').read_text(encoding='utf-8')
-    return render_template('index.html', ui_css=ui_css)
+    return render_template('index.html')
 
 
 @app.get('/health')

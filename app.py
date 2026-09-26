@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from pathlib import Path
@@ -292,6 +292,10 @@ def initialize():
             ('bonus_fixed', 'INTEGER NOT NULL DEFAULT 0'),
             ('min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
             ('reward_json', "TEXT NOT NULL DEFAULT '{}'"),
+            ('assigned_user_id', 'INTEGER NOT NULL DEFAULT 0'),
+            ('source_label', "TEXT NOT NULL DEFAULT ''"),
+            ('description', "TEXT NOT NULL DEFAULT ''"),
+            ('expires_at', 'TEXT'),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         ensure_columns('ton_deposit_orders', [('promo_code', "TEXT NOT NULL DEFAULT ''")])
@@ -325,6 +329,7 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
         db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         for level in range(1,21):
             db.execute('INSERT OR IGNORE INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
@@ -457,9 +462,14 @@ def increase_turnover(db, user_id, amount):
     if amount <= 0:
         return None
     user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
-    previous = level_number(db, int(user['turnover_cents'] or 0))
+    previous_turnover = int(user['turnover_cents'] or 0)
+    previous = level_number(db, previous_turnover)
+    new_turnover = previous_turnover + amount
     db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?', (amount, user_id))
-    current = level_number(db, int(user['turnover_cents'] or 0)+amount)
+    current = level_number(db, new_turnover)
+    # Promo-type level rewards are issued as soon as the level is reached, so they
+    # immediately appear in Profile -> Bonuses without an extra claim step.
+    sync_unlocked_level_promos(db, user_id, new_turnover)
     return current if current > previous else None
 
 
@@ -887,6 +897,12 @@ def normalize_level_reward(data):
     if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo','multi_promo','transfer_unlock'):
         raise ValueError('Неизвестный тип награды.')
     reward = {'type':kind}
+    try:
+        expires_days = int(data.get('expires_days') or 0)
+    except (TypeError, ValueError):
+        raise ValueError('Срок промокода должен быть указан в днях.')
+    if not 0 <= expires_days <= 3650:
+        raise ValueError('Срок промокода: от 0 до 3650 дней. 0 — без срока.')
     if kind in ('none','transfer_unlock'):
         return reward
     if kind=='multi_promo':
@@ -899,7 +915,7 @@ def normalize_level_reward(data):
         for name,config in components.items():
             if not isinstance(config,dict):raise ValueError('Проверьте настройки мультипромокода.')
             resolved[name]=normalize_level_reward({**config,'type':'deposit_promo' if name=='deposit_bonus' else name})
-        return {'type':'multi_promo','components':resolved}
+        return {'type':'multi_promo','components':resolved,'expires_days':expires_days}
     content = str(data.get('promo_reward_type') or 'balance') if kind=='personal_promo' else kind
     if content in ('balance','gift','wager_gift'):
         if content=='balance':
@@ -934,6 +950,8 @@ def normalize_level_reward(data):
     else:
         raise ValueError('Выберите содержимое личного промокода.')
     if kind=='personal_promo': reward['promo_reward_type']=content
+    if kind in ('personal_promo','deposit_promo'):
+        reward['expires_days']=expires_days
     return reward
 
 
@@ -1030,6 +1048,60 @@ def admin_save_levels_bulk():
     return jsonify(ok=True)
 
 
+LEVEL_PROMO_TYPES = ('personal_promo', 'deposit_promo', 'multi_promo')
+
+
+def create_level_promo(db, user_id, level, reward):
+    kind = reward.get('type', 'none')
+    if kind not in LEVEL_PROMO_TYPES:
+        return None
+    promo_type = ('multi' if kind == 'multi_promo' else
+                  reward.get('promo_reward_type', 'balance') if kind == 'personal_promo' else
+                  'deposit_bonus')
+    code = 'LV' + str(level) + '-' + secrets.token_hex(6).upper()
+    deposit = reward.get('components', {}).get('deposit_bonus', {}) if kind == 'multi_promo' else reward
+    expires_days = int(reward.get('expires_days') or 0)
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat() if expires_days else None
+    description = reward_description(reward)
+    db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at)
+                  VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)''',
+               (code, promo_type, reward.get('amount', 0), reward.get('gift_id', ''), reward.get('gift_name', ''),
+                reward.get('image_url', ''), reward.get('gift_price', 0), reward.get('wager_multiplier', 0), 0,
+                deposit.get('bonus_percent', 0), deposit.get('bonus_fixed', 0), deposit.get('min_deposit', 0),
+                json.dumps(reward, ensure_ascii=False) if kind == 'multi_promo' else '{}', user_id,
+                f'Награда за уровень {level}', description, expires_at))
+    return dict(type=kind, code=code, description=description, expires_at=expires_at)
+
+
+def sync_unlocked_level_promos(db, user_id, turnover=None):
+    if turnover is None:
+        row = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
+        if not row:
+            return []
+        turnover = int(row['turnover_cents'] or 0)
+    rows = db.execute('SELECT level,reward_json FROM levels WHERE required_turnover<=? ORDER BY level',
+                      (int(turnover),)).fetchall()
+    issued = []
+    for row in rows:
+        level = int(row['level'])
+        if db.execute('SELECT 1 FROM level_claims WHERE user_id=? AND level=?', (user_id, level)).fetchone():
+            continue
+        try:
+            reward = json.loads(row['reward_json'] or '{}')
+        except (ValueError, TypeError):
+            continue
+        if reward.get('type') not in LEVEL_PROMO_TYPES:
+            continue
+        result = create_level_promo(db, user_id, level, reward)
+        if not result:
+            continue
+        db.execute('INSERT INTO level_claims(user_id,level,reward_json) VALUES(?,?,?)',
+                   (user_id, level, json.dumps(result, ensure_ascii=False)))
+        log_event(db, user_id, 'level_claim', level=level, reward=result, automatic=True)
+        issued.append(result)
+    return issued
+
+
 @app.post('/api/levels/<int:level>/claim')
 @login_required
 def claim_level(level):
@@ -1058,17 +1130,8 @@ def claim_level(level):
                                   VALUES(?,?,?,?,?,'level_wager',1,?,?,0)""",item+(mult,target))
             result=dict(type=kind,gift=dict(id=cur.lastrowid,name=reward['gift_name'],image_url=reward['image_url'],
                         price_ton=reward['gift_price']/100,promo_locked=kind=='wager_gift',wager_multiplier=reward.get('wager_multiplier',0)))
-        elif kind in ('personal_promo','deposit_promo','multi_promo'):
-            promo_type='multi' if kind=='multi_promo' else reward.get('promo_reward_type','balance') if kind=='personal_promo' else 'deposit_bonus'
-            code='LV'+str(level)+'-'+secrets.token_hex(6).upper()
-            deposit=reward.get('components',{}).get('deposit_bonus',{}) if kind=='multi_promo' else reward
-            db.execute('''INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json)
-                          VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?)''',
-                       (code,promo_type,reward.get('amount',0),reward.get('gift_id',''),reward.get('gift_name',''),
-                        reward.get('image_url',''),reward.get('gift_price',0),reward.get('wager_multiplier',0),0,
-                        deposit.get('bonus_percent',0),deposit.get('bonus_fixed',0),deposit.get('min_deposit',0),
-                        json.dumps(reward,ensure_ascii=False) if kind=='multi_promo' else '{}'))
-            result=dict(type=kind,code=code,description=reward_description(reward))
+        elif kind in LEVEL_PROMO_TYPES:
+            result=create_level_promo(db,session['uid'],level,reward)
         elif kind=='transfer_unlock':
             result=dict(type='transfer_unlock',description='Переводы TON разблокированы')
         db.execute('INSERT INTO level_claims(user_id,level,reward_json) VALUES(?,?,?)',
@@ -1318,6 +1381,7 @@ def upgrade_spin():
         wager=bool(source['promo_locked'])
         wager_target=int(source['promo_wager_target'] or 0) if wager else 0
         wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)+target['price']) if wager and won else 0
+        compensation=dict(cashback=0,cashback_percent=0,promo=None)
         if won:
             if wager:
                 cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
@@ -1329,13 +1393,15 @@ def upgrade_spin():
                 cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
                                (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             awarded=cur.lastrowid
+        else:
+            compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price)
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
                                 promo_locked=False),
                     wager_progress=wager_progress/100,wager_target=wager_target/100,
-                    awarded_inventory_id=awarded)
+                    awarded_inventory_id=awarded,compensation=compensation)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
@@ -1952,6 +2018,204 @@ def my_referrals():
                    link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
 
 
+
+def parse_datetime_utc(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace('Z', '+00:00'))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def promo_is_expired(promo):
+    expires = parse_datetime_utc(promo['expires_at']) if promo and promo['expires_at'] else None
+    return bool(expires and expires <= datetime.now(timezone.utc))
+
+
+def promo_purpose(promo):
+    custom = str(promo['description'] or '').strip() if 'description' in promo.keys() else ''
+    if custom:
+        return custom
+    kind = promo['reward_type']
+    if kind == 'balance':
+        return f"Зачисляет {int(promo['amount'] or 0)/100:.2f} TON на игровой баланс."
+    if kind == 'gift':
+        return f"Выдаёт подарок «{promo['gift_name'] or 'Подарок'}»."
+    if kind == 'wager_gift':
+        return (f"Выдаёт отыгрышный подарок «{promo['gift_name'] or 'Подарок'}» "
+                f"с условием X{float(promo['wager_multiplier'] or 0):g}.")
+    if kind == 'deposit_bonus':
+        pct = float(promo['bonus_percent'] or 0)
+        fixed = int(promo['bonus_fixed'] or 0) / 100
+        minimum = int(promo['min_deposit'] or 0) / 100
+        value = f'+{pct:g}%' if pct else f'+{fixed:.2f} TON'
+        suffix = f' при пополнении от {minimum:.2f} TON' if minimum else ''
+        return f'Бонус {value} к следующему подтверждённому пополнению{suffix}.'
+    if kind == 'multi':
+        try:
+            components = json.loads(promo['reward_json'] or '{}').get('components', {})
+        except (ValueError, TypeError, AttributeError):
+            components = {}
+        labels = {'balance':'TON на баланс','gift':'подарок','wager_gift':'отыгрышный подарок','deposit_bonus':'бонус к пополнению'}
+        parts = [labels.get(name, name) for name in components]
+        return 'Мультипромокод: ' + ', '.join(parts) + '.' if parts else 'Мультипромокод с несколькими наградами.'
+    return 'Бонусный промокод GemDrop.'
+
+
+def promo_view(promo, redemption=None):
+    reusable = bool(redemption and promo['reward_type'] in ('deposit_bonus','multi') and
+                    redemption['reward_type'] == 'deposit_bonus' and redemption['deactivated_at'] and
+                    not redemption['consumed_at'])
+    used = bool(redemption and not reusable)
+    expired = promo_is_expired(promo)
+    exhausted = bool(int(promo['max_uses'] or 0) > 0 and int(promo['uses_count'] or 0) >= int(promo['max_uses'] or 0))
+    if used:
+        status = 'used'
+    elif expired:
+        status = 'expired'
+    elif not promo['active'] or exhausted:
+        status = 'disabled'
+    else:
+        status = 'active'
+    expires = parse_datetime_utc(promo['expires_at']) if promo['expires_at'] else None
+    return dict(
+        code=promo['code'], reward_type=promo['reward_type'], purpose=promo_purpose(promo),
+        source=(promo['source_label'] or 'Промокод GemDrop'), status=status,
+        active=status == 'active', expires_at=expires.isoformat() if expires else None,
+        used_at=redemption['created_at'] if redemption and status == 'used' else None,
+        created_at=promo['created_at'],
+    )
+
+
+def unique_promo_code(db, prefix='GEM'):
+    for _ in range(12):
+        code = prefix + '-' + secrets.token_hex(4).upper()
+        if not db.execute('SELECT 1 FROM promo_codes WHERE code=?', (code,)).fetchone():
+            return code
+    return generated_promo_code()
+
+
+def create_upgrade_compensation_promo(db, user_id, source_price):
+    source_ton = source_price / 100
+    if source_ton < 50:
+        return None
+    chance = min(0.50, 0.05 + max(0.0, source_ton - 50.0) * 0.45 / 950.0)
+    if secrets.randbelow(10000) >= round(chance * 10000):
+        return None
+    code = unique_promo_code(db, 'UPG')
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    kind = secrets.choice(['deposit_bonus', 'gift', 'wager_gift', 'balance'])
+    amount = 0
+    gift_id = gift_name = gift_image = ''
+    gift_price = 0
+    wager_multiplier = 0.0
+    bonus_percent = bonus_fixed = min_deposit = 0
+    description = ''
+    if kind in ('gift', 'wager_gift'):
+        try:
+            catalog = read_catalog().get('gifts', [])
+        except (OSError, ValueError, json.JSONDecodeError):
+            catalog = []
+        budget = max(50, min(5000, round(source_price * (0.035 if kind == 'gift' else 0.05))))
+        candidates = []
+        for gift in catalog:
+            try:
+                price = ton_to_cents(gift.get('price_ton'))
+            except (ValueError, TypeError, InvalidOperation):
+                continue
+            if 1 <= price <= budget and gift.get('id') and gift.get('name'):
+                candidates.append((price, gift))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        if candidates:
+            _, gift = secrets.choice(candidates[:min(12, len(candidates))])
+            gift_id = str(gift['id'])
+            gift_name = str(gift['name'])[:140]
+            gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+            gift_price = ton_to_cents(gift.get('price_ton'))
+            if kind == 'wager_gift':
+                wager_multiplier = 10.0
+                description = f'Компенсационный отыгрышный подарок «{gift_name}» · X10.'
+            else:
+                description = f'Компенсационный подарок «{gift_name}».'
+        else:
+            kind = 'balance'
+    if kind == 'deposit_bonus':
+        bonus_percent = round(min(20.0, 5.0 + source_ton / 100.0), 1)
+        min_deposit = max(100, round(source_price * 0.10))
+        description = f'Компенсация Upgrade: +{bonus_percent:g}% к пополнению от {min_deposit/100:.2f} TON.'
+    elif kind == 'balance':
+        amount = max(10, round(source_price * 0.01))
+        description = f'Компенсационный бонус {amount/100:.2f} TON на баланс.'
+    db.execute("""INSERT INTO promo_codes(
+        code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
+        max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
+        assigned_user_id,source_label,description,expires_at)
+        VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
+        (code, kind, amount, gift_id, gift_name, gift_image, gift_price, wager_multiplier,
+         0, bonus_percent, bonus_fixed, min_deposit, '{}', user_id,
+         'Компенсация Upgrade', description, expires_at))
+    row = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+    return promo_view(row)
+
+
+def apply_upgrade_loss_compensation(db, user_id, source_price):
+    if source_price < 1000:
+        return dict(cashback=0, cashback_percent=0, promo=None)
+    source_ton = source_price / 100
+    percent = min(5.0, 0.5 + max(0.0, source_ton - 10.0) * 4.5 / 490.0)
+    cashback = max(1, round(source_price * percent / 100.0))
+    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cashback, user_id))
+    record_transaction(db, user_id, 'upgrade_cashback', cashback, 'upgrade', '',
+                       f'Кэшбэк за неудачный Upgrade · {percent:.2f}%')
+    promo = create_upgrade_compensation_promo(db, user_id, source_price)
+    return dict(cashback=cashback/100, cashback_percent=round(percent, 2), promo=promo)
+
+
+@app.get('/api/promocodes/mine')
+@login_required
+def my_promocodes():
+    with connect() as db:
+        sync_unlocked_level_promos(db, session['uid'])
+        claimed_codes = []
+        for row in db.execute('SELECT reward_json FROM level_claims WHERE user_id=?', (session['uid'],)).fetchall():
+            try:
+                code = json.loads(row['reward_json'] or '{}').get('code')
+            except (ValueError, TypeError, AttributeError):
+                code = None
+            if code:
+                claimed_codes.append(str(code))
+        rows = db.execute('SELECT * FROM promo_codes WHERE assigned_user_id=? ORDER BY created_at DESC',
+                          (session['uid'],)).fetchall()
+        by_code = {row['code']: row for row in rows}
+        for code in claimed_codes:
+            if code not in by_code:
+                row = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+                if row:
+                    by_code[code] = row
+        used_rows = db.execute("""SELECT p.* FROM promo_codes p JOIN promo_redemptions r ON r.code=p.code
+                                  WHERE r.user_id=? ORDER BY r.created_at DESC""", (session['uid'],)).fetchall()
+        for row in used_rows:
+            by_code.setdefault(row['code'], row)
+        items = []
+        for promo in by_code.values():
+            redemption = db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',
+                                    (promo['code'], session['uid'])).fetchone()
+            items.append(promo_view(promo, redemption))
+    order = {'active':0, 'expired':1, 'disabled':2, 'used':3}
+    items.sort(key=lambda x: (order.get(x['status'], 9), x['created_at'] or ''))
+    return jsonify(items=items)
+
+
 @app.post('/api/promocodes/redeem')
 @login_required
 def redeem_promocode():
@@ -1964,6 +2228,10 @@ def redeem_promocode():
         promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not promo or not promo['active']:
             return error('Промокод не найден или отключён.', 404)
+        if int(promo['assigned_user_id'] or 0) not in (0, int(session['uid'])):
+            return error('Этот промокод предназначен другому пользователю.', 403)
+        if promo_is_expired(promo):
+            return error('Срок действия промокода истёк.', 409)
         prior=db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',(code,session['uid'])).fetchone()
         reusable=bool(prior and promo['reward_type'] in ('deposit_bonus','multi') and
                       prior['reward_type']=='deposit_bonus' and prior['deactivated_at'] and not prior['consumed_at'])
@@ -2112,6 +2380,8 @@ def admin_promocodes():
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
                                active=bool(x['active']), created_at=x['created_at'],
+                               assigned_user_id=int(x['assigned_user_id'] or 0),source=x['source_label'] or '',
+                               description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
                                min_deposit=x['min_deposit']/100,
                                components=public_level_reward(json.loads(x['reward_json'])).get('components',{})
@@ -2134,6 +2404,16 @@ def admin_create_promocode():
         return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
     amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0
     bonus_percent=0;bonus_fixed=0;min_deposit=0;multi_reward=None
+    try:
+        assigned_user_id=int(data.get('assigned_user_id') or 0)
+        expires_days=int(data.get('expires_in_days') or 0)
+    except (TypeError,ValueError):
+        return error('Проверьте ID пользователя и срок действия.')
+    if assigned_user_id < 0:return error('ID пользователя указан неверно.')
+    if not 0 <= expires_days <= 3650:return error('Срок действия: от 0 до 3650 дней. 0 — без срока.')
+    source_label=str(data.get('source_label') or 'Администрация').strip()[:80]
+    description=str(data.get('description') or '').strip()[:300]
+    expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
     if reward_type == 'balance':
         try:
             amount = parse_amount(data.get('amount'))
@@ -2184,11 +2464,16 @@ def admin_create_promocode():
         return error('Выберите тип промокода.')
     try:
         with connect() as db:
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            if assigned_user_id and not db.execute('SELECT 1 FROM users WHERE id=?',(assigned_user_id,)).fetchone():
+                return error('Пользователь с таким ID не найден.',404)
+            if assigned_user_id:
+                max_uses=1
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
-                        json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}'))
+                        json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
+                        assigned_user_id,source_label,description,expires_at))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:

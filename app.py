@@ -1641,7 +1641,7 @@ def wins_feed_cutoff(db, kind):
 def upgrade_recent_wins():
     with connect() as db:
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
-        rows = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
+        rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
                                    s.result_json,s.created_at,u.name,u.username,u.photo_url
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
@@ -1662,7 +1662,7 @@ def upgrade_recent_wins():
         except (TypeError,ValueError):default_chance=0
         try:chance=float(result.get('chance',default_chance) or 0)
         except (TypeError,ValueError):chance=default_chance
-        return dict(id=str(row['id']),name=str(row['name'] or 'Игрок'),username=str(row['username'] or ''),
+        return dict(id=str(row['id']),user_id=int(row['user_id']),name=str(row['name'] or 'Игрок'),username=str(row['username'] or ''),
                     photo_url=str(row['photo_url'] or ''),source_type=result.get('source_type') or
                     ('ton' if row['source_name']=='TON' else 'gift'),
                     source=dict(name=str(row['source_name'] or 'Ставка'),image_url=str(row['source_image'] or ''),
@@ -2127,6 +2127,164 @@ def recent_wins():
         app.logger.warning('Skipping malformed mines top-drop row', exc_info=True)
         top_drop=None
     return jsonify(items=items,top_drop=top_drop)
+
+
+PUBLIC_BALANCE_KINDS = {
+    'game_bet': 'Ставка Mines',
+    'game_win_ton': 'Выигрыш Mines',
+    'gift_win': 'Подарок из Mines',
+    'gift_bet': 'Ставка подарком',
+    'gift_bet_lost': 'Подарок проигран в Mines',
+    'promo_wager_bet': 'Ставка отыгрышным подарком',
+    'promo_wager_progress': 'Прогресс отыгрыша',
+    'promo_wager_burn': 'Отыгрышный подарок сгорел',
+    'promo_gift_expired': 'Срок подарка истёк',
+    'promo_wager_claim': 'Отыгрыш завершён',
+    'roll_spin': 'Прокрутка Roll',
+    'roll_gift': 'Подарок из Roll',
+    'upgrade_bet': 'Ставка Upgrade',
+    'upgrade_cashback': 'Утешительный приз Upgrade',
+    'gift_sale': 'Продажа подарка',
+    'promo_balance': 'Промокод',
+    'promo_gift': 'Подарок по промокоду',
+    'promo_wager_gift': 'Отыгрышный подарок по промокоду',
+    'promo_deposit_bonus': 'Бонус промокода',
+    'deposit_promo_bonus': 'Бонус к пополнению',
+    'level_balance': 'Награда уровня',
+    'freebet_balance': 'Freebet',
+    'freebet_gift': 'Подарок Freebet',
+    'freebet_wager_gift': 'Отыгрышный подарок Freebet',
+    'ton_deposit': 'Пополнение TON',
+    'referral_bonus': 'Реферальный бонус',
+    'transfer_sent': 'Перевод отправлен',
+    'transfer_received': 'Перевод получен',
+    'withdrawal_request': 'Запрос на вывод',
+    'withdrawal_approved': 'Вывод подтверждён',
+    'withdrawal_rejected': 'Вывод отклонён',
+}
+
+
+def public_balance_label(kind):
+    if kind in PUBLIC_BALANCE_KINDS:
+        return PUBLIC_BALANCE_KINDS[kind]
+    if kind.startswith('freebet_'):
+        return 'Freebet'
+    if kind.startswith('promo_'):
+        return 'Промокод / бонус'
+    return kind.replace('_', ' ').strip().capitalize() or 'Операция'
+
+
+@app.get('/api/users/<int:user_id>/profile')
+@login_required
+def public_user_profile(user_id):
+    with connect() as db:
+        user_row = db.execute('SELECT id,name,username,photo_url,turnover_cents,created_at FROM users WHERE id=?',
+                              (user_id,)).fetchone()
+        if not user_row:
+            return error('Пользователь не найден.', 404)
+        level_rows = db.execute('SELECT level,required_turnover FROM levels ORDER BY level').fetchall()
+        turnover = int(user_row['turnover_cents'] or 0)
+        current_level = max((int(r['level']) for r in level_rows if turnover >= int(r['required_turnover'] or 0)), default=1)
+        current_row = next((r for r in level_rows if int(r['level']) == current_level), level_rows[0] if level_rows else None)
+        next_row = next((r for r in level_rows if int(r['level']) > current_level), None)
+        if not current_row or not next_row:
+            level_progress = 100.0
+        else:
+            start = int(current_row['required_turnover'] or 0)
+            finish = int(next_row['required_turnover'] or start)
+            level_progress = 100.0 if finish <= start else max(0.0, min(100.0, (turnover-start)*100/(finish-start)))
+
+        mine_rows = db.execute('''SELECT mines,opened,win_multiplier,rtp_snapshot,state,win_gift_name,win_gift_image,
+                                         win_gift_price,win_total,payout
+                                  FROM rounds WHERE user_id=? ORDER BY id DESC''', (user_id,)).fetchall()
+        mines_count = len(mine_rows)
+        max_mines_x = 0.0
+        mines_drop = None
+        for row in mine_rows:
+            if row['state'] != 'won':
+                continue
+            try:
+                opened_count = len(json.loads(row['opened'] or '[]'))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                opened_count = 0
+            try:
+                mult = float(row['win_multiplier']) if row['win_multiplier'] is not None else float(multiplier_for(int(row['mines']), opened_count, row['rtp_snapshot']))
+            except (TypeError, ValueError, ArithmeticError):
+                mult = 0.0
+            max_mines_x = max(max_mines_x, mult)
+            gift_price = int(row['win_gift_price'] or 0)
+            total = int(row['win_total'] or row['payout'] or 0)
+            candidate_price = gift_price or total
+            if candidate_price > 0 and (not mines_drop or candidate_price > mines_drop['price_cents']):
+                mines_drop = dict(price_cents=candidate_price,
+                                  name=row['win_gift_name'] or 'Выигрыш Mines',
+                                  image_url=row['win_gift_image'] or '', source='Mines')
+
+        upgrade_rows = db.execute('''SELECT source_price,target_price,target_name,target_image,won,result_json
+                                     FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC''', (user_id,)).fetchall()
+        upgrade_count = len(upgrade_rows)
+        max_upgrade_x = 0.0
+        upgrade_drop = None
+        for row in upgrade_rows:
+            source_price = int(row['source_price'] or 0)
+            target_price = int(row['target_price'] or 0)
+            if int(row['won'] or 0) and source_price > 0:
+                max_upgrade_x = max(max_upgrade_x, target_price/source_price)
+            if not int(row['won'] or 0) or target_price <= 0:
+                continue
+            try:
+                result = json.loads(row['result_json'] or '{}')
+            except (TypeError, ValueError, json.JSONDecodeError):
+                result = {}
+            if isinstance(result, dict) and result.get('reward_type') == 'wager_progress':
+                continue
+            if not upgrade_drop or target_price > upgrade_drop['price_cents']:
+                upgrade_drop = dict(price_cents=target_price, name=row['target_name'] or 'Подарок Upgrade',
+                                    image_url=row['target_image'] or '', source='Upgrade')
+
+        max_drop = max((x for x in (mines_drop, upgrade_drop) if x),
+                       key=lambda x: x['price_cents'], default=None)
+
+    return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
+                             photo_url=user_row['photo_url'], created_at=user_row['created_at']),
+                   level=dict(level=current_level, max_level=len(level_rows), turnover=turnover/100,
+                              next_turnover=(int(next_row['required_turnover'])/100 if next_row else None),
+                              progress=round(level_progress, 1)),
+                   stats=dict(mines_count=mines_count, upgrade_count=upgrade_count,
+                              max_mines_x=round(max_mines_x, 4), max_upgrade_x=round(max_upgrade_x, 4)),
+                   max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
+                                  price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
+
+
+@app.get('/api/users/<int:user_id>/balance-history')
+@login_required
+def public_user_balance_history(user_id):
+    try:
+        offset = max(0, min(100000, int(request.args.get('offset', 0))))
+    except (TypeError, ValueError):
+        offset = 0
+    page_size = 30
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Пользователь не найден.', 404)
+        rows = db.execute('''SELECT id,kind,amount,balance_after,reference_type,reference_id,details,created_at
+                             FROM transactions
+                             WHERE user_id=? AND kind NOT IN ('admin_balance','deposit')
+                             ORDER BY id DESC LIMIT ? OFFSET ?''',
+                          (user_id, page_size+1, offset)).fetchall()
+    items = []
+    for row in rows[:page_size]:
+        kind = str(row['kind'] or '')
+        amount = int(row['amount'] or 0)
+        # Internal admin references are never exposed in the public player card.
+        details = str(row['details'] or '')
+        if row['reference_type'] == 'admin':
+            details = ''
+        items.append(dict(id=int(row['id']), kind=kind, label=public_balance_label(kind),
+                          amount=amount/100,
+                          balance_after=(int(row['balance_after'])/100 if row['balance_after'] is not None else None),
+                          details=details, created_at=row['created_at']))
+    return jsonify(items=items, has_more=len(rows) > page_size, next_offset=offset+len(items))
 
 
 @app.get('/api/admin/wins-feeds')

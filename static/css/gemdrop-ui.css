@@ -1,492 +1,111 @@
-/* GemDrop UI: one consistent visual layer over the legacy page styles. */
-:root {
-  --bg:#0b1119;
-  --surface:#151f2b;
-  --surface2:#1b2937;
-  --line:#334455;
-  --text:#edf6fc;
-  --muted:#a1b3c2;
-  --accent:#83dbef;
-  --blue:#56bade;
-  --danger:#f27c91;
+/* GemDrop 24 — calm monochrome liquid-glass pass. Loaded last on purpose. */
+:root{
+  --gd-bg:#0a0c0f;--gd-glass:rgba(25,28,33,.72);--gd-line:rgba(255,255,255,.095);
+  --gd-line-strong:rgba(255,255,255,.14);--gd-text:#f4f5f7;--gd-muted:#9299a3;--gd-blue:#83d8f5;
 }
-html { -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
-body {
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-  font-size:14px;line-height:1.45;letter-spacing:0;
-  color:var(--text);background:linear-gradient(180deg,#101a26 0,#0b1119 290px);
-}
-button,input,select { font-family:inherit;letter-spacing:normal; }
-button { -webkit-tap-highlight-color:transparent; }
-button:focus-visible,input:focus-visible,select:focus-visible {
-  outline:2px solid #90e7fb;outline-offset:2px;
-}
-h1,h2,h3,strong,b { letter-spacing:-.015em; }
-h1 { font-size:clamp(25px,6.5vw,30px);font-weight:750;line-height:1.18; }
-h2 { font-size:18px;font-weight:700;line-height:1.28; }
-p,.muted,.caption,.notice,small { line-height:1.5; }
-.caption { font-size:12px;font-weight:650; }
-.panel,.modal-card {
-  border:1px solid #354a5e;
-  background:linear-gradient(155deg,#1a2735,#121c28 76%);
-  box-shadow:inset 0 1px #ffffff0c,0 12px 30px #0309112b;
-}
-.panel { border-radius:18px;padding:16px; }
-.modal-card { border-radius:22px; }
-.primary,.secondary,.mini-btn,.back {
-  font-size:13px;font-weight:700;letter-spacing:0;
-  transition:background-color .18s ease,border-color .18s ease,transform .18s ease,box-shadow .18s ease;
-}
-.primary:active,.secondary:active,.mini-btn:active,.back:active { transform:scale(.985); }
-.primary { background:linear-gradient(130deg,#9fe8ed,#61bddc);color:#0b2029; }
-.secondary { background:#20303e;border:1px solid #405b6f;color:#def6ff; }
-.text-input,input[type="text"],input[type="number"],select {
-  min-width:0;min-height:43px;font-size:14px;
-  background-color:#111b26;color:#eaf6ff;border-color:#415468;
-}
-.text-input::placeholder,input::placeholder { color:#8499ab;opacity:1; }
-.panel-head h2,.bonus-section-head h3 { margin:0;font-size:15px;font-weight:720; }
-.nav { background:#121d29f2;border:1px solid #30475b;border-bottom:0;box-shadow:0 -7px 28px #02070d70; }
-.nav button { font-size:11px;font-weight:650; }
-.nav button.active { color:#a8ecf4; }
-.profile-shortcut { font-size:13px;font-weight:720; }
-.profile-shortcut.referral { background:linear-gradient(135deg,#1b536c,#2c7390); }
+html{background:var(--gd-bg)}
+body{color:var(--gd-text)!important;background:linear-gradient(180deg,#0f1216 0,#0b0e12 300px,#090b0e 100%)!important;background-attachment:fixed!important}
+body:before{display:none!important}
+.app{max-width:480px!important;padding-inline:16px!important;padding-bottom:calc(104px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+h1,h2,h3{letter-spacing:-.035em!important}h1{font-weight:730!important}h2,h3{font-weight:690!important}
+.caption,.muted,.modal-extra{color:var(--gd-muted)!important}
+.panel,.modal-card,.profile-hero,.public-profile-card,.admin-group,.gift,.user-row,.notice,.freebet-card,.withdrawal-card,.transaction-row,.transfer-card,.wallet-connected-panel,.wallet-disconnected-panel,.topup-box,.deposit-promo,.public-level-block,.public-stat-card,.public-max-drop{
+  border:1px solid var(--gd-line)!important;background:rgba(24,27,32,.78)!important;box-shadow:inset 0 1px rgba(255,255,255,.055),0 14px 38px rgba(0,0,0,.20)!important;-webkit-backdrop-filter:blur(24px) saturate(120%);backdrop-filter:blur(24px) saturate(120%)}
+.panel,.profile-hero,.admin-group{border-radius:20px!important}
+.modal{background:rgba(0,0,0,.57)!important;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+.modal-card{border-radius:24px!important;background:rgba(24,27,32,.94)!important;box-shadow:inset 0 1px rgba(255,255,255,.075),0 28px 90px rgba(0,0,0,.56)!important}
+.field,.text-input,input[type="text"],input[type="number"],select,.quick button,.secondary,.mini-btn,.danger-btn{border:1px solid var(--gd-line)!important;background:rgba(255,255,255,.045)!important;box-shadow:inset 0 1px rgba(255,255,255,.035)!important}
+.field,.text-input,input[type="text"],input[type="number"],select{border-radius:13px!important}
+.field:focus-within,.text-input:focus,input:focus,select:focus{border-color:rgba(180,225,244,.38)!important;box-shadow:0 0 0 3px rgba(131,216,245,.07)!important}
+.primary{border:1px solid rgba(255,255,255,.18)!important;border-radius:14px!important;background:#e7f7fc!important;color:#0b151a!important;box-shadow:inset 0 1px rgba(255,255,255,.85),0 8px 24px rgba(0,0,0,.18)!important}
 
-/* Readable inventory: full image and full name, two cards per row. */
-#profilePage .inventory { grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;align-items:stretch; }
-#profilePage .gift {
-  display:flex;flex-direction:column;height:100%;min-width:0;padding:10px;
-  border-radius:16px;overflow:visible;box-shadow:inset 0 1px #ffffff19,0 9px 20px #02070c30;
+/* Floating segmented bottom navigation. */
+#nav.nav{width:min(452px,calc(100% - 24px))!important;bottom:calc(14px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;min-height:60px!important;height:60px!important;padding:5px!important;gap:0!important;border:1px solid var(--gd-line-strong)!important;border-radius:21px!important;background:rgba(25,28,33,.82)!important;box-shadow:inset 0 1px rgba(255,255,255,.09),0 18px 48px rgba(0,0,0,.38)!important;-webkit-backdrop-filter:blur(28px) saturate(130%);backdrop-filter:blur(28px) saturate(130%)}
+#nav.nav button{position:relative!important;display:grid!important;place-content:center!important;justify-items:center!important;flex:1!important;min-width:0!important;min-height:50px!important;height:50px!important;padding:5px 4px!important;gap:4px!important;border-radius:16px!important;color:#838a94!important;background:transparent!important;font-size:9.5px!important;font-weight:650!important;line-height:1!important}
+#nav.nav button:not(:last-child):after{content:""!important;position:absolute!important;top:10px!important;bottom:10px!important;right:0!important;width:1px!important;background:rgba(255,255,255,.07)!important}
+#nav.nav button.active{color:#f6fbfd!important;background:rgba(255,255,255,.075)!important;box-shadow:inset 0 1px rgba(255,255,255,.055)!important}
+#nav.nav button svg{width:20px!important;height:20px!important;transform:none!important;stroke-width:1.75!important}
+
+/* Mines controls stay balanced when gift bet is hidden. */
+#minesPage .controls{grid-template-columns:minmax(0,.95fr) 48px minmax(0,1.05fr)!important;gap:9px!important}
+#minesPage .controls.no-gift-bets{grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr)!important;gap:9px!important}
+#minesPage .controls.no-gift-bets>div:first-child,#minesPage .controls.no-gift-bets>div:last-child{min-width:0!important}
+#minesPage .controls.no-gift-bets .field{width:100%!important}
+#minesPage .field{background:rgba(255,255,255,.042)!important;border-color:var(--gd-line)!important}
+#minesPage .stepper button{background:rgba(255,255,255,.055)!important;color:#d6d9de!important}
+
+/* Detached Top Drop and individually spaced win cards. */
+.recent-wins-card{margin-top:28px!important;padding:15px!important;border:1px solid var(--gd-line)!important;border-radius:21px!important;overflow:visible!important;background:rgba(18,21,25,.66)!important;box-shadow:inset 0 1px rgba(255,255,255,.045),0 16px 42px rgba(0,0,0,.18)!important;-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
+.recent-wins-card>h2{margin:0 2px 13px!important;padding:0!important;border:0!important;color:#adb3bc!important;font-size:11px!important;letter-spacing:.055em!important;text-transform:none!important}
+.recent-wins-card .top-drop{display:grid!important;gap:8px!important;margin:0 0 17px!important;padding:12px!important;border:1px solid rgba(255,255,255,.105)!important;border-radius:16px!important;background:rgba(255,255,255,.04)!important;box-shadow:none!important}
+.recent-wins-card .top-drop:before{display:none!important}
+.recent-wins-card .top-drop-label{padding:0!important;border:0!important;background:transparent!important;color:#aeb5bd!important;font-size:8.5px!important;letter-spacing:.08em!important}
+.recent-wins-card .top-drop-body{grid-template-columns:44px minmax(0,1fr)!important;gap:10px!important;padding:0!important}
+.recent-wins-card .top-drop-art{width:44px!important;height:44px!important;padding:3px!important;border-radius:12px!important;background:rgba(255,255,255,.04)!important;filter:none!important}
+.recent-wins-card .top-drop-info strong{font-size:12px!important;color:#f0f2f5!important}.recent-wins-card .top-drop-info span{font-size:10.5px!important;color:#9ca5af!important}
+.recent-wins{display:grid!important;gap:9px!important}
+.recent-win{border:1px solid var(--gd-line)!important;border-radius:15px!important;padding:10px 11px!important;background:rgba(255,255,255,.03)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}
+.recent-win:last-child{border-bottom:1px solid var(--gd-line)!important}
+.recent-win-reward{border-radius:11px!important;background:rgba(131,216,245,.06)!important;border-color:rgba(131,216,245,.18)!important}
+#upgradePage .upgrade-wins-card{margin:28px 0 18px!important}
+#upgradePage .upgrade-win-row{border:1px solid var(--gd-line)!important;border-radius:15px!important;padding:10px 11px!important;background:rgba(255,255,255,.03)!important}
+#upgradePage .upgrade-win-row:last-child{border-bottom:1px solid var(--gd-line)!important}
+#upgradePage .upgrade-win-chip{background:rgba(255,255,255,.035)!important;border-color:var(--gd-line)!important}
+
+/* Deposit: disconnected = connect only. Connected = amount + promo + action. */
+#depositModal .deposit-card{position:relative!important;width:min(100%,390px)!important;max-height:calc(100dvh - 36px - env(safe-area-inset-bottom))!important;overflow:auto!important;padding:22px 18px 18px!important;border:1px solid var(--gd-line-strong)!important;border-radius:24px!important;background:rgba(23,26,31,.96)!important;box-shadow:inset 0 1px rgba(255,255,255,.07),0 28px 88px rgba(0,0,0,.52)!important}
+#depositModal .deposit-head{display:block!important;padding:0 42px 15px 1px!important;margin:0 0 15px!important;border-bottom:1px solid rgba(255,255,255,.07)!important;text-align:left!important}
+#depositModal .deposit-head-icon,#depositModal .deposit-kicker,#depositModal .deposit-head p{display:none!important}
+#depositModal .deposit-head h2{margin:0!important;font-size:22px!important;font-weight:690!important}
+#depositModal #closeDeposit{position:absolute!important;z-index:3!important;top:13px!important;right:13px!important;display:grid!important;place-items:center!important;width:34px!important;height:34px!important;min-height:34px!important;margin:0!important;padding:0!important;border:1px solid var(--gd-line)!important;border-radius:50%!important;background:rgba(255,255,255,.055)!important;color:transparent!important;font-size:0!important}
+#depositModal #closeDeposit:before{content:"×";color:#c7ccd2;font:400 22px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;transform:translateY(-1px)}
+#depositModal .wallet-connected-panel{display:none!important}
+#depositModal .wallet-disconnected-panel{display:grid!important;gap:10px!important;margin:0!important;padding:3px 0 1px!important;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .wallet-disconnected-panel.hidden{display:none!important}
+#depositModal .wallet-connect-icon,#depositModal .wallet-disconnected-panel>b{display:none!important}
+#depositModal #walletState{margin:0 0 2px!important;color:#8f969f!important;font-size:10.5px!important;text-align:left!important}
+#depositModal #modalWalletButton{min-height:44px!important;margin:0!important;border-radius:13px!important}
+#depositModal .topup-box{display:none!important;gap:11px!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal.wallet-ready .topup-box{display:grid!important}
+#depositModal .topup-box>label{margin:0 0 -3px!important;color:#aeb4bc!important;font-size:11px!important}
+#depositModal .topup-row{min-height:50px!important;padding:3px 12px!important;border:1px solid var(--gd-line-strong)!important;border-radius:14px!important;background:rgba(255,255,255,.045)!important}
+#depositModal .topup-row input{min-height:42px!important;padding:4px 0!important;background:transparent!important;border:0!important;box-shadow:none!important;font-size:20px!important;font-weight:700!important}
+#depositModal .topup-row span{color:#aeb6bf!important;font-size:11px!important}
+#depositModal .topup-presets{display:none!important}
+#depositModal .deposit-pay{min-height:44px!important;border-radius:13px!important;font-size:13px!important}
+#depositModal .deposit-promo-accordion{margin:3px 0 0!important;padding:0!important;border:0!important;background:transparent!important}
+#depositModal .deposit-promo-accordion>summary{display:none!important}
+#depositModal .deposit-promo{display:grid!important;gap:7px!important;margin:0!important;padding:12px 0 0!important;border:0!important;border-top:1px solid rgba(255,255,255,.07)!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+#depositModal .deposit-promo label{color:#aeb4bc!important;font-size:10.5px!important;font-weight:600!important}
+#depositModal .deposit-promo-row{display:grid!important;grid-template-columns:minmax(0,1fr) 92px!important;gap:8px!important;align-items:stretch!important}
+#depositModal .deposit-promo-row .text-input,#depositModal .deposit-promo-row button{height:43px!important;min-height:43px!important;max-height:43px!important;margin:0!important;padding-top:0!important;padding-bottom:0!important}
+#depositModal .deposit-promo-row button{border:1px solid var(--gd-line)!important;border-radius:12px!important;background:rgba(255,255,255,.065)!important;color:#eef0f2!important;font-size:11px!important;font-weight:650!important}
+#depositModal #depositPromoStatus{color:#848c96!important;font-size:9.5px!important;line-height:1.4!important}
+#depositModal .deposit-foot,#depositModal #recipientState{display:none!important}
+#depositModal .deposit-progress{margin-top:1px!important;border-radius:12px!important}
+
+/* Promo action exactly matches the text input height. */
+#promoModal .compact-modal{padding:20px!important}
+#promoModal .promo-entry{display:grid!important;grid-template-columns:minmax(0,1fr) 44px!important;gap:8px!important;align-items:stretch!important}
+#promoModal #promoInput,#promoModal .promo-check{height:44px!important;min-height:44px!important;max-height:44px!important;margin:0!important}
+#promoModal .promo-check{width:44px!important;min-width:44px!important;padding:0!important;border-radius:12px!important}
+.top-drop-info>strong,.recent-win-meta>strong,.upgrade-win-head>strong{text-decoration:none!important}
+
+@media(max-width:520px){
+  .app{padding-inline:13px!important;padding-bottom:calc(96px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+  #nav.nav{width:calc(100% - 20px)!important;bottom:calc(10px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;height:55px!important;min-height:55px!important;padding:4px!important;border-radius:20px!important}
+  #nav.nav button{height:47px!important;min-height:47px!important;font-size:9px!important;gap:3px!important}
+  #nav.nav button svg{width:19px!important;height:19px!important}
+  .recent-wins-card{margin-top:24px!important;padding:12px!important}
+  .recent-win{grid-template-columns:36px minmax(0,1fr) auto!important;gap:8px!important;padding:9px!important}
+  .recent-win-avatar{width:36px!important;height:36px!important}.recent-win-reward{padding:5px 7px!important}
+  #upgradePage .upgrade-win-row{grid-template-columns:34px minmax(0,1fr)!important;gap:8px!important;padding:9px!important}
+  #upgradePage .upgrade-win-row .recent-win-avatar{width:34px!important;height:34px!important}
+  #minesPage .controls.no-gift-bets{grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr)!important;gap:8px!important}
 }
-#profilePage .gift-art {
-  display:grid;place-items:center;width:100%;height:clamp(112px,34vw,158px);min-height:0;
-  margin:0 0 10px;padding:12px;border-radius:12px;overflow:visible;
+@media(max-width:360px){
+  .app{padding-inline:10px!important}
+  #nav.nav{width:calc(100% - 14px)!important;bottom:calc(8px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important}
+  #nav.nav button{font-size:8.5px!important}
+  #depositModal .deposit-card{padding-inline:15px!important}
 }
-#profilePage .gift-art img {
-  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
-  object-fit:contain;object-position:center;transform:none;filter:none;
-}
-#profilePage .gift strong {
-  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
-  -webkit-line-clamp:unset;overflow-wrap:anywhere;font-size:12px;font-weight:690;line-height:1.35;
-}
-#profilePage .gift>small {
-  display:flex;align-items:center;margin-top:auto;padding-top:8px;
-  color:#d1edfa;font-size:12px;font-weight:720;white-space:nowrap;
-}
-#profilePage .gift.promo-wager .promo-ribbon { right:5px;top:5px; }
-
-/* Bonus badge counts codes that have not been opened. */
-.profile-shortcut.referral.has-bonus { box-shadow:inset 0 1px #ffffff30,0 0 11px #ec576044; }
-.my-promo-card { border-radius:13px;padding:12px; }
-.my-promo-card strong { font-size:13px;font-weight:740; }
-.my-promo-card small { font-size:11px;line-height:1.45; }
-.my-promo-card.unread { border-color:#de6b82;box-shadow:inset 3px 0 #ef6078; }
-.my-promo-card.unread .promo-status { color:#ff9cae; }
-.bonus-section-head span { font-size:11px; }
-.bonus-badge { font-size:11px;font-weight:800; }
-
-/* Wallet promo: current bonus is informational; the field remains editable. */
-.deposit-promo { background:#172637;border-color:#416176; }
-.deposit-promo label { font-size:12px;font-weight:710; }
-.deposit-promo-row { grid-template-columns:minmax(0,1fr) 100px; }
-.deposit-promo-row button { border-radius:11px;font-weight:700; }
-#depositPromoStatus { display:block;font-size:11px;overflow-wrap:anywhere; }
-
-/* Admin console: grouped actions and readable form rhythm. */
-#adminPage .admin-heading {
-  margin:12px 0 17px;padding:20px 17px;border-radius:18px;
-  border:1px solid #406277;background:radial-gradient(circle at 92% 14%,#2b697a6b,transparent 60%),#182939;
-}
-#adminPage .admin-heading span { color:#94e2ef;font-size:10px;font-weight:750;letter-spacing:.13em; }
-#adminPage .admin-heading h1 { margin:7px 0 4px; }
-#adminPage .admin-heading p { margin:0;color:#aec4d2;font-size:12px; }
-#adminPage .admin-menu { display:grid;gap:13px; }
-#adminPage .admin-group {
-  padding:14px;border:1px solid #344a5b;border-radius:17px;background:#152330;
-}
-#adminPage .admin-group h2 { margin:0 0 11px;color:#c6dfeb;font-size:13px;font-weight:700; }
-#adminPage .admin-actions { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px; }
-#adminPage .admin-actions button {
-  display:flex;align-items:center;justify-content:space-between;gap:6px;
-  min-height:57px;padding:11px;text-align:left;line-height:1.3;
-  font-size:12px;font-weight:650;white-space:normal;overflow-wrap:anywhere;
-  border:1px solid #3c5669;border-radius:12px;background:#203140;color:#e5f4fb;
-}
-#adminPage .admin-actions button span { flex:none;color:#82d7ec;font-size:17px; }
-#adminPage .admin-actions button:active { background:#2c4354;transform:scale(.985); }
-#userPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#portalPage .panel,#rtpPage .panel,#loaderSettingsPage .panel { margin:12px 0;padding:15px; }
-#userPage .panel h2,#promocodesPage .panel h2 { margin-bottom:9px;font-size:15px; }
-#userPage .row,#promocodesPage .row { min-width:0;align-items:center; }
-#userPage .panel.stack,#promocodesPage .promo-admin-form { gap:9px; }
-#userPage .user-row,#usersPage .user-row { background:#1c2b39;border-color:#364e60; }
-#usersPage .user-row { min-height:56px; }
-#usersPage .user-row small { color:#a7bdca; }
-#promocodesPage .caption,#userPage .caption { color:#b6d2df;font-size:11px; }
-#promocodesPage .promo-admin-extra { gap:12px; }
-
-/* Mines: crisp cell transitions, short feedback after a round starts or ends. */
-#minesPage .board { isolation:isolate; }
-#minesPage .cell {
-  border-color:#304659;background:linear-gradient(145deg,#223344,#16232f);
-  box-shadow:inset 0 1px #ffffff14,0 5px 13px #0005;
-}
-#minesPage .cell:not(:disabled):active { transform:scale(.92); }
-#minesPage .cell.open { border-color:#72d7eb;background:radial-gradient(circle at 50% 38%,#235673,#152736 73%); }
-#minesPage .cell.mine { border-color:#c4677a;background:radial-gradient(circle at 50% 38%,#673447,#231a27 75%); }
-#minesPage .board.round-start .cell { animation:cellSettle .36s both; }
-#minesPage .board.round-start .cell:nth-child(5n+2) { animation-delay:35ms; }
-#minesPage .board.round-start .cell:nth-child(5n+3) { animation-delay:65ms; }
-#minesPage .board.round-start .cell:nth-child(5n+4) { animation-delay:95ms; }
-#minesPage .board.round-start .cell:nth-child(5n+5) { animation-delay:125ms; }
-#minesPage .board.round-loss { animation:boardLoss .36s ease-in-out; }
-#minesPage .cell.reveal.open { animation:cellFound .45s cubic-bezier(.17,1.2,.34,1); }
-#minesPage .cell.reveal.mine { animation:cellLost .48s ease-out; }
-@keyframes cellSettle { from{transform:translateY(8px) scale(.94);opacity:.65} to{transform:none;opacity:1} }
-@keyframes cellFound { 45%{transform:scale(1.08);box-shadow:0 0 20px #68dcff80} to{transform:scale(1)} }
-@keyframes cellLost { 30%{transform:scale(.92);box-shadow:0 0 24px #ff6d9380} to{transform:scale(1)} }
-@keyframes boardLoss { 20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)} }
-
-/* Upgrade: depth and movement follow the actual server result. */
-#upgradePage .upgrade-heading { font-size:29px;font-weight:750; }
-#upgradePage .upgrade-pick { border-radius:17px; }
-#upgradePage .upgrade-wheel-wrap { transition:box-shadow .3s ease; }
-#upgradePage .upgrade-wheel-wrap.ready { box-shadow:0 18px 42px #0009,0 0 22px #48d7b22f; }
-#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1.25s ease-in-out infinite; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { box-shadow:0 0 0 6px #12232ab0,0 0 26px #d0f8ee88; }
-@keyframes upgradeGlow { 50%{box-shadow:0 19px 46px #000b,0 0 32px #72efd380} }
-#upgradeResultModal:not(.hidden) .upgrade-result-card { animation:resultArrive .42s cubic-bezier(.2,1.2,.35,1) both; }
-#upgradeResultModal .upgrade-result-card.won { background:radial-gradient(circle at 50% 18%,#245044,#17272a 70%); }
-#upgradeResultModal .upgrade-result-card.lost { background:radial-gradient(circle at 50% 18%,#493343,#221b29 70%); }
-@keyframes resultArrive { from{opacity:0;transform:translateY(17px) scale(.94)} to{opacity:1;transform:none} }
-
-@media(max-width:370px) {
-  #adminPage .admin-actions { grid-template-columns:1fr; }
-  #adminPage .admin-actions button { min-height:48px; }
-  #profilePage .gift-art { height:112px;padding:9px; }
-}
-@media(prefers-reduced-motion:reduce) {
-  *,*::before,*::after { animation-duration:.01ms!important;transition-duration:.01ms!important; }
-}
-
-/* Direct browser login backed by a one-time Telegram bot command. */
-#auth { max-width:410px;margin:12vh auto 0;padding:24px;border:1px solid #38596e;
-  border-radius:24px;background:linear-gradient(160deg,#1b3142,#131f2c);box-shadow:0 24px 55px #0006;text-align:left; }
-#auth h1 { margin:0 0 8px; }
-#authText { color:#a9c9d7;font-size:13px; }
-.web-auth-panel { display:grid;gap:14px;margin-top:18px; }
-.web-auth-panel p { margin:0;font-size:13px;color:#d5eaf3;line-height:1.55; }
-.web-auth-command { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px;
-  border:1px solid #6bacca;border-radius:13px;background:#10202d; }
-.web-auth-command code { min-width:0;padding:6px 2px;overflow-wrap:anywhere;font-size:17px;font-weight:750;color:#b3efff;letter-spacing:.04em; }
-.web-auth-command button { padding:9px 10px;border-radius:9px;background:#2e5971;color:#e6f9ff;font-size:11px;font-weight:700; }
-.web-auth-panel small { color:#a9c0cf;font-size:12px; }
-.web-bot-link { color:#91e1ee;text-decoration:none;font-size:13px;font-weight:700; }
-#webAuthRenew { margin-top:2px; }
-
-/* Personal promo is created in the player's admin card; templates are optional. */
-#userPage .user-promo-panel { display:grid;gap:9px;margin-block:20px;padding:18px; }
-#userPage .user-promo-panel h2 { margin:0; }
-#userPage .user-promo-panel p { margin:0 0 4px;font-size:12px; }
-#userPage .user-promo-panel .caption { display:block;margin:6px 0 4px; }
-#userPage .user-promo-panel .text-input { display:block;width:100%; }
-#userPage .user-promo-panel .text-input.hidden { display:none!important; }
-#userPage .user-promo-panel .primary { margin-top:9px; }
-.user-promo-issued { display:grid;gap:5px;max-height:150px;overflow:auto; }
-.user-promo-line { padding:8px 10px;border:1px solid #354a59;border-radius:9px;background:#13202b;
-  color:#bcd3df;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
-.user-promo-extra { border-top:1px solid #3b5666;padding-top:12px; }
-.user-promo-extra summary { cursor:pointer;color:#a5e1f0;font-size:12px;font-weight:700; }
-.user-promo-extra .secondary { margin:10px 0; }
-.user-promo-extra .text-input { margin-bottom:9px; }
-
-/* Bonuses: separate browsing and referrals with clear unread status. */
-.bonus-modal-card { padding:20px 17px;max-height:88dvh; }
-.bonus-heading { text-align:left;padding:3px 4px 12px; }
-.bonus-heading span { color:#87e1ed;font-size:10px;font-weight:760;letter-spacing:.12em; }
-.bonus-heading h2 { margin:5px 0 2px;font-size:23px; }
-.bonus-heading p { margin:0;color:#a7bfce;font-size:12px; }
-.bonus-tabs { display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border:1px solid #334c5e;
-  border-radius:12px;background:#101c27; }
-.bonus-tabs button { min-height:38px;border-radius:8px;background:transparent;color:#9db4c3;font-size:12px;font-weight:700; }
-.bonus-tabs button.active { background:#2c5267;color:#eafcff;box-shadow:inset 0 1px #ffffff24; }
-.bonus-modal-card .bonus-section { margin-top:13px;background:#14212c;border-color:#344d5e; }
-.bonus-hint { margin:0 0 10px;color:#98afbd;font-size:11px;text-align:left; }
-.bonus-modal-card .ref-stats { grid-template-columns:repeat(3,minmax(0,1fr));gap:6px; }
-.bonus-modal-card .ref-stat { min-width:0;padding:9px 5px;text-align:center; }
-.bonus-modal-card .ref-stat b { font-size:16px; }
-.bonus-modal-card .ref-stat small { font-size:9px;line-height:1.25; }
-.bonus-modal-card .ref-link { overflow-wrap:anywhere; }
-
-/* Transfer panel with one readable progression. */
-#transferModal .transfer-card { width:min(100%,405px);padding:19px;text-align:left;border-color:#49768b;
-  background:linear-gradient(155deg,#1d3647,#142431 65%,#111c28); }
-.transfer-heading { padding:2px 2px 15px;border-bottom:1px solid #385366;margin-bottom:16px; }
-.transfer-heading span { color:#80d8e8;font-size:10px;font-weight:750;letter-spacing:.13em; }
-.transfer-heading h2 { margin:5px 0 3px;font-size:24px;line-height:1.2; }
-.transfer-heading p { margin:0;color:#a7c2d2;font-size:12px; }
-#transferModal .transfer-form { gap:10px; }
-#transferModal .transfer-form label { margin:2px 0 -4px;font-size:12px;font-weight:680;color:#c8e4ee; }
-#transferModal .transfer-form>.row { display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:7px; }
-#transferModal .transfer-form>.row .mini-btn { padding-inline:7px; }
-#transferModal .transfer-user { border-radius:12px;background:#1a3341;border-color:#426477; }
-#transferModal .transfer-preview { margin-top:6px;padding:13px;border:1px solid #385e6d;border-radius:14px;background:#132b37; }
-.transfer-preview>small { display:block;color:#a0bccb;font-size:11px; }
-#transferModal .transfer-before-after { border:0;background:none;box-shadow:none;margin:6px 0 0;padding:0;font-size:19px; }
-#transferModal .transfer-meta { margin-bottom:6px;color:#b8d0dc;font-size:12px;line-height:1.55; }
-#transferModal .transfer-buttons { gap:9px; }
-#transferModal #transferConfirmSummary { padding:15px;border:1px solid #406073;border-radius:12px;background:#142a38; }
-
-/* Extra breathing room for games and management screens. */
-#upgradePage { padding-bottom:34px; }
-#upgradePage .upgrade-heading { margin:25px 0 18px; }
-#upgradePage .upgrade-picks { gap:13px;margin-bottom:12px; }
-#upgradePage .upgrade-pick { min-height:165px;padding:15px 11px; }
-#upgradePage .upgrade-wheel-wrap { margin:26px auto 24px; }
-#upgradePage .upgrade-chance { margin:13px 0 19px;padding:13px; }
-#upgradePage .upgrade-action { margin-top:7px; }
-#adminPage .admin-menu { gap:20px; }
-#adminPage .admin-group { padding:17px; }
-#adminPage .admin-actions { gap:11px; }
-#adminPage .admin-group h2 { margin-bottom:13px; }
-#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#rtpPage .panel,#loaderSettingsPage .panel { margin-block:19px; }
-@media(max-height:710px) { #upgradePage .upgrade-wheel-wrap { margin:15px auto; } }
-
-/* A separate, readable feed for successful Upgrade spins. */
-#upgradePage .upgrade-wins-card { margin:23px 0 12px;border-color:#345567;background:linear-gradient(155deg,#172c38,#111c29); }
-#upgradePage .upgrade-wins-card h2 { color:#a9d9e8;font-size:12px;font-weight:760;letter-spacing:.035em;text-transform:none; }
-.upgrade-win-row { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;min-width:0;padding:12px;border-bottom:1px solid #2b4150; }
-.upgrade-win-row:last-child { border-bottom:0; }
-.upgrade-win-row .recent-win-avatar { width:38px;height:38px;align-self:start; }
-.upgrade-win-main { min-width:0; }
-.upgrade-win-head { display:flex;justify-content:space-between;align-items:center;gap:7px;min-width:0;margin-bottom:7px; }
-.upgrade-win-head strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px; }
-.upgrade-win-chance { flex:none;padding:3px 6px;border:1px solid #3b786c;border-radius:7px;background:#173c39;color:#a1f1d0;font-size:10px;font-weight:740; }
-.upgrade-win-flow { display:flex;align-items:center;gap:7px;min-width:0; }
-.upgrade-win-chip { display:flex;align-items:center;gap:4px;min-width:0;padding:5px 7px;border:1px solid #3c5770;border-radius:10px;background:#152332;color:#dceefb;font-size:11px;font-weight:760;white-space:nowrap; }
-.upgrade-win-chip.target { border-color:#3b846c;background:#193c33;color:#d1ffe9; }
-.upgrade-win-chip img:first-child { width:27px;height:27px;min-width:27px;object-fit:contain; }
-.upgrade-win-chip img:last-child { width:14px;height:14px;object-fit:contain; }
-.upgrade-win-chip span { overflow:hidden;text-overflow:ellipsis; }
-.upgrade-win-arrow { flex:none;color:#90bbc8;font-size:11px;font-weight:800;line-height:1; }
-.upgrade-win-note { display:block;margin-top:5px;color:#9cb8c8;font-size:10px; }
-@media(max-width:355px) { .upgrade-win-row { grid-template-columns:31px minmax(0,1fr);gap:7px;padding:10px 7px; }.upgrade-win-row .recent-win-avatar { width:31px;height:31px; }.upgrade-win-chip { padding:4px;gap:3px;font-size:10px; }.upgrade-win-chip img:first-child { width:22px;height:22px;min-width:22px; } }
-
-/* Loss rewards stay visible until the player closes the result. */
-#upgradeResultModal .upgrade-compensation { display:grid;gap:9px;margin:15px 0!important;color:#dbeef5!important;font-size:12px!important;text-align:left; }
-#upgradeResultModal .upgrade-compensation.hidden { display:none!important; }
-.upgrade-compensation-line { display:grid;gap:4px;padding:11px 12px;border:1px solid #426c69;border-radius:12px;background:#17312f; }
-.upgrade-compensation-line strong { color:#bef5dd;font-size:12px; }
-.upgrade-compensation-line.promo-awarded { border-color:#6682aa;background:#1b3148; }
-.upgrade-compensation-line.promo-awarded strong { color:#bde9ff; }
-.upgrade-compensation-line code { overflow-wrap:anywhere;color:#fff;font-size:17px;font-weight:780;letter-spacing:.03em; }
-.upgrade-compensation-line small { color:#bdd2e0;font-size:11px; }
-.upgrade-compensation-line button { width:100%;min-height:39px;margin-top:5px;border-radius:10px; }
-
-/* /auf login, with visible steps and controls on narrow browser windows. */
-#auth { width:min(100%,420px);margin:clamp(16px,9vh,75px) auto 0;padding:clamp(18px,5vw,27px);border-color:#568ba4;background:radial-gradient(circle at 90% 0%,#254c62,#182d3d 52%,#121f2c); }
-#auth h1 { color:#effbff;font-size:clamp(23px,6vw,30px); }
-#authText { margin:6px 0 0;line-height:1.5; }
-#webAuthPanel { min-width:0;gap:13px; }
-#webAuthPanel p { padding:12px;border:1px solid #385970;border-radius:12px;background:#122536; }
-#webAuthPanel .web-auth-command { min-width:0;flex-wrap:wrap;border-color:#71c3d8;background:#0f2635;box-shadow:inset 0 1px #ffffff16; }
-#webAuthPanel .web-auth-command code { flex:1 1 160px;min-width:0;font-size:clamp(15px,4.2vw,19px); }
-#webAuthPanel .web-auth-command button,#webAuthRenew,#webBotLink { min-height:42px;padding:10px 13px;border:1px solid #619cb5;border-radius:11px;background:#244e63;color:#e6faff;text-align:center;font-size:12px;font-weight:740;text-decoration:none;cursor:pointer; }
-#webAuthPanel #webBotLink { display:grid;place-items:center;background:linear-gradient(120deg,#87dded,#5ab8d8);border-color:#99e9f4;color:#10232e; }
-#webAuthPanel #webBotLink.hidden { display:none!important; }
-#webAuthStatus { display:block;padding:9px 12px;border-left:3px solid #7bd7dc;border-radius:7px;background:#122c39;color:#c7e4ef; }
-
-/* Every clickable control in the bonus and promo dialogs has a clear state. */
-#referralModal button,#promoModal button { font-family:inherit;font-size:12px;font-weight:700;line-height:1.3;cursor:pointer;transition:background .18s,border-color .18s,transform .18s,box-shadow .18s; }
-#referralModal button:active,#promoModal button:active { transform:scale(.98); }
-#referralModal button:disabled,#promoModal button:disabled { opacity:.55;cursor:default; }
-#referralModal .bonus-tabs button { border:1px solid transparent; }
-#referralModal .bonus-tabs button.active { border-color:#68b7ce;background:#305a6d;color:#f3ffff; }
-#referralModal .my-promo-card { min-height:64px;border-color:#476c82;background:#1a3140;color:#effaff;text-align:left; }
-#referralModal .my-promo-card.unread { border-color:#d7839b; }
-#referralModal .my-promo-card:not(:disabled):hover { background:#264356; }
-#referralModal .my-promo-card:disabled { background:#1d2229;color:#8e9aa5; }
-#referralModal .my-promo-more { min-height:42px;border-color:#4b869c;background:#1b4357;color:#def8ff; }
-#referralModal .ref-actions { display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:14px 0; }
-#referralModal .ref-actions button { min-height:44px;border-radius:11px; }
-#referralModal .modal-close-small,#promoModal .modal-close-small { display:block;width:100%;min-height:43px;padding:10px;margin-top:12px;border:1px solid #4a6a7f;border-radius:11px;background:#213848;color:#d8edfa; }
-#promoModal .promo-check { display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid #8de3d7;border-radius:11px;background:#54c7ad;color:#092725; }
-#promoModal .promo-check svg { width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:2.5; }
-@media(max-width:370px) { #referralModal .bonus-modal-card { padding:17px 12px; }.bonus-modal-card .ref-stats { gap:4px; } }
-
-/* Upgrade feed: fixed art dimensions even when source PNGs are very large. */
-#upgradePage .upgrade-win-flow { overflow:hidden; }
-#upgradePage .upgrade-win-chip { flex:0 1 auto;overflow:hidden;max-width:calc(50% - 23px); }
-#upgradePage .upgrade-win-chip .upgrade-win-gift-image { display:block;flex:none;width:26px;height:26px;min-width:26px;max-width:26px;min-height:26px;max-height:26px;object-fit:contain; }
-#upgradePage .upgrade-win-chip .upgrade-win-ton-image { display:block;flex:none;width:13px;height:13px;min-width:13px;max-width:13px;min-height:13px;max-height:13px;object-fit:contain; }
-#upgradePage .upgrade-win-row { animation:upgradeFeedAppear .42s ease both; }
-#upgradePage .upgrade-win-row:nth-child(2) { animation-delay:.07s; }
-#upgradePage .upgrade-win-row:nth-child(3) { animation-delay:.14s; }
-#upgradePage .upgrade-win-row:nth-child(4) { animation-delay:.2s; }
-@keyframes upgradeFeedAppear { from { opacity:0;transform:translateY(7px) } to { opacity:1;transform:translateY(0) } }
-
-/* Spin has a clear active phase and a short settled result. */
-#upgradePage .upgrade-wheel-wrap.spinning { animation:upgradeGlow 1s ease-in-out infinite; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before { content:"";position:absolute;z-index:2;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,#ffffff40 24deg,transparent 52deg);animation:upgradeSweep 1.35s linear infinite;pointer-events:none; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-center { animation:upgradeCenterBeat .72s ease-in-out infinite alternate; }
-#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i { filter:drop-shadow(0 0 9px #f2fffe) drop-shadow(0 4px 4px #0009); }
-#upgradePage .upgrade-wheel-wrap.spinning+.upgrade-chance { border-color:#5ba6a1;box-shadow:0 0 17px #53d9a120; }
-@keyframes upgradeSweep { to { transform:rotate(360deg) } }
-@keyframes upgradeCenterBeat { to { box-shadow:0 0 0 7px #12232ab0,0 0 34px #a6ffdc88;transform:scale(1.045) } }
-
-/* Bonus navigation, links and status all have consistent button affordances. */
-#referralModal .bonus-tabs { background:#101f2b;border-color:#486a7e; }
-#referralModal .bonus-tabs button { padding:9px 6px;color:#b2cad8;border-radius:9px; }
-#referralModal .bonus-tabs button.active { background:linear-gradient(140deg,#317089,#254c64);box-shadow:0 2px 10px #07131c9e;color:#fff; }
-#referralModal .ref-actions .secondary { border:1px solid #6396ad;background:#23475a;color:#eefaff; }
-#referralModal .ref-actions .primary { border:1px solid #a0eff2;background:linear-gradient(130deg,#9debea,#66bfdc);color:#0d2833; }
-#referralModal .my-promo-card .promo-status { padding:5px 7px;border-radius:8px;background:#173d4e; }
-#referralModal .my-promo-card.unread .promo-status { background:#53313e;color:#ffb9c8; }
-#referralModal .my-promo-card:disabled .promo-status { background:#252a30;color:#8c959e; }
-
-/* Administrative screens share a calm grid and readable controls. */
-#adminPage,#usersPage,#userPage,#withdrawalsPage,#transactionsPage,#depositSettingsPage,#promocodesPage,
-#rtpPage,#loaderSettingsPage,#portalPage,#transferSettingsPage,#userActivityPage,#levelsAdminPage,#rollAdminPage { min-width:0;padding-bottom:25px; }
-#adminPage .admin-heading { margin-bottom:18px; }
-#adminPage .admin-group { min-width:0;padding:17px;background:linear-gradient(160deg,#192c3b,#14212e); }
-#adminPage .admin-group h2 { margin:0 0 13px; }
-#adminPage .admin-actions button { min-width:0;min-height:57px;padding:10px 11px; }
-#userPage .panel,#portalPage .panel,#promocodesPage .panel,#depositSettingsPage .panel,
-#rtpPage .panel,#loaderSettingsPage .panel,#usersPage .panel,#transactionsPage .panel { min-width:0;margin-block:17px;padding:16px; }
-#userPage .panel.stack,#promocodesPage .promo-admin-form { display:grid;gap:11px; }
-#userPage .panel .row,#usersPage .panel.row,#transactionsPage .panel.row { display:flex;gap:8px;align-items:center;min-width:0; }
-#userPage .panel .row .text-input,#usersPage .panel.row .text-input,#transactionsPage .panel.row .text-input { min-width:0;flex:1; }
-#userPage .panel .row .mini-btn,#usersPage .panel.row .mini-btn,#transactionsPage .panel.row .mini-btn { flex:none;min-height:42px;padding:9px 11px;border-radius:10px; }
-#userPage .panel button,#promocodesPage .panel button,#depositSettingsPage .panel button { min-height:42px;border-radius:10px; }
-#userPage .panel .text-input,#promocodesPage .panel .text-input { max-width:100%; }
-@media(max-width:440px) {
-  #adminPage .admin-actions { grid-template-columns:1fr;gap:8px; }
-  #adminPage .admin-actions button { min-height:45px; }
-  #adminPage .admin-menu { gap:15px; }
-  #adminPage .admin-group { padding:14px; }
-  #promocodesPage .promo-admin-extra { grid-template-columns:minmax(0,1fr); }
-  #promocodesPage .promo-admin-extra .full { grid-column:1; }
-  #upgradePage .upgrade-win-chip { padding:4px 5px;gap:3px; }
-}
-@media(prefers-reduced-motion:reduce) {
-  #upgradePage .upgrade-wheel-wrap.spinning,#upgradePage .upgrade-wheel-wrap.spinning .upgrade-wheel:before,
-  #upgradePage .upgrade-wheel-wrap.spinning .upgrade-center,#upgradePage .upgrade-win-row { animation:none!important; }
-}
-
-/* Profile inventory: three complete gifts in each row, including narrow phones. */
-#profilePage #inventoryGrid.inventory {
-  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;
-  align-items:stretch;min-width:0;width:100%;
-}
-#profilePage #inventoryGrid .gift {
-  box-sizing:border-box;display:flex;flex-direction:column;min-width:0;width:100%;height:100%;
-  padding:7px;border-radius:12px;overflow:visible;
-}
-#profilePage #inventoryGrid .gift-art {
-  display:grid;place-items:center;min-width:0;width:100%;height:clamp(88px,27vw,118px);
-  min-height:0;margin:0 0 7px;padding:7px;border-radius:9px;overflow:visible;
-}
-#profilePage #inventoryGrid .gift-art img {
-  display:block;width:100%;height:100%;max-width:100%;max-height:100%;
-  object-fit:contain;object-position:center;transform:none;filter:none;
-}
-#profilePage #inventoryGrid .gift strong {
-  display:block;min-height:0;max-height:none;white-space:normal;overflow:visible;
-  text-overflow:clip;overflow-wrap:anywhere;-webkit-line-clamp:unset;
-  font-size:11px;line-height:1.3;font-weight:710;
-}
-#profilePage #inventoryGrid .gift>small {
-  display:flex;align-items:center;flex-wrap:wrap;gap:3px;min-width:0;
-  margin-top:auto;padding-top:7px;white-space:normal;overflow-wrap:anywhere;
-  font-size:10px;line-height:1.25;
-}
-#profilePage #inventoryGrid .gift>small img {
-  width:13px;height:13px;min-width:13px;max-width:13px;object-fit:contain;
-}
-#profilePage #inventoryGrid .gift-progress { width:100%;min-width:0; }
-#profilePage #inventoryGrid .gift-progress small { display:block;overflow-wrap:anywhere;white-space:normal;font-size:9px; }
-#profilePage #inventoryGrid .promo-ribbon { top:4px;right:4px;padding:3px 4px;font-size:8px; }
-@media(max-width:360px) {
-  #profilePage #inventoryGrid.inventory { gap:6px; }
-  #profilePage #inventoryGrid .gift { padding:5px; }
-  #profilePage #inventoryGrid .gift-art { height:86px;padding:5px; }
-  #profilePage #inventoryGrid .gift strong { font-size:10px; }
-}
-
-/* Victory feeds: highlight today's best drop without overfilling the page. */
-.recent-wins-card .top-drop { display:grid;gap:7px;margin:10px 10px 5px;padding:10px 11px;border:1px solid #755d37;border-radius:12px;background:linear-gradient(125deg,#3c2e22,#203540 65%,#172632); }
-.recent-wins-card .top-drop-label { color:#ffe0a0;font-size:10px;font-weight:780;letter-spacing:.09em; }
-.recent-wins-card .top-drop-empty { color:#aebbc6;font-size:11px; }
-.recent-wins-card .top-drop-body { display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:9px;min-width:0; }
-.recent-wins-card .top-drop-art { width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 3px 6px #0009); }
-.recent-wins-card .top-drop-info { display:grid;gap:2px;min-width:0; }
-.recent-wins-card .top-drop-info strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f8f1dc;font-size:12px; }
-.recent-wins-card .top-drop-info span { color:#c9e3ed;font-size:11px;line-height:1.4;overflow-wrap:anywhere; }
-#upgradePage .upgrade-wins-card { margin-top:20px; }
-#upgradePage .upgrade-win-row { padding:9px 11px;gap:8px; }
-#upgradePage .upgrade-win-head { margin-bottom:5px; }
-#upgradePage .upgrade-win-chip { min-height:31px; }
-#upgradePage .upgrade-win-chip .upgrade-win-gift-image { width:22px;height:22px;min-width:22px;max-width:22px;min-height:22px;max-height:22px; }
-#upgradePage .upgrade-win-chip .upgrade-win-ton-image { width:12px;height:12px;min-width:12px;max-width:12px;min-height:12px;max-height:12px; }
-#upgradePage .upgrade-wins-more { display:block;width:calc(100% - 20px);min-height:36px;margin:7px 10px 11px;border:1px solid #426a7c;border-radius:9px;background:#1c3545;color:#c7edf8;font-size:11px;font-weight:730; }
-#upgradePage .upgrade-wins-more.hidden { display:none!important; }
-
-/* A compact navigation bar keeps all three destinations clear. */
-#nav.nav { gap:3px;justify-content:space-evenly;padding:6px 9px calc(6px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)));border-color:#345367;background:#14232ff2; }
-#nav.nav button { flex:1;min-width:0;min-height:48px;gap:2px;padding:5px 3px;border-radius:10px;font-size:10px;font-weight:710;transition:background .16s,color .16s,transform .16s; }
-#nav.nav button svg { width:20px;height:20px; }
-#nav.nav button.active { background:#2a5367;color:#e8fcff; }
-#nav.nav button:active { transform:scale(.96); }
-
-/* Focused admin controls for the two public feeds. */
-#winsAdminPage .wins-admin-panel { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px; }
-#winsAdminPage .wins-admin-stat { padding:13px;border:1px solid #426174;border-radius:12px;background:#152a38; }
-#winsAdminPage .wins-admin-stat span { display:block;color:#a6c3d4;font-size:11px; }
-#winsAdminPage .wins-admin-stat strong { font-size:24px;color:#e8f9ff; }
-#winsAdminPage .wins-admin-panel button,#winsAdminPage #winsAdminStatus { grid-column:1/-1; }
-#winsAdminPage .wins-admin-panel button { min-height:44px;border-radius:11px; }
-#winsAdminPage .wins-admin-panel .danger-btn { border:1px solid #bc7284;background:#643548;color:#ffe9ed; }
-#winsAdminPage #winsAdminStatus { margin:1px 0 0;font-size:12px; }
-
-/* Deposit: one clear amount, a strong action, optional details. */
-#depositModal .deposit-card { width:min(100%,420px);max-height:calc(100dvh - 36px - env(safe-area-inset-bottom));overflow:auto;padding:19px;border:1px solid #4a7188;border-radius:22px;background:radial-gradient(circle at 90% 0%,#295e7266,transparent 50%),linear-gradient(160deg,#1b3142,#111e2b 78%);animation:depositArrive .36s cubic-bezier(.2,1,.3,1) both; }
-#depositModal .deposit-head { display:flex;align-items:center;gap:12px;padding-bottom:13px;margin-bottom:15px;border-bottom:1px solid #385263; }
-#depositModal .deposit-head-icon { display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:12px;background:#2b5269; }
-#depositModal .deposit-head-icon img { width:27px;height:27px;object-fit:contain; }
-#depositModal .deposit-kicker { font-size:9px;font-weight:790;letter-spacing:.12em;color:#8cdae9; }
-#depositModal .deposit-head h2 { margin:2px 0;font-size:21px; }
-#depositModal .deposit-head p { margin:0;color:#a9c5d2;font-size:11px; }
-#depositModal .wallet-disconnected-panel,#depositModal .wallet-connected-panel { margin:0 0 14px;padding:14px;border:1px solid #3f6175;border-radius:15px;background:#152b3a; }
-#depositModal .wallet-disconnected-panel { display:grid;justify-items:center;gap:8px;text-align:center; }
-#depositModal .wallet-disconnected-panel #modalWalletButton { width:100%;min-height:44px;margin-top:5px;border-radius:10px; }
-#depositModal .wallet-connected-head { margin-bottom:9px; }
-#depositModal .wallet-live { animation:depositConnectedGlow 2s ease-in-out infinite; }
-#depositModal .wallet-details { margin:5px 0 10px; }
-#depositModal .wallet-details summary { cursor:pointer;color:#99d9e9;font-size:11px;font-weight:720; }
-#depositModal .wallet-details .wallet-address-line { margin:9px 0 0; }
-#depositModal .wallet-balance-card { padding:9px 12px;border-radius:11px; }
-#depositModal .wallet-disconnect { display:block;margin:9px 0 0 auto; }
-#depositModal .topup-box { display:grid;gap:10px;margin:0; }
-#depositModal .topup-box>label { margin:0;color:#d7ecf5;font-size:12px; }
-#depositModal .topup-row { display:flex;align-items:center;gap:7px;padding:4px 12px;border:1px solid #53788c;border-radius:12px;background:#102431; }
-#depositModal .topup-row input { flex:1;min-width:0;min-height:39px;padding:5px 2px;border:0;outline:0;background:transparent;font-size:20px;font-weight:780; }
-#depositModal .topup-row span { color:#9ddfea;font-size:12px;font-weight:790; }
-#depositModal .topup-row:focus-within { border-color:#96e2ed;box-shadow:0 0 0 2px #81e3e023; }
-#depositModal .topup-presets { display:grid;grid-template-columns:repeat(3,1fr);gap:7px; }
-#depositModal .topup-presets button { min-height:35px;border:1px solid #416b80;border-radius:9px;background:#204052;color:#daeff8;font-size:11px;font-weight:730; }
-#depositModal .topup-presets button:active { transform:scale(.97); }
-#depositModal .deposit-pay { width:100%;min-height:49px;border-radius:12px;font-size:14px;font-weight:800; }
-#depositModal .deposit-promo-accordion { margin-top:3px;border:1px solid #345668;border-radius:12px;background:#142b39; }
-#depositModal .deposit-promo-accordion summary { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;cursor:pointer;color:#d6edf5;font-size:12px;font-weight:750;list-style:none; }
-#depositModal .deposit-promo-accordion summary::-webkit-details-marker { display:none; }
-#depositModal .deposit-promo-accordion summary span { color:#88cddc;font-size:10px;font-weight:680; }
-#depositModal .deposit-promo { margin:0;padding:0 11px 11px;border:0;background:transparent; }
-#depositModal .deposit-promo-row { grid-template-columns:minmax(0,1fr) 93px; }
-#depositModal .deposit-promo-row button { border-radius:10px; }
-#depositModal .wallet-state,#depositModal .deposit-foot,#depositModal #recipientState { font-size:10px;line-height:1.45; }
-#depositModal #closeDeposit { width:100%;min-height:40px;margin-top:12px!important;border-radius:11px; }
-@keyframes depositArrive { from { opacity:0;transform:translateY(12px) scale(.97) } to { opacity:1;transform:none } }
-@keyframes depositConnectedGlow { 50% { box-shadow:0 0 12px #6eecce88 } }
-@media(prefers-reduced-motion:reduce) { #depositModal .deposit-card,#depositModal .wallet-live { animation:none!important; } }

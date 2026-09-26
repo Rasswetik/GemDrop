@@ -315,3 +315,94 @@ h1,h2,h3{letter-spacing:-.035em!important}h1{font-weight:730!important}h2,h3{fon
   .bot-button-remove{justify-self:end!important}
   #upgradePage .upgrade-chance{grid-template-columns:1fr auto!important;gap:9px!important;padding:11px!important}
 }
+
+/* Build 28 — restored Upgrade pointer and quieter admin UI. */
+#upgradePage .upgrade-wheel-wrap{
+  contain:layout!important;
+  overflow:visible!important;
+  margin-top:30px!important;
+}
+#upgradePage .upgrade-pointer{
+  overflow:visible!important;
+}
+#upgradePage .upgrade-pointer i{
+  left:50%!important;
+  top:clamp(-20px,-5.5%,-12px)!important;
+  width:clamp(38px,13%,48px)!important;
+  height:clamp(36px,12%,44px)!important;
+  min-width:38px!important;
+  min-height:36px!important;
+  max-width:48px!important;
+  max-height:44px!important;
+  border:0!important;
+  transform:translateX(-50%)!important;
+  transform-origin:50% 100%!important;
+  background:linear-gradient(180deg,#fff 0%,#edfaff 48%,#bfeeff 100%)!important;
+  clip-path:polygon(50% 100%,0 0,100% 0)!important;
+  -webkit-clip-path:polygon(50% 100%,0 0,100% 0)!important;
+  filter:drop-shadow(0 5px 5px rgba(0,0,0,.52)) drop-shadow(0 0 8px rgba(184,240,255,.24))!important;
+}
+#upgradePage .upgrade-wheel-wrap.spinning .upgrade-pointer i{
+  filter:drop-shadow(0 5px 5px rgba(0,0,0,.55)) drop-shadow(0 0 12px rgba(214,250,255,.52))!important;
+}
+#upgradePage .upgrade-wheel-wrap:before{inset:-10px!important;border-width:7px!important}
+#upgradePage .upgrade-center{inset:28%!important;border-width:4px!important}
+
+#adminPage .admin-heading{margin:2px 0 17px!important;padding:0 2px!important;border:0!important;background:none!important}
+#adminPage .admin-heading span{color:#8fa7b7!important;font-size:9px!important;letter-spacing:.14em!important}
+#adminPage .admin-heading h1{margin:6px 0 0!important;font-size:28px!important;letter-spacing:-.04em!important}
+#adminPage .admin-heading p{display:none!important}
+#adminPage .admin-menu{gap:12px!important}
+#adminPage .admin-group{
+  padding:14px!important;
+  border:1px solid rgba(255,255,255,.075)!important;
+  border-radius:18px!important;
+  background:rgba(255,255,255,.025)!important;
+  box-shadow:inset 0 1px rgba(255,255,255,.025),0 10px 26px rgba(0,0,0,.12)!important;
+}
+#adminPage .admin-group h2{margin:0 0 9px!important;color:#98aab6!important;font-size:10px!important;font-weight:760!important;letter-spacing:.08em!important;text-transform:uppercase!important}
+#adminPage .admin-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important}
+#adminPage .admin-actions button{
+  min-width:0!important;
+  min-height:48px!important;
+  padding:10px 11px!important;
+  justify-content:flex-start!important;
+  border:1px solid rgba(255,255,255,.065)!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.032)!important;
+  color:#e5edf2!important;
+  font-size:11px!important;
+  font-weight:680!important;
+  box-shadow:none!important;
+}
+#adminPage .admin-actions button span{display:none!important}
+#adminPage .admin-actions button:hover{background:rgba(255,255,255,.06)!important;border-color:rgba(146,207,235,.20)!important}
+#adminPage .admin-actions button:active{transform:scale(.985)!important;background:rgba(255,255,255,.075)!important}
+#adminPage .back{padding-bottom:14px!important;color:#8fcce6!important;font-size:12px!important}
+#botSettingsPage .page-heading p,#postAdminPage>.muted,#postAdminPage .emoji-capability{display:none!important}
+
+@media(max-width:430px){
+  #upgradePage .upgrade-pointer i{
+    top:-14px!important;
+    width:42px!important;
+    height:40px!important;
+    min-width:42px!important;
+    min-height:40px!important;
+    max-width:42px!important;
+    max-height:40px!important;
+  }
+  #upgradePage .upgrade-wheel-wrap{margin-top:31px!important}
+  #adminPage .admin-actions{grid-template-columns:1fr!important}
+  #adminPage .admin-actions button{min-height:46px!important}
+}
+@media(max-width:360px){
+  #upgradePage .upgrade-pointer i{
+    top:-13px!important;
+    width:40px!important;
+    height:39px!important;
+    min-width:40px!important;
+    min-height:39px!important;
+    max-width:40px!important;
+    max-height:39px!important;
+  }
+}

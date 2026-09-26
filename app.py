@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
+from html import escape
 from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qsl
@@ -284,6 +285,8 @@ def initialize():
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
             ('turnover_cents', 'INTEGER NOT NULL DEFAULT 0'),
+            ('withdrawal_enabled', 'INTEGER NOT NULL DEFAULT 1'),
+            ('withdrawal_block_reason', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
@@ -338,6 +341,7 @@ def initialize():
             ('reference_id', "TEXT NOT NULL DEFAULT ''"), ('details', "TEXT NOT NULL DEFAULT ''"),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
         ])
+        ensure_columns('wins_feed_clears', [('max_round_id', 'INTEGER NOT NULL DEFAULT 0')])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
@@ -532,6 +536,7 @@ def profile():
     user = current_user()
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=user['balance'] / 100, turnover=user['turnover_cents']/100,
+                withdrawal_enabled=bool(user['withdrawal_enabled']),
                 admin=user['id'] in ADMIN_IDS)
 
 
@@ -1219,6 +1224,8 @@ def claim_level(level):
                    (session['uid'],level,json.dumps(result,ensure_ascii=False)))
         log_event(db,session['uid'],'level_claim',level=level,reward=result)
         db.commit()
+        if result.get('code'):
+            notify_promo_async(session['uid'], result['code'], 'levels')
         return jsonify(ok=True,reward=result,user=profile())
     finally:db.close()
 
@@ -1343,6 +1350,8 @@ def spin_roll(roll_id):
                   outcome=entry['kind'],gift_name=entry['name'],gift_image=entry.get('image_url',''))
         new_level=increase_turnover(db,session['uid'],roll['price'])
         db.commit()
+        if new_level:
+            notify_level_up_async(session['uid'], new_level)
         return jsonify(spin_id=spin_id,entry_id=entry['id'],index=index,kind=entry['kind'],
                        name=entry['name'],image_url=entry.get('image_url',''),boost=new_boost,
                        applied_boost=boost,new_level=new_level,user=profile())
@@ -1435,7 +1444,7 @@ def upgrade_recent_wins():
                                    s.result_json,s.created_at,u.name,u.username,u.photo_url
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                             WHERE s.won=1 AND s.created_at>?
-                            ORDER BY s.created_at DESC,s.id DESC LIMIT 15''', (cutoff,)).fetchall()
+                            ORDER BY s.created_at DESC,s.id DESC''', (cutoff,)).fetchall()
         top_row = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
                                       s.target_name,s.target_image,s.target_price,s.chance_bp,
                                       s.result_json,s.created_at,u.name,u.username,u.photo_url
@@ -1553,6 +1562,11 @@ def upgrade_spin():
         result['new_level']=increase_turnover(db,session['uid'],source_price)
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
+        promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
+        if promo_code:
+            notify_promo_async(session['uid'], promo_code, 'bonuses')
+        if result['new_level']:
+            notify_level_up_async(session['uid'], result['new_level'])
         return jsonify(**result,user=profile())
     finally:db.close()
 
@@ -1773,6 +1787,8 @@ def start():
                   bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'])
         new_level=increase_turnover(db,session['uid'],bet)
         db.commit()
+        if new_level:
+            notify_level_up_async(session['uid'], new_level)
         return jsonify(round=round_view(row), user=profile(), new_level=new_level)
     finally:
         db.close()
@@ -1852,14 +1868,20 @@ def recent_wins():
                              FROM rounds r JOIN users u ON u.id=r.user_id
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
                                AND (r.id>? OR r.settled_at>?)"""
-        rows = db.execute(selection+' ORDER BY COALESCE(r.settled_at,r.created_at) DESC,r.id DESC LIMIT 15',
+        rows = db.execute(selection+' ORDER BY COALESCE(r.settled_at,r.created_at) DESC,r.id DESC',
                           (max_round_id,cutoff)).fetchall()
         top = db.execute(selection+''' AND COALESCE(r.settled_at,r.created_at)>=?
                            ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC LIMIT 1''',
                          (max_round_id,cutoff,wins_day_start_utc())).fetchone()
     def mines_win_item(row):
-        opened_count = len(json.loads(row['opened'] or '[]'))
-        factor = float(row['win_multiplier']) if row['win_multiplier'] is not None else multiplier_for(row['mines'], opened_count)
+        try:
+            opened_count = len(json.loads(row['opened'] or '[]'))
+        except (TypeError, ValueError):
+            opened_count = 0
+        try:
+            factor = float(row['win_multiplier']) if row['win_multiplier'] is not None else multiplier_for(row['mines'], opened_count)
+        except (TypeError, ValueError, ArithmeticError):
+            factor = 1.01
         total = row['win_total'] if row['win_total'] is not None else row['payout']
         return dict(
             id=row['id'], user_id=row['user_id'], name=row['name'], username=row['username'],
@@ -1990,12 +2012,58 @@ def notify_user_async(user_id, text, reply_markup=None, parse_mode=None):
            args=(user_id, text, reply_markup, parse_mode), daemon=True).start()
 
 
+def miniapp_markup(text, action=''):
+    if not WEBAPP_URL.startswith('https://'):
+        return None
+    url = WEBAPP_URL + ('/?open=' + action if action else '/')
+    return {'inline_keyboard': [[{'text': text, 'web_app': {'url': url}}]]}
+
+
+def format_ton_cents(cents):
+    return f'{int(cents) / 100:.2f}'
+
+
+def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
+    bonus_line = f'\n🎁 Бонус: <b>+{format_ton_cents(bonus_cents)} TON</b>' if bonus_cents else ''
+    text = (f'✅ <b>Ваш баланс пополнен на {format_ton_cents(amount_cents)} TON.</b>'
+            f'{bonus_line}\n\nТекущий баланс: <b>{format_ton_cents(balance_cents)} TON</b>')
+    notify_user_async(user_id, text, miniapp_markup('🎮 Играть'), 'HTML')
+
+
+def notify_promo_async(user_id, code, action='bonuses'):
+    safe_code = escape(str(code))
+    text = f'🎟 <b>Вам выдан промокод</b>\n\n<code>{safe_code}</code>\n\nОткройте GemDrop, чтобы забрать награду.'
+    notify_user_async(user_id, text, miniapp_markup('🎁 Забрать', action), 'HTML')
+
+
+def notify_level_up_async(user_id, level):
+    def deliver():
+        try:
+            with connect() as db:
+                row = db.execute('SELECT reward_json FROM levels WHERE level=?', (int(level),)).fetchone()
+            reward = json.loads(row['reward_json'] or '{}') if row else {'type': 'none'}
+            reward_text = reward_description(reward) if reward.get('type') != 'none' else 'на этом уровне награда не назначена'
+            text = (f'⬆️ <b>Ваш уровень повышен до {int(level)}!</b>\n\n'
+                    f'Ваша награда: <b>{escape(str(reward_text))}</b>')
+            send_user_notification(user_id, text, miniapp_markup('🎁 Награда', 'levels'), 'HTML')
+        except Exception:
+            app.logger.exception('Level-up notification failed for %s', user_id)
+    Thread(target=deliver, daemon=True).start()
+
+
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
+                             (session['uid'],)).fetchone()
+        if not account:
+            return error('Пользователь не найден.', 404)
+        if not bool(account['withdrawal_enabled']):
+            reason = str(account['withdrawal_block_reason'] or '').strip()
+            return error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
         item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
                           (item_id, session['uid'])).fetchone()
         if not item:
@@ -2721,6 +2789,8 @@ def admin_create_promocode():
         if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
             return error('Такой промокод уже существует.', 409)
         raise
+    if assigned_user_id:
+        notify_promo_async(assigned_user_id, code, 'bonuses')
     return jsonify(ok=True, code=code)
 
 
@@ -2772,10 +2842,38 @@ def admin_user(user_id):
         level=level_number(db,int(user['turnover_cents'] or 0))
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
                              balance=user['balance']/100,level=level,
-                             turnover=user['turnover_cents']/100),items=[inventory_item(x) for x in items],
+                             turnover=user['turnover_cents']/100,
+                             withdrawal_enabled=bool(user['withdrawal_enabled']),
+                             withdrawal_block_reason=user['withdrawal_block_reason'] or ''),items=[inventory_item(x) for x in items],
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
                                 active=bool(p['active'] and not promo_is_expired(p)),
                                 used=bool(p['uses_count'])) for p in promos])
+
+
+@app.post('/api/admin/users/<int:user_id>/withdrawal-access')
+@admin_required
+def admin_user_withdrawal_access(user_id):
+    data = request.get_json(silent=True) or {}
+    enabled = bool(data.get('enabled'))
+    reason = str(data.get('reason') or '').strip()[:240]
+    if not enabled and not reason:
+        reason = 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.'
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Пользователь не найден.', 404)
+        db.execute('UPDATE users SET withdrawal_enabled=?,withdrawal_block_reason=? WHERE id=?',
+                   (1 if enabled else 0, '' if enabled else reason, user_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, 'withdrawal_access', 'enabled' if enabled else reason))
+        log_event(db, user_id, 'withdrawal_access', enabled=enabled, reason='' if enabled else reason,
+                  admin_id=session['uid'])
+        db.commit()
+    if enabled:
+        notify_user_async(user_id, '✅ Вывод подарков снова доступен.', miniapp_markup('🎮 Играть'), None)
+    else:
+        notify_user_async(user_id, f'⚠️ Вывод подарков временно недоступен.\n\n{reason}', miniapp_markup('🎮 Играть'), None)
+    return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason)
 
 
 @app.post('/api/admin/users/<int:user_id>/promocodes/new')
@@ -2840,6 +2938,7 @@ def admin_create_user_promocode(user_id):
                    (session['uid'],user_id,'promo_issue',code))
         log_event(db,user_id,'promo_issued',code=code,source='Администрация')
         db.commit()
+        notify_promo_async(user_id, code, 'bonuses')
         return jsonify(ok=True,code=code)
     except Exception as exc:
         if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
@@ -2879,6 +2978,7 @@ def admin_issue_user_promocode(user_id):
                    (session['uid'],user_id,'promo_issue',f'{code} → {issued_code}'))
         log_event(db,user_id,'promo_issued',code=issued_code,source='Администрация')
         db.commit()
+        notify_promo_async(user_id, issued_code, 'bonuses')
         return jsonify(ok=True,code=issued_code)
     finally:
         db.close()
@@ -2900,12 +3000,26 @@ def admin_user_level(user_id):
         if not row:return error('Уровень не найден.',404)
         old=level_number(db,int(user['turnover_cents'] or 0))
         db.execute('UPDATE users SET turnover_cents=? WHERE id=?',(row['required_turnover'],user_id))
+        reset_levels=[]
+        if level < old:
+            reset_levels=[int(x['level']) for x in db.execute(
+                'SELECT level FROM level_claims WHERE user_id=? AND level>? ORDER BY level',
+                (user_id,level)).fetchall()]
+            if reset_levels:
+                db.execute('DELETE FROM level_claims WHERE user_id=? AND level>?',(user_id,level))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'],user_id,'level_set',f'{old} → {level}'))
-        log_event(db,user_id,'admin_level',previous_level=old,new_level=level,admin_id=session['uid'])
+                   (session['uid'],user_id,'level_set',f'{old} → {level}; rewards reset: {reset_levels}'))
+        log_event(db,user_id,'admin_level',previous_level=old,new_level=level,admin_id=session['uid'],
+                  reset_rewards=reset_levels)
         db.commit()
     finally:db.close()
-    return jsonify(ok=True,level=level,turnover=row['required_turnover']/100)
+    if level < old:
+        suffix = (' Состояние получения наград уровней выше нового уровня сброшено.' if reset_levels else '')
+        notify_user_async(user_id, f'↘️ Ваш уровень изменён: {old} → {level}.{suffix}',
+                          miniapp_markup('🎁 Уровни и награды', 'levels'), None)
+    elif level > old:
+        notify_level_up_async(user_id, level)
+    return jsonify(ok=True,level=level,turnover=row['required_turnover']/100,reset_rewards=reset_levels)
 
 
 @app.get('/api/admin/users/<int:user_id>/activity')
@@ -3006,8 +3120,10 @@ def admin_deposit(user_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'admin_deposit', str(amount)))
         record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
+        balance_now=int(db.execute('SELECT balance FROM users WHERE id=?',(user_id,)).fetchone()['balance'])
         db.commit()
-        return jsonify(ok=True, balance_added=amount/100, referral_bonus=0)
+        notify_deposit_async(user_id, amount, balance_now)
+        return jsonify(ok=True, balance_added=amount/100, referral_bonus=0, balance=balance_now/100)
     finally:
         db.close()
 
@@ -3380,9 +3496,15 @@ def verify_ton_deposit(order_id):
             if used:
                 return error('Эта блокчейн-транзакция уже была зачислена.', 409)
             bonus = credit_verified_ton_deposit(db, fresh, tx_hash)
+            credited_amount=int(fresh['amount'])
+            credited_bonus_row=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()
+            balance_now=int(credited_bonus_row['balance']) if credited_bonus_row else 0
+            promo_bonus_row=db.execute("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id=? AND kind='deposit_promo_bonus' AND reference_type='ton_tx' AND reference_id=?",(session['uid'],tx_hash)).fetchone()
+            promo_bonus=int(promo_bonus_row['total'] or 0) if promo_bonus_row else 0
             db.commit()
         finally:
             db.close()
+        notify_deposit_async(session['uid'], credited_amount, balance_now, promo_bonus)
         return jsonify(ok=True, status='credited', referral_bonus=bonus/100, user=profile())
     except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
         app.logger.exception('TON deposit verification failed')

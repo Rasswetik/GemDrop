@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '26-upgrade-startbuttons-emoji'
+BUILD_ID = '28-upgrade-arrow-admin-polish'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -3820,107 +3820,177 @@ def unique_promo_code(db, prefix='GEM'):
 
 
 def create_upgrade_compensation_promo(db, user_id, source_price, force=False, pity_streak=0):
-    """Issue a loss-compensation wager gift with a small chance and hard pity.
+    """Issue a loss-compensation promo scaled to the size of the loss.
 
-    The previous implementation could hit pity and still return ``None`` when
-    the Portal catalog had no gift inside the calculated tiny budget. The new
-    fallback always selects the cheapest valid catalog gift when pity forces a
-    reward, so a long losing streak cannot silently produce nothing.
+    Small and medium losses still mostly receive wager gifts, but serious losses
+    now have a much better chance to receive a more humane reward profile:
+    lower playthrough multipliers or even a normal gift promo. Hard pity also
+    guarantees something meaningful instead of another extreme x100-style code.
     """
     source_ton = source_price / 100
     if source_ton < 0.10:
         return None
-    if source_ton < 1:base_chance=0.018
-    elif source_ton < 2:base_chance=0.03
-    elif source_ton < 5:base_chance=0.05
-    elif source_ton < 10:base_chance=0.08
-    elif source_ton < 50:base_chance=0.10
-    elif source_ton < 250:base_chance=0.115
-    else:base_chance=0.13
-    chance=min(0.30,base_chance+max(0,int(pity_streak))*0.018)
+
+    game_loss = game_net_loss_cents(db, user_id) + source_price
+    game_loss_ton = game_loss / 100
+    if source_ton < 1:
+        base_chance = 0.03
+    elif source_ton < 2:
+        base_chance = 0.05
+    elif source_ton < 5:
+        base_chance = 0.08
+    elif source_ton < 10:
+        base_chance = 0.11
+    elif source_ton < 25:
+        base_chance = 0.14
+    elif source_ton < 100:
+        base_chance = 0.19
+    elif source_ton < 250:
+        base_chance = 0.24
+    else:
+        base_chance = 0.30
+    loss_bonus = min(0.10, max(0.0, game_loss_ton) / 2500.0)
+    pity_bonus = max(0, int(pity_streak)) * 0.024
+    chance = min(0.55, base_chance + loss_bonus + pity_bonus)
     if not force and secrets.randbelow(10000) >= round(chance * 10000):
         return None
 
-    try:catalog=read_catalog().get('gifts',[])
-    except (OSError,ValueError,json.JSONDecodeError):catalog=[]
-    valid=[]
+    try:
+        catalog = read_catalog().get('gifts', [])
+    except (OSError, ValueError, json.JSONDecodeError):
+        catalog = []
+    valid = []
     for gift in catalog:
-        try:price=ton_to_cents(gift.get('price_ton'))
-        except (ValueError,TypeError,InvalidOperation):continue
-        if price>0 and gift.get('id') and gift.get('name'):
-            valid.append((price,gift))
-    if not valid:return None
-    valid.sort(key=lambda x:x[0])
+        try:
+            price = ton_to_cents(gift.get('price_ton'))
+        except (ValueError, TypeError, InvalidOperation):
+            continue
+        if price > 0 and gift.get('id') and gift.get('name'):
+            valid.append((price, gift))
+    if not valid:
+        return None
+    valid.sort(key=lambda x: x[0])
 
-    if source_ton <= 10:budget=round(source_price*0.20)
-    elif source_ton <= 50:budget=round(source_price*0.10)
-    else:budget=round(source_price*0.03)
-    budget=min(2500,max(10,budget))
-    floor_budget=max(1,round(budget*0.30))
-    candidates=[x for x in valid if floor_budget<=x[0]<=budget]
-    if not candidates:candidates=[x for x in valid if x[0]<=budget]
+    normal_gift_chance = 0.0
+    if source_ton >= 25:
+        if source_ton < 100:
+            normal_gift_chance = 0.14
+        elif source_ton < 250:
+            normal_gift_chance = 0.32
+        else:
+            normal_gift_chance = 0.46
+        normal_gift_chance += min(0.12, max(0.0, game_loss_ton - 50) / 2500.0)
+        if force:
+            normal_gift_chance = max(normal_gift_chance, 0.45 if source_ton < 100 else 0.7)
+    reward_type = 'gift' if normal_gift_chance > 0 and secrets.randbelow(10000) < round(min(0.8, normal_gift_chance) * 10000) else 'wager_gift'
+
+    if reward_type == 'gift':
+        if source_ton < 100:
+            budget = round(source_price * 0.10)
+            min_budget = max(100, round(budget * 0.45))
+        elif source_ton < 250:
+            budget = round(source_price * 0.08)
+            min_budget = max(300, round(budget * 0.50))
+        else:
+            budget = round(source_price * 0.06)
+            min_budget = max(500, round(budget * 0.50))
+        budget = min(3500, max(250, budget))
+    else:
+        if source_ton <= 10:
+            budget = round(source_price * 0.24)
+        elif source_ton <= 50:
+            budget = round(source_price * 0.14)
+        else:
+            budget = round(source_price * 0.08)
+        budget = min(3000, max(20, budget))
+        min_budget = max(1, round(budget * 0.25))
+
+    candidates = [x for x in valid if min_budget <= x[0] <= budget]
     if not candidates:
-        # Do not overpay a normal random proc just because the catalog has no
-        # sufficiently cheap gift. Only hard-pity may step outside the budget.
+        candidates = [x for x in valid if x[0] <= budget]
+    if not candidates:
         if not force:
             return None
-        candidates=valid[:min(8,len(valid))]
-    candidates.sort(key=lambda x:x[0],reverse=True)
-    pool=candidates[:min(18,len(candidates))]
-    _,gift=secrets.choice(pool)
-    gift_id=str(gift['id']);gift_name=str(gift['name'])[:140]
-    gift_image=safe_image(gift.get('image_url') or gift.get('portal_image_url'))
-    gift_price=ton_to_cents(gift.get('price_ton'))
+        candidates = valid[:min(10, len(valid))]
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    top_slice = max(1, min(len(candidates), 14 if reward_type == 'gift' else 18))
+    _, gift = secrets.choice(candidates[:top_slice])
+    gift_id = str(gift['id'])
+    gift_name = str(gift['name'])[:140]
+    gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+    gift_price = ton_to_cents(gift.get('price_ton'))
 
-    if source_ton < 5:multipliers=[15]*7+[25]*3+[50]
-    elif source_ton < 25:multipliers=[15]*3+[25]*6+[50]*2+[100]
-    elif source_ton < 100:multipliers=[15]+[25]*5+[50]*4+[100]*2
-    else:multipliers=[25]*3+[50]*5+[100]*3
-    wager_multiplier=float(secrets.choice(multipliers))
-    game_loss=game_net_loss_cents(db,user_id)+source_price
-    boost=loss_rtp_boost_points(game_loss)
-    code=unique_promo_code(db,'UPG')
-    expires_at=(datetime.now(timezone.utc)+timedelta(days=7)).isoformat()
-    description=f'Отыгрышный подарок «{gift_name}» · X{wager_multiplier:g}.'
-    reward_json=json.dumps({'compensation':True,'source_loss_ton':round(source_ton,2),
-      'game_loss_ton':round(game_loss/100,2),'loss_rtp_boost':round(boost,2),'pity_streak':int(pity_streak)},ensure_ascii=False)
+    if reward_type == 'wager_gift':
+        if source_ton < 5:
+            multipliers = [15] * 4 + [20] * 4 + [25] * 3 + [35]
+        elif source_ton < 25:
+            multipliers = [10] * 2 + [15] * 5 + [20] * 5 + [25] * 3 + [35]
+        elif source_ton < 100:
+            multipliers = [8] + [10] * 4 + [12] * 4 + [15] * 5 + [20] * 4 + [25] * 2
+        else:
+            multipliers = [5] + [8] * 4 + [10] * 5 + [12] * 4 + [15] * 3 + [20]
+        wager_multiplier = float(secrets.choice(multipliers))
+    else:
+        wager_multiplier = 0.0
+
+    boost = loss_rtp_boost_points(game_loss)
+    code = unique_promo_code(db, 'UPG')
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    description = (f'Подарок «{gift_name}».' if reward_type == 'gift'
+                   else f'Отыгрышный подарок «{gift_name}» · X{wager_multiplier:g}.')
+    reward_json = json.dumps({
+        'compensation': True,
+        'source_loss_ton': round(source_ton, 2),
+        'game_loss_ton': round(game_loss_ton, 2),
+        'loss_rtp_boost': round(boost, 2),
+        'pity_streak': int(pity_streak),
+        'scaled_reward': True,
+        'reward_type': reward_type,
+    }, ensure_ascii=False)
     db.execute("""INSERT INTO promo_codes(
       code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
       max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
       assigned_user_id,source_label,description,expires_at)
       VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)""",
-      (code,'wager_gift',0,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
-       0,0,0,0,reward_json,user_id,'Компенсация Upgrade',description,expires_at))
-    row=db.execute('SELECT * FROM promo_codes WHERE code=?',(code,)).fetchone()
-    log_event(db,user_id,'promo_issued',code=code,source='Компенсация Upgrade',wager_multiplier=wager_multiplier,
-      game_loss_ton=round(game_loss/100,2),loss_rtp_boost=round(boost,2),pity_streak=int(pity_streak),forced=bool(force))
+      (code, reward_type, 0, gift_id, gift_name, gift_image, gift_price, wager_multiplier,
+       0, 0, 0, 0, reward_json, user_id, 'Компенсация Upgrade', description, expires_at))
+    row = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+    log_event(db, user_id, 'promo_issued', code=code, source='Компенсация Upgrade', reward_type=reward_type,
+              wager_multiplier=wager_multiplier, game_loss_ton=round(game_loss_ton, 2),
+              loss_rtp_boost=round(boost, 2), pity_streak=int(pity_streak), forced=bool(force))
     return promo_view(row)
 
 def apply_upgrade_loss_compensation(db, user_id, source_price):
     # Tiny test spins below 0.10 TON do not advance compensation pity. All real
     # Upgrade losses from 0.10 TON do, so a user can no longer play repeatedly
-    # below 1 TON and have a zero chance of ever seeing a wager-gift promo.
+    # below 1 TON and have a zero chance of ever seeing a compensation reward.
     if source_price < 10:
         return dict(cashback=0, cashback_percent=0, promo=None, promo_pity=0, promo_pity_limit=0)
-    source_ton=source_price/100
-    cashback=0;percent=0.0
+    source_ton = source_price / 100
+    cashback = 0
+    percent = 0.0
     if source_price >= 100:
-        max_percent=3.0 if source_ton<10 else 5.0
-        percent=0.5+secrets.randbelow(int((max_percent-0.5)*100)+1)/100
-        cashback=max(1,round(source_price*percent/100.0))
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cashback,user_id))
-        record_transaction(db,user_id,'upgrade_cashback',cashback,'upgrade','',f'Кэшбэк за неудачный Upgrade · {percent:.2f}%')
-    row=db.execute('SELECT eligible_losses FROM upgrade_promo_pity WHERE user_id=?',(user_id,)).fetchone()
-    previous=int(row['eligible_losses'] or 0) if row else 0
-    # Still rare naturally. Hard-pity is shorter for meaningful losses, longer
-    # for sub-1 TON bets so compensation does not become a farming mechanic.
-    limit=6 if source_ton>=100 else 7 if source_ton>=10 else 9 if source_ton>=2 else 10 if source_ton>=1 else 12
-    promo=create_upgrade_compensation_promo(db,user_id,source_price,force=previous>=limit-1,pity_streak=previous)
-    db.execute('''INSERT INTO upgrade_promo_pity(user_id,eligible_losses) VALUES(?,?)
-                  ON CONFLICT(user_id) DO UPDATE SET eligible_losses=excluded.eligible_losses''',
-               (user_id,0 if promo else previous+1))
-    return dict(cashback=cashback/100,cashback_percent=round(percent,2),promo=promo,
-                promo_pity=0 if promo else previous+1,promo_pity_limit=limit)
+        if source_ton < 10:
+            min_percent, max_percent = 0.5, 3.0
+        elif source_ton < 100:
+            min_percent, max_percent = 0.75, 5.0
+        else:
+            min_percent, max_percent = 1.0, 7.5
+        percent = min_percent + secrets.randbelow(int((max_percent - min_percent) * 100) + 1) / 100
+        cashback = max(1, round(source_price * percent / 100.0))
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cashback, user_id))
+        record_transaction(db, user_id, 'upgrade_cashback', cashback, 'upgrade', '',
+                           f'Кэшбэк за неудачный Upgrade · {percent:.2f}%')
+    row = db.execute('SELECT eligible_losses FROM upgrade_promo_pity WHERE user_id=?', (user_id,)).fetchone()
+    previous = int(row['eligible_losses'] or 0) if row else 0
+    # Meaningful losses should reach hard pity sooner than tiny test bets.
+    limit = 3 if source_ton >= 100 else 4 if source_ton >= 50 else 5 if source_ton >= 25 else 6 if source_ton >= 10 else 8 if source_ton >= 2 else 10 if source_ton >= 1 else 12
+    promo = create_upgrade_compensation_promo(db, user_id, source_price, force=previous >= limit - 1, pity_streak=previous)
+    db.execute("""INSERT INTO upgrade_promo_pity(user_id,eligible_losses) VALUES(?,?)
+                  ON CONFLICT(user_id) DO UPDATE SET eligible_losses=excluded.eligible_losses""",
+               (user_id, 0 if promo else previous + 1))
+    return dict(cashback=cashback/100, cashback_percent=round(percent, 2), promo=promo,
+                promo_pity=0 if promo else previous + 1, promo_pity_limit=limit)
 
 
 @app.get('/api/promocodes/mine')
@@ -4164,6 +4234,42 @@ def redeem_promocode():
 def generated_promo_code():
     alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
     return 'GEM-' + ''.join(secrets.choice(alphabet) for _ in range(8))
+
+
+@app.get('/api/promocodes/check-deposit')
+@login_required
+def check_deposit_promocode():
+    code = str(request.args.get('code') or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return jsonify(valid=False, message='Введите промокод.')
+    with connect() as db:
+        active = db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
+                               JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                               AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                               ORDER BY r.created_at DESC LIMIT 1""", (session['uid'],)).fetchone()
+        if active and active['code'] == code:
+            return jsonify(valid=True, already_active=True, code=code,
+                           bonus_percent=float(active['bonus_percent'] or 0),
+                           bonus_fixed=int(active['bonus_fixed'] or 0) / 100,
+                           min_deposit=int(active['min_deposit'] or 0) / 100)
+        promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone()
+        if not promo or not promo['active']:
+            return jsonify(valid=False, message='Промокод не найден.')
+        if promo['reward_type'] != 'deposit_bonus':
+            return jsonify(valid=False, message='Этот промокод не подходит для пополнения.')
+        if int(promo['assigned_user_id'] or 0) not in (0, int(session['uid'])):
+            return jsonify(valid=False, message='Этот промокод предназначен другому пользователю.')
+        if promo_is_expired(promo):
+            return jsonify(valid=False, message='Срок действия промокода истёк.')
+        prior = db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (code, session['uid'])).fetchone()
+        if prior:
+            return jsonify(valid=False, message='Вы уже активировали этот промокод.')
+        if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
+            return jsonify(valid=False, message='Лимит активаций этого промокода исчерпан.')
+        return jsonify(valid=True, already_active=False, code=code,
+                       bonus_percent=float(promo['bonus_percent'] or 0),
+                       bonus_fixed=int(promo['bonus_fixed'] or 0) / 100,
+                       min_deposit=int(promo['min_deposit'] or 0) / 100)
 
 
 @app.get('/api/deposit-bonus')

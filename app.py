@@ -342,6 +342,22 @@ def initialize():
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('wins_feed_clears', [('max_round_id', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('levels', [
+            ('required_turnover', 'INTEGER NOT NULL DEFAULT 0'),
+            ('reward_json', "TEXT NOT NULL DEFAULT '{}'")
+        ])
+        ensure_columns('level_claims', [
+            ('reward_json', "TEXT NOT NULL DEFAULT '{}'") ,
+            ('created_at', "TEXT NOT NULL DEFAULT ''")
+        ])
+        ensure_columns('upgrade_spins', [
+            ('user_id', 'INTEGER NOT NULL DEFAULT 0'),
+            ('source_name', "TEXT NOT NULL DEFAULT ''"), ('source_image', "TEXT NOT NULL DEFAULT ''"),
+            ('source_price', 'INTEGER NOT NULL DEFAULT 0'), ('target_name', "TEXT NOT NULL DEFAULT ''"),
+            ('target_image', "TEXT NOT NULL DEFAULT ''"), ('target_price', 'INTEGER NOT NULL DEFAULT 0'),
+            ('chance_bp', 'INTEGER NOT NULL DEFAULT 0'), ('won', 'INTEGER NOT NULL DEFAULT 0'),
+            ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''")
+        ])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
@@ -355,10 +371,17 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS upgrade_spins_wins ON upgrade_spins(won,created_at DESC,id DESC)')
-        for level in range(1,21):
-            db.execute('INSERT OR IGNORE INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
-                       (level, (level-1)*level*50, '{}'))
-            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',(level,))
+        existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
+        if not existing_levels:
+            for level in range(1, 21):
+                db.execute('INSERT INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
+                           (level, (level-1)*level*50, '{}'))
+            existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
+        # Transfer settings follow the actual level list. Do not recreate deleted levels on restart.
+        for row in existing_levels:
+            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',
+                       (int(row['level']),))
+        db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
 
 
 
@@ -1140,7 +1163,6 @@ def admin_levels():
 @app.post('/api/admin/levels/<int:level>')
 @admin_required
 def admin_save_level(level):
-    if not 1<=level<=20:return error('Уровень: от 1 до 20.')
     data=request.get_json(silent=True) or {}
     try:
         threshold=parse_amount(data.get('required_turnover'))
@@ -1150,10 +1172,12 @@ def admin_save_level(level):
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        prev=db.execute('SELECT required_turnover FROM levels WHERE level=?',(level-1,)).fetchone() if level>1 else None
-        nxt=db.execute('SELECT required_turnover FROM levels WHERE level=?',(level+1,)).fetchone() if level<20 else None
-        if level==1 and threshold!=0:return error('Первый уровень начинается с нулевого оборота.')
-        if prev and threshold<=prev['required_turnover'] or nxt and threshold>=nxt['required_turnover']:
+        current=db.execute('SELECT level FROM levels WHERE level=?',(level,)).fetchone()
+        if not current:return error('Уровень не найден.',404)
+        prev=db.execute('SELECT level,required_turnover FROM levels WHERE level<? ORDER BY level DESC LIMIT 1',(level,)).fetchone()
+        nxt=db.execute('SELECT level,required_turnover FROM levels WHERE level>? ORDER BY level LIMIT 1',(level,)).fetchone()
+        if not prev and threshold!=0:return error('Первый уровень начинается с нулевого оборота.')
+        if (prev and threshold<=prev['required_turnover']) or (nxt and threshold>=nxt['required_turnover']):
             return error('Порог должен быть больше предыдущего и меньше следующего уровня.')
         db.execute('UPDATE levels SET required_turnover=?,reward_json=? WHERE level=?',
                    (threshold,json.dumps(reward,ensure_ascii=False),level))
@@ -1162,17 +1186,69 @@ def admin_save_level(level):
     return jsonify(ok=True,level=level,reward=public_level_reward(reward))
 
 
+@app.post('/api/admin/levels')
+@admin_required
+def admin_add_level():
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        rows=db.execute('SELECT level,required_turnover FROM levels ORDER BY level').fetchall()
+        if len(rows)>=100:return error('Можно создать не более 100 уровней.')
+        if not rows:
+            level,threshold=1,0
+        else:
+            level=int(rows[-1]['level'])+1
+            if len(rows)>=2:
+                step=max(100,int(rows[-1]['required_turnover'])-int(rows[-2]['required_turnover']))
+            else:
+                step=max(100,int(rows[-1]['required_turnover']) or 100)
+            threshold=int(rows[-1]['required_turnover'])+step
+        db.execute('INSERT INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',(level,threshold,'{}'))
+        db.execute('INSERT INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',(level,))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'level_add',str(level)))
+        db.commit()
+        return jsonify(ok=True,level=dict(level=level,required_turnover=threshold/100,reward={'type':'none'}))
+    finally:db.close()
+
+
+@app.delete('/api/admin/levels/<int:level>')
+@admin_required
+def admin_delete_level(level):
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        rows=db.execute('SELECT level FROM levels ORDER BY level').fetchall()
+        if len(rows)<=1:return error('Нельзя удалить единственный уровень.')
+        if level==1:return error('Первый уровень удалить нельзя.')
+        if not any(int(row['level'])==level for row in rows):return error('Уровень не найден.',404)
+        db.execute('DELETE FROM level_claims WHERE level=?',(level,))
+        db.execute('DELETE FROM transfer_rates WHERE level=?',(level,))
+        db.execute('DELETE FROM levels WHERE level=?',(level,))
+        higher=[int(row['level']) for row in rows if int(row['level'])>level]
+        for old_level in higher:
+            new_level=old_level-1
+            db.execute('UPDATE levels SET level=? WHERE level=?',(new_level,old_level))
+            db.execute('UPDATE level_claims SET level=? WHERE level=?',(new_level,old_level))
+            db.execute('UPDATE transfer_rates SET level=? WHERE level=?',(new_level,old_level))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'level_delete',str(level)))
+        db.commit()
+        return jsonify(ok=True,deleted=level,count=len(rows)-1)
+    finally:db.close()
+
+
 @app.post('/api/admin/levels/bulk')
 @admin_required
 def admin_save_levels_bulk():
     data=request.get_json(silent=True) or {}
     items=data.get('levels')
-    if not isinstance(items,list) or len(items)!=20:return error('Передайте все 20 уровней.')
+    if not isinstance(items,list) or not 1<=len(items)<=100:return error('Передайте от 1 до 100 уровней.')
     prepared=[]
     try:
         for index,item in enumerate(items,1):
             if not isinstance(item,dict) or int(item.get('level',0))!=index:
-                return error('Уровни должны идти по порядку от 1 до 20.')
+                return error('Уровни должны идти подряд, начиная с 1.')
             threshold=parse_amount(item.get('required_turnover'))
             if threshold<0 or threshold>10000000000:return error('Слишком большой оборот.')
             reward=normalize_level_reward(item.get('reward') or {'type':'none'})
@@ -1184,6 +1260,9 @@ def admin_save_levels_bulk():
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        existing=db.execute('SELECT COUNT(*) AS total FROM levels').fetchone()['total']
+        if int(existing)!=len(prepared):
+            return error('Список уровней изменился. Обновите раздел и повторите сохранение.',409)
         for level,threshold,reward_json in prepared:
             db.execute('UPDATE levels SET required_turnover=?,reward_json=? WHERE level=?',
                        (threshold,reward_json,level))
@@ -1516,28 +1595,45 @@ def upgrade_recent_wins():
                                       s.result_json,s.created_at,u.name,u.username,u.photo_url
                                FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                                WHERE s.won=1 AND s.created_at>? AND s.created_at>=?
-                               AND s.result_json NOT LIKE '%"reward_type": "wager_progress"%'
-                               AND s.result_json NOT LIKE '%"reward_type":"wager_progress"%'
+                               AND COALESCE(s.result_json,'{}') NOT LIKE '%"reward_type": "wager_progress"%'
+                               AND COALESCE(s.result_json,'{}') NOT LIKE '%"reward_type":"wager_progress"%'
                                ORDER BY s.target_price DESC,s.created_at DESC LIMIT 1''',
                              (cutoff,wins_day_start_utc())).fetchone()
     def upgrade_win_item(row, result=None):
+        if not row:return None
         if result is None:
             try:result = json.loads(row['result_json'] or '{}')
-            except (TypeError, ValueError):result = {}
-        return dict(id=row['id'],name=row['name'],username=row['username'],
-                    photo_url=row['photo_url'],source_type=result.get('source_type') or
+            except (TypeError, ValueError, json.JSONDecodeError):result = {}
+        if not isinstance(result,dict):result={}
+        try:source_price=max(0,int(row['source_price'] or 0))/100
+        except (TypeError,ValueError):source_price=0
+        try:target_price=max(0,int(row['target_price'] or 0))/100
+        except (TypeError,ValueError):target_price=0
+        try:default_chance=float(row['chance_bp'] or 0)/100
+        except (TypeError,ValueError):default_chance=0
+        try:chance=float(result.get('chance',default_chance) or 0)
+        except (TypeError,ValueError):chance=default_chance
+        return dict(id=str(row['id']),name=str(row['name'] or 'Игрок'),username=str(row['username'] or ''),
+                    photo_url=str(row['photo_url'] or ''),source_type=result.get('source_type') or
                     ('ton' if row['source_name']=='TON' else 'gift'),
-                    source=dict(name=row['source_name'],image_url=row['source_image'],
-                                price_ton=row['source_price']/100),
-                    target=dict(name=row['target_name'],image_url=row['target_image'],
-                                price_ton=row['target_price']/100),
-                    chance=result.get('chance',row['chance_bp']/100),
-                    reward_type=result.get('reward_type') or 'gift',
+                    source=dict(name=str(row['source_name'] or 'Ставка'),image_url=str(row['source_image'] or ''),
+                                price_ton=source_price),
+                    target=dict(name=str(row['target_name'] or 'Подарок'),image_url=str(row['target_image'] or ''),
+                                price_ton=target_price),
+                    chance=max(0,min(100,chance)),
+                    reward_type=str(result.get('reward_type') or 'gift'),
                     created_at=row['created_at'])
-    items = []
+    items=[]
     for row in rows:
-        items.append(upgrade_win_item(row))
-    top_drop = upgrade_win_item(top_row) if top_row else None
+        try:
+            item=upgrade_win_item(row)
+            if item:items.append(item)
+        except Exception:
+            app.logger.warning('Skipping malformed upgrade win row %s', row['id'] if row else '?', exc_info=True)
+    try:top_drop=upgrade_win_item(top_row) if top_row else None
+    except Exception:
+        app.logger.warning('Skipping malformed upgrade top-drop row', exc_info=True)
+        top_drop=None
     return jsonify(items=items,top_drop=top_drop)
 
 
@@ -1761,14 +1857,16 @@ def transfer_settings_get():
 @app.post('/api/admin/transfers/settings/<int:level>')
 @admin_required
 def transfer_settings_set(level):
-    if not 1<=level<=20:return error('Неверный уровень.')
     data=request.get_json(silent=True) or {}
     try:fee=float(data.get('fee_percent'))
     except (TypeError,ValueError):return error('Введите комиссию.')
     if not math.isfinite(fee) or not 0<=fee<=30:return error('Комиссия: от 0 до 30%.')
     enabled=int(bool(data.get('enabled',True)))
     with connect() as db:
-        db.execute('UPDATE transfer_rates SET fee_percent=?,enabled=? WHERE level=?',(fee,enabled,level))
+        if not db.execute('SELECT 1 FROM levels WHERE level=?',(level,)).fetchone():
+            return error('Неверный уровень.',404)
+        db.execute('INSERT INTO transfer_rates(level,fee_percent,enabled) VALUES(?,?,?) ON CONFLICT(level) DO UPDATE SET fee_percent=excluded.fee_percent,enabled=excluded.enabled',
+                   (level,fee,enabled))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],session['uid'],'transfer_rate',f'Уровень {level}: {fee:g}%, enabled={enabled}'))
     return jsonify(ok=True,level=level,fee_percent=fee,enabled=bool(enabled))
@@ -1970,8 +2068,16 @@ def recent_wins():
                                                price_ton=(row['win_gift_price'] or 0)/100)
                                            if row['win_gift_name'] else None),
             created_at=row['created_at'])
-    return jsonify(items=[mines_win_item(row) for row in rows],
-                   top_drop=mines_win_item(top) if top else None)
+    items=[]
+    for row in rows:
+        try:items.append(mines_win_item(row))
+        except Exception:
+            app.logger.warning('Skipping malformed mines win row %s', row['id'] if row else '?', exc_info=True)
+    try:top_drop=mines_win_item(top) if top else None
+    except Exception:
+        app.logger.warning('Skipping malformed mines top-drop row', exc_info=True)
+        top_drop=None
+    return jsonify(items=items,top_drop=top_drop)
 
 
 @app.get('/api/admin/wins-feeds')
@@ -2936,11 +3042,13 @@ def admin_user(user_id):
         promos = db.execute('SELECT * FROM promo_codes WHERE assigned_user_id=? ORDER BY created_at DESC LIMIT 20',
                             (user_id,)).fetchall()
         level=level_number(db,int(user['turnover_cents'] or 0))
+        available_levels=[int(r['level']) for r in db.execute('SELECT level FROM levels ORDER BY level').fetchall()]
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
                              balance=user['balance']/100,level=level,
                              turnover=user['turnover_cents']/100,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or ''),items=[inventory_item(x) for x in items],
+                   available_levels=available_levels,
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
                                 active=bool(p['active'] and not promo_is_expired(p)),
                                 used=bool(p['uses_count'])) for p in promos])
@@ -3091,8 +3199,8 @@ def admin_issue_user_promocode(user_id):
 def admin_user_level(user_id):
     data=request.get_json(silent=True) or {}
     try:level=int(data.get('level'))
-    except (ValueError,TypeError):return error('Уровень должен быть от 1 до 20.')
-    if not 1<=level<=20:return error('Уровень должен быть от 1 до 20.')
+    except (ValueError,TypeError):return error('Выберите существующий уровень.')
+    if level<1:return error('Выберите существующий уровень.')
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')

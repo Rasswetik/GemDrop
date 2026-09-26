@@ -19,7 +19,7 @@ from threading import Thread
 from urllib.parse import parse_qsl
 
 import requests
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, request, session, send_file
 
 
 BASE = Path(__file__).resolve().parent
@@ -44,6 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
+BUILD_ID = '21-premium-emoji-system'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -1076,12 +1077,25 @@ def parse_amount(value):
 
 @app.get('/')
 def index():
-    return render_template('index.html')
+    # index.html is plain HTML/CSS/JS and does not use Jinja syntax.
+    # Serving it directly prevents CSS sequences such as '{#' from ever
+    # being interpreted as Jinja comments.
+    return send_file(BASE / 'templates' / 'index.html', mimetype='text/html')
 
 
 @app.get('/health')
 def health():
-    return jsonify(status='ok')
+    return jsonify(status='ok', build=BUILD_ID)
+
+
+@app.get('/api/build')
+def build_info():
+    template_path = BASE / 'templates' / 'index.html'
+    try:
+        template_hash = hashlib.sha256(template_path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        template_hash = 'unavailable'
+    return jsonify(build=BUILD_ID, index_sha256=template_hash)
 
 
 @app.get('/api/me')
@@ -2429,6 +2443,7 @@ def post_channel_settings():
         'title': str(data.get('title') or '').strip(),
         'username': str(data.get('username') or '').strip().lstrip('@'),
         'join_url': str(data.get('join_url') or '').strip(),
+        'chat_type': str(data.get('chat_type') or '').strip(),
         'saved_at': data.get('saved_at'),
     }
 
@@ -2470,6 +2485,7 @@ def inspect_post_channel(chat_id, create_invite=True):
         'title': str(chat.get('title') or username or chat_id)[:120],
         'username': username,
         'join_url': join_url,
+        'chat_type': str(chat.get('type') or ''),
         'bot_status': status,
     }
 
@@ -2692,19 +2708,74 @@ def custom_emoji_html(text):
 
 
 
-EMOJI_NOTICE = ('Telegram: Premium владельца разрешает custom emoji в личных чатах и группах. '
-                'Для публикации в канале боту требуется дополнительное имя, приобретённое через Fragment. '
-                'Сохранение ID не зависит от этой возможности.')
+EMOJI_NOTICE = ('Premium владельца бота разрешает Bot API использовать custom emoji в личных чатах, группах и супергруппах. '
+                'Для сообщений именно в каналах Telegram по-прежнему требует, чтобы бот имел дополнительное имя, приобретённое через Fragment.')
+
+CUSTOM_EMOJI_TAG_RE = re.compile(r'<tg-emoji\s+emoji-id=["\']([0-9]{5,30})["\']>(.*?)</tg-emoji>', re.S | re.I)
 
 
 def remember_emojis(items):
-    # Separate keys make concurrent imports safe; IDs stay strings throughout.
+    # Never invent a fake fallback for a custom emoji. Telegram requires the text
+    # wrapped by the entity to match the sticker's own regular emoji exactly.
     for item in items:
         eid = str(item.get('id') or '')
         if re.fullmatch(r'[0-9]{5,30}', eid):
             previous = read_document('saved_emoji:' + eid) or {}
-            fallback = str(item.get('emoji') or previous.get('emoji') or '⭐')[:16]
+            fallback = str(item.get('emoji') or previous.get('emoji') or '')[:32]
             save_document('saved_emoji:' + eid, dict(id=eid, emoji=fallback))
+
+
+def fetch_custom_emoji_map(ids):
+    unique = []
+    seen = set()
+    for value in ids or []:
+        eid = str(value or '').strip()
+        if eid and re.fullmatch(r'[0-9]{5,30}', eid) and eid not in seen:
+            seen.add(eid); unique.append(eid)
+    result = {}
+    for offset in range(0, len(unique), 200):
+        batch = unique[offset:offset + 200]
+        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': batch}) or []
+        for sticker in stickers:
+            eid = str(sticker.get('custom_emoji_id') or '')
+            if eid:
+                result[eid] = dict(id=eid, emoji=str(sticker.get('emoji') or ''),
+                                   set_name=str(sticker.get('set_name') or ''))
+    return result
+
+
+def resolve_post_custom_emojis(text, rows=None):
+    """Validate IDs and replace every fallback with Telegram's canonical emoji.
+
+    This prevents Telegram from silently dropping a custom_emoji entity when a
+    stored ID was paired with the wrong visible fallback character.
+    """
+    html = custom_emoji_html(text)
+    ids = [m.group(1) for m in CUSTOM_EMOJI_TAG_RE.finditer(html)]
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, list):
+            for button in row:
+                if isinstance(button, dict):
+                    eid = str(button.get('icon_custom_emoji_id') or '').strip()
+                    if eid:
+                        ids.append(eid)
+    if not ids:
+        return html, {}
+    resolved = fetch_custom_emoji_map(ids)
+    missing = sorted(set(ids) - set(resolved))
+    if missing:
+        preview = ', '.join(missing[:5])
+        if len(missing) > 5:
+            preview += f' и ещё {len(missing) - 5}'
+        raise ValueError('Telegram не нашёл custom emoji ID: ' + preview)
+    remember_emojis(resolved.values())
+    def repl(match):
+        eid = match.group(1)
+        fallback = resolved[eid].get('emoji') or ''
+        if not fallback:
+            raise ValueError('Telegram не вернул обычный emoji для ID ' + eid)
+        return f'<tg-emoji emoji-id="{eid}">{escape(fallback)}</tg-emoji>'
+    return CUSTOM_EMOJI_TAG_RE.sub(repl, html), resolved
 
 
 def emojis_in_post(text, rows=None):
@@ -2839,7 +2910,18 @@ def admin_bot_settings():
 def admin_saved_emojis():
     with connect() as db:
         rows = db.execute("SELECT payload FROM app_documents WHERE name LIKE 'saved_emoji:%' ORDER BY name").fetchall()
-    return jsonify(items=[json.loads(r['payload']) for r in rows], notice=EMOJI_NOTICE)
+    items = [json.loads(r['payload']) for r in rows]
+    # Refresh canonical fallbacks from Telegram so old entries that were once
+    # saved as a generic star become safe to insert into a message.
+    if items and BOT_TOKEN:
+        try:
+            resolved = fetch_custom_emoji_map([x.get('id') for x in items])
+            if resolved:
+                remember_emojis(resolved.values())
+                items = [resolved.get(str(x.get('id')), x) for x in items]
+        except RuntimeError:
+            pass
+    return jsonify(items=items, notice=EMOJI_NOTICE)
 
 
 @app.post('/api/admin/emojis')
@@ -3707,7 +3789,7 @@ def admin_publish_post():
         return error('Сначала сохраните канал в разделе Post.', 409)
     multipart = bool(request.files) or bool(request.form) or str(request.content_type or '').startswith('multipart/form-data')
     data = request.form if multipart else (request.get_json(silent=True) or {})
-    text = custom_emoji_html(data.get('text') or '').strip()
+    raw_text = str(data.get('text') or '').strip()
     image_ref = str(data.get('image') or '').strip()
     image_refs = [x.strip() for x in re.split(r'[\r\n]+', image_ref) if x.strip()]
     if len(image_refs) > 10:
@@ -3726,7 +3808,11 @@ def admin_publish_post():
         buttons = normalize_post_buttons(raw_buttons)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         return error(str(exc))
-    remember_emojis(emojis_in_post(text, raw_buttons))
+    try:
+        text, resolved_emojis = resolve_post_custom_emojis(raw_text, buttons)
+    except (ValueError, RuntimeError) as exc:
+        return error('Premium emoji: ' + str(exc), 409)
+    remember_emojis(emojis_in_post(text, buttons))
     if not text and not image_refs and not photo_files:
         return error('Добавьте текст или изображение.')
     reply_markup = {'inline_keyboard': buttons} if buttons else None
@@ -3751,6 +3837,11 @@ def admin_publish_post():
 
     try:
         sent = None
+        sent_messages = []
+        def remember_sent(message):
+            if isinstance(message, dict) and message.get('message_id'):
+                sent_messages.append(message)
+            return message
         total_media = len(photo_files) + len(image_refs)
         if total_media > 1:
             # Bot API 10.2+ Rich Messages can keep several images, formatted text and
@@ -3777,7 +3868,7 @@ def admin_publish_post():
             payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
             if reply_markup:
                 payload['reply_markup'] = reply_markup
-            sent = telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30))
+            sent = remember_sent(telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30)))
         elif total_media == 1:
             caption_ok = bool(text) and len(re.sub(r'<[^>]+>', '', text)) <= 1024
             if photo_files:
@@ -3790,7 +3881,7 @@ def admin_publish_post():
                     if reply_markup:
                         payload['reply_markup'] = reply_markup
                 files = {'photo': (photo_file.filename or 'post.jpg', photo_file.stream, photo_file.mimetype or 'application/octet-stream')}
-                sent = telegram_api('sendPhoto', payload, files=files, timeout=(3, 20))
+                sent = remember_sent(telegram_api('sendPhoto', payload, files=files, timeout=(3, 20)))
             else:
                 payload = dict(base_payload, photo=image_refs[0])
                 if reply_markup and not text:
@@ -3799,25 +3890,58 @@ def admin_publish_post():
                     payload.update(caption=text, parse_mode='HTML')
                     if reply_markup:
                         payload['reply_markup'] = reply_markup
-                sent = telegram_api('sendPhoto', payload, timeout=(3, 15))
+                sent = remember_sent(telegram_api('sendPhoto', payload, timeout=(3, 15)))
             if text and not caption_ok:
-                sent = send_post_text(text, reply_markup)
+                sent = remember_sent(send_post_text(text, reply_markup))
         else:
-            sent = send_post_text(text, reply_markup)
+            sent = remember_sent(send_post_text(text, reply_markup))
+        expected = {e['id'] for e in emojis_in_post(text)}
+        actual = {str(e.get('custom_emoji_id')) for e in (sent or {}).get('entities', []) + (sent or {}).get('caption_entities', []) if e.get('type') == 'custom_emoji'}
+        expected_icons = {b['icon_custom_emoji_id'] for row in buttons for b in row if b.get('icon_custom_emoji_id')}
+        actual_icons = {str(b.get('icon_custom_emoji_id')) for row in ((sent or {}).get('reply_markup') or {}).get('inline_keyboard', []) for b in row}
+        missing_text = expected - actual
+        missing_icons = expected_icons - actual_icons
+        if missing_text or missing_icons:
+            # Do not leave a silently degraded post behind. If Telegram strips an
+            # explicitly requested premium emoji, remove the just-published post
+            # and return an actionable error instead of a false success.
+            for message in reversed(sent_messages):
+                try:
+                    telegram_api('deleteMessage', {'chat_id': settings['chat_id'], 'message_id': message['message_id']}, timeout=(2, 6))
+                except RuntimeError:
+                    pass
+            chat_type = settings.get('chat_type')
+            if not chat_type:
+                try:
+                    chat_type = str((telegram_api('getChat', {'chat_id': settings['chat_id']}) or {}).get('type') or '')
+                except RuntimeError:
+                    chat_type = ''
+            parts = []
+            if missing_text:
+                parts.append(f'не приняты emoji в тексте: {len(missing_text)}')
+            if missing_icons:
+                parts.append(f'не приняты emoji на кнопках: {len(missing_icons)}')
+            reason = '; '.join(parts)
+            if chat_type == 'channel':
+                detail = ('Telegram отклонил custom emoji в канальном сообщении (' + reason + '). '
+                          'Для каналов Premium владельца бота недостаточно: Bot API требует дополнительное имя бота, приобретённое через Fragment. '
+                          'Пост удалён автоматически, чтобы не оставлять публикацию без premium emoji.')
+            else:
+                detail = ('Telegram отклонил custom emoji (' + reason + '). Проверьте, что владелец бота имеет активный Telegram Premium. '
+                          'Пост удалён автоматически, чтобы не оставлять публикацию без premium emoji.')
+            return error(detail, 409)
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
-        expected = {e['id'] for e in emojis_in_post(text)}
-        actual = {str(e.get('custom_emoji_id')) for e in (sent or {}).get('entities', []) + (sent or {}).get('caption_entities', []) if e.get('type') == 'custom_emoji'}
-        warnings = []
-        if expected - actual:
-            warnings.append('Пост отправлен, но Telegram не подтвердил все premium emoji. ' + EMOJI_NOTICE)
-        expected_icons = {b['icon_custom_emoji_id'] for row in buttons for b in row if b.get('icon_custom_emoji_id')}
-        actual_icons = {str(b.get('icon_custom_emoji_id')) for row in ((sent or {}).get('reply_markup') or {}).get('inline_keyboard', []) for b in row}
-        if expected_icons - actual_icons:
-            warnings.append('Telegram не подтвердил premium emoji на кнопках. ' + EMOJI_NOTICE)
-        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings)
+        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=[], premium_emoji_verified=bool(expected or expected_icons))
     except RuntimeError as exc:
+        # If a multi-step publish managed to send media before Telegram rejected
+        # the formatted text/keyboard, clean the partial publication as well.
+        for message in reversed(locals().get('sent_messages', [])):
+            try:
+                telegram_api('deleteMessage', {'chat_id': settings['chat_id'], 'message_id': message['message_id']}, timeout=(2, 6))
+            except RuntimeError:
+                pass
         return error('Telegram не опубликовал пост: ' + str(exc), 409)
 
 

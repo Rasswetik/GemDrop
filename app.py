@@ -341,6 +341,7 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
+        db.execute('CREATE INDEX IF NOT EXISTS upgrade_spins_wins ON upgrade_spins(won,created_at DESC,id DESC)')
         for level in range(1,21):
             db.execute('INSERT OR IGNORE INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
                        (level, (level-1)*level*50, '{}'))
@@ -1401,6 +1402,34 @@ def upgrade_preview():
                    probability=chance/10000,rtp=upgrade_rtp_basis_points()/100)
 
 
+@app.get('/api/upgrade/recent-wins')
+@login_required
+def upgrade_recent_wins():
+    with connect() as db:
+        rows = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
+                                   s.target_name,s.target_image,s.target_price,s.chance_bp,
+                                   s.result_json,s.created_at,u.name,u.username,u.photo_url
+                            FROM upgrade_spins s JOIN users u ON u.id=s.user_id
+                            WHERE s.won=1 ORDER BY s.created_at DESC,s.id DESC LIMIT 15''').fetchall()
+    items = []
+    for row in rows:
+        try:
+            result = json.loads(row['result_json'] or '{}')
+        except (TypeError, ValueError):
+            result = {}
+        items.append(dict(id=row['id'],name=row['name'],username=row['username'],
+                          photo_url=row['photo_url'],source_type=result.get('source_type') or
+                          ('ton' if row['source_name']=='TON' else 'gift'),
+                          source=dict(name=row['source_name'],image_url=row['source_image'],
+                                      price_ton=row['source_price']/100),
+                          target=dict(name=row['target_name'],image_url=row['target_image'],
+                                      price_ton=row['target_price']/100),
+                          chance=row['chance_bp']/100,
+                          reward_type=result.get('reward_type') or 'gift',
+                          created_at=row['created_at']))
+    return jsonify(items=items)
+
+
 @app.post('/api/upgrade/spin')
 @login_required
 def upgrade_spin():
@@ -1471,10 +1500,11 @@ def upgrade_spin():
                                 promo_locked=False),
                     wager_progress=wager_progress/100,wager_target=wager_target/100,
                     awarded_inventory_id=awarded,compensation=compensation)
-        db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+        db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
-                    target['name'],target['image_url'],target['price'],chance,int(won),json.dumps(result,ensure_ascii=False)))
+                    target['name'],target['image_url'],target['price'],chance,int(won),json.dumps(result,ensure_ascii=False),
+                    datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],

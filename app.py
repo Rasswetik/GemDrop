@@ -12,7 +12,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
-from html import escape
+from html import escape, unescape
+from html.parser import HTMLParser
 from pathlib import Path
 from threading import Thread
 from urllib.parse import parse_qsl
@@ -2687,8 +2688,238 @@ def try_activate_freebet(user_id, code):
 def custom_emoji_html(text):
     text = str(text or '')
     pattern = re.compile(r'\[emoji:([0-9]{5,30}):([^\]\r\n]{1,16})\]')
-    return pattern.sub(lambda m: f'<tg-emoji emoji-id="{m.group(1)}">{m.group(2)}</tg-emoji>', text)
+    return pattern.sub(lambda m: f'<tg-emoji emoji-id="{m.group(1)}">{escape(m.group(2))}</tg-emoji>', text)
 
+
+
+EMOJI_NOTICE = ('Telegram: Premium владельца разрешает custom emoji в личных чатах и группах. '
+                'Для публикации в канале боту требуется дополнительное имя, приобретённое через Fragment. '
+                'Сохранение ID не зависит от этой возможности.')
+
+
+def remember_emojis(items):
+    # Separate keys make concurrent imports safe; IDs stay strings throughout.
+    for item in items:
+        eid = str(item.get('id') or '')
+        if re.fullmatch(r'[0-9]{5,30}', eid):
+            previous = read_document('saved_emoji:' + eid) or {}
+            fallback = str(item.get('emoji') or previous.get('emoji') or '⭐')[:16]
+            save_document('saved_emoji:' + eid, dict(id=eid, emoji=fallback))
+
+
+def emojis_in_post(text, rows=None):
+    items = [dict(id=m.group(1), emoji=unescape(m.group(2))) for m in
+             re.finditer(r'<tg-emoji\s+emoji-id=["\']([0-9]{5,30})["\']>(.*?)</tg-emoji>', custom_emoji_html(text), re.S)]
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, list):
+            continue
+        for button in row:
+            if not isinstance(button, dict):
+                continue
+            eid = str(button.get('icon_custom_emoji_id') or '')
+            if eid:
+                items.append(dict(id=eid))
+    return items
+
+
+def telegram_message_html(message):
+    """Preserve Telegram formatting and custom emoji using UTF-16 offsets."""
+    text = str(message.get('text') or message.get('caption') or '')
+    entities = message.get('entities') if message.get('text') else message.get('caption_entities')
+    raw = text.encode('utf-16-le')
+    spans = []
+    emojis = []
+    tags = {'bold': 'b', 'italic': 'i', 'underline': 'u', 'strikethrough': 's',
+            'spoiler': 'tg-spoiler', 'code': 'code', 'pre': 'pre', 'blockquote': 'blockquote'}
+    for e in entities or []:
+        a, b = int(e.get('offset', 0)), int(e.get('offset', 0)) + int(e.get('length', 0))
+        if a < 0 or b <= a or b * 2 > len(raw):
+            continue
+        kind = e.get('type')
+        if kind == 'custom_emoji' and re.fullmatch(r'[0-9]{5,30}', str(e.get('custom_emoji_id') or '')):
+            eid = str(e['custom_emoji_id'])
+            fallback = raw[a*2:b*2].decode('utf-16-le')
+            emojis.append(dict(id=eid, emoji=fallback))
+            start, end = f'<tg-emoji emoji-id="{eid}">', '</tg-emoji>'
+        elif kind == 'text_link' and re.match(r'^(https?://|tg://|mailto:)', str(e.get('url') or ''), re.I):
+            start, end = '<a href="' + escape(e['url'], quote=True) + '">', '</a>'
+        elif kind == 'text_mention' and isinstance((e.get('user') or {}).get('id'), int):
+            start, end = f'<a href="tg://user?id={e["user"]["id"]}">', '</a>'
+        elif kind == 'expandable_blockquote':
+            start, end = '<blockquote expandable>', '</blockquote>'
+        elif kind in tags:
+            tag = tags[kind]
+            start, end = f'<{tag}>', f'</{tag}>'
+        else:
+            continue
+        spans.append((a, b, start, end))
+    spans.sort(key=lambda x: (x[0], -x[1]))
+    # Telegram entities are nested or disjoint; render recursively.
+    def render(a, b, nodes):
+        parts, cursor, i = [], a, 0
+        while i < len(nodes):
+            node = nodes[i]; na, nb, opening, closing = node
+            if na < cursor or nb > b:
+                i += 1; continue
+            parts.append(escape(raw[cursor*2:na*2].decode('utf-16-le')))
+            j = i + 1
+            while j < len(nodes) and nodes[j][0] < nb and nodes[j][1] <= nb:
+                j += 1
+            parts.append(opening + render(na, nb, nodes[i+1:j]) + closing)
+            cursor, i = nb, j
+        parts.append(escape(raw[cursor*2:b*2].decode('utf-16-le')))
+        return ''.join(parts)
+    sticker = message.get('sticker') or {}
+    if sticker.get('custom_emoji_id'):
+        emojis.append(dict(id=str(sticker['custom_emoji_id']), emoji=sticker.get('emoji') or '⭐'))
+    return render(0, len(raw)//2, spans), emojis
+
+
+class GreetingHTML(HTMLParser):
+    allowed = {'b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del', 'a',
+               'code', 'pre', 'blockquote', 'tg-spoiler', 'tg-emoji', 'span'}
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack, self.visible = [], ''
+    def handle_starttag(self, tag, attrs):
+        if tag not in self.allowed:
+            raise ValueError('Неподдерживаемый HTML-тег: ' + tag)
+        attrs = dict(attrs)
+        allowed_attrs = {'a': {'href'}, 'tg-emoji': {'emoji-id'}, 'span': {'class'},
+                         'blockquote': {'expandable'}, 'code': {'class'}}.get(tag, set())
+        if set(attrs) - allowed_attrs:
+            raise ValueError('Неподдерживаемые атрибуты: ' + tag)
+        if tag == 'tg-emoji' and not re.fullmatch(r'[0-9]{5,30}', attrs.get('emoji-id') or ''):
+            raise ValueError('Укажите корректный emoji-id.')
+        if tag == 'a' and not re.match(r'^(https?://|tg://|mailto:)', attrs.get('href') or '', re.I):
+            raise ValueError('Некорректная ссылка в приветствии.')
+        if tag == 'span' and attrs.get('class') != 'tg-spoiler':
+            raise ValueError('Разрешён только span с class="tg-spoiler".')
+        self.stack.append(tag)
+    def handle_endtag(self, tag):
+        if not self.stack or self.stack.pop() != tag:
+            raise ValueError('Проверьте закрывающие HTML-теги приветствия.')
+    def handle_data(self, data):
+        self.visible += data
+
+
+def validate_greeting(text):
+    parser = GreetingHTML()
+    parser.feed(custom_emoji_html(text).replace('{referral_percent}', '100'))
+    parser.close()
+    if parser.stack:
+        raise ValueError('Закройте все HTML-теги приветствия.')
+    if text and not parser.visible.strip():
+        raise ValueError('Приветствие должно содержать текст.')
+    if len(parser.visible.encode('utf-16-le')) // 2 > 4096:
+        raise ValueError('Приветствие слишком длинное: максимум 4096 символов.')
+
+
+@app.route('/api/admin/bot/settings', methods=['GET', 'POST'])
+@admin_required
+def admin_bot_settings():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        text = str(data.get('welcome_text') or '').strip()
+        if len(text) > 16000:
+            return error('Приветствие слишком длинное.')
+        try:
+            validate_greeting(text)
+        except ValueError as exc:
+            return error(str(exc))
+        save_document('bot_settings', dict(welcome_text=text))
+        remember_emojis(emojis_in_post(text))
+    data = read_document('bot_settings') or {}
+    return jsonify(ok=True, welcome_text=data.get('welcome_text', ''),
+                   effective_text=welcome_text(), emoji_notice=EMOJI_NOTICE)
+
+
+@app.get('/api/admin/emojis')
+@admin_required
+def admin_saved_emojis():
+    with connect() as db:
+        rows = db.execute("SELECT payload FROM app_documents WHERE name LIKE 'saved_emoji:%' ORDER BY name").fetchall()
+    return jsonify(items=[json.loads(r['payload']) for r in rows], notice=EMOJI_NOTICE)
+
+
+@app.post('/api/admin/emojis')
+@admin_required
+def admin_add_emoji():
+    data = request.get_json(silent=True) or {}
+    eid = str(data.get('id') or '').strip()
+    if not re.fullmatch(r'[0-9]{5,30}', eid):
+        return error('Введите корректный ID эмодзи.')
+    try:
+        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [eid]}) or []
+        if not stickers:
+            return error('Telegram не нашёл эмодзи с таким ID.')
+        item = dict(id=eid, emoji=stickers[0].get('emoji') or '⭐')
+        remember_emojis([item])
+        return jsonify(ok=True, item=item)
+    except RuntimeError as exc:
+        return error(str(exc), 409)
+
+
+@app.route('/api/admin/post/draft', methods=['GET', 'POST'])
+@admin_required
+def admin_post_draft():
+    key = 'post_draft:' + str(session['uid'])
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        text = str(data.get('text') or '')
+        rows = data.get('buttons', [])
+        if len(text) > 30000 or not isinstance(rows, list) or len(json.dumps(rows)) > 50000:
+            return error('Черновик слишком большой.')
+        # Allow incomplete button URLs while editing, but validate structure.
+        if any(not isinstance(row, list) or any(not isinstance(b, dict) for b in row) for row in rows):
+            return error('Некорректные кнопки.')
+        draft = dict(text=text, buttons=rows, image=str(data.get('image') or '')[:20000],
+                     silent=bool(data.get('silent')), protect=bool(data.get('protect')))
+        save_document(key, draft)
+        remember_emojis(emojis_in_post(text, rows))
+    return jsonify(draft=read_document(key) or {})
+
+
+def emoji_admin_keyboard():
+    return {'inline_keyboard': [[{'text': 'Определить ещё', 'callback_data': 'admin:emoji'}],
+                                [{'text': 'Импортировать пост', 'callback_data': 'admin:post'}]]}
+
+
+def handle_admin_emoji_message(message):
+    uid = (message.get('from') or {}).get('id')
+    if uid not in ADMIN_IDS or (message.get('chat') or {}).get('type') != 'private':
+        return None
+    command = str(message.get('text') or '').split(maxsplit=1)
+    command = command[0].split('@')[0].lower() if command else ''
+    if command in ('/emoji', '/post', '/cancel'):
+        mode = {'/emoji': 'emoji', '/post': 'post', '/cancel': ''}[command]
+        save_document('bot_input:' + str(uid), {'mode': mode})
+        return dict(method='sendMessage', chat_id=uid,
+                    text=('Отправьте или перешлите пост с premium emoji. Его текст и форматирование появятся в редакторе Post. Текущий черновик будет заменён.' if mode == 'post' else
+                          'Пришлите premium emoji, сообщение с ними или custom emoji стикер. Для выхода: /cancel.' if mode else 'Готово. Режим ввода закрыт.'))
+    if command.startswith('/'):
+        return None
+    html, emojis = telegram_message_html(message)
+    mode = (read_document('bot_input:' + str(uid)) or {}).get('mode')
+    if not mode and not emojis:
+        return None
+    remember_emojis(emojis)
+    if mode == 'post':
+        if not html.strip() and not message.get('photo'):
+            return dict(method='sendMessage', chat_id=uid, text='Пришлите текст поста или фото с подписью.')
+        photo = (message.get('photo') or [{}])[-1].get('file_id', '')
+        save_document('post_draft:' + str(uid), dict(text=html, buttons=[], image=photo, silent=False, protect=False))
+        save_document('bot_input:' + str(uid), {'mode': ''})
+        text = 'Пост сохранён в черновик. Откройте Post → «Загрузить сохранённый». Альбом присылайте по одному фото; остальные фото можно добавить в редакторе.'
+    elif emojis:
+        unique = {e['id']: e for e in emojis}
+        text = '<b>ID эмодзи сохранены</b>\n\n' + '\n'.join(escape(e['emoji']) + ' — <code>' + e['id'] + '</code>' for e in list(unique.values())[:40])
+        if len(unique) > 40:
+            text += '\nВсе остальные ID также сохранены в каталоге сайта.'
+        text += '\n\nОни доступны в разделе Post, в тексте и на кнопках.'
+    else:
+        text = 'Custom emoji не найдены. У обычных Unicode-эмодзи нет Telegram custom emoji ID. Пришлите именно premium emoji или перешлите исходное сообщение.'
+    return dict(method='sendMessage', chat_id=uid, text=text, parse_mode='HTML', reply_markup=emoji_admin_keyboard())
 
 def normalize_post_buttons(raw):
     if not isinstance(raw, list):
@@ -2710,7 +2941,9 @@ def normalize_post_buttons(raw):
             if style in ('primary', 'success', 'danger'):
                 button['style'] = style
             icon = str(item.get('icon_custom_emoji_id') or '').strip()
-            if icon.isdigit():
+            if icon and not re.fullmatch(r'[0-9]{5,30}', icon):
+                raise ValueError('Некорректный ID эмодзи на кнопке.')
+            if icon:
                 button['icon_custom_emoji_id'] = icon
             kind = str(item.get('type') or 'url')
             value = str(item.get('value') or '').strip()
@@ -3493,6 +3726,7 @@ def admin_publish_post():
         buttons = normalize_post_buttons(raw_buttons)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         return error(str(exc))
+    remember_emojis(emojis_in_post(text, raw_buttons))
     if not text and not image_refs and not photo_files:
         return error('Добавьте текст или изображение.')
     reply_markup = {'inline_keyboard': buttons} if buttons else None
@@ -3549,6 +3783,8 @@ def admin_publish_post():
             if photo_files:
                 photo_file = photo_files[0]
                 payload = dict(base_payload)
+                if reply_markup and not text:
+                    payload['reply_markup'] = reply_markup
                 if caption_ok:
                     payload.update(caption=text, parse_mode='HTML')
                     if reply_markup:
@@ -3557,6 +3793,8 @@ def admin_publish_post():
                 sent = telegram_api('sendPhoto', payload, files=files, timeout=(3, 20))
             else:
                 payload = dict(base_payload, photo=image_refs[0])
+                if reply_markup and not text:
+                    payload['reply_markup'] = reply_markup
                 if caption_ok:
                     payload.update(caption=text, parse_mode='HTML')
                     if reply_markup:
@@ -3569,7 +3807,16 @@ def admin_publish_post():
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
-        return jsonify(ok=True, message_id=(sent or {}).get('message_id'))
+        expected = {e['id'] for e in emojis_in_post(text)}
+        actual = {str(e.get('custom_emoji_id')) for e in (sent or {}).get('entities', []) + (sent or {}).get('caption_entities', []) if e.get('type') == 'custom_emoji'}
+        warnings = []
+        if expected - actual:
+            warnings.append('Пост отправлен, но Telegram не подтвердил все premium emoji. ' + EMOJI_NOTICE)
+        expected_icons = {b['icon_custom_emoji_id'] for row in buttons for b in row if b.get('icon_custom_emoji_id')}
+        actual_icons = {str(b.get('icon_custom_emoji_id')) for row in ((sent or {}).get('reply_markup') or {}).get('inline_keyboard', []) for b in row}
+        if expected_icons - actual_icons:
+            warnings.append('Telegram не подтвердил premium emoji на кнопках. ' + EMOJI_NOTICE)
+        return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings)
     except RuntimeError as exc:
         return error('Telegram не опубликовал пост: ' + str(exc), 409)
 
@@ -4929,6 +5176,9 @@ def tonconnect_manifest():
 def welcome_text():
     pct = referral_percent()
     pct_text = f'{pct:.1f}'.rstrip('0').rstrip('.')
+    configured = str((read_document('bot_settings') or {}).get('welcome_text') or '')
+    if configured:
+        return custom_emoji_html(configured.replace('{referral_percent}', pct_text))
     return (
         '🎉 <b>Привет, добро пожаловать в GemDrop! 💎</b>\n\n'
         'Открывай Mines и собирай подарки.\n\n'
@@ -4953,6 +5203,16 @@ def telegram_webhook():
         callback_id = str(callback.get('id') or '')
         callback_data = str(callback.get('data') or '')
         uid = int(callback['from']['id'])
+        if callback_data in ('admin:emoji', 'admin:post'):
+            if uid not in ADMIN_IDS or ((callback.get('message') or {}).get('chat') or {}).get('type') != 'private':
+                return jsonify(method='answerCallbackQuery', callback_query_id=callback_id, text='Нет доступа.')
+            try:
+                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id})
+            except RuntimeError:
+                pass
+            command_message = {'from': {'id': uid}, 'chat': {'type': 'private'},
+                               'text': '/emoji' if callback_data == 'admin:emoji' else '/post'}
+            return jsonify(**handle_admin_emoji_message(command_message))
         if callback_data.startswith('freebet_check:'):
             code = callback_data.split(':',1)[1].strip().upper()
             try:
@@ -4980,6 +5240,9 @@ def telegram_webhook():
             except RuntimeError:pass
             return jsonify(ok=True)
         return jsonify(ok=True)
+    emoji_reply = handle_admin_emoji_message(message)
+    if emoji_reply is not None:
+        return jsonify(**emoji_reply)
     if (chat.get('type') == 'private' and command and
             command[0].split('@')[0].lower() in ('/auf','auf') and isinstance(sender.get('id'), int)):
         code = command[1].strip().upper() if len(command) == 2 else ''
@@ -5046,6 +5309,10 @@ def telegram_webhook():
                                text='Не удалось активировать фрибет. Попробуйте ещё раз через несколько секунд.')
         play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
         button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}, 'style': 'primary'}]]}
+        save_document('bot_input:' + str(uid), {'mode': ''})
+        if uid in ADMIN_IDS:
+            button['inline_keyboard'].append([{'text': 'Определить ID эмодзи', 'callback_data': 'admin:emoji'}])
+            button['inline_keyboard'].append([{'text': 'Импортировать пост', 'callback_data': 'admin:post'}])
         # Telegram can execute a Bot API method directly from the webhook response.
         # This removes one extra outbound HTTP request and makes /start visibly faster.
         return jsonify(method='sendMessage', chat_id=chat['id'], text=welcome_text(),

@@ -1,3 +1,7 @@
+# Обновление 16
+
+Новый дизайн, настройки приветствия, каталог premium emoji и инструменты бота: см. [UPDATE_16.md](UPDATE_16.md).
+
 # GemDrop Flask / Telegram Mini App
 
 ## Render

@@ -109,3 +109,84 @@ h1,h2,h3{letter-spacing:-.035em!important}h1{font-weight:730!important}h2,h3{fon
   #nav.nav button{font-size:8.5px!important}
   #depositModal .deposit-card{padding-inline:15px!important}
 }
+
+/* Build 25 — compact Apple-like bonus / promo editor and responsive Upgrade pointer. */
+.profile-shortcut.referral.has-bonus,
+.profile-shortcut.bonus-new{animation:none!important;box-shadow:inset 0 1px rgba(255,255,255,.05)!important}
+.profile-shortcut.referral{background:rgba(255,255,255,.045)!important;border-color:rgba(255,255,255,.09)!important;color:#eef1f4!important}
+.bonus-badge{top:-5px!important;right:-4px!important;min-width:18px!important;height:18px!important;padding:0 5px!important;border:1px solid rgba(255,255,255,.16)!important;background:#eef1f4!important;color:#15181c!important;box-shadow:0 4px 12px rgba(0,0,0,.28)!important;font-size:9px!important;font-weight:760!important}
+
+#referralModal{background:rgba(3,5,8,.66)!important;backdrop-filter:blur(22px) saturate(115%)!important;-webkit-backdrop-filter:blur(22px) saturate(115%)!important}
+#referralModal .bonus-modal-card{position:relative!important;width:min(100%,400px)!important;max-height:min(88dvh,680px)!important;overflow:auto!important;padding:18px!important;border:1px solid rgba(255,255,255,.11)!important;border-radius:26px!important;background:rgba(25,27,31,.88)!important;box-shadow:inset 0 1px rgba(255,255,255,.08),0 30px 90px rgba(0,0,0,.52)!important;text-align:left!important}
+#referralModal .bonus-titlebar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:2px 1px 15px!important;border-bottom:1px solid rgba(255,255,255,.075)}
+#referralModal .bonus-titlebar h2{margin:0!important;font:700 23px/1.15 -apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif!important;letter-spacing:-.035em!important;color:#f5f5f7!important}
+#referralModal .bonus-titlebar p{margin:5px 0 0!important;color:#8e8e93!important;font-size:11px!important;line-height:1.35!important}
+#referralModal .bonus-close{flex:none;display:grid;place-items:center;width:31px;height:31px;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:50%;background:rgba(255,255,255,.065);color:#b9bcc1;font:400 21px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+#referralModal .bonus-tabs{display:grid!important;grid-template-columns:1fr 1fr!important;gap:3px!important;margin:14px 0 11px!important;padding:3px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:12px!important;background:rgba(0,0,0,.22)!important}
+#referralModal .bonus-tabs button{min-height:34px!important;padding:0 10px!important;border:0!important;border-radius:9px!important;background:transparent!important;color:#8f949a!important;font-size:11px!important;font-weight:650!important;box-shadow:none!important}
+#referralModal .bonus-tabs button.active{background:rgba(255,255,255,.105)!important;color:#f5f5f7!important;box-shadow:inset 0 1px rgba(255,255,255,.055),0 1px 5px rgba(0,0,0,.22)!important}
+#referralModal .bonus-section{margin:0!important;padding:0!important;border:0!important;background:transparent!important}
+#referralModal .bonus-section-head{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:8px 2px!important;margin:0!important}
+#referralModal .bonus-section-head h3{margin:0!important;color:#d8dade!important;font-size:11px!important;font-weight:680!important;letter-spacing:0!important;text-transform:none!important}
+#referralModal .bonus-section-head span{padding:0!important;border:0!important;background:transparent!important;color:#777d84!important;font-size:9px!important;font-weight:600!important}
+#referralModal .my-promos{display:grid!important;gap:7px!important}
+#referralModal .my-promo-card{grid-template-columns:38px minmax(0,1fr) auto!important;min-height:62px!important;padding:8px 9px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:15px!important;background:rgba(255,255,255,.035)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important;color:#f3f4f5!important}
+#referralModal .my-promo-card.unread{border-color:rgba(255,255,255,.13)!important;background:rgba(255,255,255,.052)!important;box-shadow:inset 2px 0 rgba(235,238,241,.72)!important}
+#referralModal .my-promo-card:not(:disabled):hover{background:rgba(255,255,255,.065)!important}
+#referralModal .promo-card-icon{width:38px!important;height:38px!important;border-radius:11px!important;background:rgba(255,255,255,.07)!important;color:#d7dade!important;font-size:8px!important;box-shadow:none!important}
+#referralModal .my-promo-card strong{font-size:11px!important;font-weight:670!important;color:#f1f2f4!important}
+#referralModal .my-promo-card small{margin-top:3px!important;color:#858a91!important;font-size:9px!important}
+#referralModal .my-promo-card .promo-status{padding:4px 6px!important;border-radius:999px!important;background:rgba(255,255,255,.065)!important;color:#aeb2b8!important;font-size:8px!important}
+#referralModal .my-promo-card.unread .promo-status{background:rgba(255,255,255,.1)!important;color:#e2e4e7!important}
+#referralModal .my-promo-more{width:100%!important;min-height:36px!important;margin:8px 0 0!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:11px!important;background:rgba(255,255,255,.035)!important;color:#a5a9af!important;font-size:10px!important}
+#referralModal .ref-stats{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:7px!important;margin:8px 0 10px!important}
+#referralModal .ref-stat{padding:10px 6px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:13px!important;background:rgba(255,255,255,.03)!important;text-align:center!important}
+#referralModal .ref-stat b{font-size:15px!important;color:#f1f2f4!important}
+#referralModal .ref-stat small{margin-top:2px!important;color:#7f848b!important;font-size:8px!important}
+#referralModal .ref-link{padding:10px!important;border:1px solid rgba(255,255,255,.075)!important;border-radius:12px!important;background:rgba(0,0,0,.16)!important;color:#969ba2!important;font-size:9px!important}
+#referralModal .ref-actions{gap:7px!important;margin-top:8px!important}
+#referralModal .ref-actions button{min-height:38px!important;padding:0 12px!important;border-radius:11px!important;font-size:10px!important;box-shadow:none!important}
+#referralModal .ref-actions .primary{border:1px solid rgba(255,255,255,.12)!important;background:#f0f1f2!important;color:#17191c!important}
+#referralModal .ref-actions .secondary{border:1px solid rgba(255,255,255,.08)!important;background:rgba(255,255,255,.04)!important;color:#d1d4d8!important}
+
+/* Upgrade pointer is proportional to the wheel instead of fixed pixels. */
+.upgrade-pointer i{top:-4.5%!important;left:50%!important;width:10.5%!important;height:9.5%!important;transform:translateX(-50%)!important;border:0!important;background:#f7f8f8!important;clip-path:polygon(0 0,100% 0,50% 100%)!important;filter:drop-shadow(0 1px 1px rgba(0,0,0,.75)) drop-shadow(0 3px 5px rgba(0,0,0,.42))!important}
+.upgrade-wheel-wrap.spinning .upgrade-pointer i{filter:drop-shadow(0 0 7px rgba(255,255,255,.6)) drop-shadow(0 3px 5px rgba(0,0,0,.5))!important}
+
+/* Multi-reward promo editor. */
+.promo-bundle-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+.promo-bundle-head>div{min-width:0}.promo-bundle-head b{display:block;font-size:12px;color:#e8eaed}.promo-bundle-head small{display:block;margin-top:3px;color:#777d85;font-size:9px;line-height:1.35}
+.promo-bundle-head .secondary{width:auto;min-width:96px;min-height:36px;padding:7px 10px;border-radius:11px;font-size:10px;background:rgba(255,255,255,.045);border-color:rgba(255,255,255,.08);color:#d7dade}
+.promo-bundle-list{display:grid;gap:8px}
+.promo-bundle-item{padding:11px;border:1px solid rgba(255,255,255,.075);border-radius:15px;background:rgba(255,255,255,.025)}
+.promo-bundle-item-head{display:grid;grid-template-columns:minmax(0,1fr) 30px;gap:8px;align-items:end;margin-bottom:8px}
+.promo-bundle-item label{display:grid;gap:5px;min-width:0}.promo-bundle-item label>span{color:#858b93;font-size:9px;font-weight:620}
+.promo-bundle-item .text-input{min-height:40px;padding:9px 10px;border-radius:11px;background:rgba(0,0,0,.18);border-color:rgba(255,255,255,.085);font-size:11px}
+.promo-bundle-remove{display:grid;place-items:center;width:30px;height:30px;margin-bottom:5px;padding:0;border:1px solid rgba(255,255,255,.07);border-radius:50%;background:rgba(255,255,255,.035);color:#999ea5;font-size:18px;line-height:1}
+.promo-bundle-fields{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(88px,.65fr);gap:8px}
+.promo-bundle-fields label:nth-child(n+3){grid-column:auto}
+.user-promo-panel>h2{margin-bottom:4px!important}.user-promo-panel{gap:9px!important}
+.user-promo-panel .caption,.promo-admin-form .caption{margin-bottom:4px!important;color:#8c9299!important;font-size:9.5px!important;font-weight:620!important}
+.user-promo-panel .text-input,.promo-admin-form>.text-input,.promo-admin-extra .text-input{min-height:41px!important;padding:9px 10px!important;border-radius:11px!important}
+.user-promo-extra{margin-top:3px!important;border-top:1px solid rgba(255,255,255,.06);padding-top:7px}.user-promo-extra summary{color:#858a91;font-size:10px;cursor:pointer}
+
+@media(max-width:420px){
+  #referralModal{padding:14px!important}
+  #referralModal .bonus-modal-card{padding:15px!important;border-radius:23px!important}
+  .promo-bundle-fields{grid-template-columns:minmax(0,1fr) 86px}
+  .promo-bundle-fields label:nth-child(n+3){grid-column:span 1}
+}
+
+/* Build 25 — Upgrade pointer follows the wheel dimensions and JS controls its variable-speed idle motion. */
+.upgrade-pointer.idling{animation:none!important}
+.upgrade-pointer i{
+  width:10.25%!important;
+  height:9.25%!important;
+  top:-4.35%!important;
+  min-width:0!important;
+  min-height:0!important;
+  max-width:none!important;
+  max-height:none!important;
+  transform:translateX(-50%)!important;
+  transform-origin:50% 100%!important;
+}

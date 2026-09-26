@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '33-craft-polish'
+BUILD_ID = '34-craft-random-feed-fix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2341,6 +2341,65 @@ def craft_preview_for_total(total_price):
                 max_gift=dict(name=candidates[-1]['name'], image_url=candidates[-1]['image_url'], price_ton=candidates[-1]['price'] / 100))
 
 
+def choose_craft_reward(total_price, candidates):
+    """Pick a craft reward by multiplier bands instead of catalog rank.
+
+    The old algorithm strongly preferred the cheapest candidate because weight
+    decreased monotonically with catalog price. This version first chooses a
+    broad outcome band, then samples a target multiplier inside that band and
+    picks one of the nearest catalog gifts. The exact technical minimum is
+    intentionally excluded, while low, near-stake, high and jackpot outcomes
+    all remain possible.
+    """
+    total_price = max(1, int(total_price or 0))
+    if not candidates:
+        return None
+
+    # Actual floor is slightly above the displayed x0.25 boundary so a craft
+    # never lands exactly on the most obvious minimum.
+    actual_floor = max(1, int(round(total_price * 0.30)))
+    eligible = [g for g in candidates if g['price'] >= actual_floor]
+    if not eligible:
+        eligible = list(candidates)
+
+    bands = [
+        # name, from x, to x, weight
+        ('deep_loss', 0.30, 0.58, 19),
+        ('loss',      0.58, 0.92, 24),
+        ('near',      0.92, 1.30, 27),
+        ('win',       1.30, 3.20, 22),
+        ('jackpot',   3.20, 10.0, 8),
+    ]
+    available = []
+    for name, low, high, weight in bands:
+        pool = [g for g in eligible if total_price * low <= g['price'] <= total_price * high]
+        if pool:
+            available.append((name, low, high, weight, pool))
+    if not available:
+        return secrets.choice(eligible)
+
+    roll = secrets.randbelow(sum(x[3] for x in available))
+    chosen = available[-1]
+    cursor = 0
+    for band in available:
+        cursor += band[3]
+        if roll < cursor:
+            chosen = band
+            break
+
+    _, low, high, _, pool = chosen
+    # Logarithmic sampling gives the whole band room to breathe instead of
+    # clustering around its arithmetic middle, especially in the x3.2..x10 band.
+    low = max(0.01, low)
+    u = secrets.randbelow(1_000_001) / 1_000_000
+    target_multiplier = math.exp(math.log(low) + (math.log(high) - math.log(low)) * u)
+    target_price = total_price * target_multiplier
+    pool = sorted(pool, key=lambda g: abs(g['price'] - target_price))
+    nearest = pool[:min(5, len(pool))]
+    # Avoid deterministic "closest gift" behavior as well.
+    return secrets.choice(nearest)
+
+
 def craft_win_item(row):
     if not row:
         return None
@@ -2406,15 +2465,9 @@ def craft_play():
         candidates = [g for g in craft_catalog_candidates() if minimum <= g['price'] <= maximum]
         if not candidates:
             return error('Нет подходящих подарков для этого крафта.')
-        weighted=[]; cap=max(1,len(candidates)-1)
-        for idx,gift in enumerate(candidates):
-            rank=idx/cap; weight=max(1,int(round(100-rank*75))); weighted.append((gift,weight))
-        total_weight=sum(w for _,w in weighted); pick=secrets.randbelow(total_weight); cursor=0; winner=weighted[0][0]
-        for gift,weight in weighted:
-            cursor += weight
-            if pick < cursor:
-                winner = gift
-                break
+        winner = choose_craft_reward(total, candidates)
+        if not winner:
+            return error('Не удалось выбрать награду для крафта.')
         for row in rows:
             db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (int(row['id']), session['uid']))
         reward_cur = db.execute('INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,?)', (session['uid'], winner['id'], winner['name'], winner['image_url'], winner['price'], 'craft'))

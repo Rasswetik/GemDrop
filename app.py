@@ -220,6 +220,19 @@ def initialize():
             viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,code)
         );
+        CREATE TABLE IF NOT EXISTS freebets (
+            code TEXT PRIMARY KEY, promo_code TEXT NOT NULL UNIQUE,
+            max_uses INTEGER NOT NULL DEFAULT 1, uses_count INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1, require_subscription INTEGER NOT NULL DEFAULT 1,
+            min_level INTEGER NOT NULL DEFAULT 0, min_telegram_level INTEGER NOT NULL DEFAULT 0,
+            min_turnover INTEGER NOT NULL DEFAULT 0, expires_at TEXT,
+            created_by INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS freebet_redemptions (
+            code TEXT NOT NULL, user_id INTEGER NOT NULL, reward_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(code,user_id)
+        );
         CREATE TABLE IF NOT EXISTS user_wallets (
             user_id INTEGER PRIMARY KEY, address TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -390,6 +403,8 @@ def initialize():
                                           'promo_wager_progress', 'promo_progress_after'])
         ensure_postgres_bigint('inventory', ['floor_price', 'round_id', 'promo_wager_target', 'promo_wager_progress'])
         ensure_postgres_bigint('promo_codes', ['created_by', 'bonus_fixed', 'min_deposit', 'assigned_user_id'])
+        ensure_postgres_bigint('freebets', ['min_turnover', 'created_by'])
+        ensure_postgres_bigint('freebet_redemptions', ['user_id'])
         ensure_postgres_bigint('withdrawals', ['floor_price', 'round_id', 'admin_id'])
         ensure_postgres_bigint('referrals', ['referrer_id'])
         ensure_postgres_bigint('deposits', ['amount', 'referrer_id', 'referral_bonus', 'admin_id'])
@@ -409,6 +424,8 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
         db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS freebets_active ON freebets(active,created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS upgrade_spins_wins ON upgrade_spins(won,created_at DESC,id DESC)')
         existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
@@ -2206,6 +2223,365 @@ def sell_inventory(item_id):
         db.close()
 
 
+def telegram_api(method, payload=None, files=None, timeout=(2.5, 8)):
+    if not BOT_TOKEN:
+        raise RuntimeError('BOT_TOKEN не настроен.')
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/{method}'
+    try:
+        if files:
+            data = {}
+            for key, value in (payload or {}).items():
+                data[key] = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+            response = requests.post(url, data=data, files=files, timeout=timeout)
+        else:
+            response = requests.post(url, json=payload or {}, timeout=timeout)
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError('Telegram API недоступен.') from exc
+    if not response.ok or not data.get('ok'):
+        description = str(data.get('description') or f'HTTP {response.status_code}')
+        raise RuntimeError(description[:500])
+    return data.get('result')
+
+
+def bot_username_value():
+    global BOT_USERNAME
+    if BOT_USERNAME:
+        return BOT_USERNAME
+    identity = read_document('bot_identity') or {}
+    BOT_USERNAME = str(identity.get('username') or '').strip().lstrip('@')
+    if not BOT_USERNAME and BOT_TOKEN:
+        try:
+            info = telegram_api('getMe')
+            BOT_USERNAME = str(info.get('username') or '').strip().lstrip('@')
+            if BOT_USERNAME:
+                save_document('bot_identity', {'username': BOT_USERNAME,
+                                                'token_fingerprint': BOT_TOKEN_FINGERPRINT,
+                                                'updated_at': datetime.now(timezone.utc).isoformat()})
+        except RuntimeError:
+            pass
+    return BOT_USERNAME
+
+
+def post_channel_settings():
+    data = read_document('post_channel') or {}
+    return {
+        'chat_id': str(data.get('chat_id') or '').strip(),
+        'title': str(data.get('title') or '').strip(),
+        'username': str(data.get('username') or '').strip().lstrip('@'),
+        'join_url': str(data.get('join_url') or '').strip(),
+        'saved_at': data.get('saved_at'),
+    }
+
+
+def normalize_channel_id(value):
+    value = str(value or '').strip()
+    if not value:
+        raise ValueError('Введите ID или @username канала.')
+    if value.startswith('@'):
+        if not re.fullmatch(r'@[A-Za-z0-9_]{5,32}', value):
+            raise ValueError('Проверьте @username канала.')
+        return value
+    if not re.fullmatch(r'-?[0-9]{5,20}', value):
+        raise ValueError('ID канала должен быть числом вида -100… или @username.')
+    return value
+
+
+def inspect_post_channel(chat_id, create_invite=True):
+    chat = telegram_api('getChat', {'chat_id': chat_id})
+    me = telegram_api('getMe')
+    member = telegram_api('getChatMember', {'chat_id': chat_id, 'user_id': me['id']})
+    status = str(member.get('status') or '')
+    if status not in ('administrator', 'creator'):
+        raise RuntimeError('Бот должен быть администратором этого канала.')
+    if chat.get('type') == 'channel' and status == 'administrator' and member.get('can_post_messages') is False:
+        raise RuntimeError('У бота нет права публиковать сообщения в этом канале.')
+    username = str(chat.get('username') or '').strip().lstrip('@')
+    join_url = f'https://t.me/{username}' if username else str(chat.get('invite_link') or '').strip()
+    if not join_url and create_invite:
+        try:
+            invite = telegram_api('createChatInviteLink', {'chat_id': chat_id, 'name': 'GemDrop Freebet'})
+            join_url = str(invite.get('invite_link') or '').strip()
+        except RuntimeError:
+            join_url = ''
+    if create_invite and not join_url:
+        raise RuntimeError('Не удалось получить ссылку на канал. Для приватного канала дайте боту право приглашать пользователей.')
+    return {
+        'chat_id': str(chat.get('id') or chat_id),
+        'title': str(chat.get('title') or username or chat_id)[:120],
+        'username': username,
+        'join_url': join_url,
+        'bot_status': status,
+    }
+
+
+def telegram_member_subscribed(user_id, channel=None):
+    channel = channel or post_channel_settings()
+    chat_id = channel.get('chat_id')
+    if not chat_id:
+        return False, 'Канал для фрибетов ещё не настроен.'
+    try:
+        member = telegram_api('getChatMember', {'chat_id': chat_id, 'user_id': int(user_id)})
+    except RuntimeError as exc:
+        return False, str(exc)
+    status = str(member.get('status') or '')
+    if status in ('creator', 'administrator', 'member'):
+        return True, ''
+    if status == 'restricted' and bool(member.get('is_member')):
+        return True, ''
+    return False, 'Чтобы получить этот фрибет, сначала подпишитесь на канал.'
+
+
+def telegram_rating_level(user_id):
+    try:
+        info = telegram_api('getChat', {'chat_id': int(user_id)})
+        rating = info.get('rating') or {}
+        return int(rating.get('level') or 0)
+    except (RuntimeError, ValueError, TypeError):
+        return 0
+
+
+def freebet_link(code):
+    username = bot_username_value()
+    return f'https://t.me/{username}?start=freebet_{code}' if username else ''
+
+
+def freebet_reward_text(promo):
+    return promo_purpose(promo)
+
+
+def freebet_keyboard(code, channel=None):
+    channel = channel or post_channel_settings()
+    rows = []
+    if channel.get('join_url'):
+        rows.append([{'text': '📢 Подписаться', 'url': channel['join_url'], 'style': 'primary'}])
+    rows.append([{'text': '✅ Проверить подписку', 'callback_data': f'freebet_check:{code}', 'style': 'success'}])
+    return {'inline_keyboard': rows}
+
+
+def freebet_play_keyboard():
+    markup = miniapp_markup('🎮 Играть')
+    if markup:
+        markup['inline_keyboard'][0][0]['style'] = 'success'
+    return markup
+
+
+def apply_freebet_reward(db, promo, user_id, freebet_code):
+    """Apply a backing promo reward without requiring a Mini App session."""
+    reward_type = promo['reward_type']
+    inventory_id = None
+    components = {}
+    if reward_type == 'balance':
+        amount = max(0, int(promo['amount'] or 0))
+        if amount <= 0:
+            raise ValueError('Награда фрибета настроена неверно.')
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+        reward = dict(type='balance', amount=amount/100)
+        record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code, f'Freebet {freebet_code}')
+    elif reward_type == 'gift':
+        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'freebet')",
+                         (user_id, promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price']))
+        inventory_id = cur.lastrowid
+        reward = dict(type='gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
+                                             image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100))
+        record_transaction(db, user_id, 'freebet_gift', 0, 'freebet', freebet_code, promo['gift_name'])
+    elif reward_type == 'wager_gift':
+        multiplier = max(1.0, float(promo['wager_multiplier'] or 1))
+        target = max(1, round(int(promo['gift_price']) * multiplier))
+        item_expires_at = promo_gift_expiry(promo['gift_expires_days'])
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                          promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                          VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
+                         (user_id, promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price'],
+                          multiplier, target, freebet_code, item_expires_at))
+        inventory_id = cur.lastrowid
+        reward = dict(type='wager_gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
+                                                   image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100,
+                                                   promo_locked=True, wager_multiplier=multiplier,
+                                                   wager_target=target/100, wager_progress=0, expires_at=item_expires_at))
+        record_transaction(db, user_id, 'freebet_wager_gift', 0, 'freebet', freebet_code,
+                           f'{promo["gift_name"]} · X{multiplier:g}')
+    elif reward_type == 'multi':
+        components = json.loads(promo['reward_json'] or '{}').get('components', {})
+        if not components:
+            raise ValueError('Награда фрибета настроена неверно.')
+        rewards = []
+        if 'balance' in components:
+            amount = int(components['balance']['amount'])
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+            record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code, f'Freebet {freebet_code}')
+            rewards.append(dict(type='balance', amount=amount/100))
+        for kind in ('gift', 'wager_gift'):
+            if kind not in components:
+                continue
+            comp = components[kind]
+            component_expires_at = None
+            if kind == 'gift':
+                cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'freebet')",
+                                 (user_id, comp['gift_id'], comp['gift_name'], comp['image_url'], comp['gift_price']))
+            else:
+                multiplier = float(comp['wager_multiplier'])
+                target = round(int(comp['gift_price']) * multiplier)
+                component_expires_at = promo_gift_expiry(comp.get('gift_expires_days'))
+                cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                                  VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
+                                 (user_id, comp['gift_id'], comp['gift_name'], comp['image_url'], comp['gift_price'],
+                                  multiplier, target, freebet_code, component_expires_at))
+            inventory_id = cur.lastrowid
+            record_transaction(db, user_id, 'freebet_'+kind, 0, 'freebet', freebet_code, comp['gift_name'])
+            rewards.append(dict(type=kind, gift=dict(id=inventory_id, name=comp['gift_name'], image_url=comp['image_url'],
+                                                      price_ton=comp['gift_price']/100,
+                                                      wager_multiplier=comp.get('wager_multiplier', 0),
+                                                      expires_at=component_expires_at)))
+        if 'deposit_bonus' in components:
+            comp = components['deposit_bonus']
+            rewards.append(dict(type='deposit_bonus', code=freebet_code,
+                                bonus_percent=float(comp.get('bonus_percent') or 0),
+                                bonus_fixed=int(comp.get('bonus_fixed') or 0)/100,
+                                min_deposit=int(comp.get('min_deposit') or 0)/100))
+        reward = dict(type='multi', rewards=rewards)
+    elif reward_type == 'deposit_bonus':
+        reward = dict(type='deposit_bonus', code=freebet_code,
+                      bonus_percent=float(promo['bonus_percent'] or 0),
+                      bonus_fixed=int(promo['bonus_fixed'] or 0)/100,
+                      min_deposit=int(promo['min_deposit'] or 0)/100)
+    else:
+        raise ValueError('Награда фрибета настроена неверно.')
+    redemption_type = 'deposit_bonus' if reward_type == 'multi' and 'deposit_bonus' in components else reward_type
+    if redemption_type == 'deposit_bonus':
+        db.execute("""UPDATE promo_redemptions SET deactivated_at=CURRENT_TIMESTAMP
+                      WHERE user_id=? AND reward_type='deposit_bonus' AND code<>?
+                      AND consumed_at IS NULL AND deactivated_at IS NULL""", (user_id, freebet_code))
+    db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
+               (freebet_code, user_id, redemption_type, int(promo['amount'] or 0), inventory_id))
+    db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (freebet_code,))
+    log_event(db, user_id, 'freebet_redeem', code=freebet_code, reward_type=reward_type, reward=reward)
+    return reward
+
+
+def try_activate_freebet(user_id, code):
+    code = str(code or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return {'status': 'invalid', 'text': 'Фрибет не найден.'}
+    with connect() as db:
+        fb = db.execute('SELECT * FROM freebets WHERE code=?', (code,)).fetchone()
+        if not fb or not fb['active']:
+            return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+        if fb['expires_at']:
+            expires = parse_datetime_utc(fb['expires_at'])
+            if expires and expires <= datetime.now(timezone.utc):
+                return {'status': 'expired', 'text': 'Срок действия этого фрибета закончился.'}
+        if db.execute('SELECT 1 FROM freebet_redemptions WHERE code=? AND user_id=?', (code, user_id)).fetchone():
+            return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
+        if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
+            return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
+        user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
+        if not user:
+            return {'status': 'invalid', 'text': 'Сначала запустите бота заново.'}
+        turnover = int(user['turnover_cents'] or 0)
+        current_level = level_number(db, turnover)
+        if int(fb['min_level'] or 0) and current_level < int(fb['min_level']):
+            return {'status': 'condition', 'text': f'Для этого фрибета нужен уровень GemDrop {int(fb["min_level"])} или выше. Ваш уровень: {current_level}.'}
+        if int(fb['min_turnover'] or 0) and turnover < int(fb['min_turnover']):
+            return {'status': 'condition', 'text': f'Для этого фрибета нужен оборот от {int(fb["min_turnover"])/100:.2f} TON. Ваш оборот: {turnover/100:.2f} TON.'}
+        require_subscription = bool(fb['require_subscription'])
+        min_tg_level = int(fb['min_telegram_level'] or 0)
+    if require_subscription:
+        subscribed, reason = telegram_member_subscribed(user_id)
+        if not subscribed:
+            return {'status': 'subscription', 'text': reason, 'reply_markup': freebet_keyboard(code)}
+    if min_tg_level:
+        actual = telegram_rating_level(user_id)
+        if actual < min_tg_level:
+            return {'status': 'condition', 'text': f'Для этого фрибета нужен Telegram Rating level {min_tg_level} или выше. Ваш уровень: {actual}.'}
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        fb = db.execute('SELECT * FROM freebets WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
+        if not fb or not fb['active']:
+            return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+        if db.execute('SELECT 1 FROM freebet_redemptions WHERE code=? AND user_id=?', (code, user_id)).fetchone():
+            return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
+        if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
+            return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
+        promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (fb['promo_code'],)).fetchone()
+        if not promo:
+            raise ValueError('Награда фрибета не найдена.')
+        reward = apply_freebet_reward(db, promo, user_id, code)
+        db.execute('INSERT INTO freebet_redemptions(code,user_id,reward_json) VALUES(?,?,?)',
+                   (code, user_id, json.dumps(reward, ensure_ascii=False)))
+        db.execute('UPDATE freebets SET uses_count=uses_count+1 WHERE code=?', (code,))
+        db.commit()
+        return {'status': 'ok', 'reward': reward,
+                'text': f'🎁 <b>Фрибет получен!</b>\n\n{escape(freebet_reward_text(promo))}\n\nНаграда выдана только по этой ссылке и уже зачислена в GemDrop.',
+                'reply_markup': freebet_play_keyboard(), 'parse_mode': 'HTML'}
+    except Exception:
+        try:
+            db.connection.rollback() if DATABASE_URL else db.execute('ROLLBACK')
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+
+def custom_emoji_html(text):
+    text = str(text or '')
+    pattern = re.compile(r'\[emoji:([0-9]{5,30}):([^\]\r\n]{1,16})\]')
+    return pattern.sub(lambda m: f'<tg-emoji emoji-id="{m.group(1)}">{m.group(2)}</tg-emoji>', text)
+
+
+def normalize_post_buttons(raw):
+    if not isinstance(raw, list):
+        return []
+    rows = []
+    total = 0
+    for raw_row in raw[:12]:
+        if not isinstance(raw_row, list):
+            continue
+        row = []
+        for item in raw_row[:8]:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text') or '').strip()[:64]
+            if not text:
+                continue
+            button = {'text': text}
+            style = str(item.get('style') or '').lower()
+            if style in ('primary', 'success', 'danger'):
+                button['style'] = style
+            icon = str(item.get('icon_custom_emoji_id') or '').strip()
+            if icon.isdigit():
+                button['icon_custom_emoji_id'] = icon
+            kind = str(item.get('type') or 'url')
+            value = str(item.get('value') or '').strip()
+            if kind == 'url':
+                if not re.match(r'^(https?://|tg://)', value, re.I):
+                    raise ValueError(f'У кнопки «{text}» должна быть ссылка http(s):// или tg://.')
+                button['url'] = value[:2048]
+            elif kind == 'copy':
+                if not value:
+                    raise ValueError(f'У кнопки «{text}» нет текста для копирования.')
+                button['copy_text'] = {'text': value[:256]}
+            elif kind == 'callback':
+                callback_value = value if value.startswith('post:') else 'post:' + value
+                if not value or len(callback_value.encode('utf-8')) > 64:
+                    raise ValueError(f'Callback кнопки «{text}» должен занимать не более 64 байт вместе с префиксом.')
+                button['callback_data'] = callback_value
+            else:
+                raise ValueError('Неизвестный тип кнопки.')
+            row.append(button)
+            total += 1
+            if total >= 48:
+                break
+        if row:
+            rows.append(row)
+        if total >= 48:
+            break
+    return rows
+
+
 def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     if not BOT_TOKEN:
         return
@@ -2696,7 +3072,7 @@ def my_promocodes():
                 if row:
                     by_code[code] = row
         used_rows = db.execute("""SELECT p.* FROM promo_codes p JOIN promo_redemptions r ON r.code=p.code
-                                  WHERE r.user_id=? ORDER BY r.created_at DESC""", (session['uid'],)).fetchall()
+                                  WHERE r.user_id=? AND p.source_label<>'Freebet' ORDER BY r.created_at DESC""", (session['uid'],)).fetchall()
         for row in used_rows:
             by_code.setdefault(row['code'], row)
         items = []
@@ -2906,11 +3282,287 @@ def remove_deposit_bonus():
     return jsonify(ok=True,active=False)
 
 
+@app.get('/api/admin/post/settings')
+@admin_required
+def admin_post_settings():
+    data = post_channel_settings()
+    return jsonify(**data, configured=bool(data['chat_id']))
+
+
+@app.post('/api/admin/post/settings')
+@admin_required
+def admin_save_post_settings():
+    data = request.get_json(silent=True) or {}
+    try:
+        chat_id = normalize_channel_id(data.get('chat_id'))
+        info = inspect_post_channel(chat_id)
+    except ValueError as exc:
+        return error(str(exc))
+    except RuntimeError as exc:
+        return error('Telegram: ' + str(exc), 409)
+    info['saved_at'] = datetime.now(timezone.utc).isoformat()
+    save_document('post_channel', info)
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'post_channel_save', info['chat_id']))
+    return jsonify(ok=True, **info)
+
+
+@app.post('/api/admin/post/publish')
+@admin_required
+def admin_publish_post():
+    settings = post_channel_settings()
+    if not settings['chat_id']:
+        return error('Сначала сохраните канал в разделе Post.', 409)
+    multipart = bool(request.files) or bool(request.form) or str(request.content_type or '').startswith('multipart/form-data')
+    data = request.form if multipart else (request.get_json(silent=True) or {})
+    text = custom_emoji_html(data.get('text') or '').strip()
+    image_ref = str(data.get('image') or '').strip()
+    image_refs = [x.strip() for x in re.split(r'[\r\n]+', image_ref) if x.strip()]
+    if len(image_refs) > 10:
+        return error('Можно добавить не более 10 изображений в один пост.')
+    photo_files = []
+    if multipart:
+        if hasattr(request.files, 'getlist'):
+            photo_files = [x for x in request.files.getlist('photos') if x and getattr(x, 'filename', '')]
+        legacy_photo = request.files.get('photo') if hasattr(request.files, 'get') else None
+        if legacy_photo and getattr(legacy_photo, 'filename', ''):
+            photo_files.append(legacy_photo)
+    if len(photo_files) + len(image_refs) > 10:
+        return error('Можно добавить не более 10 изображений в один пост.')
+    try:
+        raw_buttons = json.loads(data.get('buttons') or '[]') if multipart else data.get('buttons', [])
+        buttons = normalize_post_buttons(raw_buttons)
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        return error(str(exc))
+    if not text and not image_refs and not photo_files:
+        return error('Добавьте текст или изображение.')
+    reply_markup = {'inline_keyboard': buttons} if buttons else None
+    silent = str(data.get('silent') or '').lower() in ('1', 'true', 'on', 'yes') if multipart else bool(data.get('silent'))
+    protect = str(data.get('protect') or '').lower() in ('1', 'true', 'on', 'yes') if multipart else bool(data.get('protect'))
+    base_payload = {'chat_id': settings['chat_id'], 'disable_notification': silent, 'protect_content': protect}
+    def send_post_text(post_text, markup=None):
+        # Normal Bot API messages are limited to 4096 characters. Bot API 10.1+
+        # Rich Messages allow much longer HTML posts, so use them automatically.
+        visible_len = len(re.sub(r'<[^>]+>', '', post_text or ''))
+        if visible_len > 4096:
+            if len((post_text or '').encode('utf-8')) > 32768:
+                raise RuntimeError('Текст поста превышает лимит Rich Message (32 768 UTF-8 символов).')
+            payload = dict(base_payload, rich_message={'html': post_text})
+            if markup:
+                payload['reply_markup'] = markup
+            return telegram_api('sendRichMessage', payload, timeout=(3, 18))
+        payload = dict(base_payload, text=post_text, parse_mode='HTML')
+        if markup:
+            payload['reply_markup'] = markup
+        return telegram_api('sendMessage', payload, timeout=(3, 15))
+
+    try:
+        sent = None
+        total_media = len(photo_files) + len(image_refs)
+        if total_media > 1:
+            # Bot API 10.2+ Rich Messages can keep several images, formatted text and
+            # the inline keyboard together in one channel post.
+            media = []
+            media_tags = []
+            files = {}
+            index = 0
+            for photo in photo_files:
+                media_id = f'post{index}'
+                attach_name = f'post_file_{index}'
+                media.append({'id': media_id, 'media': {'type': 'photo', 'media': f'attach://{attach_name}'}})
+                media_tags.append(f'<img src="tg://photo?id={media_id}"/>')
+                files[attach_name] = (photo.filename or f'post-{index}.jpg', photo.stream, photo.mimetype or 'application/octet-stream')
+                index += 1
+            for ref in image_refs:
+                media_id = f'post{index}'
+                media.append({'id': media_id, 'media': {'type': 'photo', 'media': ref}})
+                media_tags.append(f'<img src="tg://photo?id={media_id}"/>')
+                index += 1
+            rich_html = '<tg-collage>' + ''.join(media_tags) + '</tg-collage>'
+            if text:
+                rich_html += '\n' + text
+            payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
+            if reply_markup:
+                payload['reply_markup'] = reply_markup
+            sent = telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30))
+        elif total_media == 1:
+            caption_ok = bool(text) and len(re.sub(r'<[^>]+>', '', text)) <= 1024
+            if photo_files:
+                photo_file = photo_files[0]
+                payload = dict(base_payload)
+                if caption_ok:
+                    payload.update(caption=text, parse_mode='HTML')
+                    if reply_markup:
+                        payload['reply_markup'] = reply_markup
+                files = {'photo': (photo_file.filename or 'post.jpg', photo_file.stream, photo_file.mimetype or 'application/octet-stream')}
+                sent = telegram_api('sendPhoto', payload, files=files, timeout=(3, 20))
+            else:
+                payload = dict(base_payload, photo=image_refs[0])
+                if caption_ok:
+                    payload.update(caption=text, parse_mode='HTML')
+                    if reply_markup:
+                        payload['reply_markup'] = reply_markup
+                sent = telegram_api('sendPhoto', payload, timeout=(3, 15))
+            if text and not caption_ok:
+                sent = send_post_text(text, reply_markup)
+        else:
+            sent = send_post_text(text, reply_markup)
+        with connect() as db:
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
+        return jsonify(ok=True, message_id=(sent or {}).get('message_id'))
+    except RuntimeError as exc:
+        return error('Telegram не опубликовал пост: ' + str(exc), 409)
+
+
+def _freebet_backing_values(data, code):
+    reward_type = str(data.get('reward_type') or 'balance')
+    amount=0;gift_id='';gift_name='';gift_image='';gift_price=0;wager_multiplier=0.0;gift_expires_days=0
+    bonus_percent=0;bonus_fixed=0;min_deposit=0;multi_reward=None
+    if reward_type == 'balance':
+        amount = parse_amount(data.get('amount'))
+        if not 1 <= amount <= 100000000:
+            raise ValueError('Сумма фрибета должна быть от 0.01 до 1 000 000 TON.')
+    elif reward_type in ('gift','wager_gift'):
+        gift_id = str(data.get('gift_id') or '')
+        gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+        if not gift:
+            raise ValueError('Подарок не найден в каталоге Portal.')
+        gift_name = str(gift.get('name') or 'Подарок')[:140]
+        gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+        gift_price = ton_to_cents(gift.get('price_ton'))
+        if gift_price <= 0:
+            raise ValueError('У подарка должна быть актуальная цена Portal.')
+        if reward_type == 'wager_gift':
+            wager_multiplier = float(data.get('wager_multiplier') or 0)
+            if not 1 <= wager_multiplier <= 1000:
+                raise ValueError('X отыгрыша должен быть от 1 до 1000.')
+            gift_expires_days = int(data.get('gift_expires_days') or 0)
+            if not 0 <= gift_expires_days <= 3650:
+                raise ValueError('Срок жизни подарка: от 0 до 3650 дней.')
+    elif reward_type == 'deposit_bonus':
+        bonus_percent = float(data.get('bonus_percent') or 0)
+        bonus_fixed = parse_amount(data.get('bonus_fixed') or 0)
+        min_deposit = parse_amount(data.get('min_deposit') or 0)
+        if not math.isfinite(bonus_percent) or not 0 <= bonus_percent <= 100 or not (bonus_percent or bonus_fixed) or (bonus_percent and bonus_fixed):
+            raise ValueError('Укажите один бонус: процент до 100% или сумму в TON.')
+    elif reward_type == 'multi':
+        multi_reward = normalize_level_reward({'type':'multi_promo','components':data.get('components')})
+        deposit = multi_reward['components'].get('deposit_bonus', {})
+        bonus_percent=deposit.get('bonus_percent',0);bonus_fixed=deposit.get('bonus_fixed',0);min_deposit=deposit.get('min_deposit',0)
+    else:
+        raise ValueError('Выберите тип награды.')
+    return (reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,bonus_percent,bonus_fixed,
+            min_deposit,json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',gift_expires_days)
+
+
+@app.get('/api/admin/freebets')
+@admin_required
+def admin_freebets():
+    with connect() as db:
+        rows = db.execute("""SELECT f.*,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
+                             p.bonus_percent,p.bonus_fixed,p.min_deposit,p.reward_json,p.gift_expires_days
+                             FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
+                             ORDER BY f.created_at DESC""").fetchall()
+    items=[]
+    for x in rows:
+        promo=x
+        items.append(dict(code=x['code'],link=freebet_link(x['code']),active=bool(x['active']),max_uses=int(x['max_uses'] or 0),
+                          uses_count=int(x['uses_count'] or 0),require_subscription=bool(x['require_subscription']),
+                          min_level=int(x['min_level'] or 0),min_telegram_level=int(x['min_telegram_level'] or 0),
+                          min_turnover=int(x['min_turnover'] or 0)/100,expires_at=x['expires_at'],
+                          created_at=x['created_at'],reward_type=x['reward_type'],purpose=promo_purpose(promo)))
+    return jsonify(items=items, channel=post_channel_settings(), bot_username=bot_username_value())
+
+
+@app.post('/api/admin/freebets')
+@admin_required
+def admin_create_freebet():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code') or '').strip().upper() or ('FB_' + secrets.token_hex(4).upper())
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
+    try:
+        max_uses=int(data.get('max_uses',1)); min_level=int(data.get('min_level') or 0)
+        min_tg=int(data.get('min_telegram_level') or 0); min_turnover=parse_amount(data.get('min_turnover') or 0)
+        expires_days=int(data.get('expires_in_days') or 0)
+        values=_freebet_backing_values(data, code)
+    except (ValueError,TypeError,InvalidOperation,OSError,json.JSONDecodeError) as exc:
+        return error(str(exc) or 'Проверьте настройки фрибета.')
+    if not 0 <= max_uses <= 1000000:return error('Лимит активаций: 0–1 000 000. 0 — без лимита.')
+    if min_level < 0 or min_tg < 0:return error('Минимальные уровни не могут быть отрицательными.')
+    if min_level:
+        with connect() as check_db:
+            if not check_db.execute('SELECT 1 FROM levels WHERE level=?',(min_level,)).fetchone():
+                return error('Укажите существующий уровень GemDrop.')
+    if not 0 <= expires_days <= 3650:return error('Срок действия: 0–3650 дней.')
+    require_subscription=1 if bool(data.get('require_subscription')) else 0
+    if require_subscription and not post_channel_settings().get('chat_id'):
+        return error('Сначала привяжите канал в разделе Post или отключите требование подписки.',409)
+    expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
+    (reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,bonus_percent,bonus_fixed,
+     min_deposit,reward_json,gift_expires_days)=values
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute('SELECT 1 FROM promo_codes WHERE code=?', (code,)).fetchone() or db.execute('SELECT 1 FROM freebets WHERE code=?',(code,)).fetchone():
+            return error('Такой код уже существует.',409)
+        db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
+                    max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,
+                    source_label,description,expires_at,gift_expires_days)
+                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?)""",
+                   (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,session['uid'],
+                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days))
+        db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,min_level,min_telegram_level,
+                    min_turnover,expires_at,created_by) VALUES(?,?,?,1,?,?,?,?,?,?)""",
+                   (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,expires_at,session['uid']))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'freebet_create',code))
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(ok=True,code=code,link=freebet_link(code))
+
+
+@app.post('/api/admin/freebets/<code>/toggle')
+@admin_required
+def admin_toggle_freebet(code):
+    code=str(code).upper()
+    with connect() as db:
+        row=db.execute('SELECT active FROM freebets WHERE code=?',(code,)).fetchone()
+        if not row:return error('Фрибет не найден.',404)
+        active=0 if row['active'] else 1
+        db.execute('UPDATE freebets SET active=? WHERE code=?',(active,code))
+    return jsonify(ok=True,active=bool(active))
+
+
+@app.delete('/api/admin/freebets/<code>')
+@admin_required
+def admin_delete_freebet(code):
+    code=str(code).upper()
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT uses_count FROM freebets WHERE code=?',(code,)).fetchone()
+        if not row:return error('Фрибет не найден.',404)
+        if int(row['uses_count'] or 0)>0:
+            db.execute('UPDATE freebets SET active=0 WHERE code=?',(code,))
+            db.commit()
+            return jsonify(ok=True,disabled=True)
+        db.execute('DELETE FROM freebet_redemptions WHERE code=?',(code,))
+        db.execute('DELETE FROM freebets WHERE code=?',(code,))
+        db.execute("DELETE FROM promo_codes WHERE code=? AND source_label='Freebet'",(code,))
+        db.commit()
+        return jsonify(ok=True,deleted=True)
+    finally:db.close()
+
+
 @app.get('/api/admin/promocodes')
 @admin_required
 def admin_promocodes():
     with connect() as db:
-        rows = db.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code DESC LIMIT 300').fetchall()
+        rows = db.execute("SELECT * FROM promo_codes WHERE source_label<>'Freebet' ORDER BY created_at DESC,code DESC LIMIT 300").fetchall()
     return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=x['amount']/100,
                                gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
@@ -4138,6 +4790,38 @@ def telegram_webhook():
     sender = message.get('from') or {}
     chat = message.get('chat') or {}
     command = str(message.get('text') or '').split(maxsplit=1)
+    callback = update.get('callback_query') or {}
+    if callback and isinstance((callback.get('from') or {}).get('id'), int):
+        callback_id = str(callback.get('id') or '')
+        callback_data = str(callback.get('data') or '')
+        uid = int(callback['from']['id'])
+        if callback_data.startswith('freebet_check:'):
+            code = callback_data.split(':',1)[1].strip().upper()
+            try:
+                result = try_activate_freebet(uid, code)
+                try:
+                    telegram_api('answerCallbackQuery', {'callback_query_id': callback_id,
+                                                         'text': 'Проверено' if result['status']=='ok' else result['text'][:180],
+                                                         'show_alert': result['status'] not in ('ok','subscription')})
+                except RuntimeError:
+                    pass
+                msg = callback.get('message') or {}
+                target_chat = (msg.get('chat') or {}).get('id') or uid
+                payload={'chat_id':target_chat,'text':result['text']}
+                if result.get('parse_mode'):payload['parse_mode']=result['parse_mode']
+                if result.get('reply_markup'):payload['reply_markup']=result['reply_markup']
+                telegram_api('sendMessage', payload)
+                return jsonify(ok=True)
+            except Exception:
+                app.logger.exception('Freebet callback failed')
+                try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Не удалось проверить фрибет. Повторите попытку.','show_alert':True})
+                except RuntimeError:pass
+                return jsonify(ok=True)
+        if callback_data.startswith('post:'):
+            try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Готово'})
+            except RuntimeError:pass
+            return jsonify(ok=True)
+        return jsonify(ok=True)
     if (chat.get('type') == 'private' and command and
             command[0].split('@')[0].lower() in ('/auf','auf') and isinstance(sender.get('id'), int)):
         code = command[1].strip().upper() if len(command) == 2 else ''
@@ -4170,8 +4854,11 @@ def telegram_webhook():
         update_id = int(update['update_id'])
         uid = sender['id']
         referrer = None
+        freebet_code = None
         if len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
             referrer = int(command[1][4:])
+        elif len(command) == 2 and re.fullmatch(r'freebet_[A-Za-z0-9_-]{3,32}', command[1], re.I):
+            freebet_code = command[1][8:].upper()
         db = connect()
         try:
             db.execute('BEGIN IMMEDIATE')
@@ -4188,8 +4875,19 @@ def telegram_webhook():
             db.commit()
         finally:
             db.close()
+        if freebet_code:
+            try:
+                result = try_activate_freebet(uid, freebet_code)
+                payload = dict(method='sendMessage', chat_id=chat['id'], text=result['text'])
+                if result.get('reply_markup'): payload['reply_markup'] = result['reply_markup']
+                if result.get('parse_mode'): payload['parse_mode'] = result['parse_mode']
+                return jsonify(**payload)
+            except Exception:
+                app.logger.exception('Freebet activation failed for %s', uid)
+                return jsonify(method='sendMessage', chat_id=chat['id'],
+                               text='Не удалось активировать фрибет. Попробуйте ещё раз через несколько секунд.')
         play_url = WEBAPP_URL + ('/?ref=' + str(referrer) if referrer else '/')
-        button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}}]]}
+        button = {'inline_keyboard': [[{'text': '🎮 Играть', 'web_app': {'url': play_url}, 'style': 'primary'}]]}
         # Telegram can execute a Bot API method directly from the webhook response.
         # This removes one extra outbound HTTP request and makes /start visibly faster.
         return jsonify(method='sendMessage', chat_id=chat['id'], text=welcome_text(),
@@ -4250,7 +4948,7 @@ def configure_bot():
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                      json={'url': WEBAPP_URL + '/telegram/webhook',
                                            'secret_token': WEBHOOK_SECRET,
-                                           'allowed_updates': ['message'],
+                                           'allowed_updates': ['message', 'callback_query'],
                                            'max_connections': 40,
                                            'drop_pending_updates': False}, timeout=(3, 6))
             response.raise_for_status()

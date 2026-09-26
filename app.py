@@ -4105,16 +4105,16 @@ def admin_users():
     term = request.args.get('q', '').strip()[:80]
     with connect() as db:
         if term:
-            users = db.execute('''SELECT u.id,u.name,u.username,u.balance,COUNT(i.id) AS gifts
+            users = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,COUNT(i.id) AS gifts
                                   FROM users u LEFT JOIN inventory i ON i.user_id=u.id
                                   WHERE CAST(u.id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?
                                   GROUP BY u.id ORDER BY u.id DESC LIMIT 50''',
                                (f'%{term}%', f'%{term}%', f'%{term}%')).fetchall()
         else:
-            users = db.execute('''SELECT u.id,u.name,u.username,u.balance,COUNT(i.id) AS gifts
+            users = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,COUNT(i.id) AS gifts
                                   FROM users u LEFT JOIN inventory i ON i.user_id=u.id
                                   GROUP BY u.id ORDER BY u.id DESC LIMIT 50''').fetchall()
-    return jsonify(users=[dict(id=u['id'], name=u['name'], username=u['username'],
+    return jsonify(users=[dict(id=u['id'], name=u['name'], username=u['username'], photo_url=u['photo_url'] or '',
                                balance=u['balance']/100, gifts=u['gifts']) for u in users])
 
 
@@ -4132,7 +4132,7 @@ def admin_user(user_id):
                             (user_id,)).fetchall()
         level=level_number(db,int(user['turnover_cents'] or 0))
         available_levels=[int(r['level']) for r in db.execute('SELECT level FROM levels ORDER BY level').fetchall()]
-    return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'],
+    return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'] or '',
                              balance=user['balance']/100,level=level,
                              turnover=user['turnover_cents']/100,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),

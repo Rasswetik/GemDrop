@@ -74,7 +74,12 @@ class PostgreSQL:
             sql = 'SELECT column_name AS name, column_default AS dflt_value FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=%s'
             params = (table,)
         else:
-            sql = sql.replace('BEGIN IMMEDIATE', 'BEGIN').replace('?', '%s')
+            # psycopg treats every percent sign in a parameterized query as part of
+            # its placeholder syntax. Escape literal SQL percent signs first, then
+            # translate SQLite-style question-mark placeholders to PostgreSQL %s.
+            # This keeps LIKE '%text%' queries valid on Render/PostgreSQL.
+            sql = sql.replace('BEGIN IMMEDIATE', 'BEGIN')
+            sql = sql.replace('%', '%%').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
         returning = bool(re.match(r'INSERT INTO inventory\b', sql))
@@ -274,7 +279,25 @@ def initialize():
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
             for name, definition in definitions:
                 if name not in existing:
+                    # New numeric columns on PostgreSQL must use BIGINT too. Telegram
+                    # user IDs already exceed signed 32-bit INTEGER for many users.
+                    if DATABASE_URL:
+                        definition = re.sub(r'\bINTEGER\b', 'BIGINT', definition)
                     db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
+
+        def ensure_postgres_bigint(table, columns):
+            """Upgrade legacy PostgreSQL INTEGER id columns without touching SQLite."""
+            if not DATABASE_URL:
+                return
+            for column in columns:
+                info = db.execute(
+                    '''SELECT data_type FROM information_schema.columns
+                       WHERE table_schema=current_schema() AND table_name=? AND column_name=?''',
+                    (table, column)).fetchone()
+                if info and str(info.get('data_type') or '').lower() in ('integer', 'smallint'):
+                    db.execute(
+                        f'ALTER TABLE {table} ALTER COLUMN {column} TYPE BIGINT '
+                        f'USING {column}::bigint')
 
         # Older Render disks may contain tables created by much earlier builds.
         # Keep migrations additive so an update cannot turn a working deployment into HTTP 500.
@@ -358,6 +381,23 @@ def initialize():
             ('chance_bp', 'INTEGER NOT NULL DEFAULT 0'), ('won', 'INTEGER NOT NULL DEFAULT 0'),
             ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''")
         ])
+        # Columns added by older releases used plain INTEGER on PostgreSQL.
+        # Upgrade the late-added ID/money fields in place. Avoid touching FK-bound
+        # primary keys here; base tables created by this app already use BIGINT.
+        ensure_postgres_bigint('users', ['turnover_cents'])
+        ensure_postgres_bigint('rounds', ['prize_inventory_id', 'win_total', 'win_gift_price',
+                                          'bet_inventory_id', 'bet_gift_price', 'promo_wager_target',
+                                          'promo_wager_progress', 'promo_progress_after'])
+        ensure_postgres_bigint('inventory', ['floor_price', 'round_id', 'promo_wager_target', 'promo_wager_progress'])
+        ensure_postgres_bigint('promo_codes', ['created_by', 'bonus_fixed', 'min_deposit', 'assigned_user_id'])
+        ensure_postgres_bigint('withdrawals', ['floor_price', 'round_id', 'admin_id'])
+        ensure_postgres_bigint('referrals', ['referrer_id'])
+        ensure_postgres_bigint('deposits', ['amount', 'referrer_id', 'referral_bonus', 'admin_id'])
+        ensure_postgres_bigint('transactions', ['amount', 'balance_after'])
+        ensure_postgres_bigint('wins_feed_clears', ['max_round_id'])
+        ensure_postgres_bigint('levels', ['required_turnover'])
+        ensure_postgres_bigint('upgrade_spins', ['user_id', 'source_price', 'target_price'])
+        ensure_postgres_bigint('upgrade_promo_pity', ['user_id'])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
@@ -1590,15 +1630,7 @@ def upgrade_recent_wins():
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                             WHERE s.won=1 AND s.created_at>?
                             ORDER BY s.created_at DESC,s.id DESC''', (cutoff,)).fetchall()
-        top_row = db.execute('''SELECT s.id,s.source_name,s.source_image,s.source_price,
-                                      s.target_name,s.target_image,s.target_price,s.chance_bp,
-                                      s.result_json,s.created_at,u.name,u.username,u.photo_url
-                               FROM upgrade_spins s JOIN users u ON u.id=s.user_id
-                               WHERE s.won=1 AND s.created_at>? AND s.created_at>=?
-                               AND COALESCE(s.result_json,'{}') NOT LIKE '%"reward_type": "wager_progress"%'
-                               AND COALESCE(s.result_json,'{}') NOT LIKE '%"reward_type":"wager_progress"%'
-                               ORDER BY s.target_price DESC,s.created_at DESC LIMIT 1''',
-                             (cutoff,wins_day_start_utc())).fetchone()
+        day_start = wins_day_start_utc()
     def upgrade_win_item(row, result=None):
         if not row:return None
         if result is None:
@@ -1630,10 +1662,10 @@ def upgrade_recent_wins():
             if item:items.append(item)
         except Exception:
             app.logger.warning('Skipping malformed upgrade win row %s', row['id'] if row else '?', exc_info=True)
-    try:top_drop=upgrade_win_item(top_row) if top_row else None
-    except Exception:
-        app.logger.warning('Skipping malformed upgrade top-drop row', exc_info=True)
-        top_drop=None
+    top_candidates=[item for item in items
+                    if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
+    top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
+                                                       str(item.get('created_at') or '')), default=None)
     return jsonify(items=items,top_drop=top_drop)
 
 

@@ -1154,7 +1154,7 @@ h1{font-weight:760;letter-spacing:-.045em}h2{font-weight:720;letter-spacing:-.02
 
 
 </style>
-<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=37"><link rel="stylesheet" href="/static/css/gemdrop-desktop-craft.css?v=38"></head><body>
+<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=39"><link rel="stylesheet" href="/static/css/gemdrop-desktop-craft.css?v=39"></head><body>
 <div id="loader" class="loader"><div class="loader-inner"><img id="loaderImage" src="/static/gifs/shard.gif" alt=""><div class="progress"><i id="loaderBar"></i></div><div id="loaderText" class="loader-text">Загрузка…</div></div></div>
 <main class="app">
 <section id="auth" class="auth hidden"><h1>Вход в GemDrop</h1><p id="authText">Подключаем Telegram…</p><div id="webAuthPanel" class="web-auth-panel hidden"><p>Чтобы войти в свой аккаунт, отправьте боту эту команду в личном чате:</p><div class="web-auth-command"><code id="webAuthCommand">/auf …</code><button id="copyWebCommand" type="button" aria-label="Скопировать команду">Копировать</button></div><a id="webBotLink" class="web-bot-link hidden" target="_blank" rel="noopener noreferrer">Открыть бота →</a><small id="webAuthStatus" role="status">Ожидаем подтверждение в боте…</small><button id="webAuthRenew" class="secondary" type="button">Получить новый код</button></div><button id="retry" class="primary hidden">Повторить</button></section>
@@ -1520,17 +1520,19 @@ function paintUpgrade(){
   let mine=$('upgradeMine'),targetButton=$('upgradeTarget');
   mine.classList.toggle('selected',!!upgradeSource);targetButton.classList.toggle('selected',!!upgradeGoal);
   mine.classList.remove('gift-source','ton-source');targetButton.classList.remove('gift-target');
+  if(upgradeSource)mine.classList.add(upgradeSource.type==='ton'?'ton-source':'gift-source');
+  if(upgradeGoal)targetButton.classList.add('gift-target');
   pickArt($('upgradeMineArt'),upgradeSource);pickArt($('upgradeTargetArt'),upgradeGoal);
   if(upgradeSource?.type==='ton'){
     $('upgradeMineName').textContent=`${money(upgradeSource.price_ton)} TON`;
-    $('upgradeMinePrice').textContent='Ставка TON';
+    $('upgradeMinePrice').textContent='';
   }else{
     $('upgradeMineName').textContent=upgradeSource?.name||'Выбрать ставку';
     if(upgradeSource)setUpgradePrice($('upgradeMinePrice'),upgradeSource.price_ton,upgradeSource.promo_locked?'X'+Number(upgradeSource.wager_multiplier||0).toString().replace('.0',''):'');
-    else $('upgradeMinePrice').textContent='TON или подарок';
+    else $('upgradeMinePrice').textContent='Выберите';
   }
   $('upgradeTargetName').textContent=upgradeGoal?.name||'Целевой подарок';
-  if(upgradeGoal)setUpgradePrice($('upgradeTargetPrice'),upgradeGoal.price_ton);else $('upgradeTargetPrice').textContent='Из каталога';
+  if(upgradeGoal)setUpgradePrice($('upgradeTargetPrice'),upgradeGoal.price_ton);else $('upgradeTargetPrice').textContent='Выберите';
   let chance=upgradePreviewData?.chance||0;document.querySelector('.upgrade-wheel-wrap').classList.toggle('ready',!!upgradePreviewData);$('upgradeChance').textContent=upgradePreviewData?formatUpgradeChance(chance):'—';let wheel=$('upgradeWheel');if(upgradePreviewData){wheel.style.setProperty('--upgrade-angle',(Math.max(0,Math.min(100,chance))*3.6).toFixed(3)+'deg');wheel.classList.add('has-chance')}else{wheel.style.removeProperty('--upgrade-angle');wheel.classList.remove('has-chance')};let center=$('upgradeCenter');center.replaceChildren();if(upgradeGoal?.image_url){let im=new Image;im.src=upgradeGoal.image_url;im.alt=upgradeGoal.name;center.append(im)}else{let txt=document.createElement('span');txt.textContent='✦';center.append(txt)}$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&Number(user?.balance||0)<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Крутится…':lowBalance?'Пополните баланс':'Крутить';startUpgradeIdle()
 }
 function upgradeList(mode){
@@ -1575,27 +1577,55 @@ function compensationCell(prize){
   }
   return cell;
 }
+function renderCompensationPrize(prize){
+  let wrap=document.createElement('div');wrap.className='comp-final-prize '+(prize.type||'gift');
+  let visual=document.createElement('div');visual.className='comp-final-art';
+  if(prize.type==='balance'){
+    let amount=document.createElement('b');amount.textContent=money(prize.amount);
+    let icon=new Image;icon.src=TON;icon.alt='TON';visual.append(amount,icon);
+  }else{
+    let img=new Image;img.src=prize.image_url||TON;img.alt=prize.name||'Подарок';img.onerror=()=>{img.onerror=null;img.src=TON};visual.append(img);
+  }
+  let text=document.createElement('div');text.className='comp-final-text';
+  let title=document.createElement('strong');
+  let detail=document.createElement('span');
+  if(prize.type==='balance'){
+    title.textContent='Начислено на баланс';detail.textContent=`+${money(prize.amount)} TON`;
+  }else if(prize.type==='wager_gift'){
+    title.textContent=prize.name||'Подарок';detail.textContent=`Добавлено в инвентарь · отыгрыш ×${prize.wager_multiplier}`;
+  }else if(prize.type==='promo'){
+    title.textContent=prize.name||'Промокод';detail.textContent='Персональный промокод на подарок';
+  }else{
+    title.textContent=prize.name||'Подарок';detail.textContent='Добавлено в инвентарь';
+  }
+  text.append(title,detail);
+  if(prize.code){let code=document.createElement('code');code.textContent=prize.code;text.append(code)}
+  wrap.append(visual,text);return wrap;
+}
 async function spinCompensation(){
   if(compensationPhase!=='ready')return;
   compensationPhase='spinning';$('upgradeResultCard').classList.add('compensation-open');let comp=compensationResult.compensation,box=$('upgradeCompensation'),button=$('closeUpgradeResult');
   button.disabled=true;button.textContent='Рулетка крутится…';$('upgradeResultImage').classList.add('hidden');$('upgradeResultText').classList.add('hidden');
   $('upgradeResultHeading').textContent='Ваша компенсация';box.classList.remove('hidden');
   let viewport=document.createElement('div');viewport.className='comp-reel';let track=document.createElement('div');track.className='comp-reel-track';
-  let items=comp.reel?.length?comp.reel:[comp.reward],stop=48+Math.floor(Math.random()*14);
-  for(let i=0;i<stop+5;i++)track.append(compensationCell(i===stop?comp.reward:items[Math.floor(Math.random()*items.length)]));
+  let items=(comp.reel?.length?comp.reel:[comp.reward]).filter(Boolean),giftItems=items.filter(x=>x.type&&x.type!=='balance'),stop=48+Math.floor(Math.random()*14);
+  for(let i=0;i<stop+5;i++){
+    let pool=(i%4===1&&giftItems.length)?giftItems:items;
+    track.append(compensationCell(i===stop?comp.reward:pool[Math.floor(Math.random()*pool.length)]));
+  }
   viewport.append(track);box.replaceChildren(viewport);
   await new Promise(requestAnimationFrame);
-  // Percent-based motion preserves the winning center when the window resizes.
-  let measure=()=>track.style.setProperty('--cell-width',viewport.clientWidth/3.4+'px');measure();
+  // Exactly three large cells are visible. The edges are masked in CSS, and a
+  // center separator marks the final prize without harsh rectangles.
+  let measure=()=>track.style.setProperty('--cell-width',viewport.clientWidth/3+'px');measure();
   compensationResizeObserver=new ResizeObserver(measure);compensationResizeObserver.observe(viewport);
-  let targetPercent=50-(stop+.5)*100/3.4,duration=matchMedia('(prefers-reduced-motion: reduce)').matches?450:8000+Math.random()*3000;
+  let targetPercent=50-(stop+.5)*100/3,duration=matchMedia('(prefers-reduced-motion: reduce)').matches?450:7200+Math.random()*2200;
   let animation=track.animate([{transform:'translateX(0%)'},{transform:`translateX(${targetPercent}%)`}],{duration,easing:'cubic-bezier(.10,.60,.12,1)',fill:'forwards'});
   try{await animation.finished}catch(e){}finally{animation.cancel();track.style.transform=`translateX(${targetPercent}%)`}
   track.children[stop].classList.add('selected');
-  let caption=document.createElement('div');caption.className='comp-award';
-  let title=document.createElement('strong');title.textContent='Вам начислена компенсация';let detail=document.createElement('span'),r=comp.reward;
-  detail.textContent=r.type==='balance'?`${money(r.amount)} TON на баланс`:r.type==='wager_gift'?`${r.name} · отыгрыш ×${r.wager_multiplier} (${money(r.wager_target)} TON)`:r.type==='promo'?`Персональный промокод на ${r.name}`:`${r.name} · добавлен в инвентарь`;
-  caption.append(title,detail);if(r.code){let code=document.createElement('code');code.textContent=r.code;caption.append(code)}box.append(caption);
+  await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?120:520));
+  compensationResizeObserver?.disconnect();
+  box.replaceChildren(renderCompensationPrize(comp.reward));
   compensationPhase='done';button.disabled=false;button.textContent='Готово';
 }
 

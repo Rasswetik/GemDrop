@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '34-craft-random-feed-fix'
+BUILD_ID = '36-upgrade-craft-rebuild'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -447,6 +447,25 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS upgrade_spins_wins ON upgrade_spins(won,created_at DESC,id DESC)')
+
+        # Build 36: re-enable Craft once. Build 35 intentionally shipped it hidden
+        # by default; the mode and all of its data remain intact. Admin can still
+        # turn it off again later in “Управление разделами”.
+        craft_migration = db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('enable_craft_v36',)).fetchone()
+        if not craft_migration:
+            row = db.execute('SELECT payload FROM app_documents WHERE name=?', ('section_settings',)).fetchone()
+            try:
+                sections = json.loads(row['payload']) if row and row.get('payload') else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                sections = {}
+            if not isinstance(sections, dict):
+                sections = {}
+            sections.update(craft=True)
+            db.execute('''INSERT INTO app_documents(name,payload) VALUES(?,?)
+                          ON CONFLICT(name) DO UPDATE SET payload=excluded.payload''',
+                       ('section_settings', json.dumps(sections, ensure_ascii=False)))
+            db.execute('INSERT INTO schema_migrations(name) VALUES(?)', ('enable_craft_v36',))
+
         existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
         if not existing_levels:
             for level in range(1, 21):
@@ -690,6 +709,18 @@ def read_document(name):
     with connect() as db:
         row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
     return json.loads(row['payload']) if row else None
+
+
+def section_settings():
+    defaults = {'mines': True, 'upgrade': True, 'craft': True, 'profile': True}
+    try:
+        stored = read_document('section_settings') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        stored = {}
+    result = {key: bool(stored.get(key, default)) for key, default in defaults.items()}
+    if not any(result.values()):
+        result['profile'] = True
+    return result
 
 
 def game_rtp():
@@ -1716,11 +1747,15 @@ def upgrade_target(gift_id):
 
 
 def upgrade_chance(source_price,target_price,rtp_bp=None):
-    if source_price<1 or target_price<=source_price:return 0
+    if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
+        return 0
     rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    numerator=rtp_bp*source_price
-    if numerator>8000*target_price:return 0
-    return numerator/target_price
+    chance_bp = (rtp_bp * source_price) / target_price
+    # Upgrade targets are intentionally limited to the visible 1–80% range.
+    # Anything outside it is not a valid target at all, not merely hidden in UI.
+    if chance_bp < 100 or chance_bp > 8000:
+        return 0
+    return chance_bp
 
 
 def upgrade_rtp_basis_points():
@@ -1731,7 +1766,7 @@ def upgrade_rtp_basis_points():
 @app.get('/api/upgrade/settings')
 @login_required
 def upgrade_settings():
-    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=0,max_chance=80,
+    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80,max_target_multiplier=10,
                    max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
@@ -1770,7 +1805,7 @@ def upgrade_preview():
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
     chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-    if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
+    if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
                    probability=chance/10000,rtp=effective_rtp_bp/100,
@@ -1879,7 +1914,7 @@ def upgrade_spin():
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
         chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-        if not chance:return error('Выберите цель дороже ставки с шансом не выше 80%.')
+        if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
@@ -3797,8 +3832,26 @@ def loader_catalog():
 
 @app.get('/api/ui/settings')
 def public_ui_settings():
-    # Intentionally public: the loading image is needed before Telegram auth finishes.
-    return jsonify(loader_gif=loader_settings()['path'])
+    # Intentionally public: loader and visible navigation are needed before auth finishes.
+    return jsonify(loader_gif=loader_settings()['path'], sections=section_settings())
+
+
+@app.get('/api/admin/section-settings')
+@admin_required
+def admin_section_settings():
+    return jsonify(sections=section_settings())
+
+
+@app.post('/api/admin/section-settings')
+@admin_required
+def save_admin_section_settings():
+    data = request.get_json(silent=True) or {}
+    current = section_settings()
+    updated = {key: bool(data.get(key, current[key])) for key in current}
+    if not any(updated.values()):
+        return error('Нужно оставить включённым хотя бы один раздел.')
+    save_document('section_settings', updated)
+    return jsonify(ok=True, sections=updated)
 
 
 @app.get('/api/admin/loader-settings')

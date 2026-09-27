@@ -1154,7 +1154,7 @@ h1{font-weight:760;letter-spacing:-.045em}h2{font-weight:720;letter-spacing:-.02
 
 
 </style>
-<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=40"><link rel="stylesheet" href="/static/css/gemdrop-desktop-craft.css?v=40"></head><body>
+<link rel="stylesheet" href="/static/css/gemdrop-ui.css?v=47"><link rel="stylesheet" href="/static/css/gemdrop-desktop-craft.css?v=47"></head><body>
 <div id="loader" class="loader"><div class="loader-inner"><img id="loaderImage" src="/static/gifs/shard.gif" alt=""><div class="progress"><i id="loaderBar"></i></div><div id="loaderText" class="loader-text">Загрузка…</div></div></div>
 <main class="app">
 <section id="auth" class="auth hidden"><h1>Вход в GemDrop</h1><p id="authText">Подключаем Telegram…</p><div id="webAuthPanel" class="web-auth-panel hidden"><p>Чтобы войти в свой аккаунт, отправьте боту эту команду в личном чате:</p><div class="web-auth-command"><code id="webAuthCommand">/auf …</code><button id="copyWebCommand" type="button" aria-label="Скопировать команду">Копировать</button></div><a id="webBotLink" class="web-bot-link hidden" target="_blank" rel="noopener noreferrer">Открыть бота →</a><small id="webAuthStatus" role="status">Ожидаем подтверждение в боте…</small><button id="webAuthRenew" class="secondary" type="button">Получить новый код</button></div><button id="retry" class="primary hidden">Повторить</button></section>
@@ -1631,7 +1631,7 @@ async function spinCompensation(){
   let cellWidth=0,targetPx=0;
   let measure=()=>{let count=visibleCells();cellWidth=viewport.clientWidth/count;track.style.setProperty('--visible-cells',count);track.style.setProperty('--cell-width',cellWidth+'px');targetPx=viewport.clientWidth/2-(stop+.5)*cellWidth};measure();
   compensationResizeObserver=new ResizeObserver(measure);compensationResizeObserver.observe(viewport);
-  let duration=matchMedia('(prefers-reduced-motion: reduce)').matches?520:6800+Math.random()*1800;
+  let duration=matchMedia('(prefers-reduced-motion: reduce)').matches?420:4200+Math.random()*900;
   let animation=track.animate([{transform:'translateX(0px)'},{transform:`translateX(${targetPx}px)`}],{duration,easing:'cubic-bezier(.09,.66,.10,1)',fill:'forwards'});
   try{await animation.finished}catch(e){}finally{animation.cancel();measure();track.style.transform=`translateX(${targetPx}px)`}
   track.children[stop]?.classList.add('selected');

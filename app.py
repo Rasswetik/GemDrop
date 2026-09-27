@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '38-desktop-craft-reel'
+BUILD_ID = '39-polished-reel-cells'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -1951,7 +1951,7 @@ def upgrade_spin():
                                (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             awarded=cur.lastrowid
         elif not wager:
-            compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price)
+            compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'])
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
@@ -2498,9 +2498,10 @@ def craft_play():
 def craft_recent_wins():
     with connect() as db:
         cutoff, _ = wins_feed_cutoff(db, 'craft')
-        rows = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>? AND c.reward_price>=c.input_total ORDER BY c.created_at DESC,c.id DESC LIMIT 30', (cutoff,)).fetchall()
         day_start = wins_day_start_utc()
-        top = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>=? AND c.reward_price>=c.input_total ORDER BY c.reward_price DESC,c.id DESC LIMIT 1', (day_start,)).fetchone()
+        rows = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>? AND c.reward_price>=c.input_total ORDER BY c.created_at DESC,c.id DESC LIMIT 30', (cutoff,)).fetchall()
+        top_cutoff = max(cutoff or '', day_start or '')
+        top = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>? AND c.reward_price>=c.input_total ORDER BY c.reward_price DESC,c.id DESC LIMIT 1', (top_cutoff,)).fetchone()
     return jsonify(items=[craft_win_item(r) for r in rows], top_drop=craft_win_item(top) if top else None)
 
 
@@ -4215,7 +4216,7 @@ def create_upgrade_compensation_promo(db, user_id, source_price, force=False, pi
               loss_rtp_boost=round(boost, 2), pity_streak=int(pity_streak), forced=bool(force))
     return promo_view(row)
 
-def apply_upgrade_loss_compensation(db, user_id, source_price):
+def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None):
     """Award exactly one server-selected prize, persisted with the upgrade spin.
 
     Cosmetic reel items come from the same eligible pool; replaying a spin uses
@@ -4227,7 +4228,21 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
     large = source_price >= 10000
     medium = source_price >= 2500
     budget = max(100, round(source_price * (.20 if large else .16)))
-    gifts = [g for g in craft_catalog_candidates() if g['price'] <= budget]
+    catalog_candidates = craft_catalog_candidates()
+    gifts = [g for g in catalog_candidates if g['price'] <= budget]
+    # For medium TON losses the old compensation tape could contain only TON
+    # cells when the catalog had no very cheap gifts. Keep the actual economy
+    # conservative, but always put a real catalog gift into the visible/prize
+    # pool when the stake is large enough to make that fair.
+    visual_budget = max(budget, round(source_price * (.75 if medium or large else .42)))
+    if target_price:
+        try:
+            visual_budget = max(visual_budget, round(int(target_price) * .18))
+        except (TypeError, ValueError):
+            pass
+    visual_gifts = [g for g in catalog_candidates if g['price'] <= visual_budget]
+    if not gifts and source_price >= 1000 and visual_gifts:
+        gifts = visual_gifts[:max(1, min(18, len(visual_gifts)))]
     pool = []
     for percent in (1, 2, 3, 5):
         amount = max(1, round(source_price * percent / 100))
@@ -4254,7 +4269,19 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
         reward = dict(secrets.choice(pool if kind=='balance' else [g for g in gift_options if g['type']==kind]))
     else:
         reward = dict(secrets.choice(pool))
-    comp = dict(empty, reward=reward, reel=pool + gift_options)
+    reel_options = pool + gift_options
+    if visual_gifts:
+        # Near-miss and possible compensation gift cells, so high-value TON losses
+        # do not look like a tape of TON-only consolation prizes.
+        extra_reel_gifts = []
+        for gift in visual_gifts[-18:]:
+            for kind in ('gift', 'wager_gift'):
+                multiplier = secrets.choice([5, 8, 10] if large else [8, 10, 12] if medium else [10, 15, 20])
+                extra_reel_gifts.append(dict(type=kind, gift_id=gift['id'], name=gift['name'],
+                                             image_url=gift['image_url'], price_ton=gift['price']/100,
+                                             wager_multiplier=multiplier if kind=='wager_gift' else 0))
+        reel_options.extend(extra_reel_gifts)
+    comp = dict(empty, reward=reward, reel=reel_options)
     if reward['type'] == 'balance':
         amount = ton_to_cents(reward['amount'])
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
@@ -4284,7 +4311,7 @@ def apply_upgrade_loss_compensation(db, user_id, source_price):
         comp['promo'] = promo_view(db.execute('SELECT * FROM promo_codes WHERE code=?',(code,)).fetchone())
         reward['code'] = code
     # Keep the replay payload small even for large catalogs.
-    comp['reel'] = [secrets.choice(pool + gift_options) for _ in range(28)]
+    comp['reel'] = [secrets.choice(reel_options or pool or gift_options) for _ in range(36)]
     return comp
 
 

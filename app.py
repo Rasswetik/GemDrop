@@ -16,7 +16,7 @@ from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from threading import Thread
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote_plus
 
 import requests
 from flask import Flask, jsonify, request, session, send_file
@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '39-polished-reel-cells'
+BUILD_ID = '42-portal-backgrounds'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -875,14 +875,15 @@ def gift_id_map():
 
 def match_collection_image(gift, mapping, names=None):
     names = names or {collection_key(v): k for k, v in mapping.items()}
+    match_name = str(gift.get('base_name') or gift.get('name') or '')
     match = None
     for field in ('telegram_gift_id', 'star_gift_id', 'gift_id'):
         candidate = str(gift.get(field) or '')
-        if candidate in mapping and collection_key(mapping[candidate]) == collection_key(gift['name']):
+        if candidate in mapping and collection_key(mapping[candidate]) == collection_key(match_name):
             match = candidate
             break
     if match is None:
-        match = names.get(collection_key(gift['name']))
+        match = names.get(collection_key(match_name))
     updated = dict(gift)
     if match:
         updated.update(telegram_gift_id=match,
@@ -1020,19 +1021,25 @@ def award_round(db, row, opened_count):
         target = max(0, int(row['promo_wager_target'] or 0))
         previous = max(0, int(row['promo_wager_progress'] or 0))
         progress = min(target, previous + amount) if target else previous + amount
+        completed = bool(target and progress >= target)
         cursor = db.execute("""INSERT INTO inventory(
                                 user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
                                 promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
-                              VALUES(?,?,?,?,?,'promo_wager',?,1,?,?,?,?,?)""",
+                              VALUES(?,?,?,?,?,'promo_wager',?,?,?,?,?,?,?)""",
                             (row['user_id'], row['bet_gift_id'], row['bet_gift_name'], row['bet_gift_image'],
-                             row['bet_gift_price'], row['id'], float(row['promo_wager_multiplier'] or 0),
-                             target, progress, row['promo_code'] or '', row['bet_expires_at']))
+                             row['bet_gift_price'], row['id'], 0 if completed else 1,
+                             0.0 if completed else float(row['promo_wager_multiplier'] or 0),
+                             0 if completed else target, 0 if completed else progress,
+                             '' if completed else (row['promo_code'] or ''), None if completed else row['bet_expires_at']))
         db.execute("""UPDATE rounds SET state='won',payout=0,prize_inventory_id=?,win_total=?,win_multiplier=?,
                       promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL,
                       settled_at=? WHERE id=?""",
                    (cursor.lastrowid, amount, factor, progress, settled_at, row['id']))
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'],
                            f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
+        if completed:
+            record_transaction(db, row['user_id'], 'promo_wager_claim', 0, 'inventory', cursor.lastrowid,
+                               f'Подарок успешно отыгран: {row["bet_gift_name"]}')
         return
 
     prize = prize_for(amount)
@@ -5922,6 +5929,153 @@ def store_portal_key(key):
     })
 
 
+
+PORTAL_BACKGROUND_LABELS = {
+    'black': 'Black',
+    'onyxblack': 'Onyx Black',
+}
+
+
+def normalize_portal_background(value):
+    text = str(value or '').strip()
+    if not text:
+        return None
+    key = re.sub(r'[\W_]+', '', text.casefold(), flags=re.UNICODE)
+    return PORTAL_BACKGROUND_LABELS.get(key)
+
+
+def portal_background_key(label):
+    if label == 'Black':
+        return 'black'
+    if label == 'Onyx Black':
+        return 'onyx-black'
+    return re.sub(r'[^a-z0-9]+', '-', str(label).casefold()).strip('-')
+
+
+def portal_short_name(name):
+    return str(name or '').replace(' ', '').replace("'", '').replace('’', '').replace('-', '').lower()
+
+
+def portal_price_string(value):
+    if isinstance(value, dict):
+        for key in ('floor_price', 'floorPrice', 'min_price', 'minPrice', 'price', 'amount', 'value', 'floor'):
+            if value.get(key) is not None:
+                price = portal_price_string(value.get(key))
+                if price is not None:
+                    return price
+        return None
+    try:
+        price = Decimal(str(value))
+        if price.is_finite() and price >= 0:
+            return format(price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), 'f')
+    except (InvalidOperation, TypeError, ValueError):
+        pass
+    return None
+
+
+def portal_variant_name(obj):
+    if isinstance(obj, str):
+        return normalize_portal_background(obj)
+    if not isinstance(obj, dict):
+        return None
+    for key in ('background', 'background_name', 'backgroundName', 'backdrop', 'backdrop_name',
+                'backdropName', 'name', 'title', 'label', 'value'):
+        value = obj.get(key)
+        if isinstance(value, dict):
+            found = portal_variant_name(value)
+        else:
+            found = normalize_portal_background(value)
+        if found:
+            return found
+    return None
+
+
+def portal_background_variants(item, filters=None):
+    """Return supported background price variants embedded in a Portal collection row.
+
+    Portal may expose background/backdrop floors in several shapes depending on
+    endpoint/version, for example:
+    {"backgrounds": [{"name": "Black", "floor_price": 20000}]},
+    {"backdrop_prices": {"Onyx Black": 10000}}, or attribute-style arrays.
+    We keep the parser deliberately permissive but only accept the two supported
+    labels, so ordinary fields cannot accidentally create extra gifts.
+    """
+    variants = {}
+
+    def remember(label, raw_price):
+        label = normalize_portal_background(label) or label
+        if label not in ('Black', 'Onyx Black'):
+            return
+        price = portal_price_string(raw_price)
+        if price is not None:
+            variants[label] = price
+
+    def scan_container(container):
+        if isinstance(container, list):
+            for entry in container:
+                scan_container(entry)
+            return
+        if not isinstance(container, dict):
+            return
+
+        # Mapping shape: {"Black": 20000, "Onyx Black": {"floor_price": 10000}}
+        for key, value in container.items():
+            label = normalize_portal_background(key)
+            if label:
+                remember(label, value)
+
+        # Object shape: {"name": "Black", "floor_price": 20000}
+        label = portal_variant_name(container)
+        if label:
+            remember(label, container)
+
+        # Attribute/trait shape: {"trait_type":"Backdrop", "value":"Black", "floor_price":...}
+        trait = str(container.get('trait_type') or container.get('type') or container.get('key') or '').casefold()
+        if any(word in trait for word in ('background', 'backdrop', 'фон')):
+            label = normalize_portal_background(container.get('value') or container.get('name') or container.get('label'))
+            if label:
+                remember(label, container)
+
+    direct_keys = (
+        'backgrounds', 'background', 'background_prices', 'backgroundPrices', 'prices_by_background',
+        'floor_prices_by_background', 'floors_by_background', 'backdrops', 'backdrop', 'backdrop_prices',
+        'backdropPrices', 'prices_by_backdrop', 'floor_prices_by_backdrop', 'floors_by_backdrop',
+        'attributes', 'traits', 'filters', 'variants', 'prices', 'floors', 'stats', 'market_stats',
+    )
+    for key in direct_keys:
+        if isinstance(item, dict) and item.get(key) is not None:
+            scan_container(item.get(key))
+    if filters is not None:
+        scan_container(filters)
+    return variants
+
+
+def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None):
+    entries = [base_gift]
+    base_id = str(base_gift['id'])
+    base_name = str(base_gift['name'])
+    for label, price in portal_background_variants(portal_item, filters).items():
+        bg_key = portal_background_key(label)
+        variant_id = f'{base_id}:background:{bg_key}'
+        old = previous_by_id.get(variant_id, {})
+        variant = dict(base_gift)
+        variant.update(
+            id=variant_id,
+            base_id=base_id,
+            base_name=base_name,
+            name=f'{base_name} ({label})',
+            price_ton=price,
+            background_label=label,
+            background_key=bg_key,
+            background_tone='black' if label == 'Black' else 'onyx-black',
+            image_url=old.get('image_url') or base_gift.get('image_url') or base_gift.get('portal_image_url', ''),
+            image_match=bool(old.get('image_match', base_gift.get('image_match'))),
+            telegram_gift_id=old.get('telegram_gift_id', base_gift.get('telegram_gift_id', '')),
+        )
+        entries.append(variant)
+    return entries
+
+
 def portal_get_collections(session_http, key, params):
     """Fetch one collections page with bounded retries and stale-auth fallback.
 
@@ -5966,6 +6120,42 @@ def portal_get_collections(session_http, key, params):
     raise requests.RequestException('Portal did not return a response')
 
 
+def portal_get_collection_filters(session_http, key, names):
+    short_names = []
+    seen_names = set()
+    for name in names:
+        short = portal_short_name(name)
+        if short and short not in seen_names:
+            seen_names.add(short)
+            short_names.append(short)
+    if not short_names:
+        return {}
+    params = {'short_names': ','.join(short_names)}
+    hosts = ('https://portal-market.com/api/collections/filters',
+             'https://portals-market.com/api/collections/filters')
+    auth_candidates = [str(key or '').strip()]
+    if auth_candidates[0]:
+        auth_candidates.append('')
+    for auth_key in auth_candidates:
+        for url in hosts:
+            try:
+                response = session_http.get(url, params=params, headers=portal_headers(auth_key), timeout=(5, 10))
+                if response.status_code in (401, 403, 404):
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+            except (requests.RequestException, ValueError):
+                continue
+            floors = payload.get('floor_prices', payload.get('floorPrices', payload)) if isinstance(payload, dict) else {}
+            if not isinstance(floors, dict):
+                continue
+            result = {}
+            for key_name, value in floors.items():
+                result[portal_short_name(key_name)] = value
+            return result
+    return {}
+
+
 def fetch_portal_catalog(key, progress=None):
     """Fetch Portal collections without blocking the admin UI for the whole import."""
     previous = read_catalog()['gifts']
@@ -5985,7 +6175,12 @@ def fetch_portal_catalog(key, progress=None):
             append_portal_log('Импорт остановлен по защитному лимиту времени; уже полученные коллекции сохранены.', 'error')
             break
         response = portal_get_collections(
-            session_http, key, {'limit': request_limit, 'offset': offset}
+            session_http, key, {
+                'limit': request_limit, 'offset': offset,
+                # Unsupported params are ignored by Portal, but newer responses can
+                # include background/backdrop floor prices without extra requests.
+                'include': 'backgrounds,backdrops', 'with': 'backgrounds,backdrops',
+            }
         )
 
         try:
@@ -5999,6 +6194,11 @@ def fetch_portal_catalog(key, progress=None):
             raise ValueError('Portal вернул неожиданный формат коллекций.')
         if not items:
             break
+
+        page_filters = portal_get_collection_filters(
+            session_http, key,
+            [item.get('name') or item.get('title') or item.get('gift_name') for item in items if isinstance(item, dict)]
+        )
 
         page_ids = tuple(str(item.get('id') or item.get('slug') or item.get('name') or '')
                          for item in items if isinstance(item, dict))
@@ -6019,12 +6219,7 @@ def fetch_portal_catalog(key, progress=None):
             seen.add(gift_id)
             added += 1
             raw = next((item[k] for k in ('floor_price', 'floorPrice', 'price') if item.get(k) is not None), None)
-            try:
-                price = Decimal(str(raw))
-                price = (format(price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), 'f')
-                         if price.is_finite() and price >= 0 else None)
-            except (InvalidOperation, TypeError, ValueError):
-                price = None
+            price = portal_price_string(raw)
             img = next((safe_image(item.get(k)) for k in
                         ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url')
                         if safe_image(item.get(k))), '')
@@ -6033,7 +6228,13 @@ def fetch_portal_catalog(key, progress=None):
             gift.update(image_url=old.get('image_url') or img,
                         image_match=bool(old.get('image_match')),
                         telegram_gift_id=old.get('telegram_gift_id', ''))
-            gifts.append(gift)
+            entries = portal_catalog_entries(gift, item, previous_by_id, page_filters.get(portal_short_name(name)))
+            for entry in entries:
+                entry_id = str(entry.get('id'))
+                if entry_id in seen and entry_id != gift_id:
+                    continue
+                seen.add(entry_id)
+                gifts.append(entry)
 
         if not added:
             break

@@ -1419,7 +1419,7 @@ function renderCraftInventory(){
   let box=$('craftInventoryList');if(!box)return;box.replaceChildren();
   if(!craftInventory.length){box.innerHTML='<div class="recent-win-empty">Инвентарь пуст</div>';return}
   let used=new Set(craftSelectedIds());
-  for(let item of craftInventory){let button=document.createElement('button');button.type='button';button.className='craft-inventory-item';button.disabled=used.has(item.id)&&(!craftSlots[craftCurrentSlot]||craftSlots[craftCurrentSlot].id!==item.id);let image=new Image;image.src=item.image_url||TON;image.alt=item.name;image.onerror=()=>{image.src=TON};let name=document.createElement('strong');name.textContent=item.name;let price=document.createElement('span');let value=document.createElement('b');value.textContent=money(item.price_ton);let ton=new Image;ton.src=TON;ton.alt='TON';price.append(value,ton);button.append(image,name,price);button.onclick=()=>{craftSlots[craftCurrentSlot]=item;$('craftInventoryModal').classList.add('hidden');renderCraftSlots();updateCraftPreview()};box.append(button)}
+  for(let item of craftInventory){let bgLabel=giftBackgroundLabel(item),bgClass=giftBackgroundClass(bgLabel);let button=document.createElement('button');button.type='button';button.className='craft-inventory-item'+(bgClass?' '+bgClass:'');button.disabled=used.has(item.id)&&(!craftSlots[craftCurrentSlot]||craftSlots[craftCurrentSlot].id!==item.id);let imageWrap=document.createElement('span');imageWrap.className='craft-inventory-art';let image=new Image;image.src=item.image_url||TON;image.alt=giftDisplayName(item);image.onerror=()=>{image.src=TON};imageWrap.append(image);if(bgLabel){let badge=document.createElement('em');badge.className='craft-bg-dot';badge.textContent=bgLabel;imageWrap.append(badge)}let name=document.createElement('strong');name.textContent=giftDisplayName(item);let price=document.createElement('span');let value=document.createElement('b');value.textContent=money(item.price_ton);let ton=new Image;ton.src=TON;ton.alt='TON';price.append(value,ton);button.append(imageWrap,name,price);button.onclick=()=>{craftSlots[craftCurrentSlot]=item;$('craftInventoryModal').classList.add('hidden');renderCraftSlots();updateCraftPreview()};box.append(button)}
 }
 let craftPreviewSeq=0;
 async function updateCraftPreview(){let seq=++craftPreviewSeq;
@@ -1431,7 +1431,7 @@ let craftWinsRequest=0;
 async function loadCraftWins(){let current=++craftWinsRequest,box=$('craftRecentWins');if(!box)return;try{let data=await api('/api/craft/recent-wins');if(current!==craftWinsRequest)return;renderTopDrop('craftTopDrop',data.top_drop?{user_id:data.top_drop.user_id,name:data.top_drop.name,username:data.top_drop.username,photo_url:data.top_drop.photo_url,gift:data.top_drop.reward,amount:data.top_drop.reward?.price_ton||0,multiplier:data.top_drop.multiplier}:null,'mines');box.replaceChildren();if(!data.items?.length){box.innerHTML='<div class="recent-win-empty">Побед в крафтах пока нет</div>';return}for(let win of data.items){let row=document.createElement('article');row.className='craft-win-row';let av=document.createElement('div');av.className='recent-win-avatar';av.textContent=(win.name||'G').charAt(0).toUpperCase();if(win.photo_url){let im=new Image;im.src=win.photo_url;im.alt='';im.onerror=()=>im.remove();av.replaceChildren(im)}av.onclick=()=>openPublicProfile(win.user_id);let main=document.createElement('div');main.className='craft-win-main';let head=document.createElement('div');head.className='craft-win-head';let name=document.createElement('strong');name.textContent=win.username?'@'+win.username:win.name;name.onclick=()=>openPublicProfile(win.user_id);let mult=document.createElement('span');mult.className='craft-win-mult';mult.textContent=fmtX(Number(win.multiplier||0));head.append(name,mult);let flow=document.createElement('div');flow.className='craft-win-flow';let src=document.createElement('div');src.className='craft-win-chip';src.innerHTML=`<img src="${TON}" alt="TON"><div><b>${money(win.input_total)} TON</b></div>`;let arrow=document.createElement('span');arrow.className='craft-win-arrow';arrow.textContent='→';let trg=document.createElement('div');trg.className='craft-win-chip';trg.innerHTML=`<img src="${win.reward.image_url||TON}" alt="${win.reward.name}"><div><b>${win.reward.name}</b></div>`;flow.append(src,arrow,trg);main.append(head,flow);row.append(av,main);box.append(row)}}catch(e){if(current===craftWinsRequest)box.innerHTML='<div class="recent-win-empty">Не удалось загрузить победы</div>'}}
 async function playCraft(){
   if(craftBusy)return;let ids=craftSelectedIds();if(ids.length<3)return toast('Для крафта нужно минимум 3 подарка');craftBusy=true;$('craftAction').disabled=true;let grid=$('craftGrid'),page=$('craftPage');[...grid.querySelectorAll('.craft-slot')].forEach((slot,i)=>slot.style.setProperty('--craft-delay',`${i*34}ms`));grid.classList.add('crafting');page.classList.add('crafting-ui');
-  try{let request=api('/api/craft/play',{method:'POST',body:JSON.stringify({slot_ids:ids})});let [data]=await Promise.all([request,new Promise(resolve=>setTimeout(resolve,560))]);setUser(data.user);page.classList.add('craft-result-open');$('craftResultImage').src=data.reward.image_url||TON;$('craftResultName').textContent=data.reward.name;$('craftResultPrice').textContent=money(data.reward.price_ton);$('craftResultMult').textContent=`Коэффициент ${fmtX(Number(data.reward.multiplier??0))}`;$('craftResultModal').classList.remove('hidden');craftSlots=Array(10).fill(null);renderCraftSlots();await loadCraftInventory();loadCraftWins();if(!$('profilePage').classList.contains('hidden'))loadInventory()}catch(e){grid.classList.remove('crafting');page.classList.remove('crafting-ui','craft-result-open');toast(e.message)}finally{craftBusy=false;if($('craftResultModal').classList.contains('hidden'))updateCraftPreview()}
+  try{let request=api('/api/craft/play',{method:'POST',body:JSON.stringify({slot_ids:ids})});let [data]=await Promise.all([request,new Promise(resolve=>setTimeout(resolve,560))]);setUser(data.user);page.classList.add('craft-result-open');$('craftResultImage').src=data.reward.image_url||TON;let craftResultArt=$('craftResultImage').parentElement;craftResultArt.classList.remove('portal-bg-black','portal-bg-onyx-black');let rewardBg=giftBackgroundClass(giftBackgroundLabel(data.reward));if(rewardBg)craftResultArt.classList.add(rewardBg);$('craftResultName').textContent=giftDisplayName(data.reward);$('craftResultPrice').textContent=money(data.reward.price_ton);$('craftResultMult').textContent=`Коэффициент ${fmtX(Number(data.reward.multiplier??0))}`;$('craftResultModal').classList.remove('hidden');craftSlots=Array(10).fill(null);renderCraftSlots();await loadCraftInventory();loadCraftWins();if(!$('profilePage').classList.contains('hidden'))loadInventory()}catch(e){grid.classList.remove('crafting');page.classList.remove('crafting-ui','craft-result-open');toast(e.message)}finally{craftBusy=false;if($('craftResultModal').classList.contains('hidden'))updateCraftPreview()}
 }
 function closeCraftResult(){ $('craftResultModal').classList.add('hidden');$('craftPage').classList.remove('crafting-ui','craft-result-open');$('craftGrid').classList.remove('crafting');updateCraftPreview() }
 $('craftAction').onclick=playCraft;$('craftDeposit').onclick=openDeposit;$('closeCraftInventory').onclick=()=>$('craftInventoryModal').classList.add('hidden');$('closeCraftResult').onclick=closeCraftResult;$('claimCraftReward').onclick=()=>{closeCraftResult();loadInventory()};
@@ -1612,30 +1612,34 @@ function renderCompensationPrize(prize){
 async function spinCompensation(){
   if(compensationPhase!=='ready')return;
   compensationPhase='spinning';$('upgradeResultCard').classList.add('compensation-open');let comp=compensationResult.compensation,box=$('upgradeCompensation'),button=$('closeUpgradeResult');
+  let reward=comp.reward;
   button.disabled=true;button.textContent='Рулетка крутится…';$('upgradeResultImage').classList.add('hidden');$('upgradeResultText').classList.add('hidden');
   $('upgradeResultHeading').textContent='Ваша компенсация';box.classList.remove('hidden');
-  let viewport=document.createElement('div');viewport.className='comp-reel';let track=document.createElement('div');track.className='comp-reel-track';
-  let items=(comp.reel?.length?comp.reel:[comp.reward]).filter(Boolean),giftItems=items.filter(x=>x.type&&x.type!=='balance'),stop=48+Math.floor(Math.random()*14);
+  let viewport=document.createElement('div');viewport.className='comp-reel';viewport.setAttribute('aria-label','Линия по центру показывает выигрыш');let track=document.createElement('div');track.className='comp-reel-track';
+  let items=(comp.reel?.length?comp.reel:[reward]).filter(Boolean),giftItems=items.filter(x=>x.type&&x.type!=='balance'),stop=48+Math.floor(Math.random()*14);
   for(let i=0;i<stop+5;i++){
     let pool=(i%4===1&&giftItems.length)?giftItems:items;
-    track.append(compensationCell(i===stop?comp.reward:pool[Math.floor(Math.random()*pool.length)]));
+    let prize=i===stop?reward:pool[Math.floor(Math.random()*pool.length)];
+    let cell=compensationCell(prize);cell.dataset.stop=i===stop?'1':'0';track.append(cell);
   }
   viewport.append(track);box.replaceChildren(viewport);
   await new Promise(requestAnimationFrame);
-  // On phones the reel shows fewer, wider tiles; on desktop it keeps exactly
-  // three. The center line is only a soft hint, not a harsh divider.
+  // IMPORTANT: translateX(%) is relative to the whole long track, not to the
+  // visible viewport. That made the visual stop cell differ from comp.reward.
+  // Use pixels so the real server reward always lands under the center marker.
   let visibleCells=()=>window.matchMedia('(max-width: 520px)').matches?2:3;
-  let measure=()=>{let count=visibleCells();track.style.setProperty('--visible-cells',count);track.style.setProperty('--cell-width',viewport.clientWidth/count+'px')};measure();
+  let cellWidth=0,targetPx=0;
+  let measure=()=>{let count=visibleCells();cellWidth=viewport.clientWidth/count;track.style.setProperty('--visible-cells',count);track.style.setProperty('--cell-width',cellWidth+'px');targetPx=viewport.clientWidth/2-(stop+.5)*cellWidth};measure();
   compensationResizeObserver=new ResizeObserver(measure);compensationResizeObserver.observe(viewport);
-  let cells=visibleCells(),targetPercent=50-(stop+.5)*100/cells,duration=matchMedia('(prefers-reduced-motion: reduce)').matches?520:6800+Math.random()*1800;
-  let animation=track.animate([{transform:'translateX(0%)'},{transform:`translateX(${targetPercent}%)`}],{duration,easing:'cubic-bezier(.09,.66,.10,1)',fill:'forwards'});
-  try{await animation.finished}catch(e){}finally{animation.cancel();track.style.transform=`translateX(${targetPercent}%)`}
-  track.children[stop].classList.add('selected');
+  let duration=matchMedia('(prefers-reduced-motion: reduce)').matches?520:6800+Math.random()*1800;
+  let animation=track.animate([{transform:'translateX(0px)'},{transform:`translateX(${targetPx}px)`}],{duration,easing:'cubic-bezier(.09,.66,.10,1)',fill:'forwards'});
+  try{await animation.finished}catch(e){}finally{animation.cancel();measure();track.style.transform=`translateX(${targetPx}px)`}
+  track.children[stop]?.classList.add('selected');
   await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?120:430));
   compensationResizeObserver?.disconnect();
   let out=box.animate([{opacity:1,transform:'scale(1)'},{opacity:.08,transform:'scale(.985)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?80:220,easing:'ease-out',fill:'forwards'});
   try{await out.finished}catch(e){}
-  box.replaceChildren(renderCompensationPrize(comp.reward));
+  box.replaceChildren(renderCompensationPrize(reward));
   box.animate([{opacity:0,transform:'translateY(8px) scale(.96)'},{opacity:1,transform:'translateY(0) scale(1)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?80:360,easing:'cubic-bezier(.2,1.1,.25,1)',fill:'both'});
   compensationPhase='done';button.disabled=false;button.textContent='Готово';
 }

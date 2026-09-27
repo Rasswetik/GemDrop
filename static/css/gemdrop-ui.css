@@ -847,3 +847,40 @@ html.upgrade-spin-lock .app{transform:none!important}
   #winsAdminPage .wins-admin-stat{padding:10px 5px!important;text-align:center!important}
   #winsAdminPage .wins-admin-stat strong{font-size:18px!important}
 }
+
+/* v37: compact craft cards and a server-resolved compensation reel. */
+#craftPage .craft-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important}
+#craftPage .craft-slot{aspect-ratio: .78!important;border-radius:14px!important;padding:6px 3px 22px!important;background:linear-gradient(150deg,#233243,#121a24)!important}
+#craftPage .craft-slot>img{width:100%!important;height:100%!important;max-width:none!important;max-height:76px!important}
+#craftPage .craft-slot-number{opacity:.55}
+.craft-slot-cost{position:absolute;bottom:7px;font-size:9px;color:#c7e5ee;white-space:nowrap}
+#craftPage .craft-range{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important}
+#craftPage .craft-range-card{display:flex!important;align-items:center!important;gap:8px!important;padding:12px!important;border:1px solid #304454!important;border-radius:16px!important;background:#18232e!important}
+#craftPage .craft-range-card>img{width:54px!important;height:54px!important;object-fit:contain!important}
+#craftPage .craft-range-card small{font-size:10px!important;letter-spacing:.1em!important}
+#craftPage .craft-range-card b{font-size:15px!important}
+#upgradePage .pick-art{height:94px!important}
+#upgradePage .pick-art img{max-width:112px!important}
+#upgradeList>button>img{width:72px!important;height:72px!important;object-fit:contain!important}
+.nav .mode-unavailable{opacity:.45}
+#upgradeCompensation{width:100%;min-width:0;padding:0!important;background:none!important;border:0!important}
+.comp-reel{position:relative;width:100%;overflow:hidden;border:1px solid #3d626b;border-radius:18px;background:#0c161f;padding:16px 0;isolation:isolate}
+.comp-reel:after{content:'';position:absolute;z-index:3;left:50%;top:0;bottom:0;width:2px;background:#91ffe3;box-shadow:0 0 14px #53ffc2;pointer-events:none}
+.comp-reel-track{display:flex;will-change:transform;--cell-width:90px}
+.comp-reel-cell{flex:0 0 var(--cell-width);width:var(--cell-width);box-sizing:border-box;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:7px;padding:10px 5px;border:3px solid #0c161f;border-radius:13px;background:linear-gradient(160deg,#25394a,#15222d);height:136px}
+.comp-reel-cell.wager_gift{background:linear-gradient(160deg,#36305a,#1b2434)}
+.comp-reel-cell.promo{background:linear-gradient(160deg,#4f4029,#292535)}
+.comp-reel-cell small{font-size:8px;color:#acc9da;white-space:nowrap}
+.comp-reel-cell img{width:62px;height:62px;max-width:95%;object-fit:contain}
+.comp-reel-cell b{font-size:9px;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.comp-reel-cell.selected{border-color:#83e7c3;box-shadow:inset 0 0 15px #7fe8bd33}
+.comp-award{display:grid;gap:8px;padding:18px 5px 5px;text-align:center;color:#caf6e8}
+.comp-award span{font-size:12px;color:#b5c5d1;line-height:1.5}
+.comp-award code{padding:8px;border-radius:8px;background:#182d36;color:#adf1d8}
+
+#toast{top:calc(18px + max(env(safe-area-inset-top),var(--tg-safe-top,0px)));bottom:auto!important;z-index:10000}
+#upgradeResultImage.hidden,#upgradeResultText.hidden{display:none!important}
+
+#craftPage .craft-range-card>img{flex:0 0 48px!important;max-width:48px!important;max-height:48px!important}
+#craftPage .craft-range-card>div{flex:1!important;width:auto!important;text-align:left!important}
+#craftPage .craft-range-card span{justify-content:flex-start!important}

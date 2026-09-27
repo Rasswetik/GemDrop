@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '36-upgrade-craft-rebuild'
+BUILD_ID = '37-craft-compensation-roulette'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -721,6 +721,16 @@ def section_settings():
     if not any(result.values()):
         result['profile'] = True
     return result
+
+
+@app.before_request
+def enforce_available_modes():
+    path = request.path
+    mode = ('craft' if path.startswith('/api/craft/') else
+            'upgrade' if path.startswith('/api/upgrade/') else
+            'mines' if path.startswith('/api/game/') else None)
+    if mode and path not in ('/api/game/open', '/api/game/cashout') and not section_settings().get(mode, False):
+        return error('Данный режим временно недоступен.', 403)
 
 
 def game_rtp():
@@ -2371,68 +2381,32 @@ def craft_preview_for_total(total_price):
     candidates = [g for g in craft_catalog_candidates() if minimum <= g['price'] <= maximum]
     if not candidates:
         return dict(ok=False, min_price=minimum / 100, max_price=maximum / 100, count=0, min_gift=None, max_gift=None)
-    return dict(ok=True, min_price=minimum / 100, max_price=maximum / 100, count=len(candidates),
+    return dict(ok=True, min_price=candidates[0]['price'] / 100, max_price=candidates[-1]['price'] / 100, count=len(candidates),
                 min_gift=dict(name=candidates[0]['name'], image_url=candidates[0]['image_url'], price_ton=candidates[0]['price'] / 100),
                 max_gift=dict(name=candidates[-1]['name'], image_url=candidates[-1]['image_url'], price_ton=candidates[-1]['price'] / 100))
 
 
 def choose_craft_reward(total_price, candidates):
-    """Pick a craft reward by multiplier bands instead of catalog rank.
+    """Choose payout class first; catalog density must not bias win probability.
 
-    The old algorithm strongly preferred the cheapest candidate because weight
-    decreased monotonically with catalog price. This version first chooses a
-    broad outcome band, then samples a target multiplier inside that band and
-    picks one of the nearest catalog gifts. The exact technical minimum is
-    intentionally excluded, while low, near-stake, high and jackpot outcomes
-    all remain possible.
+    With both pools present, 60% of crafts return at least the input value.
+    Within the winning pool: 80% below x2, 17% x2..x4, 3% x4+.
+    Missing bands are renormalized; no nonexistent rewards are fabricated.
     """
-    total_price = max(1, int(total_price or 0))
-    if not candidates:
+    if not candidates or total_price <= 0:
         return None
-
-    # Actual floor is slightly above the displayed x0.25 boundary so a craft
-    # never lands exactly on the most obvious minimum.
-    actual_floor = max(1, int(round(total_price * 0.30)))
-    eligible = [g for g in candidates if g['price'] >= actual_floor]
-    if not eligible:
-        eligible = list(candidates)
-
-    bands = [
-        # name, from x, to x, weight
-        ('deep_loss', 0.30, 0.58, 19),
-        ('loss',      0.58, 0.92, 24),
-        ('near',      0.92, 1.30, 27),
-        ('win',       1.30, 3.20, 22),
-        ('jackpot',   3.20, 10.0, 8),
-    ]
-    available = []
-    for name, low, high, weight in bands:
-        pool = [g for g in eligible if total_price * low <= g['price'] <= total_price * high]
-        if pool:
-            available.append((name, low, high, weight, pool))
-    if not available:
-        return secrets.choice(eligible)
-
-    roll = secrets.randbelow(sum(x[3] for x in available))
-    chosen = available[-1]
-    cursor = 0
-    for band in available:
-        cursor += band[3]
-        if roll < cursor:
-            chosen = band
-            break
-
-    _, low, high, _, pool = chosen
-    # Logarithmic sampling gives the whole band room to breathe instead of
-    # clustering around its arithmetic middle, especially in the x3.2..x10 band.
-    low = max(0.01, low)
-    u = secrets.randbelow(1_000_001) / 1_000_000
-    target_multiplier = math.exp(math.log(low) + (math.log(high) - math.log(low)) * u)
-    target_price = total_price * target_multiplier
-    pool = sorted(pool, key=lambda g: abs(g['price'] - target_price))
-    nearest = pool[:min(5, len(pool))]
-    # Avoid deterministic "closest gift" behavior as well.
-    return secrets.choice(nearest)
+    wins = [g for g in candidates if g['price'] >= total_price]
+    losses = [g for g in candidates if g['price'] < total_price]
+    pool = wins if wins and (not losses or secrets.randbelow(100) < 60) else losses
+    bands = [(1, 2, 80), (2, 4, 17), (4, 11, 3)] if pool is wins else [(0, .6, 25), (.6, 1, 75)]
+    available = [(weight, [g for g in pool if low * total_price <= g['price'] < high * total_price])
+                 for low, high, weight in bands]
+    available = [(weight, gifts) for weight, gifts in available if gifts]
+    roll = secrets.randbelow(sum(weight for weight, _ in available))
+    for weight, gifts in available:
+        if roll < weight:
+            return secrets.choice(gifts)
+        roll -= weight
 
 
 def craft_win_item(row):
@@ -2441,7 +2415,7 @@ def craft_win_item(row):
     return dict(id=int(row['id']), user_id=int(row['user_id']), name=str(row['name'] or 'Игрок'), username=str(row['username'] or ''),
                 photo_url=str(row['photo_url'] or ''), input_count=int(row['input_count'] or 0), input_total=int(row['input_total'] or 0) / 100,
                 reward=dict(name=str(row['reward_name'] or 'Подарок'), image_url=str(row['reward_image'] or ''), price_ton=int(row['reward_price'] or 0) / 100),
-                multiplier=round(float(row['reward_multiplier'] or 0), 2), created_at=row['created_at'])
+                multiplier=round(int(row['reward_price'] or 0) / max(1, int(row['input_total'] or 0)), 4), created_at=row['created_at'])
 
 
 @app.get('/api/craft/inventory')
@@ -2449,7 +2423,7 @@ def craft_win_item(row):
 def craft_inventory():
     with connect() as db:
         purge_expired_inventory(db, session['uid'])
-        rows = db.execute('SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 ORDER BY floor_price DESC,id DESC', (session['uid'],)).fetchall()
+        rows = db.execute('SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND COALESCE(promo_wager_target,0)<=COALESCE(promo_wager_progress,0) ORDER BY floor_price DESC,id DESC', (session['uid'],)).fetchall()
     return jsonify(items=[inventory_item(x) for x in rows])
 
 
@@ -2468,7 +2442,7 @@ def craft_preview():
             seen.add(value); ids.append(value)
     with connect() as db:
         purge_expired_inventory(db, session['uid'])
-        rows = db.execute(f"SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND id IN ({','.join('?'*len(ids))})", (session['uid'], *ids)).fetchall() if ids else []
+        rows = db.execute(f"SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND COALESCE(promo_wager_target,0)<=COALESCE(promo_wager_progress,0) AND id IN ({','.join('?'*len(ids))})", (session['uid'], *ids)).fetchall() if ids else []
     items = [inventory_item(x) for x in rows]
     total = sum(int(round(float(item['price_ton']) * 100)) for item in items)
     preview = craft_preview_for_total(total) if len(items) >= 3 else dict(ok=False, min_price=0, max_price=0, count=0, min_gift=None, max_gift=None)
@@ -2491,8 +2465,9 @@ def craft_play():
     if len(ids) < 3:
         return error('Для крафта нужно минимум 3 подарка.')
     with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
         purge_expired_inventory(db, session['uid'])
-        rows = db.execute(f"SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND id IN ({','.join('?'*len(ids))}) ORDER BY id", (session['uid'], *ids)).fetchall()
+        rows = db.execute(f"SELECT * FROM inventory WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND COALESCE(promo_wager_target,0)<=COALESCE(promo_wager_progress,0) AND id IN ({','.join('?'*len(ids))}) ORDER BY id" + (" FOR UPDATE" if DATABASE_URL else ""), (session['uid'], *ids)).fetchall()
         if len(rows) != len(ids):
             return error('Часть подарков недоступна для крафта.')
         total = sum(int(r['floor_price'] or 0) for r in rows)
@@ -2509,7 +2484,7 @@ def craft_play():
         reward_id = reward_cur.lastrowid
         multiplier = round((winner['price'] / max(1, total)), 4)
         spin_row = db.execute('INSERT INTO craft_spins(user_id,input_count,input_total,min_price,max_price,reward_name,reward_image,reward_price,reward_multiplier) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id', (session['uid'], len(rows), total, minimum, maximum, winner['name'], winner['image_url'], winner['price'], multiplier)).fetchone()
-        spin_id = int(spin_row['id']) if spin_row and spin_row.get('id') is not None else None
+        spin_id = int(spin_row['id']) if spin_row and spin_row['id'] is not None else None
         record_transaction(db, session['uid'], 'craft_consume', 0, 'craft', spin_id, f'Крафт из {len(rows)} подарков')
         record_transaction(db, session['uid'], 'craft_reward', 0, 'inventory', reward_id, f'Награда за крафт: {winner["name"]}')
         log_event(db, session['uid'], 'craft_play', spin_id=spin_id, input_count=len(rows), input_total=total/100, reward_name=winner['name'], reward_price=winner['price']/100, multiplier=multiplier)
@@ -2523,9 +2498,9 @@ def craft_play():
 def craft_recent_wins():
     with connect() as db:
         cutoff, _ = wins_feed_cutoff(db, 'craft')
-        rows = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>? ORDER BY c.created_at DESC,c.id DESC LIMIT 30', (cutoff,)).fetchall()
+        rows = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>? AND c.reward_price>=c.input_total ORDER BY c.created_at DESC,c.id DESC LIMIT 30', (cutoff,)).fetchall()
         day_start = wins_day_start_utc()
-        top = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>=? ORDER BY c.reward_price DESC,c.id DESC LIMIT 1', (day_start,)).fetchone()
+        top = db.execute('SELECT c.*,u.name,u.username,u.photo_url FROM craft_spins c JOIN users u ON u.id=c.user_id WHERE c.created_at>=? AND c.reward_price>=c.input_total ORDER BY c.reward_price DESC,c.id DESC LIMIT 1', (day_start,)).fetchone()
     return jsonify(items=[craft_win_item(r) for r in rows], top_drop=craft_win_item(top) if top else None)
 
 
@@ -4241,36 +4216,76 @@ def create_upgrade_compensation_promo(db, user_id, source_price, force=False, pi
     return promo_view(row)
 
 def apply_upgrade_loss_compensation(db, user_id, source_price):
-    # Tiny test spins below 0.10 TON do not advance compensation pity. All real
-    # Upgrade losses from 0.10 TON do, so a user can no longer play repeatedly
-    # below 1 TON and have a zero chance of ever seeing a compensation reward.
-    if source_price < 10:
-        return dict(cashback=0, cashback_percent=0, promo=None, promo_pity=0, promo_pity_limit=0)
-    source_ton = source_price / 100
-    cashback = 0
-    percent = 0.0
-    if source_price >= 100:
-        if source_ton < 10:
-            min_percent, max_percent = 0.5, 3.0
-        elif source_ton < 100:
-            min_percent, max_percent = 0.75, 5.0
-        else:
-            min_percent, max_percent = 1.0, 7.5
-        percent = min_percent + secrets.randbelow(int((max_percent - min_percent) * 100) + 1) / 100
-        cashback = max(1, round(source_price * percent / 100.0))
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cashback, user_id))
-        record_transaction(db, user_id, 'upgrade_cashback', cashback, 'upgrade', '',
-                           f'Кэшбэк за неудачный Upgrade · {percent:.2f}%')
-    row = db.execute('SELECT eligible_losses FROM upgrade_promo_pity WHERE user_id=?', (user_id,)).fetchone()
-    previous = int(row['eligible_losses'] or 0) if row else 0
-    # Meaningful losses should reach hard pity sooner than tiny test bets.
-    limit = 3 if source_ton >= 100 else 4 if source_ton >= 50 else 5 if source_ton >= 25 else 6 if source_ton >= 10 else 8 if source_ton >= 2 else 10 if source_ton >= 1 else 12
-    promo = create_upgrade_compensation_promo(db, user_id, source_price, force=previous >= limit - 1, pity_streak=previous)
-    db.execute("""INSERT INTO upgrade_promo_pity(user_id,eligible_losses) VALUES(?,?)
-                  ON CONFLICT(user_id) DO UPDATE SET eligible_losses=excluded.eligible_losses""",
-               (user_id, 0 if promo else previous + 1))
-    return dict(cashback=cashback/100, cashback_percent=round(percent, 2), promo=promo,
-                promo_pity=0 if promo else previous + 1, promo_pity_limit=limit)
+    """Award exactly one server-selected prize, persisted with the upgrade spin.
+
+    Cosmetic reel items come from the same eligible pool; replaying a spin uses
+    its saved result and never issues the prize twice.
+    """
+    empty = dict(cashback=0, cashback_percent=0, promo=None, reward=None, reel=[])
+    if source_price < 500:
+        return empty
+    large = source_price >= 10000
+    medium = source_price >= 2500
+    budget = max(100, round(source_price * (.20 if large else .16)))
+    gifts = [g for g in craft_catalog_candidates() if g['price'] <= budget]
+    pool = []
+    for percent in (1, 2, 3, 5):
+        amount = max(1, round(source_price * percent / 100))
+        pool.append(dict(type='balance', amount=amount/100, image_url='/static/img/ton.png', name='TON'))
+    gift_options = []
+    for gift in gifts:
+        # Larger losses increase the eligible catalog and lower playthrough.
+        for kind in ('gift', 'wager_gift', 'promo'):
+            multiplier = secrets.choice([5, 8, 10] if large else [8, 10, 12] if medium else [10, 15, 20])
+            gift_options.append(dict(type=kind, gift_id=gift['id'], name=gift['name'],
+                                     image_url=gift['image_url'], price_ton=gift['price']/100,
+                                     wager_multiplier=multiplier if kind=='wager_gift' else 0))
+    if gift_options:
+        # Gift / wagering / personal-code rewards together: 80%, 85%, 90%.
+        weights = [('balance', 10 if large else 15 if medium else 20),
+                   ('wager_gift', 40), ('gift', 25), ('promo', 25 if large else 20 if medium else 15)]
+        roll = secrets.randbelow(100)
+        kind = 'balance'
+        for candidate, weight in weights:
+            if roll < weight:
+                kind = candidate
+                break
+            roll -= weight
+        reward = dict(secrets.choice(pool if kind=='balance' else [g for g in gift_options if g['type']==kind]))
+    else:
+        reward = dict(secrets.choice(pool))
+    comp = dict(empty, reward=reward, reel=pool + gift_options)
+    if reward['type'] == 'balance':
+        amount = ton_to_cents(reward['amount'])
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+        record_transaction(db, user_id, 'upgrade_cashback', amount, 'upgrade', '', 'Компенсация Upgrade')
+        comp['cashback'] = amount/100
+    elif reward['type'] in ('gift', 'wager_gift'):
+        locked = reward['type'] == 'wager_gift'
+        price = ton_to_cents(reward['price_ton'])
+        multiplier = reward['wager_multiplier']
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                         promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress)
+                         VALUES(?,?,?,?,?,'upgrade_compensation',?,?,?,0)""",
+                         (user_id,reward['gift_id'],reward['name'],reward['image_url'],price,
+                          int(locked),multiplier,round(price*multiplier)))
+        reward['inventory_id'] = cur.lastrowid
+        reward['wager_target'] = round(price*multiplier)/100
+        record_transaction(db, user_id, 'upgrade_compensation_gift', 0, 'inventory', cur.lastrowid, reward['name'])
+    else:
+        code = unique_promo_code(db, 'UPG')
+        expires = (datetime.now(timezone.utc)+timedelta(days=7)).isoformat()
+        db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,
+                     gift_price,wager_multiplier,max_uses,created_by,assigned_user_id,source_label,description,
+                     reward_json,expires_at) VALUES(?,'gift',0,?,?,?,?,0,1,0,?,?,?,?,?)""",
+                   (code,reward['gift_id'],reward['name'],reward['image_url'],ton_to_cents(reward['price_ton']),
+                    user_id,'Компенсация Upgrade','Персональный промокод на подарок',
+                    json.dumps(dict(compensation=True, owner_id=user_id)),expires))
+        comp['promo'] = promo_view(db.execute('SELECT * FROM promo_codes WHERE code=?',(code,)).fetchone())
+        reward['code'] = code
+    # Keep the replay payload small even for large catalogs.
+    comp['reel'] = [secrets.choice(pool + gift_options) for _ in range(28)]
+    return comp
 
 
 @app.get('/api/promocodes/mine')
@@ -4375,7 +4390,9 @@ def redeem_promocode():
         promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not promo or not promo['active']:
             return error('Промокод не найден или отключён.', 404)
-        if int(promo['assigned_user_id'] or 0) not in (0, int(session['uid'])):
+        if (int(promo['assigned_user_id'] or 0) not in (0, int(session['uid']))
+                or (str(promo['source_label'] or '') == 'Компенсация Upgrade'
+                    and int(promo['assigned_user_id'] or 0) != int(session['uid']))):
             return error('Этот промокод предназначен другому пользователю.', 403)
         if promo_is_expired(promo):
             return error('Срок действия промокода истёк.', 409)
@@ -4537,7 +4554,9 @@ def check_deposit_promocode():
             return jsonify(valid=False, message='Промокод не найден.')
         if promo['reward_type'] != 'deposit_bonus':
             return jsonify(valid=False, message='Этот промокод не подходит для пополнения.')
-        if int(promo['assigned_user_id'] or 0) not in (0, int(session['uid'])):
+        if (int(promo['assigned_user_id'] or 0) not in (0, int(session['uid']))
+                or (str(promo['source_label'] or '') == 'Компенсация Upgrade'
+                    and int(promo['assigned_user_id'] or 0) != int(session['uid']))):
             return jsonify(valid=False, message='Этот промокод предназначен другому пользователю.')
         if promo_is_expired(promo):
             return jsonify(valid=False, message='Срок действия промокода истёк.')

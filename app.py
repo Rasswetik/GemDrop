@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '42-portal-backgrounds'
+BUILD_ID = '44-portal-timeout-fix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -6094,7 +6094,7 @@ def portal_get_collections(session_http, key, params):
                     'https://portal-market.com/api/collections',
                     params=params,
                     headers=portal_headers(auth_key),
-                    timeout=(5, 10),
+                    timeout=(3, 6),
                 )
                 if response.status_code == 429 and attempt < 2:
                     retry_after = response.headers.get('Retry-After', '1')
@@ -6120,7 +6120,8 @@ def portal_get_collections(session_http, key, params):
     raise requests.RequestException('Portal did not return a response')
 
 
-def portal_get_collection_filters(session_http, key, names):
+def portal_get_collection_filters(session_http, key, names, deadline=None):
+    """Best-effort background floors. Never let this optional request freeze Portal import."""
     short_names = []
     seen_names = set()
     for name in names:
@@ -6128,31 +6129,40 @@ def portal_get_collection_filters(session_http, key, names):
         if short and short not in seen_names:
             seen_names.add(short)
             short_names.append(short)
+        if len(short_names) >= 40:
+            # Keep the URL short and the Portal filters endpoint responsive. The
+            # main collection page is still imported fully even if backgrounds are
+            # only discovered for part of the page.
+            break
     if not short_names:
         return {}
+    if deadline is not None and time.monotonic() > deadline - 4:
+        return {}
     params = {'short_names': ','.join(short_names)}
-    hosts = ('https://portal-market.com/api/collections/filters',
-             'https://portals-market.com/api/collections/filters')
+    url = 'https://portal-market.com/api/collections/filters'
     auth_candidates = [str(key or '').strip()]
     if auth_candidates[0]:
         auth_candidates.append('')
     for auth_key in auth_candidates:
-        for url in hosts:
-            try:
-                response = session_http.get(url, params=params, headers=portal_headers(auth_key), timeout=(5, 10))
-                if response.status_code in (401, 403, 404):
-                    continue
-                response.raise_for_status()
-                payload = response.json()
-            except (requests.RequestException, ValueError):
+        if deadline is not None and time.monotonic() > deadline - 3:
+            return {}
+        try:
+            response = session_http.get(url, params=params, headers=portal_headers(auth_key), timeout=(1.5, 2.5))
+            if response.status_code in (401, 403, 404):
                 continue
-            floors = payload.get('floor_prices', payload.get('floorPrices', payload)) if isinstance(payload, dict) else {}
-            if not isinstance(floors, dict):
-                continue
-            result = {}
-            for key_name, value in floors.items():
-                result[portal_short_name(key_name)] = value
-            return result
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            # Filters are optional: if Portal does not answer, continue with the
+            # ordinary gifts and any background data embedded into collections.
+            return {}
+        floors = payload.get('floor_prices', payload.get('floorPrices', payload)) if isinstance(payload, dict) else {}
+        if not isinstance(floors, dict):
+            return {}
+        result = {}
+        for key_name, value in floors.items():
+            result[portal_short_name(key_name)] = value
+        return result
     return {}
 
 
@@ -6164,8 +6174,8 @@ def fetch_portal_catalog(key, progress=None):
     offset = 0
     session_http = requests.Session()
     page_signatures = set()
-    request_limit = 100
-    deadline = time.monotonic() + 55
+    request_limit = 80
+    deadline = time.monotonic() + 42
 
     # The public collections endpoint is also used by the Portals web app. Some
     # deployments cap a page below the requested limit, so advance by the real
@@ -6197,7 +6207,8 @@ def fetch_portal_catalog(key, progress=None):
 
         page_filters = portal_get_collection_filters(
             session_http, key,
-            [item.get('name') or item.get('title') or item.get('gift_name') for item in items if isinstance(item, dict)]
+            [item.get('name') or item.get('title') or item.get('gift_name') for item in items if isinstance(item, dict)],
+            deadline=deadline,
         )
 
         page_ids = tuple(str(item.get('id') or item.get('slug') or item.get('name') or '')

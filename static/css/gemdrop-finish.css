@@ -1,0 +1,49 @@
+/* Unified surface and responsive finishing pass. Kept after legacy sheets. */
+:root{--gd-bg:#080f18;--gd-glass:#152330;--gd-line:rgba(164,213,238,.15);--gd-line-strong:rgba(164,213,238,.24);--gd-text:#f1f8fc;--gd-muted:#a2b6c2;--gd-blue:#81dded;--accent:#81dded;--surface:#14212c;--surface2:#1b2b38;--line:rgba(164,213,238,.18);--text:#f1f8fc;--muted:#a2b6c2}
+html{background:#080f18!important;scroll-behavior:smooth}
+body{background:radial-gradient(ellipse 80% 360px at 50% -140px,rgba(33,124,159,.22),transparent),linear-gradient(165deg,#0d1824,#080f18 68%)!important;background-attachment:scroll!important;color:var(--gd-text)!important}
+.app{max-width:480px!important}
+#content>section{animation:gd-page-in .26s ease-out both}
+@keyframes gd-page-in{from{opacity:.5;transform:translateY(7px)}to{opacity:1;transform:none}}
+.top,.upgrade-top,.craft-top{align-items:center!important;min-width:0}
+.balance,.deposit-mini{background:rgba(32,57,69,.75)!important;border-color:rgba(132,222,239,.24)!important;box-shadow:inset 0 1px rgba(255,255,255,.07)!important}
+.panel,.profile-hero,.admin-group,.recent-wins-card,.craft-workspace{background:linear-gradient(155deg,rgba(24,42,54,.97),rgba(13,25,36,.98))!important;border:1px solid var(--gd-line)!important;box-shadow:inset 0 1px rgba(255,255,255,.06),0 16px 38px rgba(0,0,0,.18)!important}
+.modal-card,.craft-picker-card,.craft-result-card{background:linear-gradient(155deg,#203343,#101d29)!important;border:1px solid var(--gd-line-strong)!important;box-shadow:0 28px 80px rgba(0,0,0,.52)!important}
+.primary,#craftPage .craft-action{background:linear-gradient(110deg,#9ae9e3,#83c7f3)!important;color:#09242e!important;border:1px solid rgba(236,255,255,.35)!important;font-weight:800!important;box-shadow:0 7px 23px rgba(67,185,210,.18)!important;transition:transform .18s ease,filter .18s ease,box-shadow .18s ease!important}
+.primary:not(:disabled):active,#craftPage .craft-action:not(:disabled):active{transform:scale(.975)}
+.secondary,.mini-btn,.quick button,.admin-actions button{transition:background .18s ease,border-color .18s ease,transform .18s ease!important}
+.text-input,.field,select,textarea{color:#f1f8fc!important}
+.text-input::placeholder,input::placeholder,textarea::placeholder{color:#829aa9!important}
+.caption,.muted,.modal-extra{color:#a2b6c2!important}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #90e7ef!important;outline-offset:2px!important}
+#nav.nav{background:rgba(20,34,46,.94)!important;border-color:rgba(149,219,235,.23)!important;box-shadow:inset 0 1px rgba(255,255,255,.09),0 16px 36px rgba(0,0,0,.42)!important}
+#nav.nav button:not(:last-child):after{display:none!important}
+#nav.nav button.active{background:rgba(112,220,229,.13)!important;color:#b4f4ef!important}
+.modal{background:rgba(4,11,20,.76)!important}
+.modal-card{scrollbar-width:thin;scrollbar-color:#496678 transparent}
+.gift-art,.craft-inventory-art{background:radial-gradient(circle at 50% 39%,rgba(102,208,228,.14),rgba(11,26,38,.2) 72%)!important}
+.gift-art img,.pick-art img{object-fit:contain!important}
+.board{border-color:var(--gd-line-strong)!important;background:rgba(10,23,34,.9)!important}
+.cell{background:linear-gradient(155deg,#253b4c,#172735)!important;border-color:rgba(137,212,234,.21)!important}
+#craftPage{--craft-card:linear-gradient(155deg,#203747,#122533)!important;--craft-line:rgba(145,218,235,.18)!important}
+#craftPage .craft-grid{gap:10px!important}
+#craftPage .craft-slot{min-width:0!important;border-color:var(--craft-line)!important;background:var(--craft-card)!important;box-shadow:inset 0 1px rgba(255,255,255,.07),0 10px 24px rgba(0,0,0,.18)!important}
+#craftPage .craft-slot.filled{background:radial-gradient(circle at 50% 26%,rgba(65,144,157,.31),rgba(17,35,48,.96) 70%)!important;border-color:rgba(130,228,225,.42)!important}
+#craftPage .craft-slot>img{grid-column:1!important;grid-row:1!important;align-self:center!important;justify-self:center!important;max-width:90%!important;max-height:82px!important;margin:auto!important;object-fit:contain!important}
+#craftPage .craft-slot .craft-slot-name,#craftPage .craft-slot .craft-slot-cost{grid-column:1!important;justify-self:center!important}
+#craftPage .craft-slot-plus{border-color:rgba(144,226,235,.2)!important;background:rgba(124,210,232,.1)!important}
+#craftPage .craft-range-card,#craftPage .craft-win-row,#craftPage .top-drop{background:#1a2c39!important;border:1px solid var(--gd-line)!important}
+#craftInventoryModal .craft-inventory-item{background:linear-gradient(150deg,#233c4a,#152634)!important;border-color:var(--gd-line)!important}
+#craftInventoryModal .craft-inventory-item:not(:disabled):hover{border-color:rgba(140,230,227,.55)!important}
+#craftInventoryModal .craft-inventory-art>img{width:82px!important;height:82px!important;max-width:90%!important;max-height:90%!important;object-fit:contain!important}
+#craftInventoryModal .craft-picker-card{max-height:min(88dvh,760px)!important}
+#craftInventoryModal .craft-inventory-grid{overscroll-behavior:contain!important}
+#upgradePage .upgrade-pick{border-color:var(--gd-line)!important;background:linear-gradient(155deg,#1d3542,#112330)!important}
+#upgradePage .upgrade-pick.selected{border-color:rgba(145,227,227,.5)!important}
+.recent-win,.craft-win-row,.upgrade-win-row{min-width:0;overflow:hidden}
+.craft-win-chip b,.upgrade-win-chip b{overflow-wrap:anywhere}
+@media (hover:hover) and (pointer:fine){.primary:not(:disabled):hover,#craftPage .craft-action:not(:disabled):hover{filter:brightness(1.08)!important;box-shadow:0 10px 27px rgba(67,185,210,.24)!important}.secondary:not(:disabled):hover,.mini-btn:not(:disabled):hover,.admin-actions button:hover{background:rgba(108,207,228,.11)!important;border-color:rgba(145,228,230,.4)!important}#craftPage .craft-slot:not(:disabled):hover{border-color:rgba(145,228,230,.57)!important;transform:translateY(-2px)!important}}
+@media(max-width:520px){.app{padding-inline:clamp(12px,4vw,18px)!important}#craftPage .craft-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}#craftPage .craft-slot{min-height:154px!important}#craftPage .craft-range-card{min-width:0!important;padding:10px 7px!important}#craftPage .craft-range-card>img{flex:0 0 37px!important;width:37px!important;max-width:37px!important}#craftInventoryModal .craft-inventory-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}#craftInventoryModal .craft-inventory-item{min-height:160px!important;grid-template-rows:92px minmax(30px,auto) 22px!important}#craftInventoryModal .craft-inventory-art{height:92px!important;min-height:92px!important;max-height:92px!important}#craftInventoryModal .craft-inventory-art>img{max-height:83px!important}#nav.nav{width:calc(100% - 20px)!important}#nav.nav button{min-width:0!important;font-size:9px!important}}
+@media(min-width:521px) and (max-width:767px){#craftPage .craft-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(min-width:768px){.app{max-width:1120px!important}#content>section{max-width:760px}#content>#craftPage{max-width:1056px}.craft-workspace{padding:clamp(20px,3vw,34px)}#craftPage .craft-grid{grid-template-columns:repeat(5,minmax(0,1fr))!important}#craftPage .craft-slot{min-height:170px!important}#craftInventoryModal .craft-inventory-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}#content>section{animation:none!important}.primary,#craftPage .craft-action,.secondary,.mini-btn,.quick button,.admin-actions button,#craftPage .craft-slot{transition:none!important;animation:none!important}}

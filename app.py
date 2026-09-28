@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '50-giveaways-tickets-fragment'
+BUILD_ID = '52-rewards-tasks-animation'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -160,7 +160,10 @@ def initialize():
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
             gift_id TEXT NOT NULL, gift_name TEXT NOT NULL, image_url TEXT NOT NULL DEFAULT '',
             floor_price INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL,
-            round_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            round_id INTEGER, external_url TEXT NOT NULL DEFAULT '', fragment_number TEXT NOT NULL DEFAULT '',
+            fragment_model TEXT NOT NULL DEFAULT '', fragment_backdrop TEXT NOT NULL DEFAULT '',
+            fragment_symbol TEXT NOT NULL DEFAULT '', price_source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS craft_spins (
@@ -302,17 +305,30 @@ def initialize():
             kind TEXT NOT NULL,reference_type TEXT NOT NULL DEFAULT '',reference_id TEXT NOT NULL DEFAULT '',
             details TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS reward_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,category TEXT NOT NULL,
+            metric TEXT NOT NULL,goal INTEGER NOT NULL DEFAULT 1,tickets INTEGER NOT NULL DEFAULT 1,
+            action_page TEXT NOT NULL DEFAULT '',demo INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS reward_task_claims (
+            task_id INTEGER NOT NULL,user_id INTEGER NOT NULL,period_key TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(task_id,user_id,period_key)
+        );
         CREATE TABLE IF NOT EXISTS giveaways (
             id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',
             starts_at TEXT NOT NULL,ends_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',
-            winner_count INTEGER NOT NULL DEFAULT 1,created_by INTEGER NOT NULL,
+            winner_count INTEGER NOT NULL DEFAULT 1,allow_repeat_winners INTEGER NOT NULL DEFAULT 1,created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,completed_at TEXT
         );
         CREATE TABLE IF NOT EXISTS giveaway_prizes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,giveaway_id INTEGER NOT NULL,position INTEGER NOT NULL DEFAULT 0,
             source_type TEXT NOT NULL DEFAULT 'catalog',gift_id TEXT NOT NULL DEFAULT '',gift_name TEXT NOT NULL,
-            image_url TEXT NOT NULL DEFAULT '',floor_price INTEGER NOT NULL DEFAULT 0,
-            fragment_url TEXT NOT NULL DEFAULT '',fragment_number TEXT NOT NULL DEFAULT ''
+            image_url TEXT NOT NULL DEFAULT '',floor_price INTEGER NOT NULL DEFAULT 0,quantity INTEGER NOT NULL DEFAULT 1,
+            fragment_url TEXT NOT NULL DEFAULT '',fragment_number TEXT NOT NULL DEFAULT '',
+            fragment_model TEXT NOT NULL DEFAULT '',fragment_backdrop TEXT NOT NULL DEFAULT '',
+            fragment_symbol TEXT NOT NULL DEFAULT '',price_source TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS giveaway_entries (
             giveaway_id INTEGER NOT NULL,user_id INTEGER NOT NULL,tickets INTEGER NOT NULL DEFAULT 0,
@@ -390,7 +406,21 @@ def initialize():
             ('promo_locked', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('expires_at', 'TEXT'),
+            ('external_url', "TEXT NOT NULL DEFAULT ''"), ('fragment_number', "TEXT NOT NULL DEFAULT ''"),
+            ('fragment_model', "TEXT NOT NULL DEFAULT ''"), ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"),
+            ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
         ])
+        ensure_columns('giveaways', [
+            ('allow_repeat_winners', 'INTEGER NOT NULL DEFAULT 1'),
+        ])
+        ensure_columns('giveaway_prizes', [
+            ('quantity', 'INTEGER NOT NULL DEFAULT 1'),
+            ('fragment_model', "TEXT NOT NULL DEFAULT ''"), ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"),
+            ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
+        ])
+        ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('reward_tasks', [('ends_at', 'TEXT')])
         ensure_columns('promo_codes', [
             ('wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('bonus_percent', 'REAL NOT NULL DEFAULT 0'),
@@ -479,6 +509,19 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS giveaways_status_end ON giveaways(status,ends_at,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS giveaway_entries_pool ON giveaway_entries(giveaway_id,tickets DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS giveaway_winners_giveaway ON giveaway_winners(giveaway_id,rank)')
+        db.execute('CREATE INDEX IF NOT EXISTS reward_task_claims_user ON reward_task_claims(user_id,task_id)')
+        if not db.execute('SELECT 1 FROM reward_tasks LIMIT 1').fetchone():
+            # Starter tasks use actual server events; no reward is issued for a demo card.
+            for title, category, metric, goal, tickets, page, demo in [
+                ('Сделайте 1 успешный апгрейд с шансом ниже 25%', 'limited', 'upgrade_low', 1, 200, 'upgradePage', 1),
+                ('Сделайте 1 крафт', 'limited', 'craft', 1, 100, 'craftPage', 1),
+                ('Пополните баланс на сумму более 5 TON', 'limited', 'deposit_5', 1, 100, 'profilePage', 1),
+                ('Сделайте 1 успешный апгрейд', 'once', 'upgrade_win', 1, 25, 'upgradePage', 0),
+                ('Пригласите 3 друзей', 'daily', 'referral', 3, 5, 'profilePage', 0),
+                ('Пополните баланс от 5 TON', 'once', 'deposit_5', 1, 100, 'profilePage', 0),
+            ]:
+                db.execute('INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,demo) VALUES(?,?,?,?,?,?,?)',
+                           (title, category, metric, goal, tickets, page, demo))
 
         # Craft data remains in the database for backwards compatibility, but the public
         # navigation is replaced by Giveaways starting with build 50.
@@ -1000,9 +1043,15 @@ def inventory_item(row):
     raw_expires = row['expires_at'] if 'expires_at' in row.keys() else None
     expires = parse_datetime_utc(raw_expires) if raw_expires else None
     expires_in = max(0, int((expires - datetime.now(timezone.utc)).total_seconds())) if expires else None
+    def optional(name, default=''):
+        return row[name] if name in row.keys() and row[name] is not None else default
     return dict(id=row['id'], gift_id=row['gift_id'], name=row['gift_name'],
                 image_url=row['image_url'], price_ton=row['floor_price']/100,
                 source=row['source'], created_at=row['created_at'],
+                external_url=optional('external_url'), fragment_url=optional('external_url'),
+                fragment_number=optional('fragment_number'), fragment_model=optional('fragment_model'),
+                fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
+                price_source=optional('price_source'), animation_url=optional('animation_url'),
                 promo_locked=locked, promo_code=row['promo_code'] or '',
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                 wager_target=target/100, wager_progress=progress/100,
@@ -2404,6 +2453,246 @@ def record_tickets(db, user_id, amount, kind, reference_type='', reference_id=''
                (int(user_id), amount, str(kind)[:80], str(reference_type)[:80], str(reference_id)[:120], str(details)[:300]))
 
 
+def _fragment_meta_content(html_text, key):
+    escaped = re.escape(key)
+    patterns = (
+        rf'<meta[^>]+(?:property|name)=["\']{escaped}["\'][^>]+content=["\']([^"\']+)',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']{escaped}["\']',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html_text or '', re.I)
+        if match:
+            return unescape(match.group(1)).strip()
+    return ''
+
+
+def _fragment_traits_from_text(text):
+    traits = {'model': '', 'backdrop': '', 'symbol': ''}
+    text = unescape(str(text or '')).replace('•', '\n')
+    for key, label in (('model', 'Model'), ('backdrop', 'Backdrop'), ('symbol', 'Symbol')):
+        match = re.search(rf'(?:^|[\n\r])\s*{label}\s*:\s*([^\n\r|]+)', text, re.I)
+        if not match:
+            match = re.search(rf'\b{label}\s*:\s*([^,;|]+)', text, re.I)
+        if match:
+            traits[key] = match.group(1).strip()[:100]
+    return traits
+
+
+def _fragment_traits_from_json(payload):
+    traits = {'model': '', 'backdrop': '', 'symbol': ''}
+    if not isinstance(payload, dict):
+        return traits
+    attrs = payload.get('attributes') or payload.get('traits') or []
+    if isinstance(attrs, dict):
+        attrs = [{'trait_type': k, 'value': v} for k, v in attrs.items()]
+    if isinstance(attrs, list):
+        for attr in attrs:
+            if not isinstance(attr, dict):
+                continue
+            key = str(attr.get('trait_type') or attr.get('type') or attr.get('name') or attr.get('key') or '').casefold()
+            value = str(attr.get('value') or attr.get('label') or attr.get('title') or '').strip()
+            if not value:
+                continue
+            if 'model' in key:
+                traits['model'] = value[:100]
+            elif 'backdrop' in key or 'background' in key:
+                traits['backdrop'] = value[:100]
+            elif 'symbol' in key or 'pattern' in key:
+                traits['symbol'] = value[:100]
+    return traits
+
+
+def _fragment_json_image(payload):
+    if not isinstance(payload, dict):
+        return ''
+    candidates = [payload.get('image'), payload.get('image_url'), payload.get('imageUrl'), payload.get('preview')]
+    for parent_key in ('media', 'pics', 'images', 'previews'):
+        parent = payload.get(parent_key)
+        if isinstance(parent, dict):
+            for key in ('large', 'medium', 'small', 'webp', 'jpg', 'url'):
+                candidates.append(parent.get(key))
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            candidate = candidate.get('url')
+        if safe_image(candidate):
+            return candidate
+    return ''
+
+
+def _fragment_json_animation(payload):
+    if not isinstance(payload, dict):
+        return ''
+    values = [payload.get(key) for key in ('animation_url', 'animationUrl', 'video_url', 'videoUrl', 'video')]
+    media = payload.get('media')
+    if isinstance(media, dict):
+        values += [media.get(key) for key in ('animation', 'video', 'mp4', 'webm')]
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get('url') or value.get('src')
+        if safe_image(value):
+            return value
+    return ''
+
+
+def _fragment_price_from_text(text):
+    """Best-effort listed TON price; deliberately requires a price/listing keyword."""
+    clean = re.sub(r'<[^>]+>', ' ', unescape(str(text or '')))
+    clean = re.sub(r'\s+', ' ', clean)
+    patterns = (
+        r'(?i)\b(?:price|sale price|listed(?: for)?|buy now|floor(?: price)?|стоимость|цена)\b[^0-9]{0,50}([0-9][0-9\s.,]{0,24})\s*(?:TON|GRAM)\b',
+        r'(?i)([0-9][0-9\s.,]{0,24})\s*(?:TON|GRAM)\b[^A-Za-zА-Яа-я]{0,20}\b(?:price|sale|listed|buy|floor|цена|стоимость)\b',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, clean)
+        if not match:
+            continue
+        raw = match.group(1).replace(' ', '')
+        if raw.count(',') == 1 and '.' not in raw:
+            raw = raw.replace(',', '.')
+        else:
+            raw = raw.replace(',', '')
+        try:
+            value = Decimal(raw)
+            if value.is_finite() and Decimal('0.01') <= value <= Decimal('10000000'):
+                return int((value * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, ValueError):
+            pass
+    return 0
+
+
+def _price_from_json(payload):
+    if not isinstance(payload, (dict, list)):
+        return 0
+    price_keys = {'price', 'sale_price', 'salePrice', 'floor_price', 'floorPrice', 'list_price', 'listPrice'}
+    queue = [payload]
+    while queue:
+        item = queue.pop(0)
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if key in price_keys and not isinstance(value, (dict, list)):
+                    try:
+                        amount = Decimal(str(value))
+                        if amount.is_finite() and Decimal('0.01') <= amount <= Decimal('10000000'):
+                            return int((amount * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+                    except (InvalidOperation, TypeError, ValueError):
+                        pass
+                if isinstance(value, (dict, list)):
+                    queue.append(value)
+        elif isinstance(item, list):
+            queue.extend(x for x in item if isinstance(x, (dict, list)))
+    return 0
+
+
+def _portal_filter_trait_floor(payload, model='', backdrop=''):
+    """Find a trait/model floor in Portal's varying filter JSON shapes."""
+    target_model = re.sub(r'\s+', ' ', str(model or '').strip()).casefold()
+    target_backdrop = re.sub(r'\s+', ' ', str(backdrop or '').strip()).casefold()
+    model_candidates, backdrop_candidates = [], []
+
+    def price_cents(value):
+        if isinstance(value, dict):
+            for key in ('floor_price', 'floorPrice', 'min_price', 'minPrice', 'price', 'amount', 'floor', 'value'):
+                if key in value:
+                    found = price_cents(value.get(key))
+                    if found:
+                        return found
+            return 0
+        try:
+            amount = Decimal(str(value))
+            if amount.is_finite() and amount > 0:
+                # Portal's collection importer treats these fields as TON; keep the same unit here.
+                return int((amount * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, TypeError, ValueError):
+            return 0
+        return 0
+
+    def scan(obj, context=''):
+        if isinstance(obj, list):
+            for x in obj:
+                scan(x, context)
+            return
+        if not isinstance(obj, dict):
+            return
+        trait = str(obj.get('trait_type') or obj.get('type') or obj.get('key') or obj.get('category') or context or '').casefold()
+        value = str(obj.get('value') or obj.get('name') or obj.get('label') or obj.get('title') or '').strip()
+        norm = re.sub(r'\s+', ' ', value).casefold()
+        price = price_cents(obj)
+        if target_model and norm == target_model and ('model' in trait or not trait):
+            if price: model_candidates.append(price)
+        if target_backdrop and norm == target_backdrop and any(k in trait for k in ('backdrop', 'background')):
+            if price: backdrop_candidates.append(price)
+        for key, child in obj.items():
+            key_norm = re.sub(r'\s+', ' ', str(key)).casefold()
+            if target_model and key_norm == target_model:
+                p = price_cents(child)
+                if p: model_candidates.append(p)
+            if target_backdrop and key_norm == target_backdrop:
+                p = price_cents(child)
+                if p: backdrop_candidates.append(p)
+            if isinstance(child, (dict, list)):
+                scan(child, key)
+    scan(payload)
+    if model_candidates:
+        return min(model_candidates), 'Portal · модель'
+    if backdrop_candidates:
+        return min(backdrop_candidates), 'Portal · фон'
+    return 0, ''
+
+
+def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
+    """Use Portal trait floor when possible, then collection floor from the cached catalog/public API."""
+    short = portal_short_name(collection_name)
+    key = saved_portal_key()
+    if short:
+        try:
+            response = requests.get('https://portal-market.com/api/collections/filters',
+                                    params={'short_names': short}, headers=portal_headers(key), timeout=(2, 4))
+            if response.ok and len(response.content) < 3_000_000:
+                price, source = _portal_filter_trait_floor(response.json(), model, backdrop)
+                if price:
+                    return price, source
+        except (requests.RequestException, ValueError, TypeError):
+            pass
+    try:
+        gifts = read_catalog().get('gifts', [])
+    except (OSError, ValueError, TypeError):
+        gifts = []
+    norm = re.sub(r'[^a-z0-9]+', '', str(collection_name).casefold())
+    for gift in gifts:
+        base = str(gift.get('base_name') or gift.get('name') or '')
+        base = re.sub(r'\s*\((?:Onyx Black|Black)\)\s*$', '', base, flags=re.I)
+        if re.sub(r'[^a-z0-9]+', '', base.casefold()) != norm:
+            continue
+        try:
+            cents = ton_to_cents(gift.get('price_ton') or 0)
+        except (ValueError, TypeError, InvalidOperation):
+            cents = 0
+        if cents > 0:
+            return int(cents), 'Portal · коллекция'
+    try:
+        response = requests.get('https://portal-market.com/api/collections', params={'search': collection_name, 'limit': 10},
+                                headers=portal_headers(key), timeout=(2, 4))
+        if response.ok and len(response.content) < 2_000_000:
+            payload = response.json()
+            rows = payload.get('collections', payload.get('data', payload)) if isinstance(payload, dict) else payload
+            if isinstance(rows, dict):
+                rows = rows.get('items') or rows.get('collections') or []
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                raw = next((row.get(k) for k in ('floor_price','floorPrice','price') if row.get(k) is not None), None)
+                if raw is None: continue
+                try:
+                    cents = ton_to_cents(raw)
+                except (ValueError, TypeError, InvalidOperation):
+                    continue
+                if cents > 0:
+                    return int(cents), 'Portal · коллекция'
+    except (requests.RequestException, ValueError, TypeError):
+        pass
+    return 0, ''
+
+
 def fragment_gift_from_url(value, fetch_meta=True):
     url = str(value or '').strip()
     match = FRAGMENT_GIFT_RE.fullmatch(url)
@@ -2416,40 +2705,84 @@ def fragment_gift_from_url(value, fetch_meta=True):
         raise ValueError('Нужна ссылка на конкретный Fragment-подарок с номером, например PlushPepe-12345.')
     number = number_match.group(1)
     raw_base_slug = raw_slug[:number_match.start()]
-    # Keep PascalCase collection names readable in the offline fallback: PlushPepe -> Plush Pepe.
     readable_base = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', raw_base_slug).replace('-', ' ')
-    name = ' '.join(word[:1].upper() + word[1:] for word in readable_base.split() if word) or 'Fragment Gift'
-    name += f' #{number}'
-    canonical = (f'https://t.me/nft/{raw_slug}' if 't.me/nft/' in url.lower()
-                 else f'https://fragment.com/gift/{raw_slug}')
+    collection_name = ' '.join(word[:1].upper() + word[1:] for word in readable_base.split() if word) or 'Fragment Gift'
+    name = f'{collection_name} #{number}'
+    canonical = f'https://t.me/nft/{raw_slug}'
     image_url = f'https://nft.fragment.com/gift/{slug}.webp'
+    model = backdrop = symbol = animation_url = ''
+    floor_price = 0
+    price_source = ''
     if fetch_meta:
+        # Fragment's public NFT JSON gives us the exact rendered gift and, when available, attributes.
         try:
-            metadata_url = f'https://t.me/nft/{raw_slug}'
-            response = requests.get(metadata_url, timeout=(3, 6), headers={
-                'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)',
-                'Accept': 'text/html,application/xhtml+xml'
-            })
+            response = requests.get(f'https://nft.fragment.com/gift/{slug}.json', timeout=(2, 5), headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)', 'Accept': 'application/json,*/*'})
+            if response.ok and len(response.content) < 2_000_000:
+                payload = response.json()
+                candidate = str(payload.get('name') or payload.get('title') or '').strip() if isinstance(payload, dict) else ''
+                if candidate:
+                    name = candidate[:140]
+                exact_image = _fragment_json_image(payload)
+                if exact_image:
+                    image_url = exact_image
+                animation_url = _fragment_json_animation(payload)
+                traits = _fragment_traits_from_json(payload)
+                model, backdrop, symbol = traits['model'], traits['backdrop'], traits['symbol']
+                floor_price = _price_from_json(payload)
+                if floor_price:
+                    price_source = 'Fragment'
+        except (requests.RequestException, ValueError, TypeError):
+            pass
+        # Telegram's public collectible page is a reliable fallback for the exact model/backdrop/symbol.
+        try:
+            response = requests.get(f'https://t.me/nft/{raw_slug}', timeout=(2, 5), headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)', 'Accept': 'text/html,application/xhtml+xml'})
             if response.ok and len(response.text) < 2_000_000:
                 html_text = response.text
-                title_match = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', html_text, re.I)
-                if not title_match:
-                    title_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html_text, re.I)
-                image_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', html_text, re.I)
-                if not image_match:
-                    image_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html_text, re.I)
-                if title_match:
-                    candidate = unescape(title_match.group(1)).strip()
-                    candidate = re.sub(r'\s*[–—-]\s*Fragment\s*$', '', candidate, flags=re.I).strip()
+                title = _fragment_meta_content(html_text, 'og:title')
+                exact_image = _fragment_meta_content(html_text, 'og:image')
+                description = (_fragment_meta_content(html_text, 'twitter:description') or
+                               _fragment_meta_content(html_text, 'og:description'))
+                if title:
+                    candidate = re.sub(r'\s*[–—-]\s*(?:Fragment|Telegram)\s*$', '', title, flags=re.I).strip()
                     if candidate:
                         name = candidate[:140]
-                if image_match and safe_image(unescape(image_match.group(1)).strip()):
-                    image_url = unescape(image_match.group(1)).strip()
+                if safe_image(exact_image):
+                    image_url = exact_image
+                animation_url = animation_url or safe_image(_fragment_meta_content(html_text, 'og:video'))
+                traits = _fragment_traits_from_text(description)
+                model = model or traits['model']; backdrop = backdrop or traits['backdrop']; symbol = symbol or traits['symbol']
+                if not floor_price:
+                    floor_price = _fragment_price_from_text(description + ' ' + html_text[:500000])
+                    if floor_price:
+                        price_source = 'Fragment'
         except requests.RequestException:
             pass
+        if not animation_url:
+            try:
+                response = requests.get(f'https://fragment.com/gift/{raw_slug}', timeout=(2, 3), headers={
+                    'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)', 'Accept': 'text/html'})
+                if response.ok and len(response.content) < 2_000_000:
+                    html_text = response.text
+                    animation_url = safe_image(_fragment_meta_content(html_text, 'og:video'))
+                    if not animation_url:
+                        match_video = re.search(r'<(?:video|source)\b[^>]*\bsrc=["\'](https://[^"\']+)', html_text, re.I)
+                        animation_url = safe_image(unescape(match_video.group(1))) if match_video else ''
+                    if not animation_url:
+                        match_video = re.search(r'["\']animation_url["\']\s*:\s*["\'](https?[^"\']+)', html_text, re.I)
+                        animation_url = safe_image(unescape(match_video.group(1)).replace('\\/', '/')) if match_video else ''
+            except requests.RequestException:
+                pass
+        # A specific collectible is often not listed. In that case show the closest useful market floor:
+        # model first, collection second.
+        if not floor_price:
+            floor_price, price_source = _fragment_portal_fallback_price(collection_name, model, backdrop)
     return dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
-                image_url=image_url, floor_price=0, fragment_url=canonical,
-                fragment_number=number, slug=slug)
+                image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
+                fragment_number=number, fragment_model=model, fragment_backdrop=backdrop,
+                fragment_symbol=symbol, price_source=price_source, animation_url=animation_url,
+                slug=slug, collection_name=collection_name)
 
 
 def catalog_giveaway_prize(gift_id):
@@ -2466,13 +2799,22 @@ def catalog_giveaway_prize(gift_id):
         raise ValueError('У подарка нет изображения.')
     return dict(source_type='catalog', gift_id=gift_id,
                 gift_name=str(gift.get('name') or 'Подарок')[:140], image_url=image_url,
-                floor_price=max(0, int(price)), fragment_url='', fragment_number='')
+                floor_price=max(0, int(price)), fragment_url='', fragment_number='',
+                fragment_model='', fragment_backdrop=str(gift.get('background_label') or ''),
+                fragment_symbol='', price_source='Portal')
 
 
 def giveaway_prize_view(row):
+    keys = row.keys()
     return dict(id=int(row['id']), source_type=row['source_type'], gift_id=row['gift_id'],
                 name=row['gift_name'], image_url=row['image_url'], price_ton=int(row['floor_price'] or 0)/100,
-                fragment_url=row['fragment_url'] or '', fragment_number=row['fragment_number'] or '')
+                quantity=max(1, int(row['quantity'] or 1)) if 'quantity' in keys else 1,
+                fragment_url=row['fragment_url'] or '', fragment_number=row['fragment_number'] or '',
+                fragment_model=(row['fragment_model'] or '') if 'fragment_model' in keys else '',
+                fragment_backdrop=(row['fragment_backdrop'] or '') if 'fragment_backdrop' in keys else '',
+                fragment_symbol=(row['fragment_symbol'] or '') if 'fragment_symbol' in keys else '',
+                price_source=(row['price_source'] or '') if 'price_source' in keys else '',
+                animation_url=(row['animation_url'] or '') if 'animation_url' in keys else '')
 
 
 def finalize_giveaway(db, giveaway_id):
@@ -2489,12 +2831,23 @@ def finalize_giveaway(db, giveaway_id):
                 db.execute('SELECT user_id,tickets FROM giveaway_entries WHERE giveaway_id=? AND tickets>0 ORDER BY user_id', (giveaway_id,)).fetchall()]
     prizes = db.execute('SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()
     requested = max(0, int(giveaway['winner_count'] or 0))
-    prize_slots = [prizes[i % len(prizes)] for i in range(requested)] if prizes else []
+    prize_slots = []
+    for prize in prizes:
+        qty = max(1, int(prize['quantity'] or 1)) if 'quantity' in prize.keys() else 1
+        prize_slots.extend([prize] * qty)
+    # Backward compatibility: old giveaways could have winner_count larger than the number of saved prize rows.
+    if prizes and len(prize_slots) < requested:
+        prize_slots.extend(prizes[i % len(prizes)] for i in range(requested - len(prize_slots)))
+    prize_slots = prize_slots[:requested] if requested else prize_slots
     candidates = [x for x in entrants if x['tickets'] > 0]
+    allow_repeat = bool(giveaway['allow_repeat_winners']) if 'allow_repeat_winners' in giveaway.keys() else True
+    notifications = {}
     for rank, prize in enumerate(prize_slots, 1):
         if not candidates:
             break
         total = sum(x['tickets'] for x in candidates)
+        if total <= 0:
+            break
         pick = secrets.randbelow(total)
         chosen_index = 0
         cursor = 0
@@ -2503,15 +2856,31 @@ def finalize_giveaway(db, giveaway_id):
             if pick < cursor:
                 chosen_index = i
                 break
-        winner = candidates.pop(chosen_index)
-        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'giveaway')",
-                         (winner['user_id'], prize['gift_id'], prize['gift_name'], prize['image_url'], int(prize['floor_price'] or 0)))
+        winner = candidates[chosen_index]
+        if not allow_repeat:
+            candidates.pop(chosen_index)
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                         external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                         VALUES(?,?,?,?,?,'giveaway',?,?,?,?,?,?,?)""",
+                         (winner['user_id'], prize['gift_id'], prize['gift_name'], prize['image_url'], int(prize['floor_price'] or 0),
+                          prize['fragment_url'] or '', prize['fragment_number'] or '',
+                          (prize['fragment_model'] or '') if 'fragment_model' in prize.keys() else '',
+                          (prize['fragment_backdrop'] or '') if 'fragment_backdrop' in prize.keys() else '',
+                          (prize['fragment_symbol'] or '') if 'fragment_symbol' in prize.keys() else '',
+                          (prize['price_source'] or '') if 'price_source' in prize.keys() else '',
+                          (prize['animation_url'] or '') if 'animation_url' in prize.keys() else ''))
         inventory_id = cur.lastrowid
         db.execute('INSERT INTO giveaway_winners(giveaway_id,user_id,prize_id,rank,tickets,inventory_id) VALUES(?,?,?,?,?,?)',
                    (giveaway_id, winner['user_id'], prize['id'], rank, winner['tickets'], inventory_id))
         log_event(db, winner['user_id'], 'giveaway_win', giveaway_id=giveaway_id, rank=rank,
                   gift_name=prize['gift_name'], tickets=winner['tickets'])
+        notifications.setdefault(winner['user_id'], []).append(dict(
+            rank=rank, name=prize['gift_name'], fragment_url=prize['fragment_url'] or '',
+            fragment_number=prize['fragment_number'] or '', price_cents=int(prize['floor_price'] or 0)))
     db.execute("UPDATE giveaways SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?", (giveaway_id,))
+    # Deliver one compact message per winner even if the same person won several places.
+    for user_id, wins in notifications.items():
+        notify_giveaway_wins_async(user_id, giveaway['title'], wins)
     return True
 
 
@@ -2528,6 +2897,7 @@ def giveaway_view(db, row, user_id=None, include_top=False):
     giveaway_id = int(row['id'])
     prizes = [giveaway_prize_view(x) for x in db.execute(
         'SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()]
+    prize_count = sum(max(1, int(x.get('quantity') or 1)) for x in prizes)
     stats = db.execute('SELECT COUNT(*) AS participants,COALESCE(SUM(tickets),0) AS pool FROM giveaway_entries WHERE giveaway_id=? AND tickets>0',
                        (giveaway_id,)).fetchone()
     mine = 0
@@ -2538,14 +2908,18 @@ def giveaway_view(db, row, user_id=None, include_top=False):
     winners = []
     if row['status'] == 'completed':
         winner_rows = db.execute('''SELECT w.rank,w.tickets,w.inventory_id,u.id AS user_id,u.name,u.username,u.photo_url,
-                                  p.gift_name,p.image_url,p.fragment_url,p.fragment_number,p.floor_price
+                                  p.gift_name,p.image_url,p.fragment_url,p.fragment_number,p.floor_price,
+                                  p.fragment_model,p.fragment_backdrop,p.fragment_symbol,p.price_source,p.animation_url
                                   FROM giveaway_winners w JOIN users u ON u.id=w.user_id
                                   JOIN giveaway_prizes p ON p.id=w.prize_id
                                   WHERE w.giveaway_id=? ORDER BY w.rank''', (giveaway_id,)).fetchall()
         winners = [dict(rank=int(x['rank']), tickets=int(x['tickets']), user_id=int(x['user_id']), name=x['name'],
                         username=x['username'], photo_url=x['photo_url'], inventory_id=x['inventory_id'],
                         prize=dict(name=x['gift_name'], image_url=x['image_url'], price_ton=int(x['floor_price'] or 0)/100,
-                                   fragment_url=x['fragment_url'] or '', fragment_number=x['fragment_number'] or ''))
+                                   fragment_url=x['fragment_url'] or '', fragment_number=x['fragment_number'] or '',
+                                   fragment_model=x['fragment_model'] or '', fragment_backdrop=x['fragment_backdrop'] or '',
+                                   fragment_symbol=x['fragment_symbol'] or '', price_source=x['price_source'] or '',
+                                   animation_url=x['animation_url'] or ''))
                    for x in winner_rows]
     top = []
     if include_top:
@@ -2556,9 +2930,131 @@ def giveaway_view(db, row, user_id=None, include_top=False):
         top = [dict(rank=i+1, user_id=int(x['user_id']), tickets=int(x['tickets']), name=x['name'],
                     username=x['username'], photo_url=x['photo_url']) for i, x in enumerate(top_rows)]
     return dict(id=giveaway_id, title=row['title'], description=row['description'] or '', status=row['status'],
-                starts_at=row['starts_at'], ends_at=row['ends_at'], winner_count=int(row['winner_count'] or 0),
+                starts_at=row['starts_at'], ends_at=row['ends_at'], winner_count=int(row['winner_count'] or prize_count),
+                prize_count=prize_count, allow_repeat_winners=bool(row['allow_repeat_winners']) if 'allow_repeat_winners' in row.keys() else True,
                 participants=int(stats['participants'] or 0), pool=int(stats['pool'] or 0), my_tickets=mine,
                 prizes=prizes, winners=winners, top=top, completed_at=row['completed_at'])
+
+
+TASK_METRICS = {
+    'upgrade_low': ('upgrade_spins', 'won=1 AND chance_bp<2500'),
+    'upgrade_win': ('upgrade_spins', 'won=1'),
+    'craft': ('craft_spins', '1=1'),
+    'deposit_5': ('deposits', 'amount>=500'),
+    'deposit': ('deposits', 'amount>0'),
+    'referral': ('referrals', '1=1'),
+    'roll': ('roll_spins', '1=1'),
+}
+TASK_PAGES = {'upgradePage', 'craftPage', 'profilePage', 'minesPage', 'giveawayPage', 'rollPage'}
+
+
+def reward_task_period(task):
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d') if task['category'] == 'daily' else 'once'
+
+
+def reward_task_progress(db, task, user_id):
+    if task['metric'] not in TASK_METRICS:
+        return 0
+    table, condition = TASK_METRICS[task['metric']]
+    since = str(task['created_at'])
+    if task['category'] == 'daily':
+        since = max(since, datetime.now(timezone.utc).strftime('%Y-%m-%d 00:00:00'))
+    person_column = 'referrer_id' if table == 'referrals' else 'user_id'
+    row = db.execute(f'SELECT COUNT(*) AS n FROM {table} WHERE {person_column}=? AND created_at>=? AND {condition}',
+                     (user_id, since)).fetchone()
+    return min(int(row['n'] or 0), int(task['goal']))
+
+
+def reward_task_view(db, task, user_id):
+    period = reward_task_period(task)
+    claimed = db.execute('SELECT 1 FROM reward_task_claims WHERE task_id=? AND user_id=? AND period_key=?',
+                         (task['id'], user_id, period)).fetchone() is not None
+    end = parse_datetime_utc(task['ends_at']) if task['ends_at'] else None
+    expired = bool(end and end <= datetime.now(timezone.utc))
+    return dict(id=task['id'], title=task['title'], category=task['category'], metric=task['metric'],
+                goal=int(task['goal']), progress=reward_task_progress(db, task, user_id) if not task['demo'] else 0,
+                tickets=int(task['tickets']), action_page=task['action_page'], demo=bool(task['demo']),
+                active=bool(task['active']), claimed=claimed, expired=expired, ends_at=task['ends_at'])
+
+
+@app.get('/api/reward-tasks')
+@login_required
+def reward_tasks_list():
+    with connect() as db:
+        rows = db.execute('SELECT * FROM reward_tasks WHERE active=1 ORDER BY CASE category WHEN \'limited\' THEN 0 WHEN \'daily\' THEN 1 ELSE 2 END,id').fetchall()
+        return jsonify(items=[reward_task_view(db, row, session['uid']) for row in rows],
+                       tickets=int(db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()['tickets'] or 0))
+
+
+@app.post('/api/reward-tasks/<int:task_id>/claim')
+@login_required
+def reward_task_claim(task_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        task = db.execute('SELECT * FROM reward_tasks WHERE id=? AND active=1', (task_id,)).fetchone()
+        if not task or task['demo']:
+            return error('Это демонстрационное задание или оно больше недоступно.', 404)
+        view = reward_task_view(db, task, session['uid'])
+        if view['expired'] or view['claimed'] or view['progress'] < view['goal']:
+            return error('Задание ещё не выполнено, уже получено или срок истёк.', 409)
+        db.execute('INSERT INTO reward_task_claims(task_id,user_id,period_key) VALUES(?,?,?)',
+                   (task_id, session['uid'], reward_task_period(task)))
+        db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (task['tickets'], session['uid']))
+        record_tickets(db, session['uid'], task['tickets'], 'task', 'reward_task', task_id, task['title'])
+        log_event(db, session['uid'], 'reward_task_claim', task_id=task_id, tickets=task['tickets'])
+        db.commit()
+        return jsonify(ok=True, tickets=int(db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()['tickets']))
+    finally:
+        db.close()
+
+
+@app.get('/api/admin/reward-tasks')
+@admin_required
+def admin_reward_tasks_list():
+    with connect() as db:
+        rows = db.execute('SELECT * FROM reward_tasks ORDER BY id DESC LIMIT 200').fetchall()
+        return jsonify(items=[dict(row) for row in rows])
+
+
+@app.post('/api/admin/reward-tasks')
+@admin_required
+def admin_reward_task_create():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title') or '').strip()[:160]
+    category = str(data.get('category') or '')
+    metric = str(data.get('metric') or '')
+    demo = bool(data.get('demo'))
+    page = str(data.get('action_page') or '')
+    try:
+        goal, tickets = int(data.get('goal')), int(data.get('tickets'))
+        hours = int(data.get('duration_hours') or 0)
+    except (ValueError, TypeError):
+        return error('Проверьте числовые поля задания.')
+    if not title or category not in ('limited', 'daily', 'once') or metric not in TASK_METRICS or page not in TASK_PAGES | {''}:
+        return error('Проверьте название, тип, действие и раздел задания.')
+    if not 1 <= goal <= 1000 or not 1 <= tickets <= 100000 or not 0 <= hours <= 2160:
+        return error('Прогресс: 1–1000, билеты: 1–100000, срок: до 90 дней.')
+    if category == 'limited' and not hours:
+        return error('Для ограниченного задания укажите длительность.')
+    end = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat() if category == 'limited' else None
+    with connect() as db:
+        db.execute('INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,demo,ends_at) VALUES(?,?,?,?,?,?,?,?)',
+                   (title, category, metric, goal, tickets, page, int(demo), end))
+        db.commit()
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/reward-tasks/<int:task_id>/toggle')
+@admin_required
+def admin_reward_task_toggle(task_id):
+    with connect() as db:
+        row = db.execute('SELECT active FROM reward_tasks WHERE id=?', (task_id,)).fetchone()
+        if not row:
+            return error('Задание не найдено.', 404)
+        db.execute('UPDATE reward_tasks SET active=? WHERE id=?', (0 if row['active'] else 1, task_id))
+        db.commit()
+    return jsonify(ok=True)
 
 
 @app.get('/api/giveaways')
@@ -2671,9 +3167,14 @@ def admin_fragment_preview():
         gift = fragment_gift_from_url(data.get('url'), True)
     except ValueError as exc:
         return error(str(exc))
+    if data.get('animation_url'):
+        gift['animation_url'] = safe_image(data.get('animation_url'))
     return jsonify(ok=True, gift=dict(name=gift['gift_name'], image_url=gift['image_url'],
                                       fragment_url=gift['fragment_url'], fragment_number=gift['fragment_number'],
-                                      gift_id=gift['gift_id']))
+                                      gift_id=gift['gift_id'], price_ton=int(gift.get('floor_price') or 0)/100,
+                                      price_source=gift.get('price_source') or '', model=gift.get('fragment_model') or '',
+                                      backdrop=gift.get('fragment_backdrop') or '', symbol=gift.get('fragment_symbol') or '',
+                                      animation_url=gift.get('animation_url') or ''))
 
 
 @app.post('/api/admin/giveaways')
@@ -2689,52 +3190,64 @@ def admin_create_giveaway():
             duration_minutes = int(data.get('duration_minutes'))
         else:
             duration_minutes = round(float(data.get('duration_hours') or 0) * 60)
-        winner_count = int(data.get('winner_count') or 1)
     except (TypeError, ValueError):
-        return error('Проверьте длительность и количество призов.')
+        return error('Проверьте длительность розыгрыша.')
     if not 1 <= duration_minutes <= 60 * 24 * 90:
         return error('Длительность розыгрыша: от 1 минуты до 90 дней.')
-    if not 1 <= winner_count <= 100:
-        return error('Количество призов: от 1 до 100.')
     raw_prizes = data.get('prizes')
     if not isinstance(raw_prizes, list) or not raw_prizes:
         return error('Добавьте хотя бы один подарок.')
     if len(raw_prizes) > 100:
-        return error('В одном розыгрыше можно указать не более 100 подарков.')
+        return error('В одном розыгрыше можно указать не более 100 разных строк подарков.')
     prizes = []
+    total_slots = 0
     try:
         for item in raw_prizes:
             if not isinstance(item, dict):
                 raise ValueError('Проверьте список подарков.')
+            quantity = int(item.get('quantity') or 1)
+            if not 1 <= quantity <= 100:
+                raise ValueError('Количество одного приза должно быть от 1 до 100.')
             source = str(item.get('source_type') or item.get('type') or 'catalog')
             if source == 'fragment':
-                prizes.append(fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True))
+                prize = fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True)
+                if item.get('animation_url'):
+                    prize['animation_url'] = safe_image(item.get('animation_url'))
             elif source == 'catalog':
-                prizes.append(catalog_giveaway_prize(item.get('gift_id')))
+                prize = catalog_giveaway_prize(item.get('gift_id'))
             else:
                 raise ValueError('Неизвестный источник подарка.')
+            prize['quantity'] = quantity
+            prizes.append(prize)
+            total_slots += quantity
+        if not 1 <= total_slots <= 100:
+            raise ValueError('Всего в розыгрыше может быть от 1 до 100 призовых мест.')
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         return error(str(exc))
+    allow_repeat = bool(data.get('allow_repeat_winners', True))
     now = datetime.now(timezone.utc)
     ends = now + timedelta(minutes=duration_minutes)
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        result = db.execute("""INSERT INTO giveaways(title,description,starts_at,ends_at,status,winner_count,created_by)
-                               VALUES(?,?,?,?,'active',?,?) RETURNING id""",
-                            (title, description, now.isoformat(), ends.isoformat(), winner_count, session['uid'])).fetchone()
+        result = db.execute("INSERT INTO giveaways(title,description,starts_at,ends_at,status,winner_count,allow_repeat_winners,created_by) "
+                            "VALUES(?,?,?,?,'active',?,?,?) RETURNING id",
+                            (title, description, now.isoformat(), ends.isoformat(), total_slots, int(allow_repeat), session['uid'])).fetchone()
         giveaway_id = int(result['id']) if result else None
         if giveaway_id is None:
             fallback = db.execute('SELECT MAX(id) AS id FROM giveaways').fetchone()
             giveaway_id = int(fallback['id'])
         for position, prize in enumerate(prizes):
             db.execute('''INSERT INTO giveaway_prizes(giveaway_id,position,source_type,gift_id,gift_name,image_url,
-                          floor_price,fragment_url,fragment_number) VALUES(?,?,?,?,?,?,?,?,?)''',
+                          floor_price,quantity,fragment_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                        (giveaway_id, position, prize['source_type'], prize['gift_id'], prize['gift_name'],
-                        prize['image_url'], int(prize.get('floor_price') or 0), prize.get('fragment_url') or '',
-                        prize.get('fragment_number') or ''))
+                        prize['image_url'], int(prize.get('floor_price') or 0), int(prize.get('quantity') or 1),
+                        prize.get('fragment_url') or '', prize.get('fragment_number') or '', prize.get('fragment_model') or '',
+                        prize.get('fragment_backdrop') or '', prize.get('fragment_symbol') or '', prize.get('price_source') or '',
+                        prize.get('animation_url') or ''))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], session['uid'], 'giveaway_create', f'{giveaway_id}:{title}'))
+                   (session['uid'], session['uid'], 'giveaway_create', f'{giveaway_id}:{title}:{total_slots}'))
         db.commit()
         row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
         return jsonify(ok=True, item=giveaway_view(db, row, None, False))
@@ -2753,8 +3266,11 @@ def admin_finish_giveaway(giveaway_id):
             return error('Активный розыгрыш не найден.', 404)
         db.execute('UPDATE giveaways SET ends_at=? WHERE id=?', ((datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat(), giveaway_id))
         finalize_giveaway(db, giveaway_id)
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'giveaway_finish_early', str(giveaway_id)))
         db.commit()
-        return jsonify(ok=True)
+        fresh = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        return jsonify(ok=True, item=giveaway_view(db, fresh, None, False))
     finally:
         db.close()
 
@@ -4054,6 +4570,35 @@ def notify_promo_async(user_id, code, action='bonuses'):
     safe_code = escape(str(code))
     text = f'🎟 <b>Вам выдан промокод</b>\n\n<code>{safe_code}</code>\n\nОткройте GemDrop, чтобы забрать награду.'
     notify_user_async(user_id, text, miniapp_markup('🎁 Забрать', action), 'HTML')
+
+
+def notify_giveaway_wins_async(user_id, giveaway_title, winnings):
+    """Send one Telegram message for all places won in a single giveaway."""
+    if not winnings:
+        return
+    lines = [f'🏆 <b>Вы выиграли в розыгрыше «{escape(str(giveaway_title))}»!</b>', '']
+    for win in winnings[:20]:
+        price = int(win.get('price_cents') or 0)
+        price_text = f' · {format_ton_cents(price)} TON' if price else ''
+        lines.append(f'#{int(win.get("rank") or 0)} — <b>{escape(str(win.get("name") or "Подарок"))}</b>{price_text}')
+    if len(winnings) > 20:
+        lines.append(f'…и ещё {len(winnings)-20} приз(ов).')
+    lines.extend(['', 'Награда уже добавлена в ваш инвентарь GemDrop.'])
+    keyboard = []
+    if WEBAPP_URL.startswith('https://'):
+        keyboard.append([{'text': '🎁 Открыть инвентарь', 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
+    seen = set()
+    for win in winnings:
+        url = str(win.get('fragment_url') or '')
+        if not re.match(r'^https://(?:t\.me/nft/|(?:www\.)?fragment\.com/gift/)', url, re.I) or url in seen:
+            continue
+        seen.add(url)
+        label = f'🔗 Fragment #{win.get("fragment_number")}' if win.get('fragment_number') else '🔗 Открыть во Fragment'
+        keyboard.append([{'text': label[:64], 'url': url}])
+        if len(keyboard) >= 8:
+            break
+    markup = {'inline_keyboard': keyboard} if keyboard else None
+    notify_user_async(user_id, '\n'.join(lines), markup, 'HTML')
 
 
 def notify_level_up_async(user_id, level):
@@ -6516,7 +7061,15 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
     entries = [base_gift]
     base_id = str(base_gift['id'])
     base_name = str(base_gift['name'])
-    for label, price in portal_background_variants(portal_item, filters).items():
+    discovered = portal_background_variants(portal_item, filters)
+    # These are real Telegram collectible backdrop names and users expect them in every collection.
+    # Portal does not consistently include zero/unknown background floors in /collections, so keep
+    # the variants visible even when the optional filters request failed. Price falls back to the
+    # collection floor until a background-specific floor is available on the next sync.
+    for label in ('Black', 'Onyx Black'):
+        price = discovered.get(label)
+        if price is None:
+            price = portal_price_string(base_gift.get('price_ton')) or '0.00'
         bg_key = portal_background_key(label)
         variant_id = f'{base_id}:background:{bg_key}'
         old = previous_by_id.get(variant_id, {})
@@ -6530,6 +7083,7 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
             background_label=label,
             background_key=bg_key,
             background_tone='black' if label == 'Black' else 'onyx-black',
+            price_source=('Portal · фон' if label in discovered else 'Portal · коллекция'),
             image_url=old.get('image_url') or base_gift.get('image_url') or base_gift.get('portal_image_url', ''),
             image_match=bool(old.get('image_match', base_gift.get('image_match'))),
             telegram_gift_id=old.get('telegram_gift_id', base_gift.get('telegram_gift_id', '')),

@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '49-profile-craft-emoji-diagnostics'
+BUILD_ID = '50-giveaways-tickets-fragment'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -297,6 +297,33 @@ def initialize():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             seen_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS ticket_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,amount INTEGER NOT NULL,
+            kind TEXT NOT NULL,reference_type TEXT NOT NULL DEFAULT '',reference_id TEXT NOT NULL DEFAULT '',
+            details TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS giveaways (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',
+            starts_at TEXT NOT NULL,ends_at TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',
+            winner_count INTEGER NOT NULL DEFAULT 1,created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,completed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS giveaway_prizes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,giveaway_id INTEGER NOT NULL,position INTEGER NOT NULL DEFAULT 0,
+            source_type TEXT NOT NULL DEFAULT 'catalog',gift_id TEXT NOT NULL DEFAULT '',gift_name TEXT NOT NULL,
+            image_url TEXT NOT NULL DEFAULT '',floor_price INTEGER NOT NULL DEFAULT 0,
+            fragment_url TEXT NOT NULL DEFAULT '',fragment_number TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS giveaway_entries (
+            giveaway_id INTEGER NOT NULL,user_id INTEGER NOT NULL,tickets INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(giveaway_id,user_id)
+        );
+        CREATE TABLE IF NOT EXISTS giveaway_winners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,giveaway_id INTEGER NOT NULL,user_id INTEGER NOT NULL,
+            prize_id INTEGER NOT NULL,rank INTEGER NOT NULL,tickets INTEGER NOT NULL DEFAULT 0,
+            inventory_id INTEGER,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS user_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,
             kind TEXT NOT NULL,payload TEXT NOT NULL DEFAULT '{}',
@@ -342,6 +369,7 @@ def initialize():
             ('max_drop_override_image', "TEXT NOT NULL DEFAULT ''"),
             ('max_drop_override_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('max_drop_override_set_at', 'TEXT'),
+            ('tickets', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
@@ -447,25 +475,16 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS transfers_recipient ON transfers(recipient_id,seen_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS upgrade_spins_wins ON upgrade_spins(won,created_at DESC,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS ticket_ledger_user ON ticket_ledger(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS giveaways_status_end ON giveaways(status,ends_at,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS giveaway_entries_pool ON giveaway_entries(giveaway_id,tickets DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS giveaway_winners_giveaway ON giveaway_winners(giveaway_id,rank)')
 
-        # Build 36: re-enable Craft once. Build 35 intentionally shipped it hidden
+        # Craft data remains in the database for backwards compatibility, but the public
+        # navigation is replaced by Giveaways starting with build 50.
         # by default; the mode and all of its data remain intact. Admin can still
         # turn it off again later in “Управление разделами”.
-        craft_migration = db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('enable_craft_v36',)).fetchone()
-        if not craft_migration:
-            row = db.execute('SELECT payload FROM app_documents WHERE name=?', ('section_settings',)).fetchone()
-            try:
-                sections = json.loads(row['payload']) if row and row.get('payload') else {}
-            except (TypeError, ValueError, json.JSONDecodeError):
-                sections = {}
-            if not isinstance(sections, dict):
-                sections = {}
-            sections.update(craft=True)
-            db.execute('''INSERT INTO app_documents(name,payload) VALUES(?,?)
-                          ON CONFLICT(name) DO UPDATE SET payload=excluded.payload''',
-                       ('section_settings', json.dumps(sections, ensure_ascii=False)))
-            db.execute('INSERT INTO schema_migrations(name) VALUES(?)', ('enable_craft_v36',))
-
+        # Legacy Craft visibility migration is intentionally no longer applied.
         existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
         if not existing_levels:
             for level in range(1, 21):
@@ -653,7 +672,7 @@ def admin_required(fn):
 def profile():
     user = current_user()
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
-                balance=user['balance'] / 100, turnover=user['turnover_cents']/100,
+                balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
                 withdrawal_enabled=bool(user['withdrawal_enabled']),
                 admin=user['id'] in ADMIN_IDS)
 
@@ -712,12 +731,15 @@ def read_document(name):
 
 
 def section_settings():
-    defaults = {'mines': True, 'upgrade': True, 'craft': True, 'profile': True}
+    defaults = {'mines': True, 'upgrade': True, 'giveaways': True, 'profile': True}
     try:
         stored = read_document('section_settings') or {}
     except (TypeError, ValueError, json.JSONDecodeError):
         stored = {}
     result = {key: bool(stored.get(key, default)) for key, default in defaults.items()}
+    # Older builds stored a Craft switch. It does not control the new Giveaways section.
+    if 'giveaways' not in stored:
+        result['giveaways'] = True
     if not any(result.values()):
         result['profile'] = True
     return result
@@ -726,7 +748,11 @@ def section_settings():
 @app.before_request
 def enforce_available_modes():
     path = request.path
-    mode = ('craft' if path.startswith('/api/craft/') else
+    # Craft is retired from the product. Keep its old data/code for safe migration,
+    # but make the API inaccessible so stale clients cannot start new crafts.
+    if path.startswith('/api/craft/'):
+        return error('Крафты отключены.', 404)
+    mode = ('giveaways' if path.startswith('/api/giveaways/') else
             'upgrade' if path.startswith('/api/upgrade/') else
             'mines' if path.startswith('/api/game/') else None)
     if mode and path not in ('/api/game/open', '/api/game/cashout') and not section_settings().get(mode, False):
@@ -1191,7 +1217,7 @@ def normalize_level_reward(data):
     if not isinstance(data, dict):
         raise ValueError('Неверная настройка награды.')
     kind = str(data.get('type') or 'none')
-    if kind not in ('none','balance','gift','wager_gift','personal_promo','deposit_promo','multi_promo','transfer_unlock'):
+    if kind not in ('none','balance','tickets','gift','wager_gift','personal_promo','deposit_promo','multi_promo','transfer_unlock'):
         raise ValueError('Неизвестный тип награды.')
     reward = {'type':kind}
     try:
@@ -1213,6 +1239,12 @@ def normalize_level_reward(data):
             if not isinstance(config,dict):raise ValueError('Проверьте настройки мультипромокода.')
             resolved[name]=normalize_level_reward({**config,'type':'deposit_promo' if name=='deposit_bonus' else name})
         return {'type':'multi_promo','components':resolved,'expires_days':expires_days}
+    if kind=='tickets':
+        try: tickets=int(data.get('tickets') or data.get('amount') or 0)
+        except (TypeError,ValueError): raise ValueError('Укажите количество билетов.')
+        if not 1<=tickets<=1000000: raise ValueError('Количество билетов: от 1 до 1 000 000.')
+        reward['tickets']=tickets
+        return reward
     content = str(data.get('promo_reward_type') or 'balance') if kind=='personal_promo' else kind
     if content in ('balance','gift','wager_gift'):
         if content=='balance':
@@ -1481,6 +1513,13 @@ def claim_level(level):
             amount=int(reward['amount']);db.execute('UPDATE users SET balance=balance+? WHERE id=?',(amount,session['uid']))
             record_transaction(db,session['uid'],'level_balance',amount,'level',level,f'Уровень {level}')
             result=dict(type='balance',amount=amount/100)
+        elif kind=='tickets':
+            tickets=int(reward.get('tickets') or 0)
+            if tickets<1:return error('Награда уровня настроена неверно.',500)
+            db.execute('UPDATE users SET tickets=tickets+? WHERE id=?',(tickets,session['uid']))
+            db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
+                       (session['uid'],tickets,'level','level',str(level),f'Награда за уровень {level}'))
+            result=dict(type='tickets',tickets=tickets)
         elif kind in ('gift','wager_gift'):
             item=(session['uid'],reward['gift_id'],reward['gift_name'],reward['image_url'],reward['gift_price'])
             if kind=='gift':
@@ -1510,6 +1549,7 @@ def claim_level(level):
 def reward_description(reward):
     if reward.get('type')=='none':return 'Без награды'
     if reward.get('type')=='transfer_unlock':return 'Доступ к переводам TON'
+    if reward.get('type')=='tickets':return f"{int(reward.get('tickets') or 0)} билет(ов) для розыгрышей"
     if reward.get('type')=='multi_promo':return 'Мультипромокод · '+', '.join(reward.get('components',{}))
     if reward.get('type')=='balance' or reward.get('promo_reward_type')=='balance' and reward.get('type')=='personal_promo':
         return f"{reward.get('amount',0)/100:.2f} TON"
@@ -2353,6 +2393,397 @@ def recent_wins():
         app.logger.warning('Skipping malformed mines top-drop row', exc_info=True)
         top_drop=None
     return jsonify(items=items,top_drop=top_drop)
+
+
+FRAGMENT_GIFT_RE = re.compile(r'^https?://(?:(?:www\.)?fragment\.com/gift/|t\.me/nft/)([a-z0-9-]+?)(?:[/?#].*)?$', re.I)
+
+
+def record_tickets(db, user_id, amount, kind, reference_type='', reference_id='', details=''):
+    amount = int(amount)
+    db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
+               (int(user_id), amount, str(kind)[:80], str(reference_type)[:80], str(reference_id)[:120], str(details)[:300]))
+
+
+def fragment_gift_from_url(value, fetch_meta=True):
+    url = str(value or '').strip()
+    match = FRAGMENT_GIFT_RE.fullmatch(url)
+    if not match:
+        raise ValueError('Ссылка должна быть вида https://fragment.com/gift/slug-12345')
+    raw_slug = match.group(1).strip('-')
+    slug = raw_slug.lower()
+    number_match = re.search(r'-(\d+)$', raw_slug)
+    if not number_match:
+        raise ValueError('Нужна ссылка на конкретный Fragment-подарок с номером, например PlushPepe-12345.')
+    number = number_match.group(1)
+    raw_base_slug = raw_slug[:number_match.start()]
+    # Keep PascalCase collection names readable in the offline fallback: PlushPepe -> Plush Pepe.
+    readable_base = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', raw_base_slug).replace('-', ' ')
+    name = ' '.join(word[:1].upper() + word[1:] for word in readable_base.split() if word) or 'Fragment Gift'
+    name += f' #{number}'
+    canonical = (f'https://t.me/nft/{raw_slug}' if 't.me/nft/' in url.lower()
+                 else f'https://fragment.com/gift/{raw_slug}')
+    image_url = f'https://nft.fragment.com/gift/{slug}.webp'
+    if fetch_meta:
+        try:
+            metadata_url = f'https://t.me/nft/{raw_slug}'
+            response = requests.get(metadata_url, timeout=(3, 6), headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)',
+                'Accept': 'text/html,application/xhtml+xml'
+            })
+            if response.ok and len(response.text) < 2_000_000:
+                html_text = response.text
+                title_match = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', html_text, re.I)
+                if not title_match:
+                    title_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html_text, re.I)
+                image_match = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', html_text, re.I)
+                if not image_match:
+                    image_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html_text, re.I)
+                if title_match:
+                    candidate = unescape(title_match.group(1)).strip()
+                    candidate = re.sub(r'\s*[–—-]\s*Fragment\s*$', '', candidate, flags=re.I).strip()
+                    if candidate:
+                        name = candidate[:140]
+                if image_match and safe_image(unescape(image_match.group(1)).strip()):
+                    image_url = unescape(image_match.group(1)).strip()
+        except requests.RequestException:
+            pass
+    return dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
+                image_url=image_url, floor_price=0, fragment_url=canonical,
+                fragment_number=number, slug=slug)
+
+
+def catalog_giveaway_prize(gift_id):
+    gift_id = str(gift_id or '')
+    gift = next((x for x in read_catalog().get('gifts', []) if str(x.get('id')) == gift_id), None)
+    if not gift:
+        raise ValueError('Подарок не найден в каталоге Portal.')
+    try:
+        price = ton_to_cents(gift.get('price_ton') or 0)
+    except (ValueError, TypeError, InvalidOperation):
+        price = 0
+    image_url = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+    if not image_url:
+        raise ValueError('У подарка нет изображения.')
+    return dict(source_type='catalog', gift_id=gift_id,
+                gift_name=str(gift.get('name') or 'Подарок')[:140], image_url=image_url,
+                floor_price=max(0, int(price)), fragment_url='', fragment_number='')
+
+
+def giveaway_prize_view(row):
+    return dict(id=int(row['id']), source_type=row['source_type'], gift_id=row['gift_id'],
+                name=row['gift_name'], image_url=row['image_url'], price_ton=int(row['floor_price'] or 0)/100,
+                fragment_url=row['fragment_url'] or '', fragment_number=row['fragment_number'] or '')
+
+
+def finalize_giveaway(db, giveaway_id):
+    giveaway = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+    if not giveaway or giveaway['status'] != 'active':
+        return False
+    end = parse_datetime_utc(giveaway['ends_at'])
+    if not end or end > datetime.now(timezone.utc):
+        return False
+    changed = db.execute("UPDATE giveaways SET status='settling' WHERE id=? AND status='active'", (giveaway_id,)).rowcount
+    if not changed:
+        return False
+    entrants = [dict(user_id=int(r['user_id']), tickets=int(r['tickets'] or 0)) for r in
+                db.execute('SELECT user_id,tickets FROM giveaway_entries WHERE giveaway_id=? AND tickets>0 ORDER BY user_id', (giveaway_id,)).fetchall()]
+    prizes = db.execute('SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()
+    requested = max(0, int(giveaway['winner_count'] or 0))
+    prize_slots = [prizes[i % len(prizes)] for i in range(requested)] if prizes else []
+    candidates = [x for x in entrants if x['tickets'] > 0]
+    for rank, prize in enumerate(prize_slots, 1):
+        if not candidates:
+            break
+        total = sum(x['tickets'] for x in candidates)
+        pick = secrets.randbelow(total)
+        chosen_index = 0
+        cursor = 0
+        for i, candidate in enumerate(candidates):
+            cursor += candidate['tickets']
+            if pick < cursor:
+                chosen_index = i
+                break
+        winner = candidates.pop(chosen_index)
+        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'giveaway')",
+                         (winner['user_id'], prize['gift_id'], prize['gift_name'], prize['image_url'], int(prize['floor_price'] or 0)))
+        inventory_id = cur.lastrowid
+        db.execute('INSERT INTO giveaway_winners(giveaway_id,user_id,prize_id,rank,tickets,inventory_id) VALUES(?,?,?,?,?,?)',
+                   (giveaway_id, winner['user_id'], prize['id'], rank, winner['tickets'], inventory_id))
+        log_event(db, winner['user_id'], 'giveaway_win', giveaway_id=giveaway_id, rank=rank,
+                  gift_name=prize['gift_name'], tickets=winner['tickets'])
+    db.execute("UPDATE giveaways SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?", (giveaway_id,))
+    return True
+
+
+def finalize_due_giveaways(db):
+    now = datetime.now(timezone.utc).isoformat()
+    due = db.execute("SELECT id FROM giveaways WHERE status='active' AND ends_at<=? ORDER BY ends_at,id", (now,)).fetchall()
+    changed = False
+    for row in due:
+        changed = finalize_giveaway(db, int(row['id'])) or changed
+    return changed
+
+
+def giveaway_view(db, row, user_id=None, include_top=False):
+    giveaway_id = int(row['id'])
+    prizes = [giveaway_prize_view(x) for x in db.execute(
+        'SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()]
+    stats = db.execute('SELECT COUNT(*) AS participants,COALESCE(SUM(tickets),0) AS pool FROM giveaway_entries WHERE giveaway_id=? AND tickets>0',
+                       (giveaway_id,)).fetchone()
+    mine = 0
+    if user_id:
+        mine_row = db.execute('SELECT tickets FROM giveaway_entries WHERE giveaway_id=? AND user_id=?',
+                              (giveaway_id, int(user_id))).fetchone()
+        mine = int(mine_row['tickets'] or 0) if mine_row else 0
+    winners = []
+    if row['status'] == 'completed':
+        winner_rows = db.execute('''SELECT w.rank,w.tickets,w.inventory_id,u.id AS user_id,u.name,u.username,u.photo_url,
+                                  p.gift_name,p.image_url,p.fragment_url,p.fragment_number,p.floor_price
+                                  FROM giveaway_winners w JOIN users u ON u.id=w.user_id
+                                  JOIN giveaway_prizes p ON p.id=w.prize_id
+                                  WHERE w.giveaway_id=? ORDER BY w.rank''', (giveaway_id,)).fetchall()
+        winners = [dict(rank=int(x['rank']), tickets=int(x['tickets']), user_id=int(x['user_id']), name=x['name'],
+                        username=x['username'], photo_url=x['photo_url'], inventory_id=x['inventory_id'],
+                        prize=dict(name=x['gift_name'], image_url=x['image_url'], price_ton=int(x['floor_price'] or 0)/100,
+                                   fragment_url=x['fragment_url'] or '', fragment_number=x['fragment_number'] or ''))
+                   for x in winner_rows]
+    top = []
+    if include_top:
+        top_rows = db.execute('''SELECT e.user_id,e.tickets,u.name,u.username,u.photo_url
+                                 FROM giveaway_entries e JOIN users u ON u.id=e.user_id
+                                 WHERE e.giveaway_id=? AND e.tickets>0
+                                 ORDER BY e.tickets DESC,e.updated_at ASC,e.user_id ASC LIMIT 100''', (giveaway_id,)).fetchall()
+        top = [dict(rank=i+1, user_id=int(x['user_id']), tickets=int(x['tickets']), name=x['name'],
+                    username=x['username'], photo_url=x['photo_url']) for i, x in enumerate(top_rows)]
+    return dict(id=giveaway_id, title=row['title'], description=row['description'] or '', status=row['status'],
+                starts_at=row['starts_at'], ends_at=row['ends_at'], winner_count=int(row['winner_count'] or 0),
+                participants=int(stats['participants'] or 0), pool=int(stats['pool'] or 0), my_tickets=mine,
+                prizes=prizes, winners=winners, top=top, completed_at=row['completed_at'])
+
+
+@app.get('/api/giveaways')
+@login_required
+def giveaways_list():
+    status = str(request.args.get('status') or 'active').lower()
+    sort = str(request.args.get('sort') or 'date').lower()
+    if status not in ('active', 'completed'):
+        return error('Неизвестный раздел розыгрышей.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        finalize_due_giveaways(db)
+        if status == 'active':
+            rows = db.execute("SELECT * FROM giveaways WHERE status='active' ORDER BY ends_at ASC,id DESC").fetchall()
+        else:
+            rows = db.execute("SELECT * FROM giveaways WHERE status='completed' ORDER BY completed_at DESC,id DESC LIMIT 100").fetchall()
+        items = [giveaway_view(db, row, session['uid'], False) for row in rows]
+        if sort == 'pool':
+            items.sort(key=lambda x: (x['pool'], x['participants'], x['id']), reverse=True)
+        elif status == 'completed':
+            items.sort(key=lambda x: (x.get('completed_at') or '', x['id']), reverse=True)
+        else:
+            items.sort(key=lambda x: (x['ends_at'], x['id']))
+        db.commit()
+        balance = db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()
+        return jsonify(items=items, tickets=int(balance['tickets'] or 0) if balance else 0)
+    finally:
+        db.close()
+
+
+@app.get('/api/giveaways/<int:giveaway_id>')
+@login_required
+def giveaway_detail(giveaway_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        finalize_due_giveaways(db)
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row or row['status'] == 'cancelled':
+            return error('Розыгрыш не найден.', 404)
+        item = giveaway_view(db, row, session['uid'], True)
+        balance = db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()
+        db.commit()
+        return jsonify(item=item, tickets=int(balance['tickets'] or 0) if balance else 0)
+    finally:
+        db.close()
+
+
+@app.post('/api/giveaways/<int:giveaway_id>/enter')
+@login_required
+def giveaway_enter(giveaway_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        tickets = int(data.get('tickets') or 0)
+    except (TypeError, ValueError):
+        return error('Укажите количество билетов.')
+    if not 1 <= tickets <= 1_000_000:
+        return error('Можно добавить от 1 до 1 000 000 билетов за один раз.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        finalize_due_giveaways(db)
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row or row['status'] != 'active':
+            return error('Розыгрыш уже завершён.', 409)
+        end = parse_datetime_utc(row['ends_at'])
+        if not end or end <= datetime.now(timezone.utc):
+            finalize_giveaway(db, giveaway_id)
+            return error('Розыгрыш уже завершён.', 409)
+        user = db.execute('SELECT tickets FROM users WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),
+                          (session['uid'],)).fetchone()
+        available = int(user['tickets'] or 0) if user else 0
+        if available < tickets:
+            return error(f'Недостаточно билетов. Доступно: {available}.', 409)
+        db.execute('UPDATE users SET tickets=tickets-? WHERE id=?', (tickets, session['uid']))
+        db.execute('''INSERT INTO giveaway_entries(giveaway_id,user_id,tickets) VALUES(?,?,?)
+                      ON CONFLICT(giveaway_id,user_id) DO UPDATE SET tickets=giveaway_entries.tickets+excluded.tickets,
+                      updated_at=CURRENT_TIMESTAMP''', (giveaway_id, session['uid'], tickets))
+        record_tickets(db, session['uid'], -tickets, 'giveaway_entry', 'giveaway', giveaway_id,
+                       f'Участие в розыгрыше «{row["title"]}»')
+        log_event(db, session['uid'], 'giveaway_enter', giveaway_id=giveaway_id, tickets=tickets)
+        db.commit()
+        fresh = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        return jsonify(ok=True, item=giveaway_view(db, fresh, session['uid'], True), user=profile())
+    finally:
+        db.close()
+
+
+@app.get('/api/admin/giveaways')
+@admin_required
+def admin_giveaways():
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        finalize_due_giveaways(db)
+        rows = db.execute("SELECT * FROM giveaways WHERE status<>'cancelled' ORDER BY created_at DESC,id DESC LIMIT 200").fetchall()
+        items = [giveaway_view(db, row, None, False) for row in rows]
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(items=items)
+
+
+@app.post('/api/admin/giveaways/fragment-preview')
+@admin_required
+def admin_fragment_preview():
+    data = request.get_json(silent=True) or {}
+    try:
+        gift = fragment_gift_from_url(data.get('url'), True)
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True, gift=dict(name=gift['gift_name'], image_url=gift['image_url'],
+                                      fragment_url=gift['fragment_url'], fragment_number=gift['fragment_number'],
+                                      gift_id=gift['gift_id']))
+
+
+@app.post('/api/admin/giveaways')
+@admin_required
+def admin_create_giveaway():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title') or '').strip()[:120]
+    description = str(data.get('description') or '').strip()[:500]
+    if not title:
+        return error('Введите название розыгрыша.')
+    try:
+        if data.get('duration_minutes') not in (None, ''):
+            duration_minutes = int(data.get('duration_minutes'))
+        else:
+            duration_minutes = round(float(data.get('duration_hours') or 0) * 60)
+        winner_count = int(data.get('winner_count') or 1)
+    except (TypeError, ValueError):
+        return error('Проверьте длительность и количество призов.')
+    if not 1 <= duration_minutes <= 60 * 24 * 90:
+        return error('Длительность розыгрыша: от 1 минуты до 90 дней.')
+    if not 1 <= winner_count <= 100:
+        return error('Количество призов: от 1 до 100.')
+    raw_prizes = data.get('prizes')
+    if not isinstance(raw_prizes, list) or not raw_prizes:
+        return error('Добавьте хотя бы один подарок.')
+    if len(raw_prizes) > 100:
+        return error('В одном розыгрыше можно указать не более 100 подарков.')
+    prizes = []
+    try:
+        for item in raw_prizes:
+            if not isinstance(item, dict):
+                raise ValueError('Проверьте список подарков.')
+            source = str(item.get('source_type') or item.get('type') or 'catalog')
+            if source == 'fragment':
+                prizes.append(fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True))
+            elif source == 'catalog':
+                prizes.append(catalog_giveaway_prize(item.get('gift_id')))
+            else:
+                raise ValueError('Неизвестный источник подарка.')
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        return error(str(exc))
+    now = datetime.now(timezone.utc)
+    ends = now + timedelta(minutes=duration_minutes)
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        result = db.execute("""INSERT INTO giveaways(title,description,starts_at,ends_at,status,winner_count,created_by)
+                               VALUES(?,?,?,?,'active',?,?) RETURNING id""",
+                            (title, description, now.isoformat(), ends.isoformat(), winner_count, session['uid'])).fetchone()
+        giveaway_id = int(result['id']) if result else None
+        if giveaway_id is None:
+            fallback = db.execute('SELECT MAX(id) AS id FROM giveaways').fetchone()
+            giveaway_id = int(fallback['id'])
+        for position, prize in enumerate(prizes):
+            db.execute('''INSERT INTO giveaway_prizes(giveaway_id,position,source_type,gift_id,gift_name,image_url,
+                          floor_price,fragment_url,fragment_number) VALUES(?,?,?,?,?,?,?,?,?)''',
+                       (giveaway_id, position, prize['source_type'], prize['gift_id'], prize['gift_name'],
+                        prize['image_url'], int(prize.get('floor_price') or 0), prize.get('fragment_url') or '',
+                        prize.get('fragment_number') or ''))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'giveaway_create', f'{giveaway_id}:{title}'))
+        db.commit()
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        return jsonify(ok=True, item=giveaway_view(db, row, None, False))
+    finally:
+        db.close()
+
+
+@app.post('/api/admin/giveaways/<int:giveaway_id>/finish')
+@admin_required
+def admin_finish_giveaway(giveaway_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row or row['status'] != 'active':
+            return error('Активный розыгрыш не найден.', 404)
+        db.execute('UPDATE giveaways SET ends_at=? WHERE id=?', ((datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat(), giveaway_id))
+        finalize_giveaway(db, giveaway_id)
+        db.commit()
+        return jsonify(ok=True)
+    finally:
+        db.close()
+
+
+@app.delete('/api/admin/giveaways/<int:giveaway_id>')
+@admin_required
+def admin_cancel_giveaway(giveaway_id):
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row:
+            return error('Розыгрыш не найден.', 404)
+        if row['status'] == 'completed':
+            return error('Завершённый розыгрыш удалить нельзя.', 409)
+        entries = db.execute('SELECT user_id,tickets FROM giveaway_entries WHERE giveaway_id=?', (giveaway_id,)).fetchall()
+        for entry in entries:
+            amount = int(entry['tickets'] or 0)
+            if amount > 0:
+                db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (amount, entry['user_id']))
+                record_tickets(db, entry['user_id'], amount, 'giveaway_refund', 'giveaway', giveaway_id,
+                               f'Возврат билетов за отменённый розыгрыш «{row["title"]}»')
+        db.execute("UPDATE giveaways SET status='cancelled',completed_at=CURRENT_TIMESTAMP WHERE id=?", (giveaway_id,))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'giveaway_cancel', str(giveaway_id)))
+        db.commit()
+        return jsonify(ok=True, refunded=sum(int(x['tickets'] or 0) for x in entries))
+    finally:
+        db.close()
 
 
 def craft_catalog_candidates():
@@ -4011,6 +4442,8 @@ def promo_purpose(promo):
     kind = promo['reward_type']
     if kind == 'balance':
         return f"Зачисляет {int(promo['amount'] or 0)/100:.2f} TON на игровой баланс."
+    if kind == 'tickets':
+        return f"Выдаёт {int(promo['amount'] or 0)} билет(ов) для участия в розыгрышах."
     if kind == 'gift':
         return f"Выдаёт подарок «{promo['gift_name'] or 'Подарок'}»."
     if kind == 'wager_gift':
@@ -4254,6 +4687,10 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
     for percent in (1, 2, 3, 5):
         amount = max(1, round(source_price * percent / 100))
         pool.append(dict(type='balance', amount=amount/100, image_url='/static/img/ton.png', name='TON'))
+    # Tickets are a first-class Upgrade compensation prize. Scale them with the
+    # lost stake while keeping a useful minimum for small eligible losses.
+    ticket_count=max(1,min(250,round(source_price/500)))
+    pool.append(dict(type='tickets', tickets=ticket_count, image_url='', name='Билеты'))
     gift_options = []
     for gift in gifts:
         # Larger losses increase the eligible catalog and lower playthrough.
@@ -4264,8 +4701,9 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
                                      wager_multiplier=multiplier if kind=='wager_gift' else 0))
     if gift_options:
         # Gift / wagering / personal-code rewards together: 80%, 85%, 90%.
-        weights = [('balance', 10 if large else 15 if medium else 20),
-                   ('wager_gift', 40), ('gift', 25), ('promo', 25 if large else 20 if medium else 15)]
+        weights = [('balance', 8 if large else 12 if medium else 16),
+                   ('tickets', 10), ('wager_gift', 37), ('gift', 25),
+                   ('promo', 20 if large else 16 if medium else 12)]
         roll = secrets.randbelow(100)
         kind = 'balance'
         for candidate, weight in weights:
@@ -4273,7 +4711,11 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
                 kind = candidate
                 break
             roll -= weight
-        reward = dict(secrets.choice(pool if kind=='balance' else [g for g in gift_options if g['type']==kind]))
+        if kind in ('balance','tickets'):
+            candidates=[x for x in pool if x['type']==kind]
+        else:
+            candidates=[g for g in gift_options if g['type']==kind]
+        reward = dict(secrets.choice(candidates or pool))
     else:
         reward = dict(secrets.choice(pool))
     reel_options = pool + gift_options
@@ -4294,6 +4736,11 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
         db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
         record_transaction(db, user_id, 'upgrade_cashback', amount, 'upgrade', '', 'Компенсация Upgrade')
         comp['cashback'] = amount/100
+    elif reward['type']=='tickets':
+        tickets=max(1,int(reward.get('tickets') or 1))
+        db.execute('UPDATE users SET tickets=tickets+? WHERE id=?',(tickets,user_id))
+        db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
+                   (user_id,tickets,'upgrade_compensation','upgrade','',f'Компенсация Upgrade: {tickets} билет(ов)'))
     elif reward['type'] in ('gift', 'wager_gift'):
         locked = reward['type'] == 'wager_gift'
         price = ton_to_cents(reward['price_ton'])
@@ -4442,6 +4889,13 @@ def redeem_promocode():
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
             reward = dict(type='balance', amount=amount/100)
             record_transaction(db, session['uid'], 'promo_balance', amount, 'promo', code, f'Промокод {code}')
+        elif promo['reward_type'] == 'tickets':
+            tickets=max(0,int(promo['amount'] or 0))
+            if tickets<=0:return error('Награда промокода настроена неверно.',500)
+            db.execute('UPDATE users SET tickets=tickets+? WHERE id=?',(tickets,session['uid']))
+            db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
+                       (session['uid'],tickets,'promo','promo',code,f'Промокод {code}'))
+            reward=dict(type='tickets',tickets=tickets)
         elif promo['reward_type'] == 'gift':
             cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'promo')",
                              (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price']))
@@ -4982,7 +5436,7 @@ def admin_delete_freebet(code):
 def admin_promocodes():
     with connect() as db:
         rows = db.execute("SELECT * FROM promo_codes WHERE source_label<>'Freebet' ORDER BY created_at DESC,code DESC LIMIT 300").fetchall()
-    return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=x['amount']/100,
+    return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=(x['amount'] if x['reward_type']=='tickets' else x['amount']/100), tickets=(int(x['amount'] or 0) if x['reward_type']=='tickets' else 0),
                                gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
@@ -5029,6 +5483,10 @@ def admin_create_promocode():
             return error('Укажите сумму награды с точностью до 0.01 TON.')
         if not 1 <= amount <= 100000000:
             return error('Сумма промокода должна быть от 0.01 до 1 000 000 TON.')
+    elif reward_type == 'tickets':
+        try: amount=int(data.get('tickets') or data.get('amount') or 0)
+        except (TypeError,ValueError): return error('Укажите количество билетов.')
+        if not 1<=amount<=1000000:return error('Количество билетов: от 1 до 1 000 000.')
     elif reward_type in ('gift', 'wager_gift'):
         gift_id = str(data.get('gift_id') or '')
         try:
@@ -5240,7 +5698,7 @@ def admin_user_withdrawal_access(user_id):
 def admin_create_user_promocode(user_id):
     data = request.get_json(silent=True) or {}
     kind = str(data.get('reward_type') or '')
-    if kind not in ('balance','deposit_bonus','gift','wager_gift','multi'):
+    if kind not in ('balance','tickets','deposit_bonus','gift','wager_gift','multi'):
         return error('Выберите награду личного промокода.')
     code = str(data.get('code') or '').strip().upper()
     if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
@@ -5258,6 +5716,10 @@ def admin_create_user_promocode(user_id):
         try:amount=parse_amount(data.get('amount'))
         except (ValueError,TypeError,InvalidOperation):return error('Укажите сумму TON с точностью до 0.01.')
         if not 1<=amount<=100000000:return error('Сумма: от 0.01 до 1 000 000 TON.')
+    elif kind=='tickets':
+        try:amount=int(data.get('tickets') or data.get('amount') or 0)
+        except (ValueError,TypeError):return error('Укажите количество билетов.')
+        if not 1<=amount<=1000000:return error('Количество билетов: от 1 до 1 000 000.')
     elif kind=='deposit_bonus':
         try:
             bonus_percent=float(data.get('bonus_percent') or 0)

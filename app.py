@@ -799,6 +799,53 @@ def section_settings():
     return result
 
 
+def black_backgrounds_enabled():
+    try:
+        stored = read_document('gift_display_settings')
+    except (TypeError, ValueError):
+        return False
+    return isinstance(stored, dict) and stored.get('black_backgrounds_enabled') is True
+
+
+def gift_black_background(item):
+    label = normalize_portal_background(item.get('background_label') or item.get('fragment_backdrop') or item.get('backdrop'))
+    if label:
+        return label
+    name = str(item.get('name') or item.get('gift_name') or '')
+    match = re.search(r'\((Black|Onyx(?: Black)?)\)\s*$', name, re.I)
+    if match:
+        return normalize_portal_background(match.group(1))
+    gift_id = str(item.get('gift_id') or item.get('id') or '')
+    match = re.search(r':background:(black|onyx(?:-black)?)$', gift_id, re.I)
+    return normalize_portal_background(match.group(1)) if match else None
+
+
+def visible_gifts(items):
+    enabled = black_backgrounds_enabled()
+    catalog_quotes = None
+    visible = []
+    for item in items:
+        if not gift_black_background(item):
+            visible.append(item)
+            continue
+        if not enabled:
+            continue
+        price = portal_price_string(item.get('price_ton'))
+        if not price or Decimal(price) <= 0:
+            continue
+        if item.get('price_source') in ('Fragment', 'Portal · фон'):
+            visible.append(item)
+            continue
+        # A legacy owned gift may lack the price-source field. Show it only when
+        # its stored valuation matches a separately quoted catalog backdrop.
+        if catalog_quotes is None:
+            catalog_quotes = {str(g['id']): portal_price_string(g.get('price_ton'))
+                              for g in read_catalog(include_hidden=True)['gifts'] if gift_black_background(g)}
+        if catalog_quotes.get(str(item.get('gift_id') or item.get('id'))) == price:
+            visible.append(item)
+    return visible
+
+
 @app.before_request
 def enforce_available_modes():
     path = request.path
@@ -874,7 +921,7 @@ def log_event(db,user_id,kind,**details):
                (user_id,kind,json.dumps(details,ensure_ascii=False)))
 
 
-def read_catalog():
+def read_catalog(include_hidden=False):
     stored = read_document('portal_catalog')
     if stored is not None:
         document = stored
@@ -886,15 +933,16 @@ def read_catalog():
         raise ValueError('Invalid catalog')
     # Older imports fabricated backdrop prices from collection floors. Keep those
     # out of all catalog consumers, without changing already owned inventory.
-    return dict(document, gifts=[g for g in document['gifts'] if
-        not g.get('background_label') or
+    gifts = [g for g in document['gifts'] if
+        not gift_black_background(g) or
         (g.get('price_source') == 'Portal · фон' and portal_price_string(g.get('price_ton'))
-         and Decimal(portal_price_string(g.get('price_ton'))) > 0)])
+         and Decimal(portal_price_string(g.get('price_ton'))) > 0)]
+    return dict(document, gifts=gifts if include_hidden else visible_gifts(gifts))
 
 
 def repair_legacy_upgrade_wagers():
     """Restore wager gifts incorrectly changed into upgrade targets by older releases."""
-    try:catalog=read_catalog().get('gifts',[])
+    try:catalog=read_catalog(include_hidden=True).get('gifts',[])
     except (OSError,ValueError,TypeError):catalog=[]
     db=connect()
     try:
@@ -1361,10 +1409,14 @@ def normalize_level_reward(data):
     return reward
 
 
-def public_level_reward(reward):
+def public_level_reward(reward, include_hidden=True):
+    if not include_hidden and not black_backgrounds_enabled():
+        components = reward.get('components') or {}
+        if gift_black_background(reward) or any(gift_black_background(part) for part in components.values() if isinstance(part, dict)):
+            return {'type': 'none'}
     result={'type':'none',**reward}
     if isinstance(result.get('components'),dict):
-        result['components']={k:public_level_reward(v) for k,v in result['components'].items()}
+        result['components']={k:public_level_reward(v, include_hidden) for k,v in result['components'].items()}
     for key in ('amount','gift_price','bonus_fixed','min_deposit'):
         if key in result:result[key+'_ton']=result.pop(key)/100
     return result
@@ -1385,7 +1437,7 @@ def user_levels():
                    next_turnover=nxt['required_turnover']/100 if nxt else None,progress=round(progress,1),
                    pending=sum(1 for r in rows if r['required_turnover']<=turnover and r['level'] not in claims and json.loads(r['reward_json']).get('type','none')!='none'),
                    levels=[dict(level=r['level'],required_turnover=r['required_turnover']/100,
-                                reward=public_level_reward(json.loads(r['reward_json'])),
+                                reward=public_level_reward(json.loads(r['reward_json']), include_hidden=False),
                                 unlocked=r['required_turnover']<=turnover,claimed=r['level'] in claims,
                                 claim=claims.get(r['level'])) for r in rows])
 
@@ -1992,6 +2044,8 @@ def upgrade_recent_wins():
             if item:items.append(item)
         except Exception:
             app.logger.warning('Skipping malformed upgrade win row %s', row['id'] if row else '?', exc_info=True)
+    if not black_backgrounds_enabled():
+        items = [item for item in items if not any(gift_black_background(item[key]) for key in ('source', 'target'))]
     top_candidates=[item for item in items
                     if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
@@ -2462,6 +2516,11 @@ def recent_wins():
     except Exception:
         app.logger.warning('Skipping malformed mines top-drop row', exc_info=True)
         top_drop=None
+    if not black_backgrounds_enabled():
+        items = [item for item in items if not gift_black_background(item.get('gift') or {})]
+        if top_drop and gift_black_background(top_drop.get('gift') or {}):
+            top_drop = max((item for item in items if str(item['created_at']) >= wins_day_start_utc()),
+                           key=lambda item: item['amount'], default=None)
     return jsonify(items=items,top_drop=top_drop)
 
 
@@ -2678,7 +2737,7 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
         except (requests.RequestException, ValueError, TypeError):
             pass
     try:
-        gifts = read_catalog().get('gifts', [])
+        gifts = read_catalog(include_hidden=True).get('gifts', [])
     except (OSError, ValueError, TypeError):
         gifts = []
     norm = re.sub(r'[^a-z0-9]+', '', str(collection_name).casefold())
@@ -2861,7 +2920,7 @@ def catalog_giveaway_prize(gift_id):
                 gift_name=str(gift.get('name') or 'Подарок')[:140], image_url=image_url,
                 floor_price=max(0, int(price)), fragment_url='', fragment_number='',
                 fragment_model='', fragment_backdrop=str(gift.get('background_label') or ''),
-                fragment_symbol='', price_source='Portal')
+                fragment_symbol='', price_source=gift.get('price_source') or 'Portal')
 
 
 def giveaway_prize_view(row):
@@ -2957,6 +3016,7 @@ def giveaway_view(db, row, user_id=None, include_top=False):
     giveaway_id = int(row['id'])
     prizes = [giveaway_prize_view(x) for x in db.execute(
         'SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()]
+    prizes = visible_gifts(prizes)
     prize_count = sum(max(1, int(x.get('quantity') or 1)) for x in prizes)
     stats = db.execute('SELECT COUNT(*) AS participants,COALESCE(SUM(tickets),0) AS pool FROM giveaway_entries WHERE giveaway_id=? AND tickets>0',
                        (giveaway_id,)).fetchone()
@@ -2981,6 +3041,8 @@ def giveaway_view(db, row, user_id=None, include_top=False):
                                    fragment_symbol=x['fragment_symbol'] or '', price_source=x['price_source'] or '',
                                    animation_url=x['animation_url'] or ''))
                    for x in winner_rows]
+    if not black_backgrounds_enabled():
+        winners = [winner for winner in winners if not gift_black_background(winner['prize'])]
     top = []
     if include_top:
         top_rows = db.execute('''SELECT e.user_id,e.tickets,u.name,u.username,u.photo_url
@@ -3133,6 +3195,7 @@ def giveaways_list():
         else:
             rows = db.execute("SELECT * FROM giveaways WHERE status='completed' ORDER BY completed_at DESC,id DESC LIMIT 100").fetchall()
         items = [giveaway_view(db, row, session['uid'], False) for row in rows]
+        items = [item for item in items if item['prizes']]
         if sort == 'pool':
             items.sort(key=lambda x: (x['pool'], x['participants'], x['id']), reverse=True)
         elif status == 'completed':
@@ -3157,6 +3220,8 @@ def giveaway_detail(giveaway_id):
         if not row or row['status'] == 'cancelled':
             return error('Розыгрыш не найден.', 404)
         item = giveaway_view(db, row, session['uid'], True)
+        if not item['prizes']:
+            return error('Розыгрыш сейчас скрыт.', 404)
         balance = db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()
         db.commit()
         return jsonify(item=item, tickets=int(balance['tickets'] or 0) if balance else 0)
@@ -3225,6 +3290,8 @@ def admin_fragment_preview():
     data = request.get_json(silent=True) or {}
     try:
         gift = fragment_gift_from_url(data.get('url'), True)
+        if gift_black_background(gift) and not black_backgrounds_enabled():
+            return error('Отображение Black и Onyx Black выключено.')
     except ValueError as exc:
         return error(str(exc))
     if data.get('animation_url'):
@@ -3277,6 +3344,8 @@ def admin_create_giveaway():
                 prize = catalog_giveaway_prize(item.get('gift_id'))
             else:
                 raise ValueError('Неизвестный источник подарка.')
+            if gift_black_background(prize) and not black_backgrounds_enabled():
+                raise ValueError('Отображение Black и Onyx Black выключено.')
             prize['quantity'] = quantity
             prizes.append(prize)
             total_slots += quantity
@@ -3639,6 +3708,7 @@ def public_balance_label(kind):
 @app.get('/api/users/<int:user_id>/profile')
 @login_required
 def public_user_profile(user_id):
+    show_black = black_backgrounds_enabled()
     with connect() as db:
         user_row = db.execute('SELECT id,name,username,photo_url,turnover_cents,created_at,max_drop_override_name,max_drop_override_image,max_drop_override_price,max_drop_override_set_at FROM users WHERE id=?',
                               (user_id,)).fetchone()
@@ -3687,7 +3757,7 @@ def public_user_profile(user_id):
             gift_price = int(row['win_gift_price'] or 0)
             total = int(row['win_total'] or row['payout'] or 0)
             candidate_price = gift_price or total
-            if drop_is_after_override(row['created_at']) and candidate_price > 0 and (not mines_drop or candidate_price > mines_drop['price_cents']):
+            if (show_black or not gift_black_background({'name': row['win_gift_name']})) and drop_is_after_override(row['created_at']) and candidate_price > 0 and (not mines_drop or candidate_price > mines_drop['price_cents']):
                 mines_drop = dict(price_cents=candidate_price,
                                   name=row['win_gift_name'] or 'Выигрыш Mines',
                                   image_url=row['win_gift_image'] or '', source='Mines')
@@ -3710,14 +3780,14 @@ def public_user_profile(user_id):
                 result = {}
             if isinstance(result, dict) and result.get('reward_type') == 'wager_progress':
                 continue
-            if drop_is_after_override(row['created_at']) and (not upgrade_drop or target_price > upgrade_drop['price_cents']):
+            if (show_black or not gift_black_background({'name': row['target_name']})) and drop_is_after_override(row['created_at']) and (not upgrade_drop or target_price > upgrade_drop['price_cents']):
                 upgrade_drop = dict(price_cents=target_price, name=row['target_name'] or 'Подарок Upgrade',
                                     image_url=row['target_image'] or '', source='Upgrade')
 
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
         override_name = str(user_row['max_drop_override_name'] or '').strip()
-        if override_price > 0 and override_name:
+        if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
         max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop) if x),
@@ -3829,7 +3899,7 @@ def inventory():
         purge_expired_inventory(db, session['uid'])
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (session['uid'],)).fetchall()
-    return jsonify(items=[inventory_item(item) for item in items])
+    return jsonify(items=visible_gifts([inventory_item(item) for item in items]))
 
 
 @app.post('/api/inventory/<int:item_id>/sell')
@@ -4924,13 +4994,14 @@ def loader_catalog():
 @app.get('/api/ui/settings')
 def public_ui_settings():
     # Intentionally public: loader and visible navigation are needed before auth finishes.
-    return jsonify(loader_gif=loader_settings()['path'], sections=section_settings())
+    return jsonify(loader_gif=loader_settings()['path'], sections=section_settings(),
+                   black_backgrounds_enabled=black_backgrounds_enabled())
 
 
 @app.get('/api/admin/section-settings')
 @admin_required
 def admin_section_settings():
-    return jsonify(sections=section_settings())
+    return jsonify(sections=section_settings(), black_backgrounds_enabled=black_backgrounds_enabled())
 
 
 @app.post('/api/admin/section-settings')
@@ -4938,13 +5009,17 @@ def admin_section_settings():
 def save_admin_section_settings():
     data = request.get_json(silent=True) or {}
     current = section_settings()
+    if 'black_backgrounds_enabled' in data and not isinstance(data['black_backgrounds_enabled'], bool):
+        return error('Состояние отображения фонов должно быть true или false.')
     if any(not isinstance(data[key], bool) for key in current if key in data):
         return error('Состояние раздела должно быть true или false.')
     updated = {key: bool(data.get(key, current[key])) for key in current}
     if not any(updated.values()):
         return error('Нужно оставить включённым хотя бы один раздел.')
     save_document('section_settings', updated)
-    return jsonify(ok=True, sections=updated)
+    if 'black_backgrounds_enabled' in data:
+        save_document('gift_display_settings', {'black_backgrounds_enabled': data['black_backgrounds_enabled']})
+    return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled())
 
 
 @app.get('/api/admin/loader-settings')
@@ -7332,7 +7407,7 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
 
 def fetch_portal_catalog(key, progress=None):
     """Fetch Portal collections without blocking the admin UI for the whole import."""
-    previous = read_catalog()['gifts']
+    previous = read_catalog(include_hidden=True)['gifts']
     previous_by_id = {str(gift.get('id')): gift for gift in previous}
     gifts, seen = [], set()
     offset = 0
@@ -7606,7 +7681,7 @@ def portal_logs():
 @admin_required
 def refresh_portal_images():
     try:
-        document = read_catalog()
+        document = read_catalog(include_hidden=True)
         if not document['gifts']:
             return error('Сначала загрузите каталог Portal.')
         mapping = gift_id_map()

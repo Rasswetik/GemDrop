@@ -117,3 +117,26 @@ body.studio #upgradePage .upgrade-wheel-wrap{width:clamp(250px,32vw,360px)!impor
 @media(min-width:700px){body.studio #giveawayPage .giveaway-card-prize-art{max-height:140px}body.studio #giveawayPage .giveaway-prize-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
 @media(max-width:460px){body.studio #giveawayPage .reward-task-card{grid-template-columns:1fr;gap:6px}body.studio #giveawayPage .reward-task-foot{padding-left:44px;justify-content:space-between}body.studio #giveawayPage .giveaway-title-block h1{font-size:25px}body.studio #giveawaysAdminPage .giveaway-admin-prize{grid-template-columns:44px minmax(0,1fr) 26px 26px}body.studio #giveawaysAdminPage .giveaway-prize-qty{grid-column:2;grid-row:2;justify-self:start}body.studio #giveawaysAdminPage .giveaway-prize-order{grid-column:3;grid-row:1 / span 2}body.studio #giveawaysAdminPage .giveaway-prize-remove{grid-column:4;grid-row:1 / span 2}}
 @media(max-width:600px){body.studio #upgradePage .upgrade-wheel-wrap{width:min(76vw,320px)!important}}
+/* Selected gifts and the picker use the same backdrop as inventory cards. */
+body.studio #upgradePage .upgrade-picks .upgrade-pick .pick-art.portal-bg-black,
+body.studio #upgradeListModal .upgrade-list-art.portal-bg-black{background:#08090b!important;border-color:#272a30!important;box-shadow:none!important}
+body.studio #upgradePage #upgradeCenter.portal-bg-black{background:#08090b!important}
+body.studio #upgradePage #upgradeCenter.portal-bg-onyx-black{background:#11151b!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick .pick-art.portal-bg-onyx-black,
+body.studio #upgradeListModal .upgrade-list-art.portal-bg-onyx-black{background:#11151b!important;border-color:#303641!important;box-shadow:none!important}
+body.studio #upgradeListModal #upgradeList>button{grid-template-columns:44px minmax(0,1fr)!important;gap:12px;text-align:left}
+body.studio #upgradeListModal .upgrade-list-art{display:grid;place-items:center;width:44px;height:44px;overflow:hidden;border-radius:9px;background:#202938}
+body.studio #upgradeListModal .upgrade-list-art img{width:100%;height:100%;object-fit:contain}
+body.studio #giveawayPage .giveaway-winner{display:grid!important;grid-template-columns:36px minmax(0,1fr) 44px minmax(0,1fr)!important;align-items:center;gap:10px!important;padding:10px 0!important}
+body.studio #giveawayPage .giveaway-winner .giveaway-avatar{width:36px;height:36px;overflow:hidden;border-radius:50%}
+body.studio #giveawayPage .giveaway-winner .giveaway-avatar img{width:100%;height:100%;object-fit:cover;padding:0}
+body.studio #giveawayPage .giveaway-winner .reward-winner-art{width:44px;height:44px;overflow:hidden;border-radius:8px;background:#202938}
+body.studio #giveawayPage .giveaway-winner .reward-winner-art img{width:100%!important;height:100%!important;object-fit:contain;padding:0;border-radius:0}
+body.studio #giveawayPage .giveaway-winner-person{display:grid;gap:4px;min-width:0}
+body.studio #giveawayPage .giveaway-winner-person>b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.studio #giveawayPage .giveaway-winner .giveaway-winner-tickets{display:flex;align-items:center;gap:5px;font-size:11px;line-height:16px}
+body.studio #giveawayPage .giveaway-winner-tickets svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;flex:none}
+body.studio #giveawayPage .giveaway-winner-prize{min-width:0;overflow-wrap:anywhere;line-height:1.4}
+body.studio #giveawayPage .giveaway-winner .reward-winner-art.portal-bg-black{background:#08090b}
+body.studio #giveawayPage .giveaway-winner .reward-winner-art.portal-bg-onyx-black{background:#11151b}
+@media(max-width:460px){body.studio #giveawayPage .giveaway-winner{grid-template-columns:32px minmax(0,1fr) 38px minmax(0,1fr)!important;gap:8px!important}body.studio #giveawayPage .giveaway-winner .giveaway-avatar{width:32px;height:32px}body.studio #giveawayPage .giveaway-winner .reward-winner-art{width:38px;height:38px}}

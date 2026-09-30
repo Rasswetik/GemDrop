@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '52-rewards-tasks-animation'
+BUILD_ID = '55-compact-rewards-backgrounds'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -126,10 +126,19 @@ class PostgreSQL:
             self.close()
 
 
+class SQLiteConnection(sqlite3.Connection):
+    """Match PostgreSQL's context manager: finish the transaction and close."""
+    def __exit__(self, kind, value, tb):
+        try:
+            return super().__exit__(kind, value, tb)
+        finally:
+            self.close()
+
+
 def connect():
     if DATABASE_URL:
         return PostgreSQL()
-    db = sqlite3.connect(DB, timeout=15, isolation_level=None)
+    db = sqlite3.connect(DB, timeout=15, isolation_level=None, factory=SQLiteConnection)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA busy_timeout=15000')
     return db
@@ -779,6 +788,8 @@ def section_settings():
         stored = read_document('section_settings') or {}
     except (TypeError, ValueError, json.JSONDecodeError):
         stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
     result = {key: bool(stored.get(key, default)) for key, default in defaults.items()}
     # Older builds stored a Craft switch. It does not control the new Giveaways section.
     if 'giveaways' not in stored:
@@ -791,11 +802,15 @@ def section_settings():
 @app.before_request
 def enforce_available_modes():
     path = request.path
+    if request.is_json and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return error('Ожидается JSON-объект с параметрами запроса.', 400)
     # Craft is retired from the product. Keep its old data/code for safe migration,
     # but make the API inaccessible so stale clients cannot start new crafts.
     if path.startswith('/api/craft/'):
         return error('Крафты отключены.', 404)
-    mode = ('giveaways' if path.startswith('/api/giveaways/') else
+    mode = ('giveaways' if path == '/api/giveaways' or path.startswith('/api/giveaways/') else
             'upgrade' if path.startswith('/api/upgrade/') else
             'mines' if path.startswith('/api/game/') else None)
     if mode and path not in ('/api/game/open', '/api/game/cashout') and not section_settings().get(mode, False):
@@ -1210,7 +1225,7 @@ def ladder():
 
 def parse_amount(value):
     value = Decimal(str(value)) * 100
-    if not value.is_finite() or value != value.to_integral_value():
+    if not value.is_finite() or value != value.to_integral_value() or abs(value) > 9223372036854775807:
         raise ValueError('Invalid money amount')
     return int(value)
 
@@ -2445,6 +2460,8 @@ def recent_wins():
 
 
 FRAGMENT_GIFT_RE = re.compile(r'^https?://(?:(?:www\.)?fragment\.com/gift/|t\.me/nft/)([a-z0-9-]+?)(?:[/?#].*)?$', re.I)
+fragment_preview_cache = {}
+fragment_preview_lock = __import__('threading').Lock()
 
 
 def record_tickets(db, user_id, amount, kind, reference_type='', reference_id='', details=''):
@@ -2645,12 +2662,10 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
     key = saved_portal_key()
     if short:
         try:
-            response = requests.get('https://portal-market.com/api/collections/filters',
-                                    params={'short_names': short}, headers=portal_headers(key), timeout=(2, 4))
-            if response.ok and len(response.content) < 3_000_000:
-                price, source = _portal_filter_trait_floor(response.json(), model, backdrop)
-                if price:
-                    return price, source
+            filters = portal_get_collection_filters(requests, key, [collection_name]).get(short)
+            price, source = _portal_filter_trait_floor(filters, model, backdrop)
+            if price:
+                return price, source
         except (requests.RequestException, ValueError, TypeError):
             pass
     try:
@@ -2658,6 +2673,7 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
     except (OSError, ValueError, TypeError):
         gifts = []
     norm = re.sub(r'[^a-z0-9]+', '', str(collection_name).casefold())
+    candidates = []
     for gift in gifts:
         base = str(gift.get('base_name') or gift.get('name') or '')
         base = re.sub(r'\s*\((?:Onyx Black|Black)\)\s*$', '', base, flags=re.I)
@@ -2668,7 +2684,15 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
         except (ValueError, TypeError, InvalidOperation):
             cents = 0
         if cents > 0:
-            return int(cents), 'Portal · коллекция'
+            label = normalize_portal_background(gift.get('background_label'))
+            wanted = normalize_portal_background(backdrop)
+            if wanted and label == wanted:
+                candidates.append((0, int(cents), 'Portal · фон'))
+            elif not label:
+                candidates.append((1, int(cents), 'Portal · коллекция'))
+    if candidates:
+        _, cents, source = min(candidates)
+        return cents, source
     try:
         response = requests.get('https://portal-market.com/api/collections', params={'search': collection_name, 'limit': 10},
                                 headers=portal_headers(key), timeout=(2, 4))
@@ -2679,6 +2703,8 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
                 rows = rows.get('items') or rows.get('collections') or []
             for row in rows if isinstance(rows, list) else []:
                 if not isinstance(row, dict):
+                    continue
+                if portal_short_name(row.get('name') or row.get('title') or row.get('short_name')) != short:
                     continue
                 raw = next((row.get(k) for k in ('floor_price','floorPrice','price') if row.get(k) is not None), None)
                 if raw is None: continue
@@ -2693,7 +2719,7 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
     return 0, ''
 
 
-def fragment_gift_from_url(value, fetch_meta=True):
+def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
     url = str(value or '').strip()
     match = FRAGMENT_GIFT_RE.fullmatch(url)
     if not match:
@@ -2703,6 +2729,11 @@ def fragment_gift_from_url(value, fetch_meta=True):
     number_match = re.search(r'-(\d+)$', raw_slug)
     if not number_match:
         raise ValueError('Нужна ссылка на конкретный Fragment-подарок с номером, например PlushPepe-12345.')
+    if fetch_meta and not refresh:
+        with fragment_preview_lock:
+            cached = fragment_preview_cache.get(slug)
+            if cached and time.monotonic() - cached[0] < 300:
+                return dict(cached[1])
     number = number_match.group(1)
     raw_base_slug = raw_slug[:number_match.start()]
     readable_base = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', raw_base_slug).replace('-', ' ')
@@ -2759,12 +2790,16 @@ def fragment_gift_from_url(value, fetch_meta=True):
                         price_source = 'Fragment'
         except requests.RequestException:
             pass
-        if not animation_url:
+        if not animation_url or not floor_price:
             try:
                 response = requests.get(f'https://fragment.com/gift/{raw_slug}', timeout=(2, 3), headers={
                     'User-Agent': 'Mozilla/5.0 (compatible; GemDrop/1.0)', 'Accept': 'text/html'})
                 if response.ok and len(response.content) < 2_000_000:
                     html_text = response.text
+                    if not floor_price:
+                        floor_price = _fragment_price_from_text(html_text)
+                        if floor_price:
+                            price_source = 'Fragment'
                     animation_url = safe_image(_fragment_meta_content(html_text, 'og:video'))
                     if not animation_url:
                         match_video = re.search(r'<(?:video|source)\b[^>]*\bsrc=["\'](https://[^"\']+)', html_text, re.I)
@@ -2777,12 +2812,22 @@ def fragment_gift_from_url(value, fetch_meta=True):
         # A specific collectible is often not listed. In that case show the closest useful market floor:
         # model first, collection second.
         if not floor_price:
+            display_collection = re.sub(r'\s*#\s*\d+.*$', '', name).strip()
+            if portal_short_name(display_collection) == portal_short_name(collection_name):
+                collection_name = display_collection
             floor_price, price_source = _fragment_portal_fallback_price(collection_name, model, backdrop)
-    return dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
+    gift = dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
                 image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
                 fragment_number=number, fragment_model=model, fragment_backdrop=backdrop,
                 fragment_symbol=symbol, price_source=price_source, animation_url=animation_url,
                 slug=slug, collection_name=collection_name)
+    if fetch_meta and floor_price > 0:
+        with fragment_preview_lock:
+            if len(fragment_preview_cache) >= 256:
+                oldest = min(fragment_preview_cache, key=lambda k: fragment_preview_cache[k][0])
+                fragment_preview_cache.pop(oldest, None)
+            fragment_preview_cache[slug] = (time.monotonic(), dict(gift))
+    return gift
 
 
 def catalog_giveaway_prize(gift_id):
@@ -3253,6 +3298,78 @@ def admin_create_giveaway():
         return jsonify(ok=True, item=giveaway_view(db, row, None, False))
     finally:
         db.close()
+
+
+@app.put('/api/admin/giveaways/<int:giveaway_id>')
+@admin_required
+def admin_edit_giveaway(giveaway_id):
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title') or '').strip()[:120]
+    description = str(data.get('description') or '').strip()[:500]
+    if not title:
+        return error('Введите название розыгрыша.')
+    end = parse_datetime_utc(str(data.get('ends_at') or ''))
+    now = datetime.now(timezone.utc)
+    if not end or not now < end <= now + timedelta(days=90):
+        return error('Укажите дату окончания в пределах следующих 90 дней.')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row:
+            return error('Розыгрыш не найден.', 404)
+        old_end = parse_datetime_utc(row['ends_at'])
+        if row['status'] != 'active' or (old_end and old_end <= now):
+            return error('Розыгрыш уже завершён.')
+        db.execute('UPDATE giveaways SET title=?,description=?,ends_at=? WHERE id=?',
+                   (title, description, end.isoformat(), giveaway_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'giveaway_edit', str(giveaway_id)))
+        db.commit()
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        return jsonify(ok=True, item=giveaway_view(db, row, None, False))
+
+
+@app.post('/api/admin/giveaways/<int:giveaway_id>/refresh-prizes')
+@admin_required
+def admin_refresh_giveaway_prizes(giveaway_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row:
+            return error('Розыгрыш не найден.', 404)
+        if row['status'] != 'active':
+            return error('Можно обновить только активный розыгрыш.')
+        rows = db.execute('SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id',
+                          (giveaway_id,)).fetchall()
+    refreshed = []
+    for prize in rows:
+        try:
+            gift = (fragment_gift_from_url(prize['fragment_url'], True, refresh=True) if prize['source_type'] == 'fragment'
+                    else catalog_giveaway_prize(prize['gift_id']))
+            # A temporary provider failure must not erase a known price, trait or animation.
+            refreshed.append((prize['id'], {key: gift.get(key) or prize[key] for key in (
+                'gift_name', 'image_url', 'floor_price', 'fragment_number', 'fragment_model',
+                'fragment_backdrop', 'fragment_symbol', 'price_source', 'animation_url')}))
+        except (ValueError, OSError, TypeError):
+            continue
+    if not refreshed:
+        return error('Не удалось обновить подарки. Повторите позже.')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        end = parse_datetime_utc(row['ends_at']) if row else None
+        if not row or row['status'] != 'active' or (end and end <= datetime.now(timezone.utc)):
+            return error('Розыгрыш уже завершён.')
+        for prize_id, gift in refreshed:
+            db.execute('''UPDATE giveaway_prizes SET gift_name=?,image_url=?,floor_price=?,fragment_number=?,
+                          fragment_model=?,fragment_backdrop=?,fragment_symbol=?,price_source=?,animation_url=?
+                          WHERE id=? AND giveaway_id=?''',
+                       tuple(gift[key] for key in ('gift_name', 'image_url', 'floor_price', 'fragment_number',
+                            'fragment_model', 'fragment_backdrop', 'fragment_symbol', 'price_source', 'animation_url'))
+                       + (prize_id, giveaway_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'giveaway_refresh_prizes', str(giveaway_id)))
+        db.commit()
+        return jsonify(ok=True, updated=len(refreshed), item=giveaway_view(db, row, None, False))
 
 
 @app.post('/api/admin/giveaways/<int:giveaway_id>/finish')
@@ -4806,6 +4923,8 @@ def admin_section_settings():
 def save_admin_section_settings():
     data = request.get_json(silent=True) or {}
     current = section_settings()
+    if any(not isinstance(data[key], bool) for key in current if key in data):
+        return error('Состояние раздела должно быть true или false.')
     updated = {key: bool(data.get(key, current[key])) for key in current}
     if not any(updated.values()):
         return error('Нужно оставить включённым хотя бы один раздел.')
@@ -6939,6 +7058,7 @@ def store_portal_key(key):
 
 PORTAL_BACKGROUND_LABELS = {
     'black': 'Black',
+    'onyx': 'Onyx Black',
     'onyxblack': 'Onyx Black',
 }
 
@@ -6968,6 +7088,11 @@ def portal_price_string(value):
         for key in ('floor_price', 'floorPrice', 'min_price', 'minPrice', 'price', 'amount', 'value', 'floor'):
             if value.get(key) is not None:
                 price = portal_price_string(value.get(key))
+                if price is not None:
+                    return price
+        for key in ('stats', 'market_stats', 'pricing'):
+            if isinstance(value.get(key), dict):
+                price = portal_price_string(value[key])
                 if price is not None:
                     return price
         return None
@@ -7014,7 +7139,7 @@ def portal_background_variants(item, filters=None):
         if label not in ('Black', 'Onyx Black'):
             return
         price = portal_price_string(raw_price)
-        if price is not None:
+        if price is not None and Decimal(price) > 0:
             variants[label] = price
 
     def scan_container(container):
@@ -7023,6 +7148,10 @@ def portal_background_variants(item, filters=None):
                 scan_container(entry)
             return
         if not isinstance(container, dict):
+            return
+
+        trait = str(container.get('trait_type') or container.get('type') or container.get('key') or '').casefold()
+        if any(word in trait for word in ('model', 'symbol', 'pattern')):
             return
 
         # Mapping shape: {"Black": 20000, "Onyx Black": {"floor_price": 10000}}
@@ -7043,11 +7172,16 @@ def portal_background_variants(item, filters=None):
             if label:
                 remember(label, container)
 
+        for key, child in container.items():
+            if key not in ('models', 'symbols', 'patterns') and isinstance(child, (dict, list)):
+                scan_container(child)
+
     direct_keys = (
         'backgrounds', 'background', 'background_prices', 'backgroundPrices', 'prices_by_background',
         'floor_prices_by_background', 'floors_by_background', 'backdrops', 'backdrop', 'backdrop_prices',
         'backdropPrices', 'prices_by_backdrop', 'floor_prices_by_backdrop', 'floors_by_backdrop',
         'attributes', 'traits', 'filters', 'variants', 'prices', 'floors', 'stats', 'market_stats',
+        'data', 'result', 'floor_prices', 'floorPrices',
     )
     for key in direct_keys:
         if isinstance(item, dict) and item.get(key) is not None:
@@ -7067,9 +7201,11 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
     # the variants visible even when the optional filters request failed. Price falls back to the
     # collection floor until a background-specific floor is available on the next sync.
     for label in ('Black', 'Onyx Black'):
+        old_price = None
         price = discovered.get(label)
         if price is None:
-            price = portal_price_string(base_gift.get('price_ton')) or '0.00'
+            old_price = portal_price_string(previous_by_id.get(f'{base_id}:background:{portal_background_key(label)}', {}).get('price_ton'))
+            price = old_price if old_price and Decimal(old_price) > 0 else portal_price_string(base_gift.get('price_ton'))
         bg_key = portal_background_key(label)
         variant_id = f'{base_id}:background:{bg_key}'
         old = previous_by_id.get(variant_id, {})
@@ -7083,7 +7219,7 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
             background_label=label,
             background_key=bg_key,
             background_tone='black' if label == 'Black' else 'onyx-black',
-            price_source=('Portal · фон' if label in discovered else 'Portal · коллекция'),
+            price_source=('Portal · фон' if label in discovered else 'Portal · сохранённая цена' if old_price and price == old_price else 'Portal · коллекция'),
             image_url=old.get('image_url') or base_gift.get('image_url') or base_gift.get('portal_image_url', ''),
             image_match=bool(old.get('image_match', base_gift.get('image_match'))),
             telegram_gift_id=old.get('telegram_gift_id', base_gift.get('telegram_gift_id', '')),
@@ -7172,6 +7308,8 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
             # Filters are optional: if Portal does not answer, continue with the
             # ordinary gifts and any background data embedded into collections.
             return {}
+        if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
+            payload = payload['data']
         floors = payload.get('floor_prices', payload.get('floorPrices', payload)) if isinstance(payload, dict) else {}
         if not isinstance(floors, dict):
             return {}
@@ -7252,6 +7390,10 @@ def fetch_portal_catalog(key, progress=None):
                         if safe_image(item.get(k))), '')
             gift = dict(id=gift_id, name=str(name)[:140], price_ton=price, portal_image_url=img)
             old = previous_by_id.get(gift_id, {})
+            if price is None or Decimal(price) <= 0:
+                saved_price = portal_price_string(old.get('price_ton'))
+                if saved_price and Decimal(saved_price) > 0:
+                    gift['price_ton'] = saved_price
             gift.update(image_url=old.get('image_url') or img,
                         image_match=bool(old.get('image_match')),
                         telegram_gift_id=old.get('telegram_gift_id', ''))

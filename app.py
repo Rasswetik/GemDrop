@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '55-compact-rewards-backgrounds'
+BUILD_ID = '58-mobile-quests'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -429,7 +429,9 @@ def initialize():
         ])
         ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
-        ensure_columns('reward_tasks', [('ends_at', 'TEXT')])
+        ensure_columns('reward_tasks', [('ends_at', 'TEXT'),
+            ('chance_operator', "TEXT NOT NULL DEFAULT 'any'"),
+            ('chance_threshold_bp', 'INTEGER'), ('auto_title', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('promo_codes', [
             ('wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('bonus_percent', 'REAL NOT NULL DEFAULT 0'),
@@ -1946,7 +1948,7 @@ def upgrade_rtp_basis_points():
 @login_required
 def upgrade_settings():
     return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80,max_target_multiplier=10,
-                   max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
+                   min_bet_ton=0.1,max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
 @app.get('/api/upgrade/preview')
@@ -3059,6 +3061,8 @@ def giveaway_view(db, row, user_id=None, include_top=False):
 
 
 TASK_METRICS = {
+    'upgrade_play': ('upgrade_spins', '1=1'),
+    'upgrade_gift': ('upgrade_spins', '''won=1 AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%' '''),
     'upgrade_low': ('upgrade_spins', 'won=1 AND chance_bp<2500'),
     'upgrade_win': ('upgrade_spins', 'won=1'),
     'craft': ('craft_spins', '1=1'),
@@ -3070,6 +3074,76 @@ TASK_METRICS = {
 TASK_PAGES = {'upgradePage', 'craftPage', 'profilePage', 'minesPage', 'giveawayPage', 'rollPage'}
 
 
+def reward_task_chance(task):
+    operator = task['chance_operator'] if 'chance_operator' in task.keys() else 'any'
+    threshold = task['chance_threshold_bp'] if 'chance_threshold_bp' in task.keys() else None
+    if task['metric'] == 'upgrade_low' and operator == 'any':
+        return 'lt', 2500
+    return operator, threshold
+
+
+def reward_task_title(metric, goal, operator='any', threshold=None):
+    action = {'upgrade_play':'Сыграть в апгрейд', 'upgrade_win':'Победить в апгрейде',
+              'upgrade_gift':'Выиграть подарок в апгрейде', 'upgrade_low':'Победить в апгрейде',
+              'deposit':'Пополнить баланс', 'deposit_5':'Пополнить баланс от 5 TON',
+              'referral':'Пригласить друзей', 'craft':'Сделать крафт', 'roll':'Сыграть в Roll'}[metric]
+    times = 'раза' if 2 <= goal % 10 <= 4 and not 12 <= goal % 100 <= 14 else 'раз'
+    title = f'Пригласить {goal} '+('друга' if goal % 10 == 1 and goal % 100 != 11 else 'друзей') if metric == 'referral' else f'{action} {goal} {times}'
+    if metric.startswith('upgrade') and operator != 'any':
+        relation = {'lt':'меньше','lte':'не больше','gt':'больше','gte':'не меньше'}[operator]
+        percent = format(Decimal(threshold) / 100, 'f').rstrip('0').rstrip('.') if threshold % 100 else str(threshold // 100)
+        title += f' с шансом {relation} {percent}%'
+    return title
+
+
+def normalize_reward_task(data, current=None):
+    current = dict(current or {})
+    metric = str(data.get('metric', current.get('metric', 'upgrade_play')))
+    category = str(data.get('category', current.get('category', 'once')))
+    if metric not in TASK_METRICS or metric in ('craft','roll') or category not in ('once','daily','limited'):
+        raise ValueError('Выберите действие и период задания.')
+    def integer(key, default, low, high):
+        raw = data.get(key, current.get(key, default))
+        if isinstance(raw, bool) or not re.fullmatch(r'\d+', str(raw)):
+            raise ValueError('Проверьте числовые поля задания.')
+        value = int(raw)
+        if not low <= value <= high:
+            raise ValueError(f'Поле {key}: допустимо от {low} до {high}.')
+        return value
+    goal = integer('goal', 1, 1, 100000)
+    tickets = integer('tickets', 25, 1, 100000)
+    old_operator, old_threshold = reward_task_chance(current) if current else ('any', None)
+    operator = str(data.get('chance_operator', old_operator)) if metric.startswith('upgrade') else 'any'
+    if operator not in ('any','lt','lte','gt','gte'):
+        raise ValueError('Выберите сравнение шанса.')
+    threshold = None
+    if operator != 'any':
+        try:
+            percent = Decimal(str(data.get('chance_percent', Decimal(old_threshold if old_threshold is not None else 2500)/100)))
+            if not percent.is_finite() or not 0 <= percent <= 100 or percent * 100 != (percent * 100).to_integral_value():
+                raise ValueError()
+            threshold = int(percent * 100)
+        except (ValueError, TypeError, InvalidOperation):
+            raise ValueError('Шанс: от 0 до 100%, не более двух знаков после запятой.')
+    if metric == 'upgrade_low':
+        metric = 'upgrade_win'
+        if operator == 'any': operator, threshold = 'lt', 2500
+    title = str(data.get('title', '' if current.get('auto_title') else current.get('title', '')) or '').strip()
+    if len(title) > 160:
+        raise ValueError('Название должно быть не длиннее 160 символов.')
+    auto_title = not title
+    title = title or reward_task_title(metric, goal, operator, threshold)
+    end = current.get('ends_at') if category == current.get('category') else None
+    if category == 'limited' and ('duration_hours' in data or not end):
+        hours = integer('duration_hours', 24, 1, 2160)
+        end = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    if category != 'limited': end = None
+    page = 'upgradePage' if metric.startswith('upgrade') else 'profilePage'
+    return dict(title=title, category=category, metric=metric, goal=goal, tickets=tickets,
+                action_page=page, demo=0, ends_at=end, chance_operator=operator,
+                chance_threshold_bp=threshold, auto_title=int(auto_title))
+
+
 def reward_task_period(task):
     return datetime.now(timezone.utc).strftime('%Y-%m-%d') if task['category'] == 'daily' else 'once'
 
@@ -3078,12 +3152,24 @@ def reward_task_progress(db, task, user_id):
     if task['metric'] not in TASK_METRICS:
         return 0
     table, condition = TASK_METRICS[task['metric']]
-    since = str(task['created_at'])
+    since = parse_datetime_utc(task['created_at']) or datetime.min.replace(tzinfo=timezone.utc)
     if task['category'] == 'daily':
-        since = max(since, datetime.now(timezone.utc).strftime('%Y-%m-%d 00:00:00'))
+        since = max(since, datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0))
     person_column = 'referrer_id' if table == 'referrals' else 'user_id'
-    row = db.execute(f'SELECT COUNT(*) AS n FROM {table} WHERE {person_column}=? AND created_at>=? AND {condition}',
-                     (user_id, since)).fetchone()
+    params = [user_id, since.strftime('%Y-%m-%d %H:%M:%S')]
+    # Both legacy ISO timestamps and SQL timestamps are stored in UTC.
+    timestamp = "REPLACE(SUBSTR(created_at,1,19),'T',' ')"
+    operator, threshold = reward_task_chance(task)
+    if task['metric'].startswith('upgrade') and operator != 'any':
+        comparison = {'lt':'<','lte':'<=','gt':'>','gte':'>='}.get(operator)
+        if not comparison or threshold is None: return 0
+        condition += f' AND chance_bp {comparison} ?'
+        params.append(int(threshold))
+    end = parse_datetime_utc(task['ends_at']) if task['ends_at'] else None
+    if end:
+        condition += f' AND {timestamp} < ?'
+        params.append(end.strftime('%Y-%m-%d %H:%M:%S'))
+    row = db.execute(f'SELECT COUNT(*) AS n FROM {table} WHERE {person_column}=? AND {timestamp}>=? AND {condition}', params).fetchone()
     return min(int(row['n'] or 0), int(task['goal']))
 
 
@@ -3093,7 +3179,9 @@ def reward_task_view(db, task, user_id):
                          (task['id'], user_id, period)).fetchone() is not None
     end = parse_datetime_utc(task['ends_at']) if task['ends_at'] else None
     expired = bool(end and end <= datetime.now(timezone.utc))
+    operator, threshold = reward_task_chance(task)
     return dict(id=task['id'], title=task['title'], category=task['category'], metric=task['metric'],
+                chance_operator=operator, chance_percent=threshold/100 if threshold is not None else None,
                 goal=int(task['goal']), progress=reward_task_progress(db, task, user_id) if not task['demo'] else 0,
                 tickets=int(task['tickets']), action_page=task['action_page'], demo=bool(task['demo']),
                 active=bool(task['active']), claimed=claimed, expired=expired, ends_at=task['ends_at'])
@@ -3136,35 +3224,45 @@ def reward_task_claim(task_id):
 def admin_reward_tasks_list():
     with connect() as db:
         rows = db.execute('SELECT * FROM reward_tasks ORDER BY id DESC LIMIT 200').fetchall()
-        return jsonify(items=[dict(row) for row in rows])
+        return jsonify(items=[dict(dict(row), chance_operator=reward_task_chance(row)[0], chance_percent=(reward_task_chance(row)[1]/100 if reward_task_chance(row)[1] is not None else None)) for row in rows])
 
 
 @app.post('/api/admin/reward-tasks')
 @admin_required
 def admin_reward_task_create():
-    data = request.get_json(silent=True) or {}
-    title = str(data.get('title') or '').strip()[:160]
-    category = str(data.get('category') or '')
-    metric = str(data.get('metric') or '')
-    demo = bool(data.get('demo'))
-    page = str(data.get('action_page') or '')
     try:
-        goal, tickets = int(data.get('goal')), int(data.get('tickets'))
-        hours = int(data.get('duration_hours') or 0)
-    except (ValueError, TypeError):
-        return error('Проверьте числовые поля задания.')
-    if not title or category not in ('limited', 'daily', 'once') or metric not in TASK_METRICS or page not in TASK_PAGES | {''}:
-        return error('Проверьте название, тип, действие и раздел задания.')
-    if not 1 <= goal <= 1000 or not 1 <= tickets <= 100000 or not 0 <= hours <= 2160:
-        return error('Прогресс: 1–1000, билеты: 1–100000, срок: до 90 дней.')
-    if category == 'limited' and not hours:
-        return error('Для ограниченного задания укажите длительность.')
-    end = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat() if category == 'limited' else None
+        values = normalize_reward_task(request.get_json(silent=True) or {})
+    except ValueError as exc:
+        return error(str(exc))
     with connect() as db:
-        db.execute('INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,demo,ends_at) VALUES(?,?,?,?,?,?,?,?)',
-                   (title, category, metric, goal, tickets, page, int(demo), end))
+        columns = ','.join(values)
+        marks = ','.join('?' for _ in values)
+        result = db.execute(f'INSERT INTO reward_tasks({columns}) VALUES({marks})', tuple(values.values()))
+        task_id = result.lastrowid
         db.commit()
-    return jsonify(ok=True)
+    return jsonify(ok=True, id=task_id)
+
+
+@app.put('/api/admin/reward-tasks/<int:task_id>')
+@admin_required
+def admin_reward_task_update(task_id):
+    data = request.get_json(silent=True) or {}
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        task = db.execute('SELECT * FROM reward_tasks WHERE id=?', (task_id,)).fetchone()
+        if not task:
+            return error('Задание не найдено.', 404)
+        try:
+            values = normalize_reward_task(data, task)
+        except ValueError as exc:
+            return error(str(exc))
+        if values['category'] != task['category'] and db.execute(
+                'SELECT 1 FROM reward_task_claims WHERE task_id=? LIMIT 1', (task_id,)).fetchone():
+            return error('Период уже полученного задания менять нельзя. Создайте новое задание.')
+        assignments = ','.join(f'{key}=?' for key in values)
+        db.execute(f'UPDATE reward_tasks SET {assignments} WHERE id=?', (*values.values(), task_id))
+        db.commit()
+    return jsonify(ok=True, id=task_id)
 
 
 @app.post('/api/admin/reward-tasks/<int:task_id>/toggle')

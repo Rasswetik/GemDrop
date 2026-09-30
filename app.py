@@ -877,13 +877,19 @@ def log_event(db,user_id,kind,**details):
 def read_catalog():
     stored = read_document('portal_catalog')
     if stored is not None:
-        return stored
-    if not CATALOG.exists():
+        document = stored
+    elif CATALOG.exists():
+        document = json.loads(CATALOG.read_text(encoding='utf-8'))
+    else:
         return {'gifts': [], 'updated_at': None}
-    document = json.loads(CATALOG.read_text(encoding='utf-8'))
     if not isinstance(document, dict) or not isinstance(document.get('gifts'), list):
         raise ValueError('Invalid catalog')
-    return document
+    # Older imports fabricated backdrop prices from collection floors. Keep those
+    # out of all catalog consumers, without changing already owned inventory.
+    return dict(document, gifts=[g for g in document['gifts'] if
+        not g.get('background_label') or
+        (g.get('price_source') == 'Portal · фон' and portal_price_string(g.get('price_ton'))
+         and Decimal(portal_price_string(g.get('price_ton'))) > 0)])
 
 
 def repair_legacy_upgrade_wagers():
@@ -2649,6 +2655,9 @@ def _portal_filter_trait_floor(payload, model='', backdrop=''):
             if isinstance(child, (dict, list)):
                 scan(child, key)
     scan(payload)
+    if normalize_portal_background(backdrop):
+        quote = portal_background_variants({}, payload).get(normalize_portal_background(backdrop))
+        return (ton_to_cents(quote), 'Portal · фон') if quote else (0, '')
     if model_candidates:
         return min(model_candidates), 'Portal · модель'
     if backdrop_candidates:
@@ -2688,11 +2697,13 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
             wanted = normalize_portal_background(backdrop)
             if wanted and label == wanted:
                 candidates.append((0, int(cents), 'Portal · фон'))
-            elif not label:
+            elif not label and not wanted:
                 candidates.append((1, int(cents), 'Portal · коллекция'))
     if candidates:
         _, cents, source = min(candidates)
         return cents, source
+    if normalize_portal_background(backdrop):
+        return 0, ''
     try:
         response = requests.get('https://portal-market.com/api/collections', params={'search': collection_name, 'limit': 10},
                                 headers=portal_headers(key), timeout=(2, 4))
@@ -2742,6 +2753,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
     canonical = f'https://t.me/nft/{raw_slug}'
     image_url = f'https://nft.fragment.com/gift/{slug}.webp'
     model = backdrop = symbol = animation_url = ''
+    metadata_image = False
     floor_price = 0
     price_source = ''
     if fetch_meta:
@@ -2757,6 +2769,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
                 exact_image = _fragment_json_image(payload)
                 if exact_image:
                     image_url = exact_image
+                    metadata_image = True
                 animation_url = _fragment_json_animation(payload)
                 traits = _fragment_traits_from_json(payload)
                 model, backdrop, symbol = traits['model'], traits['backdrop'], traits['symbol']
@@ -2779,7 +2792,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
                     candidate = re.sub(r'\s*[–—-]\s*(?:Fragment|Telegram)\s*$', '', title, flags=re.I).strip()
                     if candidate:
                         name = candidate[:140]
-                if safe_image(exact_image):
+                if not metadata_image and safe_image(exact_image):
                     image_url = exact_image
                 animation_url = animation_url or safe_image(_fragment_meta_content(html_text, 'og:video'))
                 traits = _fragment_traits_from_text(description)
@@ -2800,7 +2813,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
                         floor_price = _fragment_price_from_text(html_text)
                         if floor_price:
                             price_source = 'Fragment'
-                    animation_url = safe_image(_fragment_meta_content(html_text, 'og:video'))
+                    animation_url = animation_url or safe_image(_fragment_meta_content(html_text, 'og:video'))
                     if not animation_url:
                         match_video = re.search(r'<(?:video|source)\b[^>]*\bsrc=["\'](https://[^"\']+)', html_text, re.I)
                         animation_url = safe_image(unescape(match_video.group(1))) if match_video else ''
@@ -2816,6 +2829,8 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
             if portal_short_name(display_collection) == portal_short_name(collection_name):
                 collection_name = display_collection
             floor_price, price_source = _fragment_portal_fallback_price(collection_name, model, backdrop)
+    if fetch_meta and normalize_portal_background(backdrop) and not floor_price:
+        raise ValueError('Не удалось получить цену подарка с этим фоном. Подарок не добавлен.')
     gift = dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
                 image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
                 fragment_number=number, fragment_model=model, fragment_backdrop=backdrop,
@@ -7196,16 +7211,11 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
     base_id = str(base_gift['id'])
     base_name = str(base_gift['name'])
     discovered = portal_background_variants(portal_item, filters)
-    # These are real Telegram collectible backdrop names and users expect them in every collection.
-    # Portal does not consistently include zero/unknown background floors in /collections, so keep
-    # the variants visible even when the optional filters request failed. Price falls back to the
-    # collection floor until a background-specific floor is available on the next sync.
+    # A backdrop name or collection floor is not a quote for this variant.
     for label in ('Black', 'Onyx Black'):
-        old_price = None
         price = discovered.get(label)
-        if price is None:
-            old_price = portal_price_string(previous_by_id.get(f'{base_id}:background:{portal_background_key(label)}', {}).get('price_ton'))
-            price = old_price if old_price and Decimal(old_price) > 0 else portal_price_string(base_gift.get('price_ton'))
+        if not price or Decimal(price) <= 0:
+            continue
         bg_key = portal_background_key(label)
         variant_id = f'{base_id}:background:{bg_key}'
         old = previous_by_id.get(variant_id, {})
@@ -7219,7 +7229,7 @@ def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None)
             background_label=label,
             background_key=bg_key,
             background_tone='black' if label == 'Black' else 'onyx-black',
-            price_source=('Portal · фон' if label in discovered else 'Portal · сохранённая цена' if old_price and price == old_price else 'Portal · коллекция'),
+            price_source='Portal · фон',
             image_url=old.get('image_url') or base_gift.get('image_url') or base_gift.get('portal_image_url', ''),
             image_match=bool(old.get('image_match', base_gift.get('image_match'))),
             telegram_gift_id=old.get('telegram_gift_id', base_gift.get('telegram_gift_id', '')),
@@ -7310,7 +7320,7 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
             return {}
         if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
             payload = payload['data']
-        floors = payload.get('floor_prices', payload.get('floorPrices', payload)) if isinstance(payload, dict) else {}
+        floors = payload.get('collections', payload.get('floor_prices', payload.get('floorPrices', payload))) if isinstance(payload, dict) else {}
         if not isinstance(floors, dict):
             return {}
         result = {}
@@ -7411,7 +7421,8 @@ def fetch_portal_catalog(key, progress=None):
 
         # Publish a partial catalog after every page. The admin panel can show
         # gifts immediately instead of appearing frozen until PNG matching ends.
-        partial = gifts + [g for g in previous if str(g.get('id')) not in seen]
+        partial = gifts + [g for g in previous if str(g.get('id')) not in seen
+                           and not (g.get('background_label') and str(g.get('base_id')) in seen)]
         save_document('portal_catalog', dict(
             source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(),
             partial=True, gifts=partial))
@@ -7438,7 +7449,8 @@ def fetch_portal_catalog(key, progress=None):
     if not gifts:
         raise ValueError('Portal вернул пустой каталог. Прежний каталог сохранён.')
 
-    retained = [g for g in previous if str(g.get('id')) not in seen]
+    retained = [g for g in previous if str(g.get('id')) not in seen
+                and not (g.get('background_label') and str(g.get('base_id')) in seen)]
     gifts.extend(retained)
     # Save usable Portal data before optional external PNG matching.
     document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)

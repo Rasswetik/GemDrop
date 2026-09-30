@@ -1,0 +1,119 @@
+/* Compact rewards. All product styles are scoped to rewards and their editor. */
+body.studio #content>#giveawayPage{max-width:680px;animation:none;padding-bottom:36px}
+body.studio #giveawayPage .giveaway-top{align-items:center;margin:0 0 22px;gap:12px}
+body.studio #giveawayPage .giveaway-title-block h1{margin:0;font-size:28px;font-weight:650;letter-spacing:-.8px}
+.rewards-header-actions{display:flex;align-items:center;gap:10px}
+body.studio #giveawayPage .giveaway-ticket-balance{display:flex;align-items:center;min-width:0;min-height:34px;padding:6px 10px;gap:7px;background:#191d25!important;border:1px solid #2a303b;border-radius:10px}
+body.studio #giveawayPage .giveaway-ticket-balance b{font-size:14px;font-weight:600}
+.ticket-icon{display:inline-block;width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+body.studio #giveawayPage .giveaway-ticket-balance svg{width:18px;height:18px;stroke:#a4c5ff}
+#rewardsHelp{display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;background:transparent;color:#808b9d}
+#rewardsHelp svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7}
+body.studio #giveawayPage .rewards-main-tabs{display:flex;gap:24px;padding:0;margin:0 0 20px;border-bottom:1px solid #282e38}
+body.studio #giveawayPage .rewards-main-tabs button{min-height:42px;padding:0 0 12px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#8f99aa;font-size:14px;font-weight:600;box-shadow:none;transition:color .15s}
+body.studio #giveawayPage .rewards-main-tabs button.active{border-bottom-color:#a4c5ff;background:transparent;color:#eff3fa}
+body.studio #giveawayPage .rewards-main-tabs span{min-width:0;height:auto;padding:0;margin-left:4px;border-radius:0;background:transparent;color:#7f8a9d;font-size:11px;font-weight:500}
+body.studio #giveawayPage .rewards-task-groups{gap:22px}
+body.studio #giveawayPage .reward-task-group{display:grid;grid-template-columns:1fr;gap:0;padding:0;margin:0;border:0;background:transparent!important;box-shadow:none!important}
+body.studio #giveawayPage .reward-task-group h2{margin:0 0 10px;padding:0;font-size:11px;line-height:1.5;font-weight:500;letter-spacing:0;text-transform:none;color:#8994a6}
+body.studio #giveawayPage .reward-task-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 14px;padding:14px 0;border:0;border-bottom:1px solid #262c36;border-radius:0;background:transparent!important;box-shadow:none!important}
+body.studio #giveawayPage .reward-task-card:last-child{border-bottom:0}
+body.studio #giveawayPage .reward-task-top{min-height:36px;padding:0;gap:10px;min-width:0}
+body.studio #giveawayPage .reward-task-icon{width:34px;height:34px;border-radius:9px;background:#1d2737!important;color:#a4c5ff!important}
+body.studio #giveawayPage .reward-task-top strong{font-size:13px;line-height:1.4;font-weight:500;color:#e7ecf5}
+body.studio #giveawayPage .reward-task-foot{margin:0;gap:12px;justify-content:flex-end}
+body.studio #giveawayPage .reward-task-ticket{padding:0;min-height:0;gap:5px;border:0;border-radius:0;background:transparent;color:#b8cbe8;font-size:13px;font-weight:600;white-space:nowrap}
+body.studio #giveawayPage .reward-task-ticket svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7}
+body.studio #giveawayPage .reward-task-foot button{min-width:84px;min-height:32px;padding:7px 10px;border:1px solid #3b4b65;border-radius:8px;background:#25334b!important;color:#dce8ff!important;font-size:11px;font-weight:500!important}
+body.studio #giveawayPage .reward-task-foot button:disabled{border-color:#2a303b;background:#1b2029!important;color:#6f7b8d!important}
+body.studio #giveawayPage .reward-task-time{position:static;grid-column:1/-1;margin:0 0 -4px 44px;text-align:left;font-size:10px;color:#8c98aa}
+body.studio #giveawayPage .reward-task-progress{grid-column:1/-1;height:3px;margin:0 0 0 44px;background:#252d39;border-radius:3px}
+body.studio #giveawayPage .reward-task-progress i{background:#7899c9}
+body.studio #giveawayPage .reward-task-card>small:last-child{grid-column:1/-1;margin-left:44px;font-size:10px;color:#7f8a9d}
+body.studio .rewards-help-card{max-width:340px;background:#171c24!important;border:1px solid #303947;border-radius:16px;box-shadow:none}
+body.studio .rewards-help-icon{width:42px;height:42px;border-radius:12px;background:#25334b;color:#a4c5ff}
+body.studio .rewards-help-icon svg{width:23px;height:23px}
+body.studio .rewards-help-card h2{font-size:18px;font-weight:600}
+body.studio .rewards-help-card p{font-size:13px;color:#a0adbf}
+body.studio .rewards-help-card .primary{background:#a4c5ff!important;color:#17243a}
+body.studio #giveawayPage .giveaway-tabs{margin-bottom:12px!important}
+body.studio #giveawayPage .giveaway-tabs button{min-height:36px!important;font-size:12px;font-weight:500}
+body.studio #giveawayPage .giveaway-tabs button.active:after{background:#809fcb}
+body.studio #giveawayPage .giveaway-tabs button span{height:auto;padding:0 4px;background:transparent;color:#8794a8}
+body.studio #giveawayPage .giveaway-toolbar{margin:0 0 16px;gap:8px}
+body.studio #giveawayPage .giveaway-toggle{padding:3px;background:#171c24;border:1px solid #2c3441;border-radius:9px}
+body.studio #giveawayPage .giveaway-toggle button{min-height:28px;padding:0 10px;font-size:11px;font-weight:500;border-radius:6px}
+body.studio #giveawayPage .giveaway-toggle button.active{background:#293449;color:#d5e2f7}
+body.studio #giveawayPage .giveaway-toggle.sort button{display:flex;align-items:center;gap:4px;padding:0 8px}
+body.studio #giveawayPage .giveaway-toggle.sort svg{width:14px;height:14px}
+body.studio #giveawayPage .giveaway-list{display:grid;grid-template-columns:1fr;gap:12px}
+body.studio #giveawayPage .giveaway-card{padding:16px;border:1px solid #29323f;border-radius:14px;background:#151a22;box-shadow:none}
+body.studio #giveawayPage .giveaway-card-head{margin-bottom:14px;align-items:center}
+body.studio #giveawayPage .giveaway-card-head strong{font-size:15px;font-weight:600}
+body.studio #giveawayPage .giveaway-card-head small{font-size:11px;color:#8d99ab;line-height:1.4;white-space:normal}
+body.studio #giveawayPage .giveaway-state{padding:0;border:0;border-radius:0;background:transparent;color:#82b8ad;font-size:10px;font-weight:500;text-transform:none;letter-spacing:0}
+body.studio #giveawayPage .giveaway-state.done{color:#8e99a9;background:transparent}
+body.studio #giveawayPage .giveaway-card-prizes{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;margin:0 0 14px}
+body.studio #giveawayPage :is(.giveaway-card-prize-art,.giveaway-prize-art){border:0;border-radius:10px;background:#1d2531;box-shadow:none}
+body.studio #giveawayPage :is(.giveaway-card-prize-art,.giveaway-prize-art) img{transform:none!important;filter:none!important}
+body.studio #giveawayPage :is(.giveaway-card-prize b,.giveaway-prize b){margin-top:7px;font-size:11px;font-weight:500}
+body.studio #giveawayPage :is(.giveaway-card-prize small,.giveaway-prize small){font-size:11px;color:#98a9c0}
+body.studio #giveawayPage .giveaway-card-stats{display:flex!important;justify-content:space-between;gap:12px;margin:0 0 14px}
+body.studio #giveawayPage .giveaway-card-stat{min-height:0;padding:0;justify-content:flex-start!important;gap:6px;border:0;background:transparent}
+body.studio #giveawayPage .giveaway-card-stat>svg{width:15px;height:15px;stroke:#8ca7cd}
+body.studio #giveawayPage .giveaway-card-stat b{margin:0;font-size:12px;font-weight:500}
+body.studio #giveawayPage .giveaway-open{min-height:36px;border:1px solid #3b4b65;border-radius:8px;background:#25334b;color:#dce8ff;font-size:12px;font-weight:500;box-shadow:none}
+body.studio #giveawayPage .giveaway-empty{padding:24px 8px;border:0;font-size:12px;color:#8592a7}
+body.studio #giveawayPage .giveaway-detail-head h1{font-size:22px;font-weight:600;letter-spacing:-.5px}
+body.studio #giveawayPage .giveaway-detail-head p{font-size:12px;line-height:1.5;color:#8d99ab}
+body.studio #giveawayPage :is(.giveaway-detail-summary,.giveaway-metric,.giveaway-entry-card,.giveaway-section){border-color:#29323f!important;border-radius:12px!important;background:#151a22!important;box-shadow:none}
+body.studio #giveawayPage .giveaway-detail-summary small{font-size:9px;text-transform:none}
+body.studio #giveawayPage .giveaway-detail-summary b{font-size:15px;font-weight:600}
+body.studio #giveawayPage .giveaway-metric.mine{border-color:#36475f!important;background:#192232!important}
+body.studio #giveawayPage .giveaway-metric small{font-size:10px;color:#8d99ab}
+body.studio #giveawayPage .metric-icon{display:flex;color:#9bb5dc}
+body.studio #giveawayPage .giveaway-entry-card{padding:12px!important}
+body.studio #giveawayPage .giveaway-entry-control{margin-bottom:10px}
+body.studio #giveawayPage .giveaway-entry-control :is(button,input){height:38px;background:#1d2531;border-color:#313e51;font-size:16px}
+body.studio #giveawayPage .giveaway-entry-card>.primary{min-height:38px;border-radius:9px;background:#a4c5ff;color:#17243a;font-size:12px;font-weight:600}
+body.studio #giveawayPage .giveaway-section-head h2{font-size:13px;font-weight:600}
+body.studio #giveawayPage .giveaway-section-head>span{background:transparent;color:#8592a7}
+body.studio #giveawayPage .giveaway-prize-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important}
+body.studio #giveawayPage .giveaway-person-meta b,body.studio #giveawayPage .giveaway-winner b{font-size:12px;font-weight:500}
+body.studio #giveawayPage .giveaway-person-meta small,body.studio #giveawayPage .giveaway-winner small{font-size:10px;color:#8290a4}
+body.studio #giveawayPage .giveaway-person-tickets{font-size:12px;font-weight:500}
+/* Keep existing editor functions, with plain controls and no decorative copy. */
+body.studio :is(#giveawaysAdminPage,#rewardTasksAdminPage) .panel{background:#151a22!important;border-color:#29323f!important;box-shadow:none!important}
+body.studio #giveawaysAdminPage :is(.giveaway-admin-prize,.giveaway-admin-card){background:#1a202a!important;border-color:#303947!important;box-shadow:none!important}
+body.studio #giveawaysAdminPage .giveaway-admin-prize{grid-template-columns:50px minmax(0,1fr) auto 26px 26px;gap:8px}
+body.studio #giveawaysAdminPage .giveaway-admin-prize-meta b{font-size:12px;font-weight:500}
+body.studio #giveawaysAdminPage .giveaway-admin-prize-meta small{font-size:10px;color:#8d99ab}
+body.studio #giveawaysAdminPage .giveaway-admin-source button.active{background:#293449;color:#d5e2f7}
+body.studio #giveawaysAdminPage .giveaway-admin-section-title h2{font-size:14px;font-weight:600}
+body.studio #giveawaysAdminPage .giveaway-admin-actions{display:flex!important;flex-wrap:wrap;gap:6px}
+body.studio #giveawaysAdminPage .giveaway-admin-actions button{min-height:32px;padding:7px 10px;border:1px solid #3b4b65;border-radius:7px;background:#25334b;color:#dce8ff;font-size:11px;font-weight:500}
+body.studio #giveawaysAdminPage .giveaway-admin-actions .danger-btn{border-color:#644047;background:#32242a;color:#e3a5ae}
+.giveaway-prize-order{display:grid;gap:3px}
+.giveaway-prize-order button{width:26px;height:24px;border:1px solid #3b4b65;border-radius:6px;background:#25334b;color:#dce8ff}
+.giveaway-prize-order button:disabled{opacity:.3}
+.giveaway-edit-form{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #303947}
+.giveaway-edit-form label{display:grid;gap:5px;font-size:11px;color:#8d99ab}
+.giveaway-edit-form :is(input,textarea){width:100%;min-height:36px;padding:8px;border:1px solid #303947;border-radius:8px;background:#151a22;color:#e7ecf5;font:inherit;color-scheme:dark}
+.giveaway-edit-form>div{display:flex;gap:8px}
+.giveaway-edit-form button{padding:7px 12px;border:1px solid #3b4b65;border-radius:7px;background:#25334b;color:#dce8ff}
+/* Background variants keep a quiet black surface. */
+body.studio #profilePage #inventoryGrid .gift.portal-bg-black,body.studio .gift.portal-bg-black{background:#101114!important;border-color:#303237!important;box-shadow:none!important}
+body.studio #profilePage #inventoryGrid .gift.portal-bg-onyx-black,body.studio .gift.portal-bg-onyx-black{background:#14171c!important;border-color:#343b47!important;box-shadow:none!important}
+body.studio :is(.gift-art,.modal-art,.giveaway-prize-art,.giveaway-card-prize-art).portal-bg-black,body.studio .portal-bg-black .gift-art{background:#08090b!important;border-color:#272a30!important;box-shadow:none!important}
+body.studio :is(.gift-art,.modal-art,.giveaway-prize-art,.giveaway-card-prize-art).portal-bg-onyx-black,body.studio .portal-bg-onyx-black .gift-art{background:#11151b!important;border-color:#303641!important;box-shadow:none!important}
+body.studio .gift-background-badge{background:#141820;border:1px solid #303641;padding:3px 5px;backdrop-filter:none}
+body.studio .gift-background-badge em{font-size:8px;font-weight:500}
+.fragment-motion{opacity:0;transition:opacity .15s}
+.fragment-motion.playing{opacity:1}
+/* Only constrain the existing Upgrade layout; preserve its selected-card design. */
+body.studio #content>#upgradePage{max-width:780px}
+body.studio #upgradePage .upgrade-picks{max-width:520px;margin-inline:auto!important}
+body.studio #upgradePage .upgrade-wheel-wrap{width:clamp(250px,32vw,360px)!important;height:auto!important;aspect-ratio:1}
+@media(min-width:700px){body.studio #giveawayPage .giveaway-card-prize-art{max-height:140px}body.studio #giveawayPage .giveaway-prize-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}}
+@media(max-width:460px){body.studio #giveawayPage .reward-task-card{grid-template-columns:1fr;gap:6px}body.studio #giveawayPage .reward-task-foot{padding-left:44px;justify-content:space-between}body.studio #giveawayPage .giveaway-title-block h1{font-size:25px}body.studio #giveawaysAdminPage .giveaway-admin-prize{grid-template-columns:44px minmax(0,1fr) 26px 26px}body.studio #giveawaysAdminPage .giveaway-prize-qty{grid-column:2;grid-row:2;justify-self:start}body.studio #giveawaysAdminPage .giveaway-prize-order{grid-column:3;grid-row:1 / span 2}body.studio #giveawaysAdminPage .giveaway-prize-remove{grid-column:4;grid-row:1 / span 2}}
+@media(max-width:600px){body.studio #upgradePage .upgrade-wheel-wrap{width:min(76vw,320px)!important}}

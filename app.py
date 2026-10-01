@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '58-mobile-quests'
+BUILD_ID = '59-activity-mobile'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -84,7 +84,7 @@ class PostgreSQL:
             sql = sql.replace('%', '%%').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
-        returning = bool(re.match(r'INSERT INTO inventory\b', sql))
+        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks)\b', sql))
         if returning:
             sql += ' RETURNING id'
         cursor = self.connection.execute(sql, params)
@@ -354,6 +354,11 @@ def initialize():
             kind TEXT NOT NULL,payload TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS user_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,text TEXT NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
         def ensure_columns(table, definitions):
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -429,6 +434,9 @@ def initialize():
         ])
         ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('giveaways', [('archived', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('user_notifications', [('delivery_state', "TEXT NOT NULL DEFAULT 'none'"),
+                       ('delivery_attempts','INTEGER NOT NULL DEFAULT 0'),('delivery_next_at','INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('reward_tasks', [('ends_at', 'TEXT'),
             ('chance_operator', "TEXT NOT NULL DEFAULT 'any'"),
             ('chance_threshold_bp', 'INTEGER'), ('auto_title', 'INTEGER NOT NULL DEFAULT 0')])
@@ -501,6 +509,7 @@ def initialize():
         ensure_postgres_bigint('levels', ['required_turnover'])
         ensure_postgres_bigint('upgrade_spins', ['user_id', 'source_price', 'target_price'])
         ensure_postgres_bigint('upgrade_promo_pity', ['user_id'])
+        ensure_postgres_bigint('user_notifications', ['user_id'])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
@@ -511,6 +520,8 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS transactions_kind ON transactions(kind,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
         db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS notifications_user ON user_notifications(user_id,id DESC)')
+        db.execute('CREATE INDEX IF NOT EXISTS notifications_delivery ON user_notifications(delivery_state,delivery_next_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebets_active ON freebets(active,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
@@ -916,11 +927,82 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
                   VALUES(?,?,?,?,?,?,?)''',
                (user_id, str(kind)[:60], int(amount or 0), balance_after,
                 str(reference_type)[:60], str(reference_id)[:120], str(details)[:500]))
+    labels = {'gift_sale':'Подарок продан', 'admin_balance':'Баланс изменён',
+              'deposit':'Пополнение', 'ton_deposit':'Пополнение TON', 'referral_bonus':'Реферальный бонус',
+              'deposit_promo_bonus':'Бонус пополнения', 'withdrawal_request':'Заявка на вывод',
+              'withdrawal_approved':'Вывод выполнен', 'withdrawal_rejected':'Подарок возвращён',
+              'game_win_ton':'Выигрыш Mines', 'gift_win':'Выигран подарок',
+              'promo_wager_claim':'Подарок отыгран', 'upgrade_cashback':'Компенсация апгрейда',
+              'upgrade_compensation_gift':'Компенсационный подарок'}
+    if kind in labels:
+        text = labels[kind] + (f': {str(details)[:200]}' if details else '')
+        if amount: text += f' · {int(amount)/100:+.2f} TON'
+        add_user_notification(db, user_id, kind, text)
 
 
 def log_event(db,user_id,kind,**details):
     db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
                (user_id,kind,json.dumps(details,ensure_ascii=False)))
+    text = activity_notification_text(kind, details)
+    if text: add_user_notification(db, user_id, kind, text)
+
+
+def add_user_notification(db, user_id, kind, text):
+    # These actions already have a dedicated Telegram message.
+    delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
+                          'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
+    state='pending' if BOT_TOKEN and kind not in delivered_elsewhere else 'none'
+    db.execute('INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,?,?,?)',
+               (user_id, kind, str(text)[:1000],state))
+
+
+def activity_notification_text(kind, d):
+    labels = {'login':'Вход в GemDrop', 'mines_start':'Ставка Mines', 'mines_cell':'Mines',
+              'upgrade':'Апгрейд', 'roll':'Roll', 'craft_play':'Крафт', 'transfer_sent':'Перевод отправлен',
+              'transfer_received':'Перевод получен', 'level_claim':'Награда уровня',
+              'reward_task_claim':'Задание выполнено', 'giveaway_enter':'Участие в розыгрыше',
+              'giveaway_win':'Победа в розыгрыше', 'promo_issued':'Выдан промокод',
+              'promo_redeem':'Промокод активирован', 'freebet_redeem':'Freebet активирован',
+              'promo_gift_expired':'Срок подарка истёк', 'admin_level':'Уровень изменён',
+              'withdrawal_access':'Доступ к выводу изменён', 'admin_gift_add':'Подарок добавлен',
+              'admin_gift_remove':'Подарок удалён', 'deposit_created':'Заявка на пополнение',
+              'deposit_promo_removed':'Промокод пополнения снят'}
+    if kind not in labels: return None
+    text = labels[kind]
+    if kind == 'upgrade':
+        text += f': {d.get("source_name", "TON")} → {d.get("target_name", "подарок")} · {d.get("chance", 0):g}% · '+('выигрыш' if d.get('won') else 'проигрыш')
+    elif kind == 'mines_cell': text += f': клетка {int(d.get("cell",0))+1} · '+('мина' if d.get('lost') else 'кристалл')
+    elif kind == 'mines_start': text += f' · {float(d.get("bet",0)):.2f} TON · {d.get("mines",0)} мин'
+    elif kind in ('transfer_sent','transfer_received','deposit_created'): text += f' · {float(d.get("amount",0)):.2f} TON'
+    elif kind in ('giveaway_enter','reward_task_claim'): text += f' · {d.get("tickets",0)} билетов'
+    elif kind == 'level_claim': text += f' · уровень {d.get("level",1)}'
+    elif kind == 'admin_level': text += f' · {d.get("previous_level")} → {d.get("new_level")}'
+    elif d.get('code'): text += ': '+str(d['code'])
+    elif d.get('gift_name'): text += ': '+str(d['gift_name'])
+    return text
+
+
+@app.get('/api/notifications')
+@login_required
+def user_notifications():
+    try: before = max(0,int(request.args.get('before',0)))
+    except (ValueError,TypeError): return error('Некорректная страница.')
+    with connect() as db:
+        rows = db.execute('SELECT * FROM user_notifications WHERE user_id=?'+(' AND id<?' if before else '')+' ORDER BY id DESC LIMIT 51',
+                          (session['uid'],before) if before else (session['uid'],)).fetchall()
+        unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0',(session['uid'],)).fetchone()['n']
+    return jsonify(items=[{k:r[k] for k in ('id','kind','text','created_at','is_read')} for r in rows[:50]],unread=unread,has_more=len(rows)>50)
+
+
+@app.post('/api/notifications/read')
+@login_required
+def read_user_notifications():
+    try: upto = int((request.get_json(silent=True) or {}).get('upto',0))
+    except (ValueError,TypeError): return error('Некорректная запись.')
+    if upto<1: return error('Некорректная запись.')
+    with connect() as db:
+        db.execute('UPDATE user_notifications SET is_read=1 WHERE user_id=? AND id<=?',(session['uid'],upto))
+    return jsonify(ok=True)
 
 
 def read_catalog(include_hidden=False):
@@ -1411,14 +1493,16 @@ def normalize_level_reward(data):
     return reward
 
 
-def public_level_reward(reward, include_hidden=True):
-    if not include_hidden and not black_backgrounds_enabled():
+def public_level_reward(reward, include_hidden=True, black_enabled=None):
+    if not include_hidden and black_enabled is None:
+        black_enabled = black_backgrounds_enabled()
+    if not include_hidden and not black_enabled:
         components = reward.get('components') or {}
         if gift_black_background(reward) or any(gift_black_background(part) for part in components.values() if isinstance(part, dict)):
             return {'type': 'none'}
     result={'type':'none',**reward}
     if isinstance(result.get('components'),dict):
-        result['components']={k:public_level_reward(v, include_hidden) for k,v in result['components'].items()}
+        result['components']={k:public_level_reward(v, include_hidden, black_enabled) for k,v in result['components'].items()}
     for key in ('amount','gift_price','bonus_fixed','min_deposit'):
         if key in result:result[key+'_ton']=result.pop(key)/100
     return result
@@ -1427,6 +1511,7 @@ def public_level_reward(reward, include_hidden=True):
 @app.get('/api/levels')
 @login_required
 def user_levels():
+    black_enabled = black_backgrounds_enabled()
     with connect() as db:
         turnover=int(db.execute('SELECT turnover_cents FROM users WHERE id=?',(session['uid'],)).fetchone()['turnover_cents'] or 0)
         rows=db.execute('SELECT * FROM levels ORDER BY level').fetchall()
@@ -1439,7 +1524,7 @@ def user_levels():
                    next_turnover=nxt['required_turnover']/100 if nxt else None,progress=round(progress,1),
                    pending=sum(1 for r in rows if r['required_turnover']<=turnover and r['level'] not in claims and json.loads(r['reward_json']).get('type','none')!='none'),
                    levels=[dict(level=r['level'],required_turnover=r['required_turnover']/100,
-                                reward=public_level_reward(json.loads(r['reward_json']), include_hidden=False),
+                                reward=public_level_reward(json.loads(r['reward_json']), include_hidden=False, black_enabled=black_enabled),
                                 unlocked=r['required_turnover']<=turnover,claimed=r['level'] in claims,
                                 claim=claims.get(r['level'])) for r in rows])
 
@@ -3289,9 +3374,9 @@ def giveaways_list():
         db.execute('BEGIN IMMEDIATE')
         finalize_due_giveaways(db)
         if status == 'active':
-            rows = db.execute("SELECT * FROM giveaways WHERE status='active' ORDER BY ends_at ASC,id DESC").fetchall()
+            rows = db.execute("SELECT * FROM giveaways WHERE status='active' AND archived=0 ORDER BY ends_at ASC,id DESC").fetchall()
         else:
-            rows = db.execute("SELECT * FROM giveaways WHERE status='completed' ORDER BY completed_at DESC,id DESC LIMIT 100").fetchall()
+            rows = db.execute("SELECT * FROM giveaways WHERE status='completed' AND archived=0 ORDER BY completed_at DESC,id DESC LIMIT 100").fetchall()
         items = [giveaway_view(db, row, session['uid'], False) for row in rows]
         items = [item for item in items if item['prizes']]
         if sort == 'pool':
@@ -3315,7 +3400,7 @@ def giveaway_detail(giveaway_id):
         db.execute('BEGIN IMMEDIATE')
         finalize_due_giveaways(db)
         row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
-        if not row or row['status'] == 'cancelled':
+        if not row or row['status'] == 'cancelled' or row['archived']:
             return error('Розыгрыш не найден.', 404)
         item = giveaway_view(db, row, session['uid'], True)
         if not item['prizes']:
@@ -3374,12 +3459,56 @@ def admin_giveaways():
     try:
         db.execute('BEGIN IMMEDIATE')
         finalize_due_giveaways(db)
-        rows = db.execute("SELECT * FROM giveaways WHERE status<>'cancelled' ORDER BY created_at DESC,id DESC LIMIT 200").fetchall()
+        rows = db.execute("SELECT * FROM giveaways WHERE status<>'cancelled' AND archived=0 ORDER BY created_at DESC,id DESC LIMIT 200").fetchall()
         items = [giveaway_view(db, row, None, False) for row in rows]
         db.commit()
     finally:
         db.close()
     return jsonify(items=items)
+
+
+@app.post('/api/admin/giveaways/clear-completed')
+@admin_required
+def admin_clear_completed_giveaways():
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        count = db.execute("UPDATE giveaways SET archived=1 WHERE status IN ('completed','cancelled') AND archived=0").rowcount
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,0,?,?)',
+                   (session['uid'],'giveaways_archived',str(count)))
+    return jsonify(ok=True,hidden=count)
+
+
+@app.get('/api/admin/game-history')
+@admin_required
+def admin_game_history():
+    try:
+        offset=max(0,min(100000,int(request.args.get('offset',0))))
+        uid=int(request.args.get('user_id') or 0)
+    except (ValueError,TypeError): return error('Введите ID пользователя.')
+    game=request.args.get('game','all')
+    if game not in ('all','mines','upgrade'): return error('Выберите игру.')
+    queries=[]
+    params=[]
+    if game in ('all','mines'):
+        queries.append("""SELECT CAST(r.id AS TEXT) AS id,r.user_id,'mines' AS game,r.state AS outcome,
+                         r.bet AS stake,r.payout AS payout,0 AS chance,r.bet_gift_name AS source_name,
+                         r.win_gift_name AS gift_name,r.created_at AS date,u.name,u.username
+                         FROM rounds r JOIN users u ON u.id=r.user_id"""+(' WHERE r.user_id=?' if uid else ''))
+        if uid: params.append(uid)
+    if game in ('all','upgrade'):
+        queries.append("""SELECT s.id,s.user_id,'upgrade' AS game,CASE WHEN s.won=1 THEN 'won' ELSE 'lost' END AS outcome,
+                         s.source_price AS stake,CASE WHEN s.won=1 THEN s.target_price ELSE 0 END AS payout,
+                         s.chance_bp AS chance,s.source_name,s.target_name AS gift_name,s.created_at AS date,u.name,u.username
+                         FROM upgrade_spins s JOIN users u ON u.id=s.user_id"""+(' WHERE s.user_id=?' if uid else ''))
+        if uid: params.append(uid)
+    with connect() as db:
+        rows=db.execute('SELECT * FROM ('+' UNION ALL '.join(queries)+") AS history ORDER BY REPLACE(SUBSTR(date,1,19),'T',' ') DESC,game,id DESC LIMIT 51 OFFSET ?",(*params,offset)).fetchall()
+    items=[]
+    for r in rows[:50]:
+        item=dict(r)
+        for key in ('stake','payout','chance'): item[key]=int(item[key] or 0)/100
+        items.append(item)
+    return jsonify(items=items,has_more=len(rows)>50)
 
 
 @app.post('/api/admin/giveaways/fragment-preview')
@@ -4824,7 +4953,7 @@ def normalize_post_buttons(raw):
 
 def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     if not BOT_TOKEN:
-        return
+        return False
     payload = {'chat_id': int(user_id), 'text': str(text)}
     if reply_markup:
         payload['reply_markup'] = reply_markup
@@ -4836,11 +4965,38 @@ def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
                                      json=payload, timeout=(1.5, 3))
             response.raise_for_status()
             if response.json().get('ok'):
-                return
+                return True
         except (requests.RequestException, ValueError, TypeError):
             if attempt == 0:
                 time.sleep(.08)
     app.logger.warning('Could not deliver notification to %s', user_id)
+    return False
+
+
+def deliver_activity_notifications():
+    if not BOT_TOKEN: return
+    # Claim committed rows before network I/O; separate workers cannot send the same row.
+    for _ in range(20):
+        now=int(time.time())
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute("UPDATE user_notifications SET delivery_state='pending' WHERE delivery_state='sending' AND delivery_next_at<?",(now-60,))
+            row=db.execute("SELECT * FROM user_notifications WHERE delivery_state='pending' AND delivery_next_at<=? ORDER BY id LIMIT 1"+(' FOR UPDATE SKIP LOCKED' if DATABASE_URL else ''),(now,)).fetchone()
+            if not row: return
+            db.execute("UPDATE user_notifications SET delivery_state='sending',delivery_next_at=? WHERE id=?",(now,row['id']))
+            db.commit()
+        ok=send_user_notification(row['user_id'],row['text'],miniapp_markup('Открыть GemDrop'))
+        attempts=int(row['delivery_attempts'])+1
+        with connect() as db:
+            db.execute('UPDATE user_notifications SET delivery_state=?,delivery_attempts=?,delivery_next_at=? WHERE id=?',
+                       ('sent' if ok else 'failed' if attempts>=3 else 'pending',attempts,now+30*attempts,row['id']))
+
+
+def activity_notification_loop():
+    while True:
+        try: deliver_activity_notifications()
+        except Exception: app.logger.exception('Activity notification delivery failed')
+        time.sleep(3)
 
 
 def notify_user_async(user_id, text, reply_markup=None, parse_mode=None):
@@ -6840,6 +6996,7 @@ def admin_add_inventory(user_id):
                    (user_id, gift_id, str(gift['name']), safe_image(gift.get('image_url')), price))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_add', gift_id))
+        log_event(db,user_id,'admin_gift_add',gift_name=str(gift['name']))
     return jsonify(ok=True)
 
 
@@ -6847,11 +7004,13 @@ def admin_add_inventory(user_id):
 @admin_required
 def admin_remove_inventory(user_id, item_id):
     with connect() as db:
+        item=db.execute('SELECT gift_name FROM inventory WHERE id=? AND user_id=?',(item_id,user_id)).fetchone()
         result = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, user_id))
         if not result.rowcount:
             return error('Подарок не найден.', 404)
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_remove', str(item_id)))
+        log_event(db,user_id,'admin_gift_remove',gift_name=item['gift_name'] if item else 'Подарок')
     return jsonify(ok=True)
 
 
@@ -7986,6 +8145,8 @@ def portal_auto_loop():
 
 
 Thread(target=portal_auto_loop, daemon=True).start()
+if BOT_TOKEN:
+    Thread(target=activity_notification_loop,daemon=True).start()
 
 
 def configure_bot():

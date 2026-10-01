@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '62-clean-interface'
+BUILD_ID = '64-essential-notifications-inventory'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -874,7 +874,8 @@ def visible_gifts(items):
 @app.before_request
 def enforce_available_modes():
     path = request.path
-    if request.is_json and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+    if request.is_json and request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and not (
+            request.method == 'DELETE' and not request.get_data(cache=True)):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return error('Ожидается JSON-объект с параметрами запроса.', 400)
@@ -947,27 +948,46 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
               'promo_wager_claim':'Подарок отыгран', 'upgrade_cashback':'Компенсация апгрейда',
               'upgrade_compensation_gift':'Компенсационный подарок'}
     if kind in labels:
-        text = labels[kind] + (f': {str(details)[:200]}' if details else '')
-        if amount: text += f' · {int(amount)/100:+.2f} TON'
+        if kind in ('deposit', 'ton_deposit'):
+            text = deposit_notification_text(amount, balance_after or 0)
+        elif kind == 'admin_balance':
+            text = (f'💳 Баланс изменён на {int(amount)/100:+.2f} TON.\n\n'
+                    f'Текущий баланс: {int(balance_after or 0)/100:.2f} TON')
+        else:
+            icons = {'gift_sale':'✅', 'referral_bonus':'🎁', 'deposit_promo_bonus':'🎁',
+                     'withdrawal_request':'⏳', 'withdrawal_approved':'✅', 'withdrawal_rejected':'↩️',
+                     'game_win_ton':'🏆', 'gift_win':'🎁', 'promo_wager_claim':'✅',
+                     'upgrade_cashback':'🎁', 'upgrade_compensation_gift':'🎁'}
+            text = icons.get(kind, '🔔') + ' ' + labels[kind]
+            if details and kind in ('gift_sale','gift_win','withdrawal_request','withdrawal_approved',
+                                    'withdrawal_rejected','promo_wager_claim','upgrade_compensation_gift'):
+                text += '\n' + str(details)[:200]
+            if amount: text += f'\nСумма: {int(amount)/100:+.2f} TON'
+            if amount and balance_after is not None:
+                text += f'\n\nТекущий баланс: {int(balance_after)/100:.2f} TON'
         add_user_notification(db, user_id, kind, text)
 
 
 def log_event(db,user_id,kind,**details):
     db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
                (user_id,kind,json.dumps(details,ensure_ascii=False)))
-    text = activity_notification_text(kind, details)
+    notification_details = dict(details)
+    if kind in ('transfer_sent', 'transfer_received'):
+        row = db.execute('SELECT balance FROM users WHERE id=?', (user_id,)).fetchone()
+        if row: notification_details['balance'] = int(row['balance']) / 100
+        other_id = details.get('recipient_id') if kind == 'transfer_sent' else details.get('sender_id')
+        other = db.execute('SELECT name,username FROM users WHERE id=?', (other_id,)).fetchone() if other_id else None
+        if other: notification_details['person'] = '@'+other['username'] if other['username'] else other['name']
+    text = activity_notification_text(kind, notification_details)
     if text: add_user_notification(db, user_id, kind, text)
 
 
 IMPORTANT_NOTIFICATION_KINDS = (
-    'gift_sale','admin_balance','deposit','ton_deposit','referral_bonus','deposit_promo_bonus',
-    'withdrawal_request','withdrawal_approved','withdrawal_rejected','game_win_ton','gift_win',
-    'promo_wager_claim','upgrade_cashback','upgrade_compensation_gift','upgrade','craft_play',
-    'transfer_sent','transfer_received','level_claim','reward_task_claim','giveaway_enter','giveaway_win',
-    'promo_issued','promo_gift_expired','admin_level','giveaway_started',
-    'withdrawal_access','admin_gift_add','admin_gift_remove',
+    'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
+    'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
+    'transfer_received',
 )
-IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ") AND (kind<>'upgrade' OR (text LIKE '%выигрыш%' AND text NOT LIKE '%проигрыш%'))"
+IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
 
 def add_user_notification(db, user_id, kind, text):
@@ -976,7 +996,6 @@ def add_user_notification(db, user_id, kind, text):
     delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
                           'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
     state='pending' if BOT_TOKEN and kind not in delivered_elsewhere else 'none'
-    if kind in ('deposit', 'admin_balance'): text = 'Пополнение баланса' if kind == 'deposit' else 'Баланс изменён'
     db.execute('INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,?,?,?)',
                (user_id, kind, str(text)[:1000],state))
 
@@ -992,16 +1011,29 @@ def activity_notification_text(kind, d):
               'withdrawal_access':'Доступ к выводу изменён', 'admin_gift_add':'Подарок добавлен',
               'admin_gift_remove':'Подарок удалён', 'deposit_created':'Заявка на пополнение'}
     if kind not in labels: return None
+    icons = {'upgrade':'🎁','craft_play':'🎁','transfer_sent':'✅','transfer_received':'💳',
+             'level_claim':'🎁','reward_task_claim':'🎟','giveaway_enter':'🎟','giveaway_win':'🏆',
+             'promo_issued':'🎟','promo_gift_expired':'⌛','admin_level':'⬆️',
+             'withdrawal_access':'🔔','admin_gift_add':'🎁','admin_gift_remove':'🔔'}
     text = labels[kind]
     if kind == 'upgrade':
-        text += f': {d.get("source_name", "TON")} → {d.get("target_name", "подарок")} · {d.get("chance", 0):g}% · '+('выигрыш' if d.get('won') else 'проигрыш')
-    elif kind in ('transfer_sent','transfer_received','deposit_created'): text += f' · {float(d.get("amount",0)):.2f} TON'
-    elif kind in ('giveaway_enter','reward_task_claim'): text += f' · {d.get("tickets",0)} билетов'
-    elif kind == 'level_claim': text += f' · уровень {d.get("level",1)}'
-    elif kind == 'admin_level': text += f' · {d.get("previous_level")} → {d.get("new_level")}'
-    elif d.get('code'): text += ': '+str(d['code'])
-    elif d.get('gift_name'): text += ': '+str(d['gift_name'])
-    return text
+        text += f': выигрыш\n{d.get("source_name", "TON")} → {d.get("target_name", "подарок")}\nШанс: {d.get("chance", 0):g}%'
+    elif kind in ('transfer_sent','transfer_received'):
+        text += f'\nСумма: {float(d.get("amount",0)):.2f} TON'
+        if d.get('person'): text += '\n' + ('Получатель: ' if kind == 'transfer_sent' else 'Отправитель: ') + str(d['person'])
+        if kind == 'transfer_sent' and d.get('fee'): text += f'\nКомиссия: {float(d["fee"]):.2f} TON'
+        if 'balance' in d: text += f'\n\nТекущий баланс: {float(d["balance"]):.2f} TON'
+    elif kind in ('giveaway_enter','reward_task_claim'): text += f'\nБилеты: {d.get("tickets",0)}'
+    elif kind == 'level_claim': text += f'\nУровень: {d.get("level",1)}'
+    elif kind == 'admin_level': text += f'\nУровень: {d.get("previous_level")} → {d.get("new_level")}'
+    elif kind == 'craft_play': text += '\n'+str(d.get('reward_name') or 'Подарок')+f'\nЦена: {float(d.get("reward_price",0)):.2f} TON'
+    elif kind == 'withdrawal_access':
+        text = 'Вывод доступен' if d.get('enabled') else 'Вывод временно недоступен'
+        if d.get('reason'): text += '\n'+str(d['reason'])
+    elif d.get('code'): text += '\n'+str(d['code'])
+    elif d.get('gift_name'): text += '\n'+str(d['gift_name'])
+    if kind == 'giveaway_win': text = f'Победа в розыгрыше\n{d.get("giveaway_title") or ""}\n\n🎁 {d.get("gift_name", "Подарок")}\nМесто: {d.get("rank",1)}'
+    return icons.get(kind, '🔔')+' '+text
 
 
 @app.get('/api/notifications')
@@ -1015,9 +1047,6 @@ def user_notifications():
                           (*params,before) if before else params).fetchall()
         unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0 AND '+IMPORTANT_NOTIFICATION_SQL,params).fetchone()['n']
     items = [{k:r[k] for k in ('id','kind','text','created_at','is_read','giveaway_id')} for r in rows[:50]]
-    for item in items:
-        if item['kind'] == 'deposit': item['text'] = 'Пополнение баланса'
-        elif item['kind'] == 'admin_balance': item['text'] = 'Баланс изменён'
     return jsonify(items=items,unread=unread,has_more=len(rows)>50)
 
 
@@ -3106,7 +3135,7 @@ def finalize_giveaway(db, giveaway_id):
         db.execute('INSERT INTO giveaway_winners(giveaway_id,user_id,prize_id,rank,tickets,inventory_id) VALUES(?,?,?,?,?,?)',
                    (giveaway_id, winner['user_id'], prize['id'], rank, winner['tickets'], inventory_id))
         log_event(db, winner['user_id'], 'giveaway_win', giveaway_id=giveaway_id, rank=rank,
-                  gift_name=prize['gift_name'], tickets=winner['tickets'])
+                  gift_name=prize['gift_name'], tickets=winner['tickets'], giveaway_title=giveaway['title'])
         notifications.setdefault(winner['user_id'], []).append(dict(
             rank=rank, name=prize['gift_name'], fragment_url=prize['fragment_url'] or '',
             fragment_number=prize['fragment_number'] or '', price_cents=int(prize['floor_price'] or 0)))
@@ -3548,18 +3577,22 @@ def apply_fragment_price(gift, value):
     gift.update(floor_price=cents, price_source='Ручная цена')
 
 
-def giveaway_announcement(title, description, prizes):
-    lines = [f'Новый розыгрыш: {title}']
-    if description: lines.append(description)
-    lines.append('Призы:')
-    for prize in prizes:
-        line = f'{prize["gift_name"]} × {prize.get("quantity", 1)}'
+def giveaway_announcement(title, description, prizes, ends_at=None):
+    lines = [f'🎉 Новый розыгрыш — {title}', '']
+    if description: lines.extend([description, ''])
+    lines.append('🎁 Призы')
+    for index, prize in enumerate(prizes, 1):
+        line = f'{index}. {prize["gift_name"]} × {prize.get("quantity", 1)}'
         if prize.get('floor_price'): line += f' · {prize["floor_price"]/100:.2f} TON'
         if prize.get('fragment_url'): line += '\n' + prize['fragment_url']
-        if len('\n'.join(lines)) + len(line) > 3800:
+        if len(escape('\n'.join(lines))) + len(escape(line)) > 3200:
             lines.append('Все призы — в розыгрыше.')
             break
         lines.append(line)
+    if ends_at:
+        end = parse_datetime_utc(ends_at)
+        if end: lines.extend(['', '⏰ Итоги: '+end.astimezone(timezone(timedelta(hours=3))).strftime('%d.%m.%Y в %H:%M')+' МСК'])
+    lines.extend(['', '🎟 Откройте розыгрыш и участвуйте за билеты.'])
     return '\n'.join(lines)
 
 
@@ -3696,7 +3729,7 @@ def admin_create_giveaway():
                         prize.get('animation_url') or ''))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'giveaway_create', f'{giveaway_id}:{title}:{total_slots}'))
-        announcement = giveaway_announcement(title, description, prizes)
+        announcement = giveaway_announcement(title, description, prizes, ends.isoformat())
         db.execute("INSERT INTO user_notifications(user_id,kind,text,giveaway_id,delivery_state) "
                    "SELECT id,'giveaway_started',?,?,? FROM users",
                    (announcement, giveaway_id, 'pending' if BOT_TOKEN else 'none'))
@@ -5054,10 +5087,36 @@ def normalize_post_buttons(raw):
     return rows
 
 
+def notification_premium_html(text):
+    """Use the saved Telegram emoji catalogue; keep a normal emoji fallback."""
+    text = str(text)
+    if '<tg-emoji' in text: return text
+    with connect() as db:
+        rows = db.execute("SELECT payload FROM app_documents WHERE name LIKE 'saved_emoji:%' ORDER BY name").fetchall()
+    emojis = {}
+    for row in rows:
+        try:
+            item = json.loads(row['payload'])
+            eid, emoji = str(item.get('id') or ''), str(item.get('emoji') or '')
+            if re.fullmatch(r'[0-9]{5,30}', eid) and emoji and len(emoji) <= 16 and any(ord(c) >= 0x2000 for c in emoji):
+                emojis.setdefault(escape(emoji), eid)
+        except (ValueError, TypeError, AttributeError):
+            continue
+    if not emojis: return text
+    pattern = re.compile('|'.join(re.escape(x) for x in sorted(emojis, key=len, reverse=True)))
+    parts = re.split(r'(<[^>]+>)', text)
+    for index in range(0, len(parts), 2):
+        parts[index] = pattern.sub(lambda m: f'<tg-emoji emoji-id="{emojis[m.group(0)]}">{m.group(0)}</tg-emoji>', parts[index])
+    decorated = ''.join(parts)
+    return decorated if len(decorated) <= 4096 else text
+
+
 def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     if not BOT_TOKEN:
         return False
-    payload = {'chat_id': int(user_id), 'text': str(text)}
+    plain_text = str(text)
+    payload = {'chat_id': int(user_id), 'text': notification_premium_html(plain_text) if parse_mode == 'HTML' else plain_text}
+    payload['link_preview_options'] = {'is_disabled': True}
     if reply_markup:
         payload['reply_markup'] = reply_markup
     if parse_mode:
@@ -5071,6 +5130,8 @@ def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
                 return True
         except (requests.RequestException, ValueError, TypeError):
             if attempt == 0:
+                # If Telegram rejects premium entities, the notification still arrives.
+                payload['text'] = plain_text
                 time.sleep(.08)
     app.logger.warning('Could not deliver notification to %s', user_id)
     return False
@@ -5089,8 +5150,17 @@ def deliver_activity_notifications():
             if not row: return
             db.execute("UPDATE user_notifications SET delivery_state='sending',delivery_next_at=? WHERE id=?",(now,row['id']))
             db.commit()
-        markup = miniapp_markup('Открыть розыгрыш', f'giveaways&giveaway={row["giveaway_id"]}') if row['kind'] == 'giveaway_started' else miniapp_markup('Открыть GemDrop')
-        ok=send_user_notification(row['user_id'],row['text'],markup)
+        actions = {'gift_sale':'profile','gift_win':'profile','admin_gift_add':'profile',
+                   'admin_gift_remove':'profile','transfer_sent':'profile','transfer_received':'profile',
+                   'promo_issued':'bonuses','level_claim':'levels','reward_task_claim':'giveaways',
+                   'giveaway_enter':'giveaways','upgrade':'profile'}
+        markup = miniapp_markup('Открыть розыгрыш', f'giveaways&giveaway={row["giveaway_id"]}') if row['kind'] == 'giveaway_started' else miniapp_markup('Открыть', actions.get(row['kind'], ''))
+        heading, separator, body = str(row['text']).partition('\n')
+        formatted = '<b>' + escape(heading) + '</b>' + (separator + escape(body) if separator else '')
+        if row['kind'] == 'giveaway_started':
+            formatted = re.sub(r'(?m)^https://t\.me/nft/([A-Za-z0-9-]+)$',
+                               lambda m: f'<a href="{m.group(0)}">🔗 Посмотреть подарок</a>', formatted)
+        ok=send_user_notification(row['user_id'],formatted,markup,'HTML')
         attempts=int(row['delivery_attempts'])+1
         with connect() as db:
             db.execute('UPDATE user_notifications SET delivery_state=?,delivery_attempts=?,delivery_next_at=? WHERE id=?',
@@ -5120,11 +5190,17 @@ def format_ton_cents(cents):
     return f'{int(cents) / 100:.2f}'
 
 
+def deposit_notification_text(amount_cents, balance_cents, bonus_cents=0):
+    bonus_line = f'\n🎁 Бонус: +{format_ton_cents(bonus_cents)} TON' if bonus_cents else ''
+    return (f'✅ Ваш баланс пополнен на {format_ton_cents(amount_cents)} TON.'
+            f'{bonus_line}\n\nТекущий баланс: {format_ton_cents(balance_cents)} TON')
+
+
 def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
     bonus_line = f'\n🎁 Бонус: <b>+{format_ton_cents(bonus_cents)} TON</b>' if bonus_cents else ''
     text = (f'✅ <b>Ваш баланс пополнен на {format_ton_cents(amount_cents)} TON.</b>'
             f'{bonus_line}\n\nТекущий баланс: <b>{format_ton_cents(balance_cents)} TON</b>')
-    notify_user_async(user_id, text, miniapp_markup('🎮 Играть'), 'HTML')
+    notify_user_async(user_id, text, miniapp_markup('Открыть'), 'HTML')
 
 
 def notify_promo_async(user_id, code, action='bonuses'):
@@ -5163,18 +5239,8 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings):
 
 
 def notify_level_up_async(user_id, level):
-    def deliver():
-        try:
-            with connect() as db:
-                row = db.execute('SELECT reward_json FROM levels WHERE level=?', (int(level),)).fetchone()
-            reward = json.loads(row['reward_json'] or '{}') if row else {'type': 'none'}
-            reward_text = reward_description(reward) if reward.get('type') != 'none' else 'на этом уровне награда не назначена'
-            text = (f'⬆️ <b>Ваш уровень повышен до {int(level)}!</b>\n\n'
-                    f'Ваша награда: <b>{escape(str(reward_text))}</b>')
-            send_user_notification(user_id, text, miniapp_markup('🎁 Награда', 'levels'), 'HTML')
-        except Exception:
-            app.logger.exception('Level-up notification failed for %s', user_id)
-    Thread(target=deliver, daemon=True).start()
+    # Level rewards stay visible in the app, without a bot message for routine play.
+    return None
 
 
 @app.post('/api/inventory/<int:item_id>/withdraw')
@@ -6800,9 +6866,9 @@ def admin_user_withdrawal_access(user_id):
                   admin_id=session['uid'])
         db.commit()
     if enabled:
-        notify_user_async(user_id, '✅ Вывод подарков снова доступен.', miniapp_markup('🎮 Играть'), None)
+        notify_user_async(user_id, '✅ <b>Вывод подарков доступен</b>', miniapp_markup('Открыть', 'profile'), 'HTML')
     else:
-        notify_user_async(user_id, f'⚠️ Вывод подарков временно недоступен.\n\n{reason}', miniapp_markup('🎮 Играть'), None)
+        notify_user_async(user_id, f'⚠️ <b>Вывод временно недоступен</b>\n\n{escape(reason)}', miniapp_markup('Открыть', 'profile'), 'HTML')
     return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason)
 
 
@@ -6963,12 +7029,6 @@ def admin_user_level(user_id):
                   reset_rewards=reset_levels)
         db.commit()
     finally:db.close()
-    if level < old:
-        suffix = (' Состояние получения наград уровней выше нового уровня сброшено.' if reset_levels else '')
-        notify_user_async(user_id, f'↘️ Ваш уровень изменён: {old} → {level}.{suffix}',
-                          miniapp_markup('🎁 Уровни и награды', 'levels'), None)
-    elif level > old:
-        notify_level_up_async(user_id, level)
     return jsonify(ok=True,level=level,turnover=row['required_turnover']/100,reset_rewards=reset_levels)
 
 
@@ -7072,7 +7132,7 @@ def admin_deposit(user_id):
         record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
         balance_now=int(db.execute('SELECT balance FROM users WHERE id=?',(user_id,)).fetchone()['balance'])
         db.commit()
-        notify_user_async(user_id, 'Пополнение баланса', miniapp_markup('Открыть GemDrop'))
+        notify_deposit_async(user_id, amount, balance_now)
         return jsonify(ok=True, balance_added=amount/100, referral_bonus=0, balance=balance_now/100)
     finally:
         db.close()
@@ -7109,6 +7169,7 @@ def admin_add_inventory(user_id):
 @admin_required
 def admin_remove_inventory(user_id, item_id):
     with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
         item=db.execute('SELECT gift_name FROM inventory WHERE id=? AND user_id=?',(item_id,user_id)).fetchone()
         result = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, user_id))
         if not result.rowcount:
@@ -7116,7 +7177,7 @@ def admin_remove_inventory(user_id, item_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_remove', str(item_id)))
         log_event(db,user_id,'admin_gift_remove',gift_name=item['gift_name'] if item else 'Подарок')
-    return jsonify(ok=True)
+    return jsonify(ok=True, removed_id=item_id)
 
 
 @app.get('/api/admin/withdrawals')
@@ -7156,7 +7217,8 @@ def approve_withdrawal(withdrawal_id):
                    (session['uid'], row['user_id'], 'withdrawal_approved', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_approved', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
-        notify_user_async(row['user_id'], f'✅ Вывод подарка «{row["gift_name"]}» завершён.')
+        notify_user_async(row['user_id'], f'✅ <b>Вывод выполнен</b>\n\n🎁 {escape(row["gift_name"])}',
+                          miniapp_markup('Открыть', 'profile'), 'HTML')
         return jsonify(ok=True)
     finally:
         db.close()
@@ -7182,7 +7244,8 @@ def reject_withdrawal(withdrawal_id):
                    (session['uid'], row['user_id'], 'withdrawal_rejected', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_rejected', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
-        notify_user_async(row['user_id'], f'↩️ Вывод подарка «{row["gift_name"]}» отклонён. Подарок возвращён в инвентарь.')
+        notify_user_async(row['user_id'], f'↩️ <b>Вывод отклонён</b>\n\n🎁 {escape(row["gift_name"])}\n\nПодарок возвращён в ваш инвентарь.',
+                          miniapp_markup('Открыть', 'profile'), 'HTML')
         return jsonify(ok=True)
     finally:
         db.close()

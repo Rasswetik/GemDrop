@@ -15,6 +15,18 @@ body.studio #upgradeListModal #upgradeList .upgrade-list-art{display:block;width
 body.studio #upgradeListModal #upgradeList .upgrade-list-art img{display:block;width:100%;height:100%;padding:0;object-fit:contain;transform:none}
 body.studio #upgradeListModal #upgradeList .upgrade-option-meta{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;padding:0}
 body.studio #upgradeListModal #upgradeList .upgrade-option-meta strong{font-size:14px;font-weight:500;line-height:1.35;white-space:normal;overflow-wrap:anywhere;color:#edf2fa}
+body.studio #upgradePage .upgrade-pick b{display:block!important;white-space:normal!important;text-overflow:clip!important;overflow:visible!important;overflow-wrap:anywhere;line-height:1.4;font-size:13px!important;min-height:2.8em}
+body.studio #upgradePage .upgrade-picks{align-items:stretch;grid-template-columns:repeat(2,minmax(0,1fr))!important;max-width:520px;margin-inline:auto}
+body.studio #upgradePage .upgrade-pick{min-width:0;height:auto!important;min-height:176px!important}
+body.studio #upgradePage :is(#upgradeMine,#upgradeTarget){height:auto!important;min-height:176px!important;aspect-ratio:auto!important;transition:border-color .2s!important}
+body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target){display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:72px auto auto!important;align-content:start!important;justify-items:center!important;gap:8px!important;padding:12px 8px!important;text-align:center!important}
+body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art{grid-column:1!important;grid-row:1!important;width:72px!important;height:72px!important;margin:0!important}
+body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art img{width:72px!important;height:72px!important;max-width:72px!important;max-height:72px!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMineName,#upgradeTargetName){grid-column:1!important;grid-row:2!important;display:block!important;width:100%!important;height:auto!important;min-height:0!important;margin:0!important;text-align:center!important;line-height:1.4!important;font-size:13px!important;white-space:normal!important;overflow:visible!important;-webkit-line-clamp:unset!important;overflow-wrap:anywhere}
+body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMinePrice,#upgradeTargetPrice){grid-column:1!important;grid-row:3!important;justify-content:center!important;min-width:0!important;max-width:100%;font-size:12px!important}
+body.studio #upgradePage #upgradeMine.ton-source{display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:center!important}
+body.studio #upgradePage #upgradeMine.ton-source #upgradeMineName{display:inline-flex!important;justify-content:center!important;font-size:24px!important}
+body.studio #toast{z-index:12000!important}
 body.studio #upgradeListModal #upgradeList .upgrade-option-price{font-size:12px;line-height:1.4;color:#a3b2c7}
 body.studio #upgradeListModal #upgradeList .upgrade-option-chance{width:auto;min-width:0;padding:0;background:none;border:0;color:#a4c5ff;font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 body.studio #upgradeListModal .upgrade-ton-pick{margin:0;padding:12px;flex:none;border:1px solid #303947;border-radius:12px;background:#1a212b}
@@ -39,6 +51,49 @@ body.studio #referralModal .promo-meta small{font-size:12px;line-height:1.4;whit
 body.studio #referralModal .promo-status{max-width:74px;padding:0;border:0;background:none;font-size:11px;line-height:1.4;white-space:normal;color:#a4c5ff}
 body.studio #referralModal :is(.bonus-tabs,.referral-tabs){display:flex;gap:6px}
 body.studio #referralModal :is(.bonus-tabs,.referral-tabs) button{min-width:0;flex:1;font-size:13px;padding:10px 8px}
+body.studio #referralModal .bonus-titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+body.studio #referralModal .bonus-titlebar h2{margin:0}
+body.studio #referralModal .bonus-close{position:static;width:36px;height:36px;border:1px solid #303947;border-radius:10px;background:#202733;color:#b6c1d1;font-size:24px}
+body.studio #referralModal .bonus-tabs{margin:0 0 16px;padding:0;border:0;border-bottom:1px solid #303947;border-radius:0;background:none}
+body.studio #referralModal .bonus-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:#94a3b8;box-shadow:none;font-weight:500}
+body.studio #referralModal .bonus-tabs button.active{border-bottom-color:#a4c5ff;color:#e7eef9;background:none;box-shadow:none}
+body.studio #referralModal .bonus-section{margin:0;padding:0;border:0;background:none;box-shadow:none}
+body.studio #referralModal .bonus-section-head{margin:0 0 8px;padding:0;border:0}
+body.studio #referralModal .bonus-section-head span{padding:0;border:0;background:none;color:#94a3b8;font-size:11px}
+body.studio #referralModal .bonus-empty{padding:20px 0;border:0;background:none;font-size:13px;color:#94a3b8}
+body.studio #referralModal .ref-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:16px 0}
+body.studio #referralModal .ref-stat{min-width:0;padding:12px 4px;border:1px solid #303947;background:#1a212b;border-radius:10px}
+body.studio #referralModal .ref-stat small{display:block;white-space:normal;font-size:10px;line-height:1.4}
+body.studio #referralModal .ref-link{padding:12px;border:1px solid #303947;border-radius:10px;font-size:12px;overflow-wrap:anywhere}
+body.studio #referralModal .ref-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+body.studio #referralModal .ref-actions button{min-width:0;padding:12px 6px;font-size:12px}
+body.studio #levelsModal .level-modal-card{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px;padding:20px;overflow:hidden}
+body.studio #levelsModal .level-list{min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 2px}
+body.studio #levelsModal :is(h2,#levelsSummary,#closeLevels){flex:none;margin:0}
+body.studio #levelsModal #closeLevels{position:static;min-height:44px}
+body.studio.modal-open #nav{visibility:hidden!important;pointer-events:none!important}
+.notification-button{position:relative;display:grid;place-items:center;flex:none;width:38px;height:38px;border:1px solid #303947;border-radius:10px;background:#1a212b;color:#b7c7de}
+.notification-button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#notificationBadge{position:absolute;right:-5px;top:-5px;min-width:17px;padding:2px 4px;border-radius:8px;background:#a4c5ff;color:#15243c;font-size:10px}
+.notifications-card{display:flex;flex-direction:column;gap:16px;width:100%;max-width:480px;text-align:left}
+.notifications-card .picker-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.notifications-card h2{margin:0}
+.notifications-card .picker-close{width:36px;height:36px;border-radius:10px;background:#202733;color:#b6c1d1;font-size:24px}
+.notification-list{min-height:0;overflow:auto}
+.notification-row{padding:12px 0;border-bottom:1px solid #303947}
+.notification-row p{margin:0 0 6px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.notification-row.unread p{color:#c6dbfa}
+.notification-row time,.history-row time{color:#8594aa;font-size:11px}
+.history-filter{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
+.history-filter .text-input{min-width:0;margin:0;font-size:16px}
+.history-list{display:grid;gap:8px}
+.history-row{padding:14px;border:1px solid #303947;border-radius:12px;background:#151a22}
+.history-row-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.history-row-head strong{min-width:0;overflow-wrap:anywhere;font-size:13px;font-weight:500}
+.history-row p{margin:8px 0;font-size:12px;line-height:1.5;color:#a4b3c8;overflow-wrap:anywhere}
+.history-outcome{flex:none;font-size:11px;color:#95a4b8}
+.history-outcome.won{color:#8ac8b0}.history-outcome.lost{color:#da99a6}
+#clearOldGiveaways{width:auto;margin-top:12px;padding:11px 14px;font-size:12px}
 body.studio #giveawayPage .reward-task-card{padding:14px;border:1px solid #29323f;border-radius:12px;background:#151a22!important;margin-bottom:8px}
 body.studio #giveawayPage .reward-task-card:last-child{border-bottom:1px solid #29323f}
 body.studio #giveawayPage .reward-task-top strong{overflow-wrap:anywhere}
@@ -60,6 +115,8 @@ body.studio #giveawayPage .giveaway-winner-person,body.studio #giveawayPage .giv
  body.studio #giveawayPage .giveaway-card-head>div{min-width:0;overflow-wrap:anywhere}
  body.studio #giveawayPage .giveaway-state{flex:none;max-width:90px;white-space:normal;text-align:right}
  .task-editor-pair{gap:8px}
+ .history-filter{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ .history-filter button{grid-column:1/-1;padding:10px}
 }
 @media(hover:none){.gift:hover{transform:none!important}.fragment-motion{pointer-events:none}}
 @media(prefers-reduced-motion:reduce){body.studio .page,body.studio .modal-card,.fragment-motion{animation:none!important;transition:none!important}}

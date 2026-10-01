@@ -1,0 +1,726 @@
+"""Run with python -m unittest discover -s tests -v. Uses an isolated SQLite DB."""
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import patch, Mock
+from urllib.parse import urlencode
+
+_data = tempfile.TemporaryDirectory(prefix='gemdrop-tests-')
+os.environ['DATA_DIR'] = _data.name
+for _key in ('BOT_TOKEN', 'TELEGRAM_BOT_TOKEN', 'WEBAPP_URL', 'RENDER_EXTERNAL_URL', 'DATABASE_URL'):
+    os.environ[_key] = ''
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import app as m
+
+
+class RegressionTests(unittest.TestCase):
+    serial = 800000
+
+    def setUp(self):
+        RegressionTests.serial += 1
+        self.uid = RegressionTests.serial
+        self.client = m.app.test_client()
+        m.app.config['TESTING'] = True
+        m.fragment_preview_cache.clear()
+        with m.connect() as db:
+            db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)',
+                       (self.uid, 'Test', f'qa{self.uid}', 10000))
+            db.execute("DELETE FROM app_documents WHERE name IN ('section_settings','portal_catalog')")
+        with self.client.session_transaction() as session:
+            session['uid'] = self.uid
+        m.save_document('gift_display_settings', {'black_backgrounds_enabled': True})
+
+    def test_black_background_switch_defaults_off_and_restores_inventory(self):
+        with m.connect() as db:
+            db.execute("DELETE FROM app_documents WHERE name='gift_display_settings'")
+            db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,floor_price,source,price_source) VALUES(?, 'qa:background:black', 'QA (Black)', 1200, 'test', 'Portal · фон')", (self.uid,))
+        gifts = [{'id':'qa','name':'QA','price_ton':4},
+                 {'id':'qa:background:black','name':'QA (Black)','background_label':'Black','price_ton':12,'price_source':'Portal · фон'}]
+        m.save_document('portal_catalog', {'gifts':gifts})
+        self.assertFalse(self.client.get('/api/ui/settings').get_json()['black_backgrounds_enabled'])
+        self.assertEqual(len(m.read_catalog()['gifts']),1)
+        self.assertEqual(len(m.read_catalog(include_hidden=True)['gifts']),2)
+        self.assertEqual(self.client.get('/api/inventory').get_json()['items'],[])
+        self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True},403)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':'true'},400)
+            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True})
+        self.assertEqual(len(self.client.get('/api/inventory').get_json()['items']),1)
+        self.assertEqual(len(m.read_catalog()['gifts']),2)
+        self.assertTrue(m.section_settings()['mines'])
+
+    def test_unconfirmed_owned_black_price_is_hidden_even_when_enabled(self):
+        self.assertEqual(m.visible_gifts([{'gift_id':'old:background:black','name':'Old (Black)',
+                        'price_ton':4,'price_source':'Portal · коллекция'}]),[])
+
+    def test_black_override_drop_is_hidden_in_public_profile(self):
+        with m.connect() as db:
+            db.execute("UPDATE users SET max_drop_override_name='QA (Onyx Black)',max_drop_override_price=1800 WHERE id=?",(self.uid,))
+        m.save_document('gift_display_settings', {'black_backgrounds_enabled':False})
+        self.assertIsNone(self.client.get(f'/api/users/{self.uid}/profile').get_json()['max_drop'])
+        m.save_document('gift_display_settings', {'black_backgrounds_enabled':True})
+        self.assertEqual(self.client.get(f'/api/users/{self.uid}/profile').get_json()['max_drop']['price_ton'],18)
+
+    def test_level_black_preview_is_hidden_while_admin_configuration_survives(self):
+        reward = {'type':'gift','gift_id':'qa:background:black','gift_name':'QA (Black)','gift_price':1200}
+        m.save_document('gift_display_settings', {'black_backgrounds_enabled':False})
+        self.assertEqual(m.public_level_reward(reward,include_hidden=False),{'type':'none'})
+        self.assertEqual(m.public_level_reward(reward)['gift_price_ton'],12)
+        self.assertEqual(reward['gift_price'],1200)
+
+    def test_switch_hides_giveaway_prizes_and_winners_without_deleting_data(self):
+        m.save_document('portal_catalog', {'gifts':[{'id':'qa:background:black','name':'QA (Black)',
+            'background_label':'Black','price_ton':12,'price_source':'Portal · фон','image_url':'https://example.com/gift.png'}]})
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            item = self.post('/api/admin/giveaways', {'title':'QA','duration_minutes':60,
+                             'prizes':[{'gift_id':'qa:background:black'}]})['item']
+            with m.connect() as db:
+                db.execute('INSERT INTO giveaway_entries(giveaway_id,user_id,tickets) VALUES(?,?,7)',(item['id'],self.uid))
+            self.post(f"/api/admin/giveaways/{item['id']}/finish")
+            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':False})
+            hidden = self.client.get('/api/admin/giveaways').get_json()['items'][0]
+            self.assertEqual(hidden['prizes'],[])
+            self.assertEqual(hidden['winners'],[])
+            self.assertEqual(self.client.get(f"/api/giveaways/{item['id']}").status_code,404)
+            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True})
+            restored = self.client.get(f"/api/giveaways/{item['id']}").get_json()['item']
+            self.assertEqual(len(restored['prizes']),1)
+            self.assertEqual(restored['winners'][0]['tickets'],7)
+
+    def post(self, path, data=None, status=200):
+        response = self.client.post(path, json=data or {})
+        self.assertEqual(response.status_code, status, response.get_json())
+        return response.get_json()
+
+    def balance(self):
+        return self.client.get('/api/me').get_json()['user']['balance']
+
+    def test_public_assets_and_auth_guard(self):
+        guest = m.app.test_client()
+        for path in ('/', '/static/css/gemdrop-studio.css'):
+            with guest.get(path) as response:
+                self.assertEqual(response.status_code, 200)
+        self.assertEqual(guest.get('/api/me').status_code, 401)
+        self.assertEqual(self.client.get('/api/admin/users').status_code, 403)
+
+    def test_background_variants_require_current_separate_prices(self):
+        base = {'id': 'pepe', 'name': 'Plush Pepe', 'price_ton': '4.00'}
+        filters = {'data': {'floor_prices': {'backdrops': [
+            {'name': 'Black', 'floor_price': '12.34'},
+            {'name': 'Onyx Black', 'floor_price': '18.90'}]}}}
+        entries = m.portal_catalog_entries(base, {}, {}, filters)
+        self.assertEqual([g['price_ton'] for g in entries], ['4.00', '12.34', '18.90'])
+        previous = {g['id']: g for g in entries}
+        refreshed = m.portal_catalog_entries(base, {}, previous, {'backdrops': {'Black': 0}})
+        self.assertEqual([g['price_ton'] for g in refreshed], ['4.00'])
+
+    def test_portal_live_filter_shape_without_backdrop_prices(self):
+        from unittest.mock import Mock
+        response = Mock(status_code=200)
+        response.json.return_value = {'collections': {'plushpepe': {
+            'models': [{'name':'Black', 'floor_price':'9500'}],
+            'backdrops': [{'name':'Black','rarityPermille':2}, {'name':'Onyx Black','rarityPermille':2}]}},
+            'collection_floor_price': '4000'}
+        http = Mock()
+        http.get.return_value = response
+        filters = m.portal_get_collection_filters(http, '', ['Plush Pepe'])
+        self.assertIn('plushpepe', filters)
+        base = {'id':'pepe','name':'Plush Pepe','price_ton':'4000'}
+        self.assertEqual(m.portal_catalog_entries(base, {}, {}, filters['plushpepe']), [base])
+
+    def test_legacy_collection_price_variants_are_hidden(self):
+        base = {'id':'pepe','name':'Plush Pepe','price_ton':'4'}
+        bad = dict(base,id='pepe:background:black',background_label='Black',price_source='Portal · коллекция')
+        good = dict(base,id='pepe:background:onyx-black',background_label='Onyx Black',price_ton='18',price_source='Portal · фон')
+        m.save_document('portal_catalog', {'gifts':[base,bad,good]})
+        self.assertEqual(m.read_catalog()['gifts'], [base,good])
+        self.assertIsNone(m.upgrade_target(bad['id']))
+
+    def test_fragment_preserves_exact_image_and_animation(self):
+        from unittest.mock import Mock
+        exact = 'https://nft.fragment.com/gift/plushpepe-123.webp'
+        metadata = Mock(ok=True, content=b'{}')
+        metadata.json.return_value = {'name':'Plush Pepe #123','image':exact,
+                                     'animation_url':'https://example.com/gift.mp4','price':12.34}
+        telegram = Mock(ok=True, text='<meta property="og:image" content="https://example.com/social.jpg">')
+        with patch.object(m.requests, 'get', side_effect=[metadata,telegram]):
+            gift = m.fragment_gift_from_url('https://t.me/nft/PlushPepe-123')
+        self.assertEqual(gift['image_url'], exact)
+        self.assertEqual(gift['animation_url'], 'https://example.com/gift.mp4')
+
+    def test_black_fragment_cannot_use_model_or_collection_price(self):
+        filters = {'models':[{'name':'Pumpkin','floor_price':9500}], 'backdrops':[{'name':'Onyx Black'}]}
+        self.assertEqual(m._portal_filter_trait_floor(filters,'Pumpkin','Onyx Black'), (0,''))
+        with patch.object(m,'portal_get_collection_filters',return_value={'plushpepe':filters}), \
+             patch.object(m,'read_catalog',return_value={'gifts':[{'name':'Plush Pepe','price_ton':4000}]}):
+            self.assertEqual(m._fragment_portal_fallback_price('Plush Pepe','Pumpkin','Onyx Black'),(0,''))
+        self.assertEqual(m._portal_filter_trait_floor({'backdrops':[{'name':'Onyx','floor_price':'18.90'}]},
+                         'Pumpkin','Onyx Black'),(1890,'Portal · фон'))
+
+    def test_fragment_without_black_price_is_rejected(self):
+        from unittest.mock import Mock
+        metadata = Mock(ok=True,content=b'{}')
+        metadata.json.return_value = {'attributes':[{'trait_type':'Backdrop','value':'Black'}]}
+        page = Mock(ok=True,content=b'<html>',text='<html></html>')
+        with patch.object(m.requests,'get',side_effect=[metadata,page,page]), \
+             patch.object(m,'_fragment_portal_fallback_price',return_value=(0,'')):
+            with self.assertRaises(ValueError):
+                m.fragment_gift_from_url('https://t.me/nft/PlushPepe-123')
+
+    def test_black_and_onyx_aliases_in_wrapped_backdrop_prices(self):
+        payload = {'data': {'backdrops': [
+            {'backdrop_name': 'BLACK', 'stats': {'floor_price': '12.34'}},
+            {'backdrop': {'name': 'Onyx'}, 'pricing': {'min_price': '18.90'}}]}}
+        self.assertEqual(m.portal_background_variants(payload), {'Black': '12.34', 'Onyx Black': '18.90'})
+        for name in ('Onyx', 'onyx_black', 'Onyx Black', 'ONYX-BLACK'):
+            self.assertEqual(m.normalize_portal_background(name), 'Onyx Black')
+        self.assertEqual(m.portal_background_variants({'attributes':[
+            {'trait_type':'Model','value':'Black','floor_price':100},
+            {'trait_type':'Backdrop','value':'Black','floor_price':12}]}), {'Black':'12.00'})
+
+    def test_admin_edit_giveaway_preserves_prizes_and_validates_end(self):
+        from datetime import datetime, timedelta, timezone
+        m.save_document('portal_catalog', {'gifts':[{'id':'qa-edit','name':'QA','price_ton':2,
+                        'image_url':'https://example.com/gift.png'}]})
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            giveaway = self.post('/api/admin/giveaways', {'title':'Before', 'duration_minutes':60,
+                                'prizes':[{'gift_id':'qa-edit'}]})['item']
+            path = f"/api/admin/giveaways/{giveaway['id']}"
+            payload = {'title':'After', 'description':'Updated',
+                       'ends_at':(datetime.now(timezone.utc)+timedelta(hours=2)).isoformat()}
+            response = self.client.put(path,json=payload)
+            self.assertEqual(response.status_code,200,response.get_json())
+            updated = response.get_json()['item']
+            self.assertEqual(updated['title'],'After')
+            self.assertEqual(updated['prizes'],giveaway['prizes'])
+            payload['ends_at']='invalid'
+            self.assertEqual(self.client.put(path,json=payload).status_code,400)
+        self.assertEqual(self.client.put(path,json=payload).status_code,403)
+
+    def test_fragment_fallback_matches_background_and_collection(self):
+        gifts = [
+            {'id':'black', 'name':'Plush Pepe (Black)', 'background_label':'Black', 'price_ton':12},
+            {'id':'base', 'name':'Plush Pepe', 'price_ton':4},
+            {'id':'onyx', 'name':'Plush Pepe (Onyx Black)', 'background_label':'Onyx Black', 'price_ton':18}]
+        with patch.object(m, 'portal_get_collection_filters', return_value={}), \
+             patch.object(m, 'read_catalog', return_value={'gifts':gifts}):
+            self.assertEqual(m._fragment_portal_fallback_price('plushpepe', backdrop='Onyx Black'),
+                             (1800, 'Portal · фон'))
+            self.assertEqual(m._fragment_portal_fallback_price('plushpepe'), (400, 'Portal · коллекция'))
+
+    def test_fragment_reads_listing_even_when_animation_exists(self):
+        from unittest.mock import Mock
+        metadata = Mock(ok=True, content=b'{}')
+        metadata.json.return_value = {'name':'Plush Pepe #123', 'animation_url':'https://example.com/gift.mp4'}
+        telegram = Mock(ok=True, text='<html></html>')
+        fragment = Mock(ok=True, content=b'<html>', text='<div>Buy now 12.34 TON</div>')
+        with patch.object(m.requests, 'get', side_effect=[metadata, telegram, fragment]), \
+             patch.object(m, '_fragment_portal_fallback_price') as fallback:
+            gift = m.fragment_gift_from_url('https://fragment.com/gift/PlushPepe-123')
+        self.assertEqual(gift['fragment_number'], '123')
+        self.assertEqual(gift['floor_price'], 1234)
+        self.assertEqual(gift['price_source'], 'Fragment')
+        fallback.assert_not_called()
+
+    def test_admin_refresh_prizes_keeps_known_price_on_provider_failure(self):
+        m.save_document('portal_catalog', {'gifts':[{'id':'qa-gift','name':'QA gift','price_ton':2,
+                        'image_url':'https://example.com/gift.png'}]})
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            giveaway = self.post('/api/admin/giveaways', {'title':'QA', 'duration_minutes':60,
+                                'prizes':[{'gift_id':'qa-gift'}]})['item']
+            path = f"/api/admin/giveaways/{giveaway['id']}/refresh-prizes"
+            refreshed = {'gift_name':'QA updated','image_url':'https://example.com/new.png', 'floor_price':0}
+            with patch.object(m, 'catalog_giveaway_prize', return_value=refreshed):
+                result = self.post(path)
+            self.assertEqual(result['item']['prizes'][0]['price_ton'], 2)
+            self.assertEqual(result['item']['prizes'][0]['name'], 'QA updated')
+            self.post(f"/api/admin/giveaways/{giveaway['id']}/finish")
+            self.post(path, status=400)
+        self.post(path, status=403)
+
+    def test_malformed_json_is_client_error(self):
+        for body in ('[1]', 'null', '"text"', '{bad'):
+            r = self.client.post('/api/game/start', data=body, content_type='application/json')
+            self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.balance(), 100)
+
+    def test_money_validation(self):
+        for value in ('NaN', 'Infinity', '0.001', '1e100'):
+            with self.assertRaises((ValueError, m.InvalidOperation)):
+                m.parse_amount(value)
+        self.assertEqual(m.parse_amount('12.34'), 1234)
+
+    def test_invalid_bets_do_not_debit(self):
+        for value in ('NaN', '0.001', '-1', '100.01', '1e100'):
+            self.post('/api/game/start', {'mines': 3, 'bet': value}, 400)
+        self.assertEqual(self.balance(), 100)
+
+    def test_mines_cashout_and_duplicate_protection(self):
+        result = self.post('/api/game/start', {'mines': 3, 'bet': '1.00'})
+        self.assertEqual(result['round']['positions'], [])
+        self.assertEqual(self.balance(), 99)
+        self.post('/api/game/start', {'mines': 3, 'bet': '1.00'}, 400)
+        self.post('/api/game/cashout', status=400)
+        with m.connect() as db:
+            row = db.execute("SELECT * FROM rounds WHERE user_id=? AND state='active'", (self.uid,)).fetchone()
+            safe = next(i for i in range(25) if i not in json.loads(row['positions']))
+        self.post('/api/game/open', {'cell': safe})
+        won = self.post('/api/game/cashout')
+        balance = self.balance()
+        self.assertGreater(balance, 99)
+        self.assertNotEqual(won['round']['state'], 'active')
+        self.post('/api/game/cashout', status=400)
+        self.assertEqual(self.balance(), balance)
+
+    def test_mines_loss_and_restore(self):
+        self.post('/api/game/start', {'mines': 3, 'bet': '1.00'})
+        self.assertEqual(self.client.get('/api/me').get_json()['round']['state'], 'active')
+        with m.connect() as db:
+            row = db.execute("SELECT positions FROM rounds WHERE user_id=?", (self.uid,)).fetchone()
+        result = self.post('/api/game/open', {'cell': json.loads(row['positions'])[0]})
+        self.assertNotEqual(result['round']['state'], 'active')
+        self.assertEqual(self.balance(), 99)
+
+    def test_disabled_modes_allow_finishing_existing_round(self):
+        self.post('/api/game/start', {'mines': 3, 'bet': '1.00'})
+        m.save_document('section_settings', {'mines': False, 'giveaways': False})
+        self.assertEqual(self.client.get('/api/giveaways').status_code, 403)
+        self.assertEqual(self.client.get('/api/giveaways/1').status_code, 403)
+        self.assertEqual(self.client.get('/api/game/ladder').status_code, 403)
+        with m.connect() as db:
+            row = db.execute('SELECT positions FROM rounds WHERE user_id=?', (self.uid,)).fetchone()
+        safe = next(i for i in range(25) if i not in json.loads(row['positions']))
+        self.post('/api/game/open', {'cell': safe})
+        self.post('/api/game/cashout')
+
+    def test_invalid_saved_section_settings_recover(self):
+        m.save_document('section_settings', [1, 2])
+        self.assertTrue(self.client.get('/api/ui/settings').get_json()['sections']['mines'])
+
+    def test_sqlite_connection_closes_after_context(self):
+        with m.connect() as db:
+            db.execute('SELECT 1')
+        with self.assertRaises(m.sqlite3.ProgrammingError):
+            db.execute('SELECT 1')
+
+    def test_sqlite_rollback_on_error(self):
+        with self.assertRaises(ValueError):
+            with m.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                db.execute('UPDATE users SET balance=0 WHERE id=?', (self.uid,))
+                raise ValueError('Simulated failure')
+        self.assertEqual(self.balance(), 100)
+
+    def test_section_settings_require_real_booleans(self):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/section-settings', {'mines': 'false'}, 400)
+            self.post('/api/admin/section-settings', {'mines': False})
+        self.assertFalse(m.section_settings()['mines'])
+
+    def test_inventory_ownership_and_single_sale(self):
+        with m.connect() as db:
+            row = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,floor_price,source) VALUES(?, 'qa', 'QA gift', 250, 'test')", (self.uid,))
+            item = row.lastrowid
+        stranger = m.app.test_client()
+        with stranger.session_transaction() as session:
+            session['uid'] = self.uid + 100000
+        self.assertEqual(stranger.post(f'/api/inventory/{item}/sell', json={}).status_code, 404)
+        self.post(f'/api/inventory/{item}/sell')
+        self.assertEqual(self.balance(), 102.5)
+        self.post(f'/api/inventory/{item}/sell', status=404)
+
+    def test_transfer_is_idempotent(self):
+        recipient = self.uid + 100000
+        with m.connect() as db:
+            db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,0)', (recipient, 'Receiver', f'receiver{self.uid}'))
+            db.execute('INSERT INTO level_claims(user_id,level,reward_json) VALUES(?,1,?)', (self.uid, json.dumps({'type':'transfer_unlock'})))
+        payload = {'request_id':f'test-transfer-{self.uid}', 'username':f'receiver{self.uid}', 'amount':'10.00'}
+        first = self.post('/api/transfers/send', payload)
+        balance = self.balance()
+        second = self.post('/api/transfers/send', payload)
+        self.assertEqual(first['id'], second['id'])
+        self.assertEqual(self.balance(), balance)
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?', (recipient,)).fetchone()['balance'], 1000)
+
+    def test_upgrade_is_idempotent(self):
+        m.save_document('portal_catalog', {'gifts':[{'id':'qa-gift','name':'QA gift','price_ton':2,'image_url':'https://example.com/gift.png'}]})
+        payload = {'request_id':f'test-upgrade-{self.uid}', 'amount':'1.00', 'gift_id':'qa-gift'}
+        self.assertEqual(self.client.get('/api/upgrade/preview?amount=1&gift_id=qa-gift').status_code, 200)
+        result = self.post('/api/upgrade/spin', payload)
+        second = self.post('/api/upgrade/spin', payload)
+        self.assertEqual(result['won'], second['won'])
+        self.assertEqual(self.balance(), 99)
+
+    def test_reward_claim_is_single_use(self):
+        with m.connect() as db:
+            row = db.execute("INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,created_at) VALUES('QA','once','referral',1,5,'profilePage','2000-01-01')")
+            task = row.lastrowid
+            db.execute('INSERT INTO referrals(referred_id,referrer_id) VALUES(?,?)', (self.uid + 200000,self.uid))
+        self.post(f'/api/reward-tasks/{task}/claim')
+        self.post(f'/api/reward-tasks/{task}/claim', status=409)
+        self.assertEqual(self.client.get('/api/me').get_json()['user']['tickets'], 5)
+
+    def create_upgrade_task(self, **values):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            return self.post('/api/admin/reward-tasks', dict(metric='upgrade_play', goal=10, tickets=7, **values))['id']
+
+    def task_progress(self, task_id):
+        return next(x for x in self.client.get('/api/reward-tasks').get_json()['items'] if x['id'] == task_id)
+
+    def add_upgrade_result(self, number, chance, won=1, when='2026-09-30 12:00:00.123', reward='gift', uid=None):
+        with m.connect() as db:
+            db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_price,target_name,target_price,chance_bp,won,result_json,created_at)
+                          VALUES(?,?, 'TON',100,'QA',1000,?,?,?,?)''',
+                       (f'quest-{self.uid}-{number}',uid or self.uid,chance,won,json.dumps({'reward_type':reward}),when))
+
+    def test_upgrade_task_chance_boundaries_and_gift_wins(self):
+        tasks = []
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            for metric,operator in [('upgrade_play','any'),('upgrade_win','lt'),('upgrade_gift','lt'),('upgrade_win','gt')]:
+                tasks.append(self.post('/api/admin/reward-tasks', {'metric':metric,'goal':100,'tickets':7,
+                    'chance_operator':operator,'chance_percent':50 if operator=='gt' else 25})['id'])
+        with m.connect() as db:
+            for task in tasks: db.execute("UPDATE reward_tasks SET created_at='2026-09-30T10:00:00+00:00' WHERE id=?",(task,))
+        for i,(chance,won,reward) in enumerate([(2499,1,'gift'),(2500,1,'gift'),(2499,0,'none'),(2499,1,'wager_progress'),(5000,1,'gift'),(5001,1,'gift')]):
+            self.add_upgrade_result(i,chance,won,reward=reward)
+        self.add_upgrade_result('old',2499,when='2026-09-30 09:59:59')
+        self.add_upgrade_result('other',2499,uid=self.uid+9999)
+        self.assertEqual([self.task_progress(t)['progress'] for t in tasks],[6,2,1,1])
+        self.assertIn('меньше 25%',self.task_progress(tasks[1])['title'])
+
+    def test_upgrade_task_counts_actual_spin_once_and_preserves_claim_on_edit(self):
+        task = self.create_upgrade_task()
+        m.save_document('portal_catalog', {'gifts':[{'id':'quest-gift','name':'QA','price_ton':2,'image_url':'https://example.com/gift.png'}]})
+        payload = {'request_id':f'quest-spin-{self.uid}','amount':'1.00','gift_id':'quest-gift'}
+        with patch.object(m.secrets, 'randbelow', return_value=0):
+            self.post('/api/upgrade/spin',payload)
+            self.post('/api/upgrade/spin',payload)
+        self.assertEqual(self.task_progress(task)['progress'],1)
+        messages=self.client.get('/api/notifications').get_json()['items']
+        self.assertEqual(sum(x['kind']=='upgrade' for x in messages),0)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            response = self.client.put(f'/api/admin/reward-tasks/{task}',json={'goal':1})
+            self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(self.task_progress(task)['title'],'Сыграть в апгрейд 1 раз')
+        self.post(f'/api/reward-tasks/{task}/claim')
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.assertEqual(self.client.put(f'/api/admin/reward-tasks/{task}',json={'title':'Моё задание'}).status_code,200)
+            self.assertEqual(self.client.put(f'/api/admin/reward-tasks/{task}',json={'category':'daily'}).status_code,400)
+        self.post(f'/api/reward-tasks/{task}/claim',status=409)
+        self.assertEqual(self.client.get('/api/me').get_json()['user']['tickets'],7)
+
+    def test_upgrade_task_daily_and_expiry_use_event_time(self):
+        task = self.create_upgrade_task(category='daily')
+        today=m.datetime.now(m.timezone.utc).date().isoformat()
+        yesterday=(m.datetime.now(m.timezone.utc)-m.timedelta(days=1)).date().isoformat()
+        with m.connect() as db:
+            db.execute("UPDATE reward_tasks SET created_at='2000-01-01' WHERE id=?",(task,))
+        self.add_upgrade_result(1,2500,when=yesterday+'T23:59:59+00:00')
+        self.add_upgrade_result(2,2500,when=today+' 00:00:00.100')
+        self.add_upgrade_result(3,2500,when=today+'T00:00:01+00:00')
+        self.assertEqual(self.task_progress(task)['progress'],2)
+        with m.connect() as db:
+            db.execute("UPDATE reward_tasks SET category='limited',ends_at=? WHERE id=?",(today+'T00:00:01+00:00',task))
+        self.assertEqual(self.task_progress(task)['progress'],2)
+
+    def test_reward_task_validation_and_admin_permissions(self):
+        self.post('/api/admin/reward-tasks',{'metric':'upgrade_win'},403)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            for fields in [{'goal':1.5},{'goal':True},{'chance_operator':'nope'},
+                           {'chance_operator':'lt','chance_percent':'NaN'},
+                           {'chance_operator':'gt','chance_percent':100.01},
+                           {'chance_operator':'lt','chance_percent':25.001}]:
+                self.post('/api/admin/reward-tasks',dict(metric='upgrade_win',**fields),400)
+        task=self.create_upgrade_task()
+        self.assertEqual(self.client.put(f'/api/admin/reward-tasks/{task}',json={'goal':1}).status_code,403)
+
+    def test_archive_giveaways_hides_only_completed_and_keeps_awards(self):
+        m.save_document('portal_catalog',{'gifts':[{'id':'archive-gift','name':'QA','price_ton':2,'image_url':'https://example.com/gift.png'}]})
+        self.post('/api/admin/giveaways/clear-completed',status=403)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post('/api/admin/giveaways/clear-completed')
+            finished=self.post('/api/admin/giveaways',{'title':'Old','duration_minutes':60,'prizes':[{'gift_id':'archive-gift'}]})['item']['id']
+            active=self.post('/api/admin/giveaways',{'title':'Active','duration_minutes':60,'prizes':[{'gift_id':'archive-gift'}]})['item']['id']
+            with m.connect() as db:
+                db.execute('INSERT INTO giveaway_entries(giveaway_id,user_id,tickets) VALUES(?,?,3)',(finished,self.uid))
+            self.post(f'/api/admin/giveaways/{finished}/finish')
+            with m.connect() as db:
+                award=db.execute('SELECT inventory_id FROM giveaway_winners WHERE giveaway_id=?',(finished,)).fetchone()['inventory_id']
+            self.assertEqual(self.post('/api/admin/giveaways/clear-completed')['hidden'],1)
+            self.assertEqual(self.post('/api/admin/giveaways/clear-completed')['hidden'],0)
+            self.assertNotIn(finished,[x['id'] for x in self.client.get('/api/admin/giveaways').get_json()['items']])
+        self.assertEqual(self.client.get(f'/api/giveaways/{finished}').status_code,404)
+        self.assertEqual(self.client.get(f'/api/giveaways/{active}').status_code,200)
+        with m.connect() as db:
+            self.assertIsNotNone(db.execute('SELECT id FROM inventory WHERE id=?',(award,)).fetchone())
+            self.assertEqual(db.execute('SELECT tickets FROM giveaway_entries WHERE giveaway_id=?',(finished,)).fetchone()['tickets'],3)
+
+    def test_game_history_filters_and_permissions(self):
+        self.add_upgrade_result('history1',1234)
+        self.add_upgrade_result('history2',6789,won=0)
+        self.post('/api/game/start',{'bet':'1.00','mines':3})
+        self.assertEqual(self.client.get('/api/admin/game-history').status_code,403)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            rows=self.client.get(f'/api/admin/game-history?user_id={self.uid}').get_json()['items']
+            self.assertEqual(len(rows),3)
+            self.assertEqual({x['game'] for x in rows},{'mines','upgrade'})
+            upgrades=self.client.get(f'/api/admin/game-history?user_id={self.uid}&game=upgrade').get_json()['items']
+            self.assertEqual(len(upgrades),2)
+            self.assertEqual({x['chance'] for x in upgrades},{12.34,67.89})
+            self.assertEqual(self.client.get('/api/admin/game-history?user_id=bad').status_code,400)
+            self.assertEqual(self.client.get('/api/admin/game-history?game=bad').status_code,400)
+
+    def test_notifications_are_private_and_read_is_scoped(self):
+        with m.connect() as db:
+            m.log_event(db,self.uid,'transfer_received',amount=25)
+            m.log_event(db,self.uid+9999,'transfer_received',amount=5)
+        rows=self.client.get('/api/notifications').get_json()
+        self.assertEqual(rows['unread'],1)
+        self.assertEqual(len(rows['items']),1)
+        self.assertIn('25.00 TON',rows['items'][0]['text'])
+        self.post('/api/notifications/read',{'upto':rows['items'][0]['id']+100})
+        self.assertEqual(self.client.get('/api/notifications').get_json()['unread'],0)
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT is_read FROM user_notifications WHERE user_id=?',(self.uid+9999,)).fetchone()['is_read'],0)
+        self.assertEqual(m.app.test_client().get('/api/notifications').status_code,401)
+
+    def test_notification_queue_only_delivers_committed_rows_once(self):
+        with patch.object(m,'BOT_TOKEN','qa-token'):
+            with m.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                m.log_event(db,self.uid,'transfer_received',amount=5)
+                db.rollback()
+            with m.connect() as db:
+                m.log_event(db,self.uid,'transfer_received',amount=5)
+            with patch.object(m,'send_user_notification',return_value=True) as send:
+                m.deliver_activity_notifications()
+                m.deliver_activity_notifications()
+                self.assertEqual(send.call_count,1)
+                self.assertEqual(send.call_args.args[0],self.uid)
+
+    def test_levels_load_background_settings_once(self):
+        with patch.object(m,'black_backgrounds_enabled',return_value=False) as setting:
+            response=self.client.get('/api/levels')
+            self.assertEqual(response.status_code,200)
+            self.assertGreater(len(response.get_json()['levels']),1)
+            self.assertEqual(setting.call_count,1)
+
+    def test_notification_delivery_retries_without_resending_success(self):
+        with patch.object(m,'BOT_TOKEN','qa-token'):
+            with m.connect() as db:
+                m.log_event(db,self.uid,'transfer_received',amount=5)
+            with patch.object(m,'send_user_notification',return_value=False) as failed:
+                m.deliver_activity_notifications()
+                m.deliver_activity_notifications()
+                self.assertEqual(failed.call_count,1)
+            with m.connect() as db:
+                db.execute('UPDATE user_notifications SET delivery_next_at=0 WHERE user_id=?',(self.uid,))
+            with patch.object(m,'send_user_notification',return_value=True) as sent:
+                m.deliver_activity_notifications()
+                m.deliver_activity_notifications()
+                self.assertEqual(sent.call_count,1)
+
+    def test_routine_steps_stay_in_audit_without_notifications(self):
+        with patch.object(m,'BOT_TOKEN','qa-token'):
+            with m.connect() as db:
+                for kind,data in [('login',{}),('mines_start',{'bet':1,'mines':3}),
+                                  ('mines_cell',{'cell':2,'lost':False}),('mines_cell',{'cell':3,'lost':True}),
+                                  ('upgrade',{'won':False}),('upgrade',{'won':True,'promo_wager':True})]:
+                    m.log_event(db,self.uid,kind,**data)
+                # Old releases already queued these messages. They must remain silent too.
+                db.execute("INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,'mines_cell','Клетка 1','pending')",(self.uid,))
+                db.execute("INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,'upgrade','Апгрейд · проигрыш','pending')",(self.uid,))
+                m.log_event(db,self.uid,'transfer_received',amount=5)
+            with patch.object(m,'send_user_notification',return_value=True) as send:
+                m.deliver_activity_notifications()
+                self.assertEqual(send.call_count,1)
+            response=self.client.get('/api/notifications').get_json()
+            self.assertEqual(len(response['items']),1)
+            self.assertEqual(response['unread'],1)
+            self.assertEqual(response['items'][0]['kind'],'transfer_received')
+            with m.connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],7)
+
+    def test_admin_display_is_private_and_persistent(self):
+        self.post('/api/admin/display', {'visible':False}, status=403)
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/display', {'visible':'false'}, status=400)
+            self.assertFalse(self.post('/api/admin/display', {'visible':False})['user']['admin_button_visible'])
+            self.assertTrue(self.client.get('/api/me').get_json()['user']['admin'])
+            self.assertFalse(self.client.get('/api/me').get_json()['user']['admin_button_visible'])
+            self.assertTrue(self.post('/api/admin/display', {'visible':True})['user']['admin_button_visible'])
+
+    def test_promo_and_login_remain_silent_and_deposit_has_amount_and_balance(self):
+        with m.connect() as db:
+            for kind in ('login','promo_redeem','freebet_redeem','deposit_created'):
+                m.log_event(db,self.uid,kind,code='SECRET',amount=5)
+                db.execute('INSERT INTO user_notifications(user_id,kind,text) VALUES(?,?,?)',(self.uid,kind,'Старое сообщение'))
+            m.record_transaction(db,self.uid,'deposit',500,'deposit','qa','Пополнение администратором')
+        items=self.client.get('/api/notifications').get_json()['items']
+        self.assertEqual([(x['kind'],x['text']) for x in items],[('deposit','✅ Ваш баланс пополнен на 5.00 TON.\n\nТекущий баланс: 100.00 TON')])
+        self.assertNotIn('администратор',items[0]['text'].lower())
+
+    def test_admin_deposit_bot_receipt_contains_amount_balance_and_open(self):
+        with patch.object(m,'ADMIN_IDS',{self.uid}), patch.object(m,'WEBAPP_URL','https://gemdrop.example'), patch.object(m,'notify_user_async') as notify:
+            data={'amount':'5.25','request_key':f'clear-receipt-{self.uid}'}
+            self.post(f'/api/admin/users/{self.uid}/deposit',data)
+            self.post(f'/api/admin/users/{self.uid}/deposit',data)
+            self.assertEqual(notify.call_count,1)
+            uid,text,markup,mode=notify.call_args.args
+            self.assertEqual(uid,self.uid)
+            self.assertIn('✅ <b>Ваш баланс пополнен на 5.25 TON.</b>',text)
+            self.assertIn('Текущий баланс: <b>105.25 TON</b>',text)
+            self.assertNotIn('администратор',text.lower())
+            self.assertEqual(mode,'HTML')
+            self.assertEqual(markup['inline_keyboard'][0][0]['text'],'Открыть')
+            notice=self.client.get('/api/notifications').get_json()['items'][0]
+            self.assertIn('5.25 TON',notice['text'])
+            self.assertIn('105.25 TON',notice['text'])
+
+    def test_notification_delivery_escapes_names_and_has_open_button(self):
+        with patch.object(m,'BOT_TOKEN','qa-token'):
+            with m.connect() as db:
+                m.add_user_notification(db,self.uid,'withdrawal_request','⏳ Заявка на вывод\n<b>QA & gift</b>')
+            with patch.object(m,'WEBAPP_URL','https://gemdrop.example'),patch.object(m,'send_user_notification',return_value=True) as send:
+                m.deliver_activity_notifications()
+                self.assertIn('&lt;b&gt;QA &amp; gift&lt;/b&gt;',send.call_args.args[1])
+                self.assertEqual(send.call_args.args[2]['inline_keyboard'][0][0]['text'],'Открыть')
+                self.assertEqual(send.call_args.args[3],'HTML')
+
+    def test_fragment_manual_price_announcement_refresh_and_archive(self):
+        gift=dict(source_type='fragment',gift_id='fragment:qa-1',gift_name='QA #1',
+                  image_url='https://example.com/qa.webp',floor_price=300,fragment_url='https://t.me/nft/QA-1',
+                  fragment_number='1',fragment_model='',fragment_backdrop='',fragment_symbol='',price_source='Fragment')
+        with patch.object(m,'ADMIN_IDS',{self.uid}), patch.object(m,'fragment_gift_from_url',side_effect=lambda *a,**k:dict(gift)):
+            data={'title':'Новый','description':'Подарки','duration_minutes':60,
+                  'prizes':[{'source_type':'fragment','fragment_url':gift['fragment_url'],'price_ton':'12.34'}]}
+            item=self.post('/api/admin/giveaways',data)['item']
+            prize=item['prizes'][0]
+            self.assertEqual(prize['price_ton'],12.34)
+            notice=self.client.get('/api/notifications').get_json()['items'][0]
+            self.assertEqual(notice['giveaway_id'],item['id'])
+            self.assertIn('QA #1',notice['text'])
+            self.assertIn(gift['fragment_url'],notice['text'])
+            self.post(f'/api/admin/giveaways/{item["id"]}/archive',status=400)
+            path=f'/api/admin/giveaways/{item["id"]}/prizes/{prize["id"]}/price'
+            self.post(path,{'price_ton':'-1'},status=400)
+            self.post(path,{'price_ton':'8,50'})
+            self.post(f'/api/admin/giveaways/{item["id"]}/refresh-prizes')
+            current=self.client.get(f'/api/giveaways/{item["id"]}').get_json()['item']['prizes'][0]
+            self.assertEqual(current['price_ton'],8.5)
+            self.assertEqual(current['price_source'],'Ручная цена')
+            with m.connect() as db:
+                db.execute('INSERT INTO giveaway_entries(giveaway_id,user_id,tickets) VALUES(?,?,1)',(item['id'],self.uid))
+            self.post(f'/api/admin/giveaways/{item["id"]}/finish')
+            self.post(path,{'price_ton':'9'},status=400)
+            self.post(f'/api/admin/giveaways/{item["id"]}/archive')
+            self.assertEqual(self.client.get(f'/api/giveaways/{item["id"]}').status_code,404)
+            with m.connect() as db:
+                self.assertEqual(db.execute("SELECT floor_price FROM inventory WHERE user_id=? AND source='giveaway'",(self.uid,)).fetchone()['floor_price'],850)
+
+    def test_giveaway_delivery_has_direct_button_and_is_sent_once(self):
+        with m.connect() as db:
+            db.execute("INSERT INTO user_notifications(user_id,kind,text,giveaway_id,delivery_state) VALUES(?,'giveaway_started','Новый розыгрыш',42,'pending')",(self.uid,))
+        with patch.object(m,'BOT_TOKEN','qa-token'), patch.object(m,'WEBAPP_URL','https://gemdrop.example'), patch.object(m,'send_user_notification',return_value=True) as send:
+            m.deliver_activity_notifications()
+            m.deliver_activity_notifications()
+            self.assertEqual(send.call_count,1)
+            button=send.call_args.args[2]['inline_keyboard'][0][0]
+            self.assertEqual(button['text'],'Открыть розыгрыш')
+            self.assertEqual(button['web_app']['url'],'https://gemdrop.example/?open=giveaways&giveaway=42')
+
+    def test_only_essential_notifications_are_visible_and_delivered(self):
+        muted=['upgrade','craft_play','level_claim','admin_level','gift_sale','game_win_ton',
+               'gift_win','giveaway_enter','reward_task_claim','transfer_sent','admin_gift_add',
+               'admin_gift_remove','promo_redeem','freebet_redeem','login','admin_balance']
+        with patch.object(m,'BOT_TOKEN','qa-token'):
+            with m.connect() as db:
+                for kind in muted:
+                    m.log_event(db,self.uid,kind,won=True,gift_name='QA',chance=25)
+                    db.execute("INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,?,?,'pending')",(self.uid,kind,'Апгрейд · выигрыш'))
+                m.log_event(db,self.uid,'transfer_received',amount=3)
+            with patch.object(m,'send_user_notification',return_value=True) as send:
+                m.deliver_activity_notifications()
+                self.assertEqual(send.call_count,1)
+            response=self.client.get('/api/notifications').get_json()
+            self.assertEqual(response['unread'],1)
+            self.assertEqual([x['kind'] for x in response['items']],['transfer_received'])
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],len(muted)+1)
+
+    def test_admin_can_delete_normal_and_wager_inventory_without_notifying(self):
+        with m.connect() as db:
+            normal=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,floor_price,source) VALUES(?,'qa','QA',500,'test')",(self.uid,)).lastrowid
+            locked=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,floor_price,source,promo_locked) VALUES(?,'qa','QA Locked',500,'promo',1)",(self.uid,)).lastrowid
+        path=f'/api/admin/users/{self.uid}/inventory/{normal}'
+        self.assertEqual(self.client.delete(path).status_code,403)
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.assertEqual(self.client.delete(f'/api/admin/users/{self.uid+1}/inventory/{normal}').status_code,404)
+            response=self.client.delete(path,content_type='application/json')
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.get_json()['removed_id'],normal)
+            self.assertEqual(self.client.delete(path).status_code,404)
+            self.assertEqual(self.client.delete(f'/api/admin/users/{self.uid}/inventory/{locked}').status_code,200)
+            self.assertEqual(self.client.get(f'/api/admin/users/{self.uid}').get_json()['items'],[])
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM admin_log WHERE user_id=? AND action=\'gift_remove\'',(self.uid,)).fetchone()['n'],2)
+        self.assertEqual(self.client.get('/api/notifications').get_json()['items'],[])
+
+    def test_premium_notification_uses_saved_emoji_and_falls_back_on_rejection(self):
+        m.remember_emojis([{'id':'12345678901','emoji':'🎉'}])
+        payloads=[]
+        response=Mock()
+        response.raise_for_status.return_value=None
+        response.json.return_value={'ok':True}
+        def post(*args,**kwargs):
+            payloads.append(dict(kwargs['json']))
+            if len(payloads)==1: raise m.requests.RequestException('Emoji unavailable')
+            return response
+        try:
+            with patch.object(m,'BOT_TOKEN','qa-token'),patch.object(m.requests,'post',side_effect=post):
+                self.assertTrue(m.send_user_notification(self.uid,'🎉 <b>Новый розыгрыш</b>',parse_mode='HTML'))
+            self.assertIn('<tg-emoji emoji-id="12345678901">🎉</tg-emoji>',payloads[0]['text'])
+            self.assertEqual(payloads[1]['text'],'🎉 <b>Новый розыгрыш</b>')
+        finally:
+            with m.connect() as db: db.execute("DELETE FROM app_documents WHERE name='saved_emoji:12345678901'")
+
+    def test_level_changes_do_not_send_bot_notifications(self):
+        with patch.object(m,'notify_user_async') as send,patch.object(m,'send_user_notification') as direct:
+            m.notify_level_up_async(self.uid,2)
+            with patch.object(m,'ADMIN_IDS',{self.uid}):
+                self.post(f'/api/admin/users/{self.uid}/level',{'level':2})
+                self.post(f'/api/admin/users/{self.uid}/level',{'level':1})
+            send.assert_not_called()
+            direct.assert_not_called()
+
+    def test_telegram_signature(self):
+        token = 'test-token'
+        values = {'auth_date':str(int(time.time())), 'user':json.dumps({'id':self.uid,'first_name':'Test'})}
+        secret = hmac.new(b'WebAppData', token.encode(), hashlib.sha256).digest()
+        values['hash'] = hmac.new(secret, '\n'.join(f'{k}={v}' for k,v in sorted(values.items())).encode(), hashlib.sha256).hexdigest()
+        with patch.object(m, 'BOT_TOKEN', token):
+            self.assertEqual(m.verified_user(urlencode(values))['id'], self.uid)
+            values['user'] = json.dumps({'id':1})
+            self.assertIsNone(m.verified_user(urlencode(values)))
+
+    def test_web_login_challenge_single_use(self):
+        with patch.object(m, 'BOT_TOKEN', 'test-token'), patch.object(m, 'current_bot_username', return_value='test_bot'):
+            self.post('/api/web-auth/start')
+            with self.client.session_transaction() as session:
+                challenge = session['web_auth_id']
+            self.assertEqual(self.client.get('/api/web-auth/status').get_json()['status'], 'pending')
+            with m.connect() as db:
+                db.execute('UPDATE web_login_challenges SET user_id=? WHERE id=?', (self.uid,challenge))
+            self.assertEqual(self.client.get('/api/web-auth/status').get_json()['status'], 'approved')
+            self.assertEqual(self.client.get('/api/web-auth/status').get_json()['status'], 'missing')
+
+
+if __name__ == '__main__':
+    unittest.main()

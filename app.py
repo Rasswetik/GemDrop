@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '59-activity-mobile'
+BUILD_ID = '60-important-notifications'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -947,7 +947,19 @@ def log_event(db,user_id,kind,**details):
     if text: add_user_notification(db, user_id, kind, text)
 
 
+IMPORTANT_NOTIFICATION_KINDS = (
+    'gift_sale','admin_balance','deposit','ton_deposit','referral_bonus','deposit_promo_bonus',
+    'withdrawal_request','withdrawal_approved','withdrawal_rejected','game_win_ton','gift_win',
+    'promo_wager_claim','upgrade_cashback','upgrade_compensation_gift','upgrade','craft_play',
+    'transfer_sent','transfer_received','level_claim','reward_task_claim','giveaway_enter','giveaway_win',
+    'promo_issued','promo_redeem','freebet_redeem','promo_gift_expired','admin_level',
+    'withdrawal_access','admin_gift_add','admin_gift_remove','deposit_created',
+)
+IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ") AND (kind<>'upgrade' OR (text LIKE '%выигрыш%' AND text NOT LIKE '%проигрыш%'))"
+
+
 def add_user_notification(db, user_id, kind, text):
+    if kind not in IMPORTANT_NOTIFICATION_KINDS: return
     # These actions already have a dedicated Telegram message.
     delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
                           'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
@@ -957,22 +969,19 @@ def add_user_notification(db, user_id, kind, text):
 
 
 def activity_notification_text(kind, d):
-    labels = {'login':'Вход в GemDrop', 'mines_start':'Ставка Mines', 'mines_cell':'Mines',
-              'upgrade':'Апгрейд', 'roll':'Roll', 'craft_play':'Крафт', 'transfer_sent':'Перевод отправлен',
+    if kind == 'upgrade' and (not d.get('won') or d.get('promo_wager')): return None
+    labels = {'upgrade':'Апгрейд', 'craft_play':'Крафт', 'transfer_sent':'Перевод отправлен',
               'transfer_received':'Перевод получен', 'level_claim':'Награда уровня',
               'reward_task_claim':'Задание выполнено', 'giveaway_enter':'Участие в розыгрыше',
               'giveaway_win':'Победа в розыгрыше', 'promo_issued':'Выдан промокод',
               'promo_redeem':'Промокод активирован', 'freebet_redeem':'Freebet активирован',
               'promo_gift_expired':'Срок подарка истёк', 'admin_level':'Уровень изменён',
               'withdrawal_access':'Доступ к выводу изменён', 'admin_gift_add':'Подарок добавлен',
-              'admin_gift_remove':'Подарок удалён', 'deposit_created':'Заявка на пополнение',
-              'deposit_promo_removed':'Промокод пополнения снят'}
+              'admin_gift_remove':'Подарок удалён', 'deposit_created':'Заявка на пополнение'}
     if kind not in labels: return None
     text = labels[kind]
     if kind == 'upgrade':
         text += f': {d.get("source_name", "TON")} → {d.get("target_name", "подарок")} · {d.get("chance", 0):g}% · '+('выигрыш' if d.get('won') else 'проигрыш')
-    elif kind == 'mines_cell': text += f': клетка {int(d.get("cell",0))+1} · '+('мина' if d.get('lost') else 'кристалл')
-    elif kind == 'mines_start': text += f' · {float(d.get("bet",0)):.2f} TON · {d.get("mines",0)} мин'
     elif kind in ('transfer_sent','transfer_received','deposit_created'): text += f' · {float(d.get("amount",0)):.2f} TON'
     elif kind in ('giveaway_enter','reward_task_claim'): text += f' · {d.get("tickets",0)} билетов'
     elif kind == 'level_claim': text += f' · уровень {d.get("level",1)}'
@@ -988,9 +997,10 @@ def user_notifications():
     try: before = max(0,int(request.args.get('before',0)))
     except (ValueError,TypeError): return error('Некорректная страница.')
     with connect() as db:
-        rows = db.execute('SELECT * FROM user_notifications WHERE user_id=?'+(' AND id<?' if before else '')+' ORDER BY id DESC LIMIT 51',
-                          (session['uid'],before) if before else (session['uid'],)).fetchall()
-        unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0',(session['uid'],)).fetchone()['n']
+        params=(session['uid'],*IMPORTANT_NOTIFICATION_KINDS)
+        rows = db.execute('SELECT * FROM user_notifications WHERE user_id=? AND '+IMPORTANT_NOTIFICATION_SQL+(' AND id<?' if before else '')+' ORDER BY id DESC LIMIT 51',
+                          (*params,before) if before else params).fetchall()
+        unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0 AND '+IMPORTANT_NOTIFICATION_SQL,params).fetchone()['n']
     return jsonify(items=[{k:r[k] for k in ('id','kind','text','created_at','is_read')} for r in rows[:50]],unread=unread,has_more=len(rows)>50)
 
 
@@ -4980,6 +4990,7 @@ def deliver_activity_notifications():
         now=int(time.time())
         with connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            db.execute("UPDATE user_notifications SET delivery_state='none' WHERE delivery_state IN ('pending','sending') AND NOT ("+IMPORTANT_NOTIFICATION_SQL+')',IMPORTANT_NOTIFICATION_KINDS)
             db.execute("UPDATE user_notifications SET delivery_state='pending' WHERE delivery_state='sending' AND delivery_next_at<?",(now-60,))
             row=db.execute("SELECT * FROM user_notifications WHERE delivery_state='pending' AND delivery_next_at<=? ORDER BY id LIMIT 1"+(' FOR UPDATE SKIP LOCKED' if DATABASE_URL else ''),(now,)).fetchone()
             if not row: return

@@ -1,4 +1,12 @@
 /* Final layout rules for forms, notifications and giveaway management. */
+body.studio .notification-row h3 {font-size:15px;line-height:1.45;font-weight:600;overflow-wrap:anywhere;margin:0 0 12px}
+body.studio #adminInventory {display:grid;gap:10px;min-width:0}
+body.studio #adminInventory .admin-inventory-row {display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #303947;border-radius:12px;background:#161c25;min-width:0}
+body.studio #adminInventory .admin-inventory-row>img {width:44px;height:44px;object-fit:contain}
+body.studio #adminInventory .admin-inventory-row>div {min-width:0}
+body.studio #adminInventory .admin-inventory-row strong {display:block;white-space:normal;overflow-wrap:anywhere;font-size:13px;font-weight:500;line-height:1.4}
+body.studio #adminInventory .admin-inventory-row small {display:block;margin-top:5px;color:#92a8ba}
+body.studio #adminInventory .admin-inventory-row button {position:static;flex:none;width:auto;min-width:72px;min-height:44px;margin:0;padding:10px;border-radius:10px;color:#ffaaaa;pointer-events:auto}
 body.studio #promoModal .promo-entry-card .promo-entry {grid-template-columns:minmax(0,1fr) 46px!important;gap:8px!important;align-items:center!important}
 body.studio #promoModal #redeemPromo {width:46px!important;min-width:46px!important;max-width:46px!important;height:46px!important;min-height:46px!important;padding:12px!important;border-radius:12px!important}
 body.studio #promoModal #redeemPromo svg {display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}

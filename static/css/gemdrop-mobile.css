@@ -1,7 +1,7 @@
 /* Shared overlays and compact mobile layouts. Loaded after the legacy theme. */
 body.modal-open{overflow:hidden;overscroll-behavior:none}
-body.studio>.modal{position:fixed!important;inset:0!important;z-index:10000!important;transform:none!important;padding:16px;overflow:auto;overscroll-behavior:contain}
-body.studio>#upgradeListModal{z-index:11000!important}
+body.studio>.modal{position:fixed!important;inset:0!important;z-index:var(--dialog-z,20000)!important;transform:none!important;padding:16px;overflow:auto;overscroll-behavior:contain}
+body.studio>:is(#levelsModal,#levelRewardModal,#promoModal,#promoRewardModal,#referralModal){z-index:var(--dialog-z,40000)!important}
 body.studio>.modal .modal-card{max-height:calc(100dvh - 32px);min-width:0;overflow:auto;overscroll-behavior:contain}
 body.studio #upgradeListModal .upgrade-list-card{display:flex;flex-direction:column;gap:16px;width:100%;max-width:480px;padding:20px;border:1px solid #303947;border-radius:18px;background:#151a22;box-shadow:0 20px 80px #0008;text-align:left}
 body.studio #upgradeListModal .picker-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
@@ -23,10 +23,11 @@ body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target
 body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art{grid-column:1!important;grid-row:1!important;width:72px!important;height:72px!important;margin:0!important}
 body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art img{width:72px!important;height:72px!important;max-width:72px!important;max-height:72px!important}
 body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMineName,#upgradeTargetName){grid-column:1!important;grid-row:2!important;display:block!important;width:100%!important;height:auto!important;min-height:0!important;margin:0!important;text-align:center!important;line-height:1.4!important;font-size:13px!important;white-space:normal!important;overflow:visible!important;-webkit-line-clamp:unset!important;overflow-wrap:anywhere}
+body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMineName,#upgradeTargetName){font-weight:500!important;letter-spacing:0!important;text-wrap:balance}
 body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMinePrice,#upgradeTargetPrice){grid-column:1!important;grid-row:3!important;justify-content:center!important;min-width:0!important;max-width:100%;font-size:12px!important}
 body.studio #upgradePage #upgradeMine.ton-source{display:flex!important;flex-direction:column!important;justify-content:center!important;align-items:center!important}
 body.studio #upgradePage #upgradeMine.ton-source #upgradeMineName{display:inline-flex!important;justify-content:center!important;font-size:24px!important}
-body.studio #toast{z-index:12000!important}
+body.studio #toast{z-index:60000!important}
 body.studio #upgradeListModal #upgradeList .upgrade-option-price{font-size:12px;line-height:1.4;color:#a3b2c7}
 body.studio #upgradeListModal #upgradeList .upgrade-option-chance{width:auto;min-width:0;padding:0;background:none;border:0;color:#a4c5ff;font-size:13px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 body.studio #upgradeListModal .upgrade-ton-pick{margin:0;padding:12px;flex:none;border:1px solid #303947;border-radius:12px;background:#1a212b}
@@ -93,7 +94,6 @@ body.studio.modal-open #nav{visibility:hidden!important;pointer-events:none!impo
 .history-row p{margin:8px 0;font-size:12px;line-height:1.5;color:#a4b3c8;overflow-wrap:anywhere}
 .history-outcome{flex:none;font-size:11px;color:#95a4b8}
 .history-outcome.won{color:#8ac8b0}.history-outcome.lost{color:#da99a6}
-#clearOldGiveaways{width:auto;margin-top:12px;padding:11px 14px;font-size:12px}
 body.studio #giveawayPage .reward-task-card{padding:14px;border:1px solid #29323f;border-radius:12px;background:#151a22!important;margin-bottom:8px}
 body.studio #giveawayPage .reward-task-card:last-child{border-bottom:1px solid #29323f}
 body.studio #giveawayPage .reward-task-top strong{overflow-wrap:anywhere}

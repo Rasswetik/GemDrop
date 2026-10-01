@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '60-important-notifications'
+BUILD_ID = '62-clean-interface'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -433,6 +433,7 @@ def initialize():
             ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('user_notifications', [('giveaway_id', 'INTEGER')])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('giveaways', [('archived', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('user_notifications', [('delivery_state', "TEXT NOT NULL DEFAULT 'none'"),
@@ -739,7 +740,18 @@ def profile():
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
                 withdrawal_enabled=bool(user['withdrawal_enabled']),
-                admin=user['id'] in ADMIN_IDS)
+                admin=user['id'] in ADMIN_IDS,
+                admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
+
+
+@app.post('/api/admin/display')
+@admin_required
+def admin_display():
+    visible = (request.get_json(silent=True) or {}).get('visible')
+    if not isinstance(visible, bool):
+        return error('Выберите отображение кнопки.')
+    save_document(f'admin_display_{session["uid"]}', {'visible': visible})
+    return jsonify(ok=True, user=profile())
 
 
 def level_number(db, turnover):
@@ -952,8 +964,8 @@ IMPORTANT_NOTIFICATION_KINDS = (
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','game_win_ton','gift_win',
     'promo_wager_claim','upgrade_cashback','upgrade_compensation_gift','upgrade','craft_play',
     'transfer_sent','transfer_received','level_claim','reward_task_claim','giveaway_enter','giveaway_win',
-    'promo_issued','promo_redeem','freebet_redeem','promo_gift_expired','admin_level',
-    'withdrawal_access','admin_gift_add','admin_gift_remove','deposit_created',
+    'promo_issued','promo_gift_expired','admin_level','giveaway_started',
+    'withdrawal_access','admin_gift_add','admin_gift_remove',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ") AND (kind<>'upgrade' OR (text LIKE '%выигрыш%' AND text NOT LIKE '%проигрыш%'))"
 
@@ -964,6 +976,7 @@ def add_user_notification(db, user_id, kind, text):
     delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
                           'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
     state='pending' if BOT_TOKEN and kind not in delivered_elsewhere else 'none'
+    if kind in ('deposit', 'admin_balance'): text = 'Пополнение баланса' if kind == 'deposit' else 'Баланс изменён'
     db.execute('INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,?,?,?)',
                (user_id, kind, str(text)[:1000],state))
 
@@ -1001,7 +1014,11 @@ def user_notifications():
         rows = db.execute('SELECT * FROM user_notifications WHERE user_id=? AND '+IMPORTANT_NOTIFICATION_SQL+(' AND id<?' if before else '')+' ORDER BY id DESC LIMIT 51',
                           (*params,before) if before else params).fetchall()
         unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0 AND '+IMPORTANT_NOTIFICATION_SQL,params).fetchone()['n']
-    return jsonify(items=[{k:r[k] for k in ('id','kind','text','created_at','is_read')} for r in rows[:50]],unread=unread,has_more=len(rows)>50)
+    items = [{k:r[k] for k in ('id','kind','text','created_at','is_read','giveaway_id')} for r in rows[:50]]
+    for item in items:
+        if item['kind'] == 'deposit': item['text'] = 'Пополнение баланса'
+        elif item['kind'] == 'admin_balance': item['text'] = 'Баланс изменён'
+    return jsonify(items=items,unread=unread,has_more=len(rows)>50)
 
 
 @app.post('/api/notifications/read')
@@ -2886,7 +2903,7 @@ def _fragment_portal_fallback_price(collection_name, model='', backdrop=''):
     return 0, ''
 
 
-def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
+def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_price=False):
     url = str(value or '').strip()
     match = FRAGMENT_GIFT_RE.fullmatch(url)
     if not match:
@@ -2985,7 +3002,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False):
             if portal_short_name(display_collection) == portal_short_name(collection_name):
                 collection_name = display_collection
             floor_price, price_source = _fragment_portal_fallback_price(collection_name, model, backdrop)
-    if fetch_meta and normalize_portal_background(backdrop) and not floor_price:
+    if fetch_meta and normalize_portal_background(backdrop) and not floor_price and not allow_missing_price:
         raise ValueError('Не удалось получить цену подарка с этим фоном. Подарок не добавлен.')
     gift = dict(source_type='fragment', gift_id='fragment:' + slug, gift_name=name[:140],
                 image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
@@ -3521,12 +3538,75 @@ def admin_game_history():
     return jsonify(items=items,has_more=len(rows)>50)
 
 
+def apply_fragment_price(gift, value):
+    if value in (None, ''): return
+    try: cents = parse_amount(str(value).strip().replace(',', '.'))
+    except (ValueError, TypeError, InvalidOperation):
+        raise ValueError('Введите цену с точностью до 0.01 TON.')
+    if not 1 <= cents <= 100000000:
+        raise ValueError('Цена: от 0.01 до 1 000 000 TON.')
+    gift.update(floor_price=cents, price_source='Ручная цена')
+
+
+def giveaway_announcement(title, description, prizes):
+    lines = [f'Новый розыгрыш: {title}']
+    if description: lines.append(description)
+    lines.append('Призы:')
+    for prize in prizes:
+        line = f'{prize["gift_name"]} × {prize.get("quantity", 1)}'
+        if prize.get('floor_price'): line += f' · {prize["floor_price"]/100:.2f} TON'
+        if prize.get('fragment_url'): line += '\n' + prize['fragment_url']
+        if len('\n'.join(lines)) + len(line) > 3800:
+            lines.append('Все призы — в розыгрыше.')
+            break
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+@app.post('/api/admin/giveaways/<int:giveaway_id>/archive')
+@admin_required
+def admin_archive_giveaway(giveaway_id):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT status FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row: return error('Розыгрыш не найден.', 404)
+        if row['status'] not in ('completed', 'cancelled'): return error('Сначала завершите розыгрыш.')
+        db.execute('UPDATE giveaways SET archived=1 WHERE id=?', (giveaway_id,))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,0,?,?)',
+                   (session['uid'], 'giveaway_archived', str(giveaway_id)))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/giveaways/<int:giveaway_id>/prizes/<int:prize_id>/price')
+@admin_required
+def admin_giveaway_prize_price(giveaway_id, prize_id):
+    gift = {}
+    try:
+        apply_fragment_price(gift, (request.get_json(silent=True) or {}).get('price_ton'))
+        if not gift: raise ValueError('Введите цену подарка.')
+    except ValueError as exc: return error(str(exc))
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        if not row or row['archived']: return error('Розыгрыш не найден.', 404)
+        if row['status'] != 'active' or parse_datetime_utc(row['ends_at']) <= datetime.now(timezone.utc):
+            return error('Розыгрыш уже завершён.')
+        changed = db.execute("UPDATE giveaway_prizes SET floor_price=?,price_source='Ручная цена' "
+                             "WHERE id=? AND giveaway_id=? AND source_type='fragment'",
+                             (gift['floor_price'], prize_id, giveaway_id)).rowcount
+        if not changed: return error('Fragment-подарок не найден.', 404)
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,0,?,?)',
+                   (session['uid'], 'giveaway_prize_price', f'{giveaway_id}:{prize_id}:{gift["floor_price"]}'))
+    return jsonify(ok=True)
+
+
 @app.post('/api/admin/giveaways/fragment-preview')
 @admin_required
 def admin_fragment_preview():
     data = request.get_json(silent=True) or {}
     try:
-        gift = fragment_gift_from_url(data.get('url'), True)
+        gift = fragment_gift_from_url(data.get('url'), True, allow_missing_price=data.get('price_ton') not in (None, ''))
+        apply_fragment_price(gift, data.get('price_ton'))
         if gift_black_background(gift) and not black_backgrounds_enabled():
             return error('Отображение Black и Onyx Black выключено.')
     except ValueError as exc:
@@ -3574,7 +3654,9 @@ def admin_create_giveaway():
                 raise ValueError('Количество одного приза должно быть от 1 до 100.')
             source = str(item.get('source_type') or item.get('type') or 'catalog')
             if source == 'fragment':
-                prize = fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True)
+                prize = fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True,
+                                               allow_missing_price=item.get('price_ton') not in (None, ''))
+                apply_fragment_price(prize, item.get('price_ton'))
                 if item.get('animation_url'):
                     prize['animation_url'] = safe_image(item.get('animation_url'))
             elif source == 'catalog':
@@ -3614,6 +3696,10 @@ def admin_create_giveaway():
                         prize.get('animation_url') or ''))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'giveaway_create', f'{giveaway_id}:{title}:{total_slots}'))
+        announcement = giveaway_announcement(title, description, prizes)
+        db.execute("INSERT INTO user_notifications(user_id,kind,text,giveaway_id,delivery_state) "
+                   "SELECT id,'giveaway_started',?,?,? FROM users",
+                   (announcement, giveaway_id, 'pending' if BOT_TOKEN else 'none'))
         db.commit()
         row = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
         return jsonify(ok=True, item=giveaway_view(db, row, None, False))
@@ -3664,12 +3750,15 @@ def admin_refresh_giveaway_prizes(giveaway_id):
     refreshed = []
     for prize in rows:
         try:
-            gift = (fragment_gift_from_url(prize['fragment_url'], True, refresh=True) if prize['source_type'] == 'fragment'
+            gift = (fragment_gift_from_url(prize['fragment_url'], True, refresh=True,
+                                           allow_missing_price=prize['price_source'] == 'Ручная цена') if prize['source_type'] == 'fragment'
                     else catalog_giveaway_prize(prize['gift_id']))
             # A temporary provider failure must not erase a known price, trait or animation.
             refreshed.append((prize['id'], {key: gift.get(key) or prize[key] for key in (
                 'gift_name', 'image_url', 'floor_price', 'fragment_number', 'fragment_model',
                 'fragment_backdrop', 'fragment_symbol', 'price_source', 'animation_url')}))
+            if prize['price_source'] == 'Ручная цена':
+                refreshed[-1][1].update(floor_price=prize['floor_price'], price_source='Ручная цена')
         except (ValueError, OSError, TypeError):
             continue
     if not refreshed:
@@ -3681,6 +3770,10 @@ def admin_refresh_giveaway_prizes(giveaway_id):
         if not row or row['status'] != 'active' or (end and end <= datetime.now(timezone.utc)):
             return error('Розыгрыш уже завершён.')
         for prize_id, gift in refreshed:
+            current = db.execute('SELECT floor_price,price_source FROM giveaway_prizes WHERE id=? AND giveaway_id=?',
+                                 (prize_id, giveaway_id)).fetchone()
+            if current and current['price_source'] == 'Ручная цена':
+                gift.update(floor_price=current['floor_price'], price_source=current['price_source'])
             db.execute('''UPDATE giveaway_prizes SET gift_name=?,image_url=?,floor_price=?,fragment_number=?,
                           fragment_model=?,fragment_backdrop=?,fragment_symbol=?,price_source=?,animation_url=?
                           WHERE id=? AND giveaway_id=?''',
@@ -4996,7 +5089,8 @@ def deliver_activity_notifications():
             if not row: return
             db.execute("UPDATE user_notifications SET delivery_state='sending',delivery_next_at=? WHERE id=?",(now,row['id']))
             db.commit()
-        ok=send_user_notification(row['user_id'],row['text'],miniapp_markup('Открыть GemDrop'))
+        markup = miniapp_markup('Открыть розыгрыш', f'giveaways&giveaway={row["giveaway_id"]}') if row['kind'] == 'giveaway_started' else miniapp_markup('Открыть GemDrop')
+        ok=send_user_notification(row['user_id'],row['text'],markup)
         attempts=int(row['delivery_attempts'])+1
         with connect() as db:
             db.execute('UPDATE user_notifications SET delivery_state=?,delivery_attempts=?,delivery_next_at=? WHERE id=?',
@@ -6978,7 +7072,7 @@ def admin_deposit(user_id):
         record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
         balance_now=int(db.execute('SELECT balance FROM users WHERE id=?',(user_id,)).fetchone()['balance'])
         db.commit()
-        notify_deposit_async(user_id, amount, balance_now)
+        notify_user_async(user_id, 'Пополнение баланса', miniapp_markup('Открыть GemDrop'))
         return jsonify(ok=True, balance_added=amount/100, referral_bonus=0, balance=balance_now/100)
     finally:
         db.close()

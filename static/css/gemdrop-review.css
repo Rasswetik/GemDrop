@@ -1,0 +1,63 @@
+/* Final layout rules for forms, notifications and giveaway management. */
+body.studio #promoModal .promo-entry-card .promo-entry {grid-template-columns:minmax(0,1fr) 46px!important;gap:8px!important;align-items:center!important}
+body.studio #promoModal #redeemPromo {width:46px!important;min-width:46px!important;max-width:46px!important;height:46px!important;min-height:46px!important;padding:12px!important;border-radius:12px!important}
+body.studio #promoModal #redeemPromo svg {display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) {display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:8px!important;min-height:140px!important;padding:14px!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected)>small {display:none!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) :is(b,.pick-price) {display:none!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) .pick-art {margin:0!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick.selected {height:auto!important;overflow:visible!important;min-height:140px!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick :is(#upgradeMineName,#upgradeTargetName) {height:auto!important;max-height:none!important;white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;-webkit-line-clamp:unset!important;text-wrap:pretty!important}
+body.studio #upgradeListModal #upgradeList>.upgrade-option {grid-template-columns:48px minmax(0,1fr) auto!important;gap:8px!important}
+body.studio #upgradeListModal #upgradeList .upgrade-option-meta strong {white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;max-height:none!important;-webkit-line-clamp:unset!important}
+body.studio #upgradePage .upgrade-top {gap:10px!important;flex-wrap:wrap!important}
+body.studio #upgradePage .upgrade-heading {font-size:clamp(22px,5vw,30px)!important}
+body.studio :is(.reward-task,.giveaway-card,.giveaway-winner) :is(strong,h3) {overflow-wrap:anywhere;white-space:normal}
+body.studio #giveawaysAdminPage .giveaway-admin-grid {grid-template-columns:minmax(0,1fr)!important;gap:20px!important}
+@media(min-width:1000px){body.studio #giveawaysAdminPage .giveaway-admin-grid {grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)!important}}
+body.studio #depositModal.admin-deposit .topup-box {display:grid!important}
+body.studio .modal-card {max-height:calc(100dvh - 32px)!important;overflow-y:auto!important;overscroll-behavior:contain!important;box-sizing:border-box!important}
+body.studio :is(.panel,.modal-card,.admin-menu,.giveaway-card,.giveaway-admin-card) {min-width:0!important}
+body.studio :is(input,select,textarea,button) {max-width:100%!important;box-sizing:border-box!important}
+body.studio :is(.panel-head,.giveaway-card-head,.giveaway-admin-card-head) {gap:12px!important;align-items:flex-start!important}
+body.studio :is(.panel-head,.giveaway-card-head,.giveaway-admin-card-head)>div {min-width:0!important}
+body.studio :is(.giveaway-card-head strong,.giveaway-admin-card-head strong,.notification-row p) {overflow-wrap:anywhere!important;white-space:normal!important}
+body.studio .giveaway-state {flex-shrink:0!important}
+body.studio .admin-display-panel {margin-bottom:16px!important}
+body.studio .admin-display-panel h2 {margin:0 0 14px!important}
+body.studio .admin-display-panel input {flex:none!important;width:20px!important;height:20px!important;accent-color:#86daf0!important}
+body.studio .promo-entry-card {width:min(420px,100%)!important;text-align:left!important}
+body.studio .promo-entry-card h2 {margin:0 0 20px!important}
+body.studio .promo-entry-card .promo-entry {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:12px!important;margin:8px 0 16px!important}
+body.studio .promo-entry-card .promo-entry input {width:100%!important;margin:0!important;min-width:0!important;letter-spacing:.04em!important}
+body.studio .promo-entry-card :is(#redeemPromo,#closePromoModal) {position:static!important;display:flex!important;align-items:center!important;justify-content:center!important;width:100%!important;min-height:46px!important;margin:0!important;padding:12px 16px!important;transform:none!important;font-size:14px!important}
+body.studio .promo-entry-error {margin:0 0 16px!important;color:#ffaaaa!important;line-height:1.45!important}
+body.studio .giveaway-announcement-note {font-size:12px!important;line-height:1.5!important;color:#92a8ba!important;margin:16px 0!important}
+body.studio #clearOldGiveaways {width:100%!important;margin:0 0 16px!important}
+body.studio .giveaway-admin-grid {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:20px!important;align-items:start!important}
+body.studio .giveaway-admin-create>.caption {display:block!important;margin:16px 0 8px!important}
+body.studio .giveaway-admin-create>.text-input {margin:0!important}
+body.studio .giveaway-admin-row.duration {display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important}
+body.studio .giveaway-admin-row.duration label {min-width:0!important}
+body.studio .giveaway-admin-row.duration input {width:100%!important}
+body.studio .giveaway-repeat-option {align-items:flex-start!important;gap:10px!important;line-height:1.45!important}
+body.studio .giveaway-repeat-option input {flex:none!important;margin-top:3px!important}
+body.studio .giveaway-admin-prize {display:grid!important;grid-template-columns:56px minmax(0,1fr) auto!important;gap:10px!important;align-items:center!important;padding:12px!important}
+body.studio .giveaway-admin-prize-meta {min-width:0!important}
+body.studio .giveaway-admin-prize-meta :is(b,small) {white-space:normal!important;overflow-wrap:anywhere!important}
+body.studio .giveaway-admin-prize .giveaway-prize-qty {grid-column:2!important;justify-self:start!important}
+body.studio .giveaway-admin-prize .giveaway-prize-order {grid-column:3!important;grid-row:2!important}
+body.studio .giveaway-admin-prize .giveaway-prize-remove {grid-column:3!important;grid-row:1!important}
+body.studio .fragment-price-editor {display:flex!important;align-items:center!important;flex-wrap:wrap!important;gap:8px!important;margin-top:10px!important;font-size:12px!important;color:#b5c7d5!important}
+body.studio .fragment-price-editor input {width:120px!important;min-width:0!important;margin:0!important;padding:10px!important}
+body.studio .existing-prize-price {display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:12px!important;align-items:end!important;padding-top:16px!important}
+body.studio .existing-prize-price label {min-width:0!important;overflow-wrap:anywhere!important;font-size:12px!important;line-height:1.5!important}
+body.studio .existing-prize-price input {display:block!important;width:100%!important;margin:8px 0 0!important}
+body.studio .existing-prize-price button {width:auto!important;margin:0!important}
+body.studio .giveaway-admin-actions {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+body.studio .giveaway-admin-actions button {width:100%!important;margin:0!important;white-space:normal!important;min-height:44px!important}
+body.studio .notification-row p {white-space:pre-line!important;line-height:1.5!important;margin:0 0 10px!important}
+body.studio .notification-row time {display:block!important;color:#92a8ba!important;font-size:12px!important}
+body.studio .notification-row .secondary {margin-top:12px!important}
+@media(min-width:1000px) {body.studio .giveaway-admin-grid {grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)!important}}
+@media(max-width:380px) {body.studio .existing-prize-price {grid-template-columns:minmax(0,1fr)!important}body.studio .giveaway-admin-actions {grid-template-columns:minmax(0,1fr)!important}body.studio .giveaway-admin-row.duration {gap:6px!important}body.studio .giveaway-admin-row.duration .caption {font-size:11px!important}}

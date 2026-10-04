@@ -2385,7 +2385,11 @@ def wins_feed_cutoff(db, kind):
 
 
 def daily_top_rewards():
-    doc = read_document('daily_top_rewards') or {}
+    try:
+        doc = read_document('daily_top_rewards') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        app.logger.exception('Invalid daily top reward settings; falling back to no rewards')
+        doc = {}
     result = {}
     for mode in ('mines','upgrade'):
         raw = doc.get(mode) if isinstance(doc,dict) else None

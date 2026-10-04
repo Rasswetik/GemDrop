@@ -46,7 +46,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '66-render-load-fixes'
+BUILD_ID = '67-rtp-maintenance-reset'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -694,6 +694,8 @@ def auth():
     if not user:
         return error('Telegram не подтвердил вход. Проверьте BOT_TOKEN на Render: он должен принадлежать боту, через которого открыто приложение.', 401)
     user_id = user['id']
+    if maintenance_settings()['enabled'] and user_id not in ADMIN_IDS:
+        return maintenance_response()
     name = (user.get('first_name') or 'Игрок')[:80]
     username = (user.get('username') or '')[:80]
     photo = user.get('photo_url') or ''
@@ -914,6 +916,29 @@ def section_settings():
     return result
 
 
+def maintenance_settings():
+    """Global maintenance state. Admins always keep access."""
+    try:
+        stored = read_document('maintenance_settings') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {
+        'enabled': stored.get('enabled') is True,
+        'updated_at': str(stored.get('updated_at') or ''),
+        'admin_id': int(stored.get('admin_id') or 0),
+    }
+
+
+def maintenance_response():
+    response = jsonify(error='Сейчас идут технические работы.', maintenance=True)
+    response.status_code = 503
+    response.headers['X-GemDrop-Maintenance'] = '1'
+    response.headers['Retry-After'] = '30'
+    return response
+
+
 def black_backgrounds_enabled():
     try:
         stored = read_document('gift_display_settings')
@@ -991,6 +1016,21 @@ def compress_response(response):
 @app.before_request
 def enforce_available_modes():
     path = request.path
+    # During maintenance, public API calls never reach game/business logic.
+    # /api/auth is checked after Telegram identity verification so admins can still log in.
+    if path.startswith('/api/') and maintenance_settings()['enabled']:
+        uid = session.get('uid')
+        is_admin_session = False
+        try:
+            is_admin_session = int(uid) in ADMIN_IDS if uid is not None else False
+        except (TypeError, ValueError):
+            is_admin_session = False
+        maintenance_public = {
+            '/api/auth', '/api/ui/settings', '/api/build',
+            '/api/web-auth/start', '/api/web-auth/status'
+        }
+        if not is_admin_session and path not in maintenance_public:
+            return maintenance_response()
     if request.is_json and request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and not (
             request.method == 'DELETE' and not request.get_data(cache=True)):
         payload = request.get_json(silent=True)
@@ -1578,12 +1618,69 @@ def parse_amount(value):
     return int(value)
 
 
+MAINTENANCE_FETCH_GUARD = r"""<script id="gemdrop-maintenance-guard">
+(()=>{if(window.__gemdropMaintenanceGuard)return;window.__gemdropMaintenanceGuard=true;
+const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const response=await nativeFetch(...args);
+if(response.status===503&&response.headers.get('X-GemDrop-Maintenance')==='1'){return await new Promise(()=>{});}return response;};})();
+</script>"""
+
+
+ADMIN_SYSTEM_INJECTION = r"""
+<style id="gemdrop-system-tools-style">
+.gd-system-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border:1px solid var(--line,#34395d);border-radius:13px;background:var(--surface2,#151727)}
+.gd-system-status strong{font-size:13px}.gd-system-status small{display:block;margin-top:4px;color:var(--muted,#8ea3b5);font-size:10px}
+.gd-switch{position:relative;display:inline-block;width:48px;height:28px;flex:none}.gd-switch input{opacity:0;width:0;height:0}.gd-slider{position:absolute;inset:0;border-radius:999px;background:#34384f;transition:.2s;box-shadow:inset 0 0 0 1px #ffffff12}.gd-slider:before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#e8edf3;transition:.2s;box-shadow:0 2px 7px #0006}.gd-switch input:checked+.gd-slider{background:#47b0f5}.gd-switch input:checked+.gd-slider:before{transform:translateX(20px)}
+.gd-danger-panel{border-color:#7c4050!important;background:linear-gradient(180deg,#24181e,#17131a)!important}.gd-warning{padding:12px;border:1px solid #6d3d49;border-radius:12px;background:#21161b;color:#f2ccd5;font-size:11px;line-height:1.5}.gd-warning b{color:#fff}.gd-reset-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gd-reset-stat{padding:10px;border:1px solid #34395d;border-radius:11px;background:#141624}.gd-reset-stat small{display:block;color:#8ea3b5;font-size:9px}.gd-reset-stat b{display:block;margin-top:3px;font-size:15px}.gd-danger-action{width:100%;min-height:48px;margin-top:10px;border-radius:13px;background:#87364a;color:#fff;font-weight:900}.gd-danger-action:disabled{opacity:.4}.gd-maintenance-on{color:#6eddb5}.gd-maintenance-off{color:#aeb9c5}
+</style>
+<script id="gemdrop-system-tools">
+(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
+ready(()=>{if(window.__gemdropSystemTools)return;window.__gemdropSystemTools=true;
+try{if(typeof upgradeTargetChance==='function'){upgradeTargetChance=function(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0);if(!(sp>0&&tp>sp&&tp<=sp*10))return 0;let chance=100*sp/tp;return chance>=1&&chance<=80?chance:0}}}catch(e){}
+const adminPage=document.getElementById('adminPage');if(!adminPage)return;
+try{if(typeof pageIds!=='undefined'&&Array.isArray(pageIds)){for(const id of ['maintenanceAdminPage','dataResetAdminPage'])if(!pageIds.includes(id))pageIds.push(id)}}catch(e){}
+let systemGroup=[...adminPage.querySelectorAll('.admin-group')].find(g=>(g.querySelector('h2')?.textContent||'').trim()==='Система');let actions=systemGroup?.querySelector('.admin-actions');if(!actions){let menu=adminPage.querySelector('.admin-menu');if(menu){systemGroup=document.createElement('div');systemGroup.className='admin-group';systemGroup.innerHTML='<h2>Система</h2><div class="admin-actions"></div>';menu.append(systemGroup);actions=systemGroup.querySelector('.admin-actions')}}if(actions){
+const maintenanceBtn=document.createElement('button');maintenanceBtn.id='openMaintenanceAdmin';maintenanceBtn.innerHTML='Тех. работы <span>→</span>';actions.append(maintenanceBtn);
+const resetBtn=document.createElement('button');resetBtn.id='openDataResetAdmin';resetBtn.innerHTML='Очистить все данные <span>→</span>';actions.append(resetBtn);}
+adminPage.insertAdjacentHTML('afterend',`<section id="maintenanceAdminPage" class="hidden"><button id="maintenanceAdminBack" class="back" type="button">← Админ-панель</button><h1>Технические работы</h1><p class="muted">Когда режим включён, приложение для обычных пользователей остаётся на экране загрузки, а Telegram-бот не отвечает. Администраторы продолжают работать.</p><div class="panel stack"><div class="gd-system-status"><div><strong id="maintenanceAdminTitle">Проверяем состояние…</strong><small id="maintenanceAdminMeta">—</small></div><label class="gd-switch"><input id="maintenanceAdminToggle" type="checkbox"><span class="gd-slider"></span></label></div><p class="notice">Администраторы из ADMIN_IDS не блокируются, поэтому режим можно выключить в любой момент.</p></div></section>
+<section id="dataResetAdminPage" class="hidden"><button id="dataResetAdminBack" class="back" type="button">← Админ-панель</button><h1>Очистить все данные</h1><p class="muted">Полный сброс игрового состояния с сохранением аккаунтов пользователей, каталога Portal и системных настроек.</p><div class="panel stack gd-danger-panel"><div class="gd-warning"><b>Предупреждение 1.</b> Будут обнулены все TON-балансы, билеты, оборот, инвентари и пользовательский прогресс.</div><div class="gd-warning"><b>Предупреждение 2.</b> Будут безвозвратно удалены промокоды и фрибеты, история игр, пополнений, выводов и переводов, розыгрыши, заявки, уведомления и игровые логи. Сброс доступен только при включённых техработах.</div><div id="dataResetStats" class="gd-reset-stats"></div><div class="gd-system-status"><div><strong>Разблокировать удаление</strong><small>Сначала включите ползунок</small></div><label class="gd-switch"><input id="dataResetArm" type="checkbox"><span class="gd-slider"></span></label></div><button id="dataResetExecute" class="gd-danger-action" type="button" disabled>Удалить игровые данные</button><p id="dataResetStatus" class="muted" role="status"></p></div></section>`);
+const fmt=n=>Number(n||0).toLocaleString('ru-RU');
+async function loadMaintenance(){try{let d=await api('/api/admin/maintenance');let t=document.getElementById('maintenanceAdminToggle');t.checked=!!d.enabled;document.getElementById('maintenanceAdminTitle').textContent=d.enabled?'Тех. работы включены':'Тех. работы выключены';document.getElementById('maintenanceAdminTitle').className=d.enabled?'gd-maintenance-on':'gd-maintenance-off';document.getElementById('maintenanceAdminMeta').textContent=d.updated_at?('Изменено: '+d.updated_at):'Режим ещё не менялся'}catch(e){toast(e.message)}}
+async function loadResetStats(){try{let d=await api('/api/admin/data-reset');let s=d.summary||{};document.getElementById('dataResetStats').innerHTML=`<div class="gd-reset-stat"><small>Пользователей останется</small><b>${fmt(s.users)}</b></div><div class="gd-reset-stat"><small>TON будет обнулено</small><b>${Number(s.balance_ton||0).toFixed(2)}</b></div><div class="gd-reset-stat"><small>Подарков в инвентарях</small><b>${fmt(s.inventory)}</b></div><div class="gd-reset-stat"><small>Промокодов / фрибетов</small><b>${fmt((s.promocodes||0)+(s.freebets||0))}</b></div><div class="gd-reset-stat"><small>Игровых записей</small><b>${fmt(s.game_records)}</b></div><div class="gd-reset-stat"><small>Розыгрышей</small><b>${fmt(s.giveaways)}</b></div>`}catch(e){document.getElementById('dataResetStatus').textContent=e.message}}
+document.getElementById('openMaintenanceAdmin')?.addEventListener('click',()=>{show('maintenanceAdminPage');loadMaintenance()});document.getElementById('maintenanceAdminBack').onclick=()=>show('adminPage');
+document.getElementById('openDataResetAdmin')?.addEventListener('click',()=>{show('dataResetAdminPage');loadResetStats()});document.getElementById('dataResetAdminBack').onclick=()=>show('adminPage');
+document.getElementById('maintenanceAdminToggle').onchange=async e=>{let t=e.currentTarget;t.disabled=true;try{let d=await api('/api/admin/maintenance',{method:'POST',body:JSON.stringify({enabled:t.checked})});t.checked=!!d.enabled;await loadMaintenance();toast(d.enabled?'Технические работы включены':'Технические работы выключены')}catch(err){t.checked=!t.checked;toast(err.message)}finally{t.disabled=false}};
+const arm=document.getElementById('dataResetArm'),execute=document.getElementById('dataResetExecute');arm.onchange=()=>{execute.disabled=!arm.checked};execute.onclick=async()=>{if(!arm.checked)return;if(!confirm('Предупреждение 1 из 2: удалить балансы, билеты, инвентари и всю игровую историю?'))return;let phrase=prompt('Предупреждение 2 из 2. Для окончательного удаления введите: УДАЛИТЬ ВСЁ');if(phrase!=='УДАЛИТЬ ВСЁ'){toast('Удаление отменено');return}execute.disabled=true;document.getElementById('dataResetStatus').textContent='Подготавливаем безопасный сброс…';try{let prep=await api('/api/admin/data-reset/prepare',{method:'POST',body:JSON.stringify({armed:true,confirm:true})});let done=await api('/api/admin/data-reset/execute',{method:'POST',body:JSON.stringify({token:prep.token,phrase})});document.getElementById('dataResetStatus').textContent=`Готово. Сброшено таблиц: ${done.cleared_tables}. Пользователи сохранены: ${done.users_preserved}.`;arm.checked=false;toast('Все игровые данные очищены');await loadResetStats()}catch(err){document.getElementById('dataResetStatus').textContent=err.message;toast(err.message)}finally{execute.disabled=!arm.checked}};
+});})();
+</script>
+"""
+
+
+def injected_index_html():
+    template_path = BASE / 'templates' / 'index.html'
+    html = template_path.read_text(encoding='utf-8')
+    if 'gemdrop-maintenance-guard' not in html:
+        if '<head>' in html:
+            html = html.replace('<head>', '<head>' + MAINTENANCE_FETCH_GUARD, 1)
+        else:
+            html = MAINTENANCE_FETCH_GUARD + html
+    if 'gemdrop-system-tools' not in html:
+        if '</body>' in html:
+            html = html.replace('</body>', ADMIN_SYSTEM_INJECTION + '</body>', 1)
+        else:
+            html += ADMIN_SYSTEM_INJECTION
+    return html
+
+
 @app.get('/')
 def index():
-    # index.html is plain HTML/CSS/JS and does not use Jinja syntax.
-    # Serving it directly prevents CSS sequences such as '{#' from ever
-    # being interpreted as Jinja comments.
-    return send_file(BASE / 'templates' / 'index.html', mimetype='text/html')
+    # Keep the user's current index.html untouched on disk. System controls are injected
+    # at response time so this backend update can be dropped into the existing version.
+    try:
+        response = app.response_class(injected_index_html(), mimetype='text/html')
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except OSError:
+        return send_file(BASE / 'templates' / 'index.html', mimetype='text/html')
 
 
 @app.get('/health')
@@ -2233,16 +2330,23 @@ def upgrade_target(gift_id):
                 image_url=image_url,price=price)
 
 
-def upgrade_chance(source_price,target_price,rtp_bp=None):
+def upgrade_display_chance(source_price,target_price):
+    """Visible chance based only on the source/target price ratio (basis points)."""
     if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
         return 0
-    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    chance_bp = (rtp_bp * source_price) / target_price
-    # Upgrade targets are intentionally limited to the visible 1–80% range.
-    # Anything outside it is not a valid target at all, not merely hidden in UI.
+    chance_bp = (10000 * source_price) / target_price
     if chance_bp < 100 or chance_bp > 8000:
         return 0
     return chance_bp
+
+
+def upgrade_chance(source_price,target_price,rtp_bp=None):
+    """Server-only real chance after RTP is applied to the visible chance."""
+    displayed_bp = upgrade_display_chance(source_price,target_price)
+    if not displayed_bp:
+        return 0
+    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
+    return displayed_bp * rtp_bp / 10000
 
 
 def upgrade_rtp_basis_points():
@@ -2253,7 +2357,8 @@ def upgrade_rtp_basis_points():
 @app.get('/api/upgrade/settings')
 @login_required
 def upgrade_settings():
-    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80,max_target_multiplier=10,
+    # RTP affects only the hidden server probability, not the chance shown to a player.
+    return jsonify(min_chance=1,max_chance=80,max_target_multiplier=10,
                    min_bet_ton=0.1,max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
@@ -2291,11 +2396,12 @@ def upgrade_preview():
     if not amount_text and source and source['promo_locked']:
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-    chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-    if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+    display_chance=upgrade_display_chance(source_price,target['price'])
+    if not display_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+    # Hidden chance is deliberately not returned to the client.
+    upgrade_chance(source_price,target['price'],effective_rtp_bp)
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
-                   image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
-                   probability=chance/10000,rtp=effective_rtp_bp/100,
+                   image_url=target['image_url'],price_ton=target['price']/100),chance=display_chance/100,
                    loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
@@ -2402,16 +2508,17 @@ def upgrade_spin():
         effective_rtp_bp = upgrade_rtp_basis_points()
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-        chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-        if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        display_chance=upgrade_display_chance(source_price,target['price'])
+        if not display_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        real_chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
-        # Exact integer ratio permits rare wins without rounding the chance up
-        # to 0.01% (or down to an impossible 0%).
+        # Outcome uses the hidden RTP-adjusted chance. Example: visible 80% × RTP 80% = real 64%.
+        # Exact integer arithmetic avoids rounding the probability shown to the player.
         won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
         awarded=None
         wager=bool(source['promo_locked'])
@@ -2431,7 +2538,7 @@ def upgrade_spin():
             awarded=cur.lastrowid
         elif not wager:
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'])
-        result=dict(ok=True,id=request_id,won=won,chance=chance/100,
+        result=dict(ok=True,id=request_id,won=won,chance=display_chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
@@ -2442,13 +2549,13 @@ def upgrade_spin():
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
-                    target['name'],target['image_url'],target['price'],round(chance),int(won),json.dumps(result,ensure_ascii=False),
+                    target['name'],target['image_url'],target['price'],round(display_chance),int(won),json.dumps(result,ensure_ascii=False),
                     datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
-                           f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
+                           f'{source["gift_name"]} → {target["name"]} · {display_chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
-                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
+                  target_price=target['price']/100,chance=display_chance/100,won=won,promo_wager=wager,
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Upgrade always advances level turnover by the stake value, for TON and gift bets.
         result['new_level']=increase_turnover(db,session['uid'],source_price)
@@ -5753,7 +5860,8 @@ def loader_catalog():
 def public_ui_settings():
     # Intentionally public: loader and visible navigation are needed before auth finishes.
     return jsonify(loader_gif=loader_settings()['path'], sections=section_settings(),
-                   black_backgrounds_enabled=black_backgrounds_enabled())
+                   black_backgrounds_enabled=black_backgrounds_enabled(),
+                   maintenance=maintenance_settings()['enabled'])
 
 
 @app.get('/api/admin/section-settings')
@@ -5778,6 +5886,133 @@ def save_admin_section_settings():
     if 'black_backgrounds_enabled' in data:
         save_document('gift_display_settings', {'black_backgrounds_enabled': data['black_backgrounds_enabled']})
     return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled())
+
+
+@app.get('/api/admin/maintenance')
+@admin_required
+def admin_maintenance_get():
+    return jsonify(**maintenance_settings())
+
+
+@app.post('/api/admin/maintenance')
+@admin_required
+def admin_maintenance_set():
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    if not isinstance(enabled, bool):
+        return error('Передайте enabled=true или enabled=false.')
+    document = {
+        'enabled': enabled,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+        'admin_id': int(session['uid']),
+    }
+    save_document('maintenance_settings', document)
+    return jsonify(ok=True, **maintenance_settings())
+
+
+def data_reset_summary():
+    with connect() as db:
+        def count(table):
+            row = db.execute(f'SELECT COUNT(*) AS n FROM {table}').fetchone()
+            return int((row or {}).get('n') or 0)
+        users = count('users')
+        totals = db.execute('SELECT COALESCE(SUM(balance),0) AS balance,COALESCE(SUM(tickets),0) AS tickets FROM users').fetchone()
+        game_records = count('rounds') + count('upgrade_spins') + count('roll_spins') + count('craft_spins')
+        return dict(
+            users=users,
+            balance_ton=round(int((totals or {}).get('balance') or 0)/100, 2),
+            tickets=int((totals or {}).get('tickets') or 0),
+            inventory=count('inventory'),
+            promocodes=count('promo_codes'),
+            freebets=count('freebets'),
+            game_records=game_records,
+            giveaways=count('giveaways'),
+            transactions=count('transactions'),
+            withdrawals=count('withdrawals'),
+            transfers=count('transfers'),
+        )
+
+
+@app.get('/api/admin/data-reset')
+@admin_required
+def admin_data_reset_status():
+    return jsonify(summary=data_reset_summary(),
+                   preserved=['users', 'Portal catalog', 'system settings'])
+
+
+@app.post('/api/admin/data-reset/prepare')
+@admin_required
+def admin_data_reset_prepare():
+    data = request.get_json(silent=True) or {}
+    if not maintenance_settings()['enabled']:
+        return error('Сначала включите технические работы, чтобы во время сброса никто не создавал новые данные.', 409)
+    if data.get('armed') is not True or data.get('confirm') is not True:
+        return error('Сначала включите защитный ползунок и подтвердите первое предупреждение.')
+    token = secrets.token_urlsafe(32)
+    session['data_reset_token_hash'] = hashlib.sha256(token.encode()).hexdigest()
+    session['data_reset_token_expires'] = int(time.time()) + 90
+    return jsonify(ok=True, token=token, expires_in=90, summary=data_reset_summary())
+
+
+def reset_dynamic_data():
+    # Keep identities/configuration/catalog intact. Clear all mutable economy/game state.
+    child_first_tables = [
+        'notification_outbox', 'user_notifications', 'user_events',
+        'giveaway_winners', 'giveaway_entries', 'giveaway_prizes', 'giveaways',
+        'reward_task_claims', 'ticket_ledger', 'transfers',
+        'upgrade_promo_pity', 'upgrade_spins', 'level_claims', 'roll_spins', 'craft_spins', 'rounds',
+        'ton_deposit_orders', 'user_wallets',
+        'freebet_redemptions', 'freebets',
+        'promo_views', 'promo_redemptions', 'promo_codes',
+        'withdrawals', 'deposits', 'referrals', 'transactions',
+        'inventory', 'wins_feed_clears', 'web_login_challenges', 'bot_updates', 'admin_log',
+    ]
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        for table in child_first_tables:
+            db.execute(f'DELETE FROM {table}')
+        db.execute('''UPDATE users SET balance=0,roll_boost=1,turnover_cents=0,tickets=0,
+                      withdrawal_enabled=1,withdrawal_block_reason='',
+                      max_drop_override_name='',max_drop_override_image='',max_drop_override_price=0,
+                      max_drop_override_set_at=NULL''')
+        # User-scoped/runtime documents are data, while global settings and Portal catalogue stay.
+        db.execute("DELETE FROM app_documents WHERE name LIKE 'bot_input:%' OR name LIKE 'post_draft:%' OR name IN ('portal_job','portal_logs')")
+        db.commit()
+    except Exception:
+        try:
+            db.connection.rollback() if hasattr(db, 'connection') else db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+    return len(child_first_tables)
+
+
+@app.post('/api/admin/data-reset/execute')
+@admin_required
+def admin_data_reset_execute():
+    data = request.get_json(silent=True) or {}
+    if not maintenance_settings()['enabled']:
+        return error('Технические работы выключены. Для безопасного сброса включите их снова.', 409)
+    token = str(data.get('token') or '')
+    phrase = str(data.get('phrase') or '')
+    expected_hash = str(session.get('data_reset_token_hash') or '')
+    expires = int(session.get('data_reset_token_expires') or 0)
+    # Consume the confirmation before touching the database; a retry needs a new preparation step.
+    session.pop('data_reset_token_hash', None)
+    session.pop('data_reset_token_expires', None)
+    if phrase != 'УДАЛИТЬ ВСЁ':
+        return error('Неверная контрольная фраза.')
+    if not token or not expected_hash or expires < int(time.time()):
+        return error('Подтверждение истекло. Начните удаление заново.', 409)
+    if not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), expected_hash):
+        return error('Некорректное подтверждение.', 409)
+    users_preserved = data_reset_summary()['users']
+    cleared_tables = reset_dynamic_data()
+    app.logger.warning('ADMIN DATA RESET completed by admin_id=%s; users preserved=%s', session['uid'], users_preserved)
+    return jsonify(ok=True, cleared_tables=cleared_tables, users_preserved=users_preserved)
 
 
 @app.get('/api/admin/loader-settings')
@@ -8529,6 +8764,10 @@ def telegram_webhook():
     chat = message.get('chat') or {}
     command = str(message.get('text') or '').split(maxsplit=1)
     callback = update.get('callback_query') or {}
+    maintenance_uid = (callback.get('from') or {}).get('id') if callback else sender.get('id')
+    if maintenance_settings()['enabled'] and isinstance(maintenance_uid, int) and maintenance_uid not in ADMIN_IDS:
+        # Silent success prevents Telegram retries while the bot is deliberately unavailable.
+        return jsonify(ok=True)
     if callback and isinstance((callback.get('from') or {}).get('id'), int):
         callback_id = str(callback.get('id') or '')
         callback_data = str(callback.get('data') or '')

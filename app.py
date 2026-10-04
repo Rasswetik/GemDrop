@@ -3994,7 +3994,8 @@ def admin_create_giveaway():
                 raise ValueError('Проверьте список подарков.')
             quantity = int(item.get('quantity') or 1)
             if not 1 <= quantity <= 100:
-                raise ValueError('Количество одного приза должно быть от 1 до 100.')            source = str(item.get('source_type') or item.get('type') or 'catalog')
+                raise ValueError('Количество одного приза должно быть от 1 до 100.')
+            source = str(item.get('source_type') or item.get('type') or 'catalog')
             if source == 'fragment':
                 prize = fragment_gift_from_url(item.get('fragment_url') or item.get('url'), True,
                                                allow_missing_price=item.get('price_ton') not in (None, ''))

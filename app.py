@@ -46,7 +46,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '67-rtp-maintenance-reset'
+BUILD_ID = '68-withdraw-confirm-freebet-svg'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -1627,10 +1627,10 @@ if(response.status===503&&response.headers.get('X-GemDrop-Maintenance')==='1'){r
 
 ADMIN_SYSTEM_INJECTION = r"""
 <style id="gemdrop-system-tools-style">
-.gd-system-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px;border:1px solid var(--line,#34395d);border-radius:13px;background:var(--surface2,#151727)}
+.gd-system-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px solid var(--line,#2c304f);border-radius:14px;background:var(--surface2,#171a2c);box-shadow:inset 0 1px #ffffff08}
 .gd-system-status strong{font-size:13px}.gd-system-status small{display:block;margin-top:4px;color:var(--muted,#8ea3b5);font-size:10px}
 .gd-switch{position:relative;display:inline-block;width:48px;height:28px;flex:none}.gd-switch input{opacity:0;width:0;height:0}.gd-slider{position:absolute;inset:0;border-radius:999px;background:#34384f;transition:.2s;box-shadow:inset 0 0 0 1px #ffffff12}.gd-slider:before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#e8edf3;transition:.2s;box-shadow:0 2px 7px #0006}.gd-switch input:checked+.gd-slider{background:#47b0f5}.gd-switch input:checked+.gd-slider:before{transform:translateX(20px)}
-.gd-danger-panel{border-color:#7c4050!important;background:linear-gradient(180deg,#24181e,#17131a)!important}.gd-warning{padding:12px;border:1px solid #6d3d49;border-radius:12px;background:#21161b;color:#f2ccd5;font-size:11px;line-height:1.5}.gd-warning b{color:#fff}.gd-reset-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gd-reset-stat{padding:10px;border:1px solid #34395d;border-radius:11px;background:#141624}.gd-reset-stat small{display:block;color:#8ea3b5;font-size:9px}.gd-reset-stat b{display:block;margin-top:3px;font-size:15px}.gd-danger-action{width:100%;min-height:48px;margin-top:10px;border-radius:13px;background:#87364a;color:#fff;font-weight:900}.gd-danger-action:disabled{opacity:.4}.gd-maintenance-on{color:#6eddb5}.gd-maintenance-off{color:#aeb9c5}
+.gd-danger-panel{border-color:#3a3040!important;background:var(--surface,#141624)!important}.gd-warning{padding:12px;border:1px solid #513442;border-radius:12px;background:#1b171f;color:#cbb8c1;font-size:11px;line-height:1.5}.gd-warning b{color:#f4e9ee}.gd-reset-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gd-reset-stat{padding:11px;border:1px solid var(--line,#2c304f);border-radius:12px;background:var(--surface2,#171a2c)}.gd-reset-stat small{display:block;color:var(--muted,#8ea3b5);font-size:9px}.gd-reset-stat b{display:block;margin-top:3px;font-size:15px}.gd-danger-action{width:100%;min-height:48px;margin-top:10px;border-radius:13px;background:#713247;color:#fff;font-weight:850}.gd-danger-action:disabled{opacity:.4}.gd-maintenance-on{color:#6eddb5}.gd-maintenance-off{color:#aeb9c5}
 </style>
 <script id="gemdrop-system-tools">
 (()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
@@ -1655,6 +1655,64 @@ const arm=document.getElementById('dataResetArm'),execute=document.getElementByI
 """
 
 
+WITHDRAW_UI_INJECTION = r"""
+<style id="gemdrop-withdraw-confirm-style">
+#withdrawConfirmModal{z-index:2147482500!important}
+#withdrawConfirmModal .withdraw-confirm-card{width:min(100%,370px);padding:24px 18px 18px;text-align:center;border:1px solid #2b304d;border-radius:22px;background:linear-gradient(180deg,#171a2c,#121422);box-shadow:0 24px 70px #000b}
+#withdrawConfirmModal .withdraw-confirm-kicker{margin:0 0 12px;color:#f0f3fb;font-size:22px;font-weight:850;letter-spacing:-.02em}
+#withdrawConfirmModal .withdraw-confirm-art{display:grid;place-items:center;width:150px;height:150px;margin:0 auto 14px;border-radius:22px;background:radial-gradient(circle,#263854,#151727 72%);overflow:hidden}
+#withdrawConfirmModal .withdraw-confirm-art img{width:92%;height:92%;object-fit:contain}
+#withdrawConfirmModal .withdraw-confirm-name{margin:0 0 11px;color:#f3f6fb;font-size:15px;font-weight:800}
+#withdrawConfirmModal .withdraw-confirm-copy{margin:0 0 17px;color:#929db8;font-size:13px;line-height:1.5}
+#withdrawConfirmModal .withdraw-confirm-copy a{color:#56b9f7;text-decoration:none;font-weight:800}
+#withdrawConfirmModal .withdraw-confirm-actions{display:grid;gap:8px}
+#withdrawConfirmModal .withdraw-confirm-actions .primary{min-height:50px;border-radius:15px}
+#withdrawConfirmModal .withdraw-confirm-actions .secondary{min-height:44px;border-radius:14px}
+#rewardsReceivedModal .rr-badge svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+#rewardsReceivedModal .rr-art svg{width:27px;height:27px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+#rewardsReceivedModal .rr-item.balance .rr-art{color:#8ff7d3}
+#rewardsReceivedModal .rr-item.wager_gift .rr-art{color:#b7a7ff}
+#rewardsReceivedModal .rr-item.deposit_bonus .rr-art{color:#a9a4ff}
+#rewardsReceivedModal .rr-item.tickets .rr-art{color:#7cc9ff}
+#maintenanceAdminPage>.panel,#dataResetAdminPage>.panel{margin-top:16px}
+</style>
+<div id="withdrawConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmHeading">
+  <div class="modal-card withdraw-confirm-card">
+    <h2 id="withdrawConfirmHeading" class="withdraw-confirm-kicker">Внимание</h2>
+    <div class="withdraw-confirm-art"><img id="withdrawConfirmImage" src="/static/img/gift.svg" alt=""></div>
+    <div id="withdrawConfirmName" class="withdraw-confirm-name"></div>
+    <p class="withdraw-confirm-copy">Для получения подарка зайдите в <a id="withdrawPortalsLink" href="https://t.me/portals" target="_blank" rel="noopener noreferrer">https://t.me/portals</a></p>
+    <div class="withdraw-confirm-actions">
+      <button id="withdrawConfirmAction" class="primary" type="button">Подтвердить вывод</button>
+      <button id="withdrawConfirmCancel" class="secondary" type="button">Отмена</button>
+    </div>
+  </div>
+</div>
+<script id="gemdrop-withdraw-confirm-ui">
+(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
+ready(()=>{if(window.__gemdropWithdrawConfirm)return;window.__gemdropWithdrawConfirm=true;
+const byId=id=>document.getElementById(id),modal=byId('withdrawConfirmModal'),confirmBtn=byId('withdrawConfirmAction'),cancelBtn=byId('withdrawConfirmCancel'),portals=byId('withdrawPortalsLink');
+let pending=null;
+const svg=(kind)=>({
+ gift:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15M7.5 5C5.8 5 5 4.1 5 3.1c0-1.1.9-2 2-2 2.1 0 5 3.9 5 3.9M16.5 5c1.7 0 2.5-.9 2.5-1.9 0-1.1-.9-2-2-2-2.1 0-5 3.9-5 3.9"/></svg>',
+ balance:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M9 9.2c.6-.8 1.6-1.2 3-1.2 1.8 0 3 .8 3 2 0 3-6 1.2-6 4 0 1.2 1.2 2 3 2 1.4 0 2.4-.4 3-1.2M12 6.5v11"/></svg>',
+ wager_gift:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/></svg>',
+ deposit_bonus:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18 10 13l3 3 6-8M14 8h5v5"/></svg>',
+ tickets:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg>'
+}[kind]||'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.1 5.2L20 10l-4.5 3.5.2 5.7L12 16l-3.7 3.2.2-5.7L4 10l5.9-1.8L12 3Z"/></svg>');
+function paintSvg(el,kind){if(el)el.innerHTML=svg(kind)}
+paintSvg(document.querySelector('#rewardsReceivedModal .rr-badge'),'gift');
+try{showReceivedRewards=function(batches){pendingRewardBatches=batches;let list=byId('rrList');list.replaceChildren();let count=0;for(const batch of batches)for(const it of batch.items||[]){count++;let row=document.createElement('div');row.className='rr-item '+(it.kind||'');let art=document.createElement('div');art.className='rr-art';if(it.image_url){let im=new Image;im.src=it.image_url;im.alt='';im.onerror=()=>{im.remove();paintSvg(art,it.kind)};art.append(im)}else paintSvg(art,it.kind);let text=document.createElement('div');text.className='rr-text';let title=document.createElement('b');title.textContent=it.title;let detail=document.createElement('small');detail.textContent=it.detail||'';text.append(title,detail);row.append(art,text);list.append(row)}if(!count)return;let codes=batches.map(b=>b.code).filter(Boolean);byId('rrSub').textContent=codes.length?`Фрибет ${codes.join(', ')} активирован — награды уже у вас`:'Награды уже зачислены в ваш аккаунт';byId('rrClaim').disabled=false;byId('rewardsReceivedModal').classList.remove('hidden')}}catch(e){}
+portals?.addEventListener('click',e=>{try{if(window.Telegram?.WebApp?.openTelegramLink){e.preventDefault();Telegram.WebApp.openTelegramLink('https://t.me/portals')}}catch(err){}});
+const withdraw=byId('withdrawGift');if(withdraw)withdraw.onclick=async()=>{if(typeof selectedGift==='undefined'||!selectedGift||busy)return;busy=true;withdraw.disabled=true;try{let d=await api(`/api/inventory/${selectedGift.id}/withdraw/prepare`,{method:'POST',body:'{}'});pending={id:selectedGift.id,token:d.confirm_token};let image=byId('withdrawConfirmImage');image.src=d.gift?.image_url||selectedGift.image_url||'/static/img/gift.svg';image.onerror=()=>{image.onerror=null;image.src='/static/img/gift.svg'};byId('withdrawConfirmName').textContent=d.gift?.name||selectedGift.name||'Подарок';modal.classList.remove('hidden')}catch(e){toast(e.message)}finally{busy=false;withdraw.disabled=false}};
+cancelBtn.onclick=()=>{pending=null;modal.classList.add('hidden')};
+confirmBtn.onclick=async()=>{if(!pending||busy)return;busy=true;confirmBtn.disabled=true;confirmBtn.textContent='Отправляем…';try{await api(`/api/inventory/${pending.id}/withdraw`,{method:'POST',body:JSON.stringify({confirm_token:pending.token})});pending=null;modal.classList.add('hidden');byId('giftModal')?.classList.add('hidden');try{selectedGift=null}catch(e){}await loadInventory();toast('Заявка на вывод отправлена в обработку')}catch(e){toast(e.message)}finally{busy=false;confirmBtn.disabled=false;confirmBtn.textContent='Подтвердить вывод'}};
+modal.addEventListener('click',e=>{if(e.target===modal)cancelBtn.click()});
+});})();
+</script>
+"""
+
+
 def injected_index_html():
     template_path = BASE / 'templates' / 'index.html'
     html = template_path.read_text(encoding='utf-8')
@@ -1668,6 +1726,11 @@ def injected_index_html():
             html = html.replace('</body>', ADMIN_SYSTEM_INJECTION + '</body>', 1)
         else:
             html += ADMIN_SYSTEM_INJECTION
+    if 'gemdrop-withdraw-confirm-ui' not in html:
+        if '</body>' in html:
+            html = html.replace('</body>', WITHDRAW_UI_INJECTION + '</body>', 1)
+        else:
+            html += WITHDRAW_UI_INJECTION
     return html
 
 
@@ -5683,26 +5746,86 @@ def notify_level_up_async(user_id, level):
     return None
 
 
+def _withdrawal_confirmation_store():
+    now = int(time.time())
+    raw = session.get('withdrawal_confirmations') or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    clean = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            expires = int(value.get('expires') or 0)
+        except (TypeError, ValueError):
+            expires = 0
+        token = str(value.get('token') or '')
+        if expires > now and token:
+            clean[str(key)] = {'token': token, 'expires': expires}
+    return clean
+
+
+def _withdrawal_item_check(db, item_id):
+    purge_expired_inventory(db, session['uid'])
+    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
+                         (session['uid'],)).fetchone()
+    if not account:
+        return None, error('Пользователь не найден.', 404)
+    if not bool(account['withdrawal_enabled']):
+        reason = str(account['withdrawal_block_reason'] or '').strip()
+        return None, error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
+    item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
+                      (item_id, session['uid'])).fetchone()
+    if not item:
+        return None, error('Подарок не найден или уже отправлен на вывод.', 404)
+    if item['promo_locked']:
+        return None, error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
+    return item, None
+
+
+@app.post('/api/inventory/<int:item_id>/withdraw/prepare')
+@login_required
+def prepare_withdrawal(item_id):
+    """Validate the gift and issue a short-lived confirmation token.
+
+    No inventory row is removed and no withdrawal is created here. The request only
+    becomes visible to admins after the user confirms the branded warning window.
+    """
+    db = connect()
+    try:
+        item, failure = _withdrawal_item_check(db, item_id)
+        if failure:
+            return failure
+        confirmations = _withdrawal_confirmation_store()
+        token = secrets.token_urlsafe(24)
+        confirmations[str(item_id)] = {'token': token, 'expires': int(time.time()) + 300}
+        if len(confirmations) > 6:
+            confirmations = dict(sorted(confirmations.items(), key=lambda pair: pair[1]['expires'], reverse=True)[:6])
+        session['withdrawal_confirmations'] = confirmations
+        return jsonify(ok=True, confirm_token=token, expires_in=300,
+                       portals_url='https://t.me/portals',
+                       gift=dict(id=item['id'], name=item['gift_name'], image_url=item['image_url'],
+                                 price_ton=int(item['floor_price'] or 0)/100))
+    finally:
+        db.close()
+
+
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
+    data = request.get_json(silent=True) or {}
+    submitted_token = str(data.get('confirm_token') or '')
+    confirmations = _withdrawal_confirmation_store()
+    confirmation = confirmations.get(str(item_id))
+    if (not confirmation or not submitted_token or
+            not secrets.compare_digest(str(confirmation.get('token') or ''), submitted_token)):
+        return jsonify(error='Сначала подтвердите вывод подарка.', confirmation_required=True), 428
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        purge_expired_inventory(db, session['uid'])
-        account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
-                             (session['uid'],)).fetchone()
-        if not account:
-            return error('Пользователь не найден.', 404)
-        if not bool(account['withdrawal_enabled']):
-            reason = str(account['withdrawal_block_reason'] or '').strip()
-            return error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
-        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
-                          (item_id, session['uid'])).fetchone()
-        if not item:
-            return error('Подарок не найден или уже отправлен на вывод.', 404)
-        if item['promo_locked']:
-            return error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
+        item, failure = _withdrawal_item_check(db, item_id)
+        if failure:
+            return failure
         db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
                       VALUES(?,?,?,?,?,?,?,?,'pending')''',
                    (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
@@ -5712,6 +5835,8 @@ def request_withdrawal(item_id):
             return error('Не удалось зарезервировать подарок.', 409)
         record_transaction(db, session['uid'], 'withdrawal_request', 0, 'inventory', item_id, item['gift_name'])
         db.commit()
+        confirmations.pop(str(item_id), None)
+        session['withdrawal_confirmations'] = confirmations
         return jsonify(ok=True)
     finally:
         db.close()

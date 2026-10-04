@@ -2404,8 +2404,12 @@ def daily_top_rewards():
                         'fragment_backdrop','fragment_symbol','price_source','animation_url',
                         'model_percent','backdrop_percent','symbol_percent'):
                 item[key] = str(reward.get(key) or '')
-            try: item['price_ton'] = max(0,int(reward.get('floor_price') or 0))/100
-            except (TypeError,ValueError): item['price_ton'] = 0
+            try:
+                floor_price = max(0,int(reward.get('floor_price') or 0))
+            except (TypeError,ValueError):
+                floor_price = 0
+            item['floor_price'] = floor_price
+            item['price_ton'] = floor_price/100
         result[mode] = item
     return result
 

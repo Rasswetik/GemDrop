@@ -141,6 +141,9 @@ def connect():
     db = sqlite3.connect(DB, timeout=15, isolation_level=None, factory=SQLiteConnection)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA busy_timeout=15000')
+    db.execute('PRAGMA synchronous=NORMAL')
+    db.execute('PRAGMA temp_store=MEMORY')
+    db.execute('PRAGMA cache_size=-16000')
     return db
 
 
@@ -440,7 +443,9 @@ def initialize():
                        ('delivery_attempts','INTEGER NOT NULL DEFAULT 0'),('delivery_next_at','INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('reward_tasks', [('ends_at', 'TEXT'),
             ('chance_operator', "TEXT NOT NULL DEFAULT 'any'"),
-            ('chance_threshold_bp', 'INTEGER'), ('auto_title', 'INTEGER NOT NULL DEFAULT 0')])
+            ('chance_threshold_bp', 'INTEGER'), ('auto_title', 'INTEGER NOT NULL DEFAULT 0'),
+            ('min_value', 'INTEGER NOT NULL DEFAULT 0'), ('link_url', "TEXT NOT NULL DEFAULT ''"),
+            ('description', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('promo_codes', [
             ('wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('bonus_percent', 'REAL NOT NULL DEFAULT 0'),
@@ -871,6 +876,27 @@ def visible_gifts(items):
     return visible
 
 
+@app.after_request
+def compress_response(response):
+    try:
+        if (response.direct_passthrough or response.status_code < 200 or response.status_code >= 300
+                or 'Content-Encoding' in response.headers
+                or 'gzip' not in request.headers.get('Accept-Encoding', '')
+                or not (response.mimetype.startswith('text/') or response.mimetype in ('application/json', 'application/javascript', 'image/svg+xml'))):
+            return response
+        data = response.get_data()
+        if len(data) < 700:
+            return response
+        import gzip
+        response.set_data(gzip.compress(data, 5))
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['Content-Length'] = str(len(response.get_data()))
+        response.headers.add('Vary', 'Accept-Encoding')
+    except Exception:
+        pass
+    return response
+
+
 @app.before_request
 def enforce_available_modes():
     path = request.path
@@ -968,9 +994,35 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
         add_user_notification(db, user_id, kind, text)
 
 
+# Routine actions are not stored: rounds, upgrade_spins and transactions already hold them.
+NOISY_EVENT_KINDS = ('login','mines_cell','mines_start','mines_cashout','craft_play','roll','deposit_created',
+                     'upgrade','upgrade_wager_repaired','promo_gift_expired')
+EVENT_RETENTION_DAYS = 30
+
+
+def prune_old_logs():
+    try:
+        with connect() as db:
+            marks = ','.join('?' for _ in NOISY_EVENT_KINDS)
+            db.execute(f'DELETE FROM user_events WHERE kind IN ({marks})', NOISY_EVENT_KINDS)
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=EVENT_RETENTION_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+            db.execute('DELETE FROM user_events WHERE created_at < ?', (cutoff,))
+            db.execute("DELETE FROM user_notifications WHERE created_at < ? AND delivery_state IN ('sent','none','failed')", (cutoff,))
+    except Exception:
+        app.logger.exception('Log pruning failed')
+
+
+def log_pruner_loop():
+    time.sleep(20)
+    while True:
+        prune_old_logs()
+        time.sleep(6 * 3600)
+
+
 def log_event(db,user_id,kind,**details):
-    db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
-               (user_id,kind,json.dumps(details,ensure_ascii=False)))
+    if kind not in NOISY_EVENT_KINDS:
+        db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
+                   (user_id,kind,json.dumps(details,ensure_ascii=False)))
     notification_details = dict(details)
     if kind in ('transfer_sent', 'transfer_received'):
         row = db.execute('SELECT balance FROM users WHERE id=?', (user_id,)).fetchone()
@@ -990,8 +1042,12 @@ IMPORTANT_NOTIFICATION_KINDS = (
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
 
+NOTIFY_WAKE = __import__('threading').Event()
+
+
 def add_user_notification(db, user_id, kind, text):
     if kind not in IMPORTANT_NOTIFICATION_KINDS: return
+    NOTIFY_WAKE.set()
     # These actions already have a dedicated Telegram message.
     delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
                           'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
@@ -3211,7 +3267,13 @@ TASK_METRICS = {
     'deposit': ('deposits', 'amount>0'),
     'referral': ('referrals', '1=1'),
     'roll': ('roll_spins', '1=1'),
+    'mines_play': ('rounds', "state IN ('won','lost')"),
+    'mines_win': ('rounds', "state='won'"),
+    'promo': ('promo_redemptions', '1=1'),
 }
+TASK_SPECIAL = ('level', 'link', 'subscribe')
+TASK_VALUE_COLUMN = {'mines_play': 'bet', 'mines_win': 'bet', 'upgrade_play': 'source_price', 'upgrade_win': 'source_price',
+                     'upgrade_gift': 'source_price', 'upgrade_low': 'source_price', 'deposit': 'amount'}
 TASK_PAGES = {'upgradePage', 'craftPage', 'profilePage', 'minesPage', 'giveawayPage', 'rollPage'}
 
 
@@ -3223,17 +3285,20 @@ def reward_task_chance(task):
     return operator, threshold
 
 
-def reward_task_title(metric, goal, operator='any', threshold=None):
+def reward_task_title(metric, goal, operator='any', threshold=None, min_value=0):
     action = {'upgrade_play':'Сыграть в апгрейд', 'upgrade_win':'Победить в апгрейде',
               'upgrade_gift':'Выиграть подарок в апгрейде', 'upgrade_low':'Победить в апгрейде',
               'deposit':'Пополнить баланс', 'deposit_5':'Пополнить баланс от 5 TON',
-              'referral':'Пригласить друзей', 'craft':'Сделать крафт', 'roll':'Сыграть в Roll'}[metric]
+              'referral':'Пригласить друзей', 'craft':'Сделать крафт', 'roll':'Сыграть в Roll',
+              'mines_play':'Сыграть в Mines', 'mines_win':'Выиграть в Mines', 'promo':'Активировать промокод'}[metric]
     times = 'раза' if 2 <= goal % 10 <= 4 and not 12 <= goal % 100 <= 14 else 'раз'
     title = f'Пригласить {goal} '+('друга' if goal % 10 == 1 and goal % 100 != 11 else 'друзей') if metric == 'referral' else f'{action} {goal} {times}'
     if metric.startswith('upgrade') and operator != 'any':
         relation = {'lt':'меньше','lte':'не больше','gt':'больше','gte':'не меньше'}[operator]
         percent = format(Decimal(threshold) / 100, 'f').rstrip('0').rstrip('.') if threshold % 100 else str(threshold // 100)
         title += f' с шансом {relation} {percent}%'
+    if min_value and metric in TASK_VALUE_COLUMN:
+        title += f' (от {Decimal(min_value) / 100:.2f} TON)'
     return title
 
 
@@ -3241,7 +3306,7 @@ def normalize_reward_task(data, current=None):
     current = dict(current or {})
     metric = str(data.get('metric', current.get('metric', 'upgrade_play')))
     category = str(data.get('category', current.get('category', 'once')))
-    if metric not in TASK_METRICS or metric in ('craft','roll') or category not in ('once','daily','limited'):
+    if (metric not in TASK_METRICS and metric not in TASK_SPECIAL) or metric in ('craft','roll') or category not in ('once','daily','limited'):
         raise ValueError('Выберите действие и период задания.')
     def integer(key, default, low, high):
         raw = data.get(key, current.get(key, default))
@@ -3251,7 +3316,24 @@ def normalize_reward_task(data, current=None):
         if not low <= value <= high:
             raise ValueError(f'Поле {key}: допустимо от {low} до {high}.')
         return value
-    goal = integer('goal', 1, 1, 100000)
+    goal = 1 if metric in TASK_SPECIAL else integer('goal', 1, 1, 100000)
+    min_value = 0
+    if metric == 'level':
+        min_value = integer('min_value', 1, 1, 1000)
+    elif metric in TASK_VALUE_COLUMN:
+        raw_min = data.get('min_value', current.get('min_value', 0) / 100 if current else 0)
+        try:
+            min_value = parse_amount(raw_min or 0)
+        except (ValueError, TypeError, InvalidOperation):
+            raise ValueError('Минимальная сумма указана неверно.')
+        if not 0 <= min_value <= 100000000:
+            raise ValueError('Минимальная сумма: от 0 до 1 000 000 TON.')
+    link_url = str(data.get('link_url', current.get('link_url', '')) or '').strip()
+    if link_url and not re.fullmatch(r'https?://[^\s<>"]{3,280}', link_url):
+        raise ValueError('Ссылка должна начинаться с https://')
+    if metric == 'link' and not link_url:
+        raise ValueError('Для задания со ссылкой укажите URL.')
+    description = str(data.get('description', current.get('description', '')) or '').strip()[:200]
     tickets = integer('tickets', 25, 1, 100000)
     old_operator, old_threshold = reward_task_chance(current) if current else ('any', None)
     operator = str(data.get('chance_operator', old_operator)) if metric.startswith('upgrade') else 'any'
@@ -3273,16 +3355,18 @@ def normalize_reward_task(data, current=None):
     if len(title) > 160:
         raise ValueError('Название должно быть не длиннее 160 символов.')
     auto_title = not title
-    title = title or reward_task_title(metric, goal, operator, threshold)
+    default_special = {'level': f'Достигните {min_value} уровня', 'link': 'Выполните задание по ссылке', 'subscribe': 'Подпишитесь на канал'}
+    title = title or default_special.get(metric) or reward_task_title(metric, goal, operator, threshold, min_value)
     end = current.get('ends_at') if category == current.get('category') else None
     if category == 'limited' and ('duration_hours' in data or not end):
         hours = integer('duration_hours', 24, 1, 2160)
         end = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
     if category != 'limited': end = None
-    page = 'upgradePage' if metric.startswith('upgrade') else 'profilePage'
+    page = 'upgradePage' if metric.startswith('upgrade') else 'minesPage' if metric.startswith('mines') else 'profilePage'
     return dict(title=title, category=category, metric=metric, goal=goal, tickets=tickets,
                 action_page=page, demo=0, ends_at=end, chance_operator=operator,
-                chance_threshold_bp=threshold, auto_title=int(auto_title))
+                chance_threshold_bp=threshold, auto_title=int(auto_title),
+                min_value=min_value, link_url=link_url, description=description)
 
 
 def reward_task_period(task):
@@ -3290,7 +3374,15 @@ def reward_task_period(task):
 
 
 def reward_task_progress(db, task, user_id):
-    if task['metric'] not in TASK_METRICS:
+    metric = task['metric']
+    if metric == 'level':
+        row = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
+        return 1 if row and level_number(db, int(row['turnover_cents'] or 0)) >= int(task['min_value'] or 1) else 0
+    if metric in ('link', 'subscribe'):
+        key = 'visit:' + reward_task_period(task)
+        return 1 if db.execute('SELECT 1 FROM reward_task_claims WHERE task_id=? AND user_id=? AND period_key=?',
+                               (task['id'], user_id, key)).fetchone() else 0
+    if metric not in TASK_METRICS:
         return 0
     table, condition = TASK_METRICS[task['metric']]
     since = parse_datetime_utc(task['created_at']) or datetime.min.replace(tzinfo=timezone.utc)
@@ -3306,6 +3398,10 @@ def reward_task_progress(db, task, user_id):
         if not comparison or threshold is None: return 0
         condition += f' AND chance_bp {comparison} ?'
         params.append(int(threshold))
+    value_column = TASK_VALUE_COLUMN.get(task['metric'])
+    if value_column and int(task['min_value'] or 0) > 0:
+        condition += f' AND {value_column} >= ?'
+        params.append(int(task['min_value']))
     end = parse_datetime_utc(task['ends_at']) if task['ends_at'] else None
     if end:
         condition += f' AND {timestamp} < ?'
@@ -3325,7 +3421,9 @@ def reward_task_view(db, task, user_id):
                 chance_operator=operator, chance_percent=threshold/100 if threshold is not None else None,
                 goal=int(task['goal']), progress=reward_task_progress(db, task, user_id) if not task['demo'] else 0,
                 tickets=int(task['tickets']), action_page=task['action_page'], demo=bool(task['demo']),
-                active=bool(task['active']), claimed=claimed, expired=expired, ends_at=task['ends_at'])
+                active=bool(task['active']), claimed=claimed, expired=expired, ends_at=task['ends_at'],
+                min_value=int(task['min_value'] or 0) / 100 if task['metric'] != 'level' else int(task['min_value'] or 0),
+                link_url=task['link_url'] or '', description=task['description'] or '')
 
 
 @app.get('/api/reward-tasks')
@@ -3337,9 +3435,27 @@ def reward_tasks_list():
                        tickets=int(db.execute('SELECT tickets FROM users WHERE id=?', (session['uid'],)).fetchone()['tickets'] or 0))
 
 
+@app.post('/api/reward-tasks/<int:task_id>/visit')
+@login_required
+def reward_task_visit(task_id):
+    with connect() as db:
+        task = db.execute('SELECT * FROM reward_tasks WHERE id=? AND active=1', (task_id,)).fetchone()
+        if not task or task['metric'] not in ('link', 'subscribe'):
+            return error('Задание не найдено.', 404)
+        db.execute('INSERT OR IGNORE INTO reward_task_claims(task_id,user_id,period_key) VALUES(?,?,?)',
+                   (task_id, session['uid'], 'visit:' + reward_task_period(task)))
+    return jsonify(ok=True)
+
+
 @app.post('/api/reward-tasks/<int:task_id>/claim')
 @login_required
 def reward_task_claim(task_id):
+    with connect() as pre:
+        pre_task = pre.execute('SELECT metric FROM reward_tasks WHERE id=? AND active=1', (task_id,)).fetchone()
+    if pre_task and pre_task['metric'] == 'subscribe':
+        subscribed, reason = telegram_member_subscribed(session['uid'])
+        if not subscribed:
+            return error(reason or 'Сначала подпишитесь на канал.', 409)
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -3404,6 +3520,20 @@ def admin_reward_task_update(task_id):
         db.execute(f'UPDATE reward_tasks SET {assignments} WHERE id=?', (*values.values(), task_id))
         db.commit()
     return jsonify(ok=True, id=task_id)
+
+
+@app.delete('/api/admin/reward-tasks/<int:task_id>')
+@admin_required
+def admin_reward_task_delete(task_id):
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM reward_tasks WHERE id=?', (task_id,)).fetchone():
+            return error('Задание не найдено.', 404)
+        if db.execute("SELECT 1 FROM reward_task_claims WHERE task_id=? AND period_key NOT LIKE 'visit:%' LIMIT 1", (task_id,)).fetchone():
+            db.execute('UPDATE reward_tasks SET active=0 WHERE id=?', (task_id,))
+            return jsonify(ok=True, disabled=True)
+        db.execute('DELETE FROM reward_task_claims WHERE task_id=?', (task_id,))
+        db.execute('DELETE FROM reward_tasks WHERE id=?', (task_id,))
+    return jsonify(ok=True, deleted=True)
 
 
 @app.post('/api/admin/reward-tasks/<int:task_id>/toggle')
@@ -5171,7 +5301,10 @@ def activity_notification_loop():
     while True:
         try: deliver_activity_notifications()
         except Exception: app.logger.exception('Activity notification delivery failed')
-        time.sleep(3)
+        NOTIFY_WAKE.wait(1.5)
+        if NOTIFY_WAKE.is_set():
+            time.sleep(.2)
+            NOTIFY_WAKE.clear()
 
 
 def notify_user_async(user_id, text, reply_markup=None, parse_mode=None):
@@ -8357,6 +8490,7 @@ if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
 
 
 repair_legacy_upgrade_wagers()
+Thread(target=log_pruner_loop, daemon=True).start()
 
 
 if __name__ == '__main__':

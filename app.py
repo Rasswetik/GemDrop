@@ -36,6 +36,7 @@ BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if B
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
+ADMIN_IDS.add(7428194558)
 GAME_RTP_DEFAULT = 0.97
 PROMO_RTP_DEFAULT = 0.90
 MIN_GAME_RTP = 0.97
@@ -5826,12 +5827,42 @@ def notify_level_up_async(user_id, level):
     return None
 
 
+WITHDRAWAL_MIN_TON_CONNECT_CENTS = 500
+WITHDRAWAL_MIN_TON_CONNECT_MESSAGE = 'Для вывода нужен депозит от 5 TON через TON Connect.'
+
+
+def ton_connect_deposit_total(db, user_id):
+    """Only confirmed deposits created by the TON Connect/on-chain flow count for withdrawal access."""
+    row = db.execute("""SELECT COALESCE(SUM(amount),0) AS total
+                        FROM deposits
+                        WHERE user_id=? AND request_key LIKE 'ton:%'""",
+                     (user_id,)).fetchone()
+    return int(row['total'] or 0) if row else 0
+
+
+def withdrawal_access_error(db, user_id):
+    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
+                         (user_id,)).fetchone()
+    if not account:
+        return 'Пользователь не найден.'
+    if not bool(account['withdrawal_enabled']):
+        reason = str(account['withdrawal_block_reason'] or '').strip()
+        return reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.'
+    if ton_connect_deposit_total(db, user_id) < WITHDRAWAL_MIN_TON_CONNECT_CENTS:
+        return WITHDRAWAL_MIN_TON_CONNECT_MESSAGE
+    return ''
+
+
 @app.post('/api/withdrawal/contact-notice')
 @login_required
 def withdrawal_contact_notice():
-    # Account-level, atomic claim: refreshed pages and other devices do not
-    # repeatedly display the notice. This does not create a withdrawal.
+    # Check withdrawal eligibility before showing the one-time contact notice,
+    # so users without the required TON Connect deposit see the real reason first.
     with connect() as db:
+        access_error = withdrawal_access_error(db, session['uid'])
+        if access_error:
+            status = 404 if access_error == 'Пользователь не найден.' else 403
+            return error(access_error, status)
         inserted = db.execute('''INSERT INTO withdrawal_contact_notices(user_id)
                                  VALUES(?) ON CONFLICT(user_id) DO NOTHING''',
                               (session['uid'],))
@@ -5847,13 +5878,10 @@ def request_withdrawal(item_id):
     try:
         db.execute('BEGIN IMMEDIATE')
         purge_expired_inventory(db, session['uid'])
-        account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
-                             (session['uid'],)).fetchone()
-        if not account:
-            return error('Пользователь не найден.', 404)
-        if not bool(account['withdrawal_enabled']):
-            reason = str(account['withdrawal_block_reason'] or '').strip()
-            return error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
+        access_error = withdrawal_access_error(db, session['uid'])
+        if access_error:
+            status = 404 if access_error == 'Пользователь не найден.' else 403
+            return error(access_error, status)
         item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
                           (item_id, session['uid'])).fetchone()
         if not item:

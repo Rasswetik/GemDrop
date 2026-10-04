@@ -336,6 +336,11 @@ def _initialize_schema():
             animation_url TEXT NOT NULL DEFAULT '', claimed_by INTEGER, claimed_inventory_id INTEGER,
             claimed_at TEXT, UNIQUE(freebet_code,slot_index)
         );
+        CREATE TABLE IF NOT EXISTS daily_top_awards (
+            day TEXT NOT NULL, mode TEXT NOT NULL, user_id INTEGER NOT NULL DEFAULT 0,
+            reward_json TEXT NOT NULL DEFAULT '{}', awarded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(day,mode)
+        );
         CREATE TABLE IF NOT EXISTS user_wallets (
             user_id INTEGER PRIMARY KEY, address TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1153,7 +1158,7 @@ def log_event(db,user_id,kind,**details):
 IMPORTANT_NOTIFICATION_KINDS = (
     'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
-    'transfer_received','promo_wager_burn',
+    'transfer_received','promo_wager_burn','daily_top_reward',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
@@ -2449,10 +2454,72 @@ def admin_daily_top_rewards_set(mode):
     return jsonify(ok=True,reward=daily_top_reward(mode))
 
 
+def settle_previous_daily_top_rewards(db):
+    local_tz=timezone(timedelta(hours=3))
+    now_local=datetime.now(local_tz)
+    end_local=now_local.replace(hour=0,minute=0,second=0,microsecond=0)
+    start_local=end_local-timedelta(days=1)
+    day_key=start_local.date().isoformat()
+    start_utc=start_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    end_utc=end_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    settings=daily_top_rewards()
+    for mode in ('mines','upgrade'):
+        reward=settings.get(mode) or {'type':'none'}
+        if reward.get('type')=='none':
+            continue
+        if db.execute('SELECT 1 FROM daily_top_awards WHERE day=? AND mode=?',(day_key,mode)).fetchone():
+            continue
+        if mode=='mines':
+            winner=db.execute("""SELECT r.user_id FROM rounds r
+                                 WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                                   AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
+                                 ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
+                                 LIMIT 1""",(start_utc,end_utc)).fetchone()
+        else:
+            winner=db.execute("""SELECT user_id FROM upgrade_spins
+                                 WHERE won=1 AND created_at>=? AND created_at<?
+                                   AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
+                                 ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_utc,end_utc)).fetchone()
+        if not winner:
+            continue
+        uid=int(winner['user_id'])
+        claimed=db.execute("""INSERT INTO daily_top_awards(day,mode,user_id,reward_json)
+                              VALUES(?,?,?,?) ON CONFLICT(day,mode) DO NOTHING""",
+                           (day_key,mode,uid,json.dumps(reward,ensure_ascii=False)))
+        if not claimed.rowcount:
+            continue
+        reward_type=reward.get('type')
+        title='Mines' if mode=='mines' else 'Upgrade'
+        if reward_type=='gram':
+            cents=max(0,int((Decimal(str(reward.get('amount') or 0))*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)))
+            if cents:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cents,uid))
+                record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{day_key}:{mode}',
+                                   f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
+            detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
+        else:
+            source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
+            cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                             external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (uid,str(reward.get('gift_id') or ''),str(reward.get('gift_name') or 'Подарок'),
+                            safe_image(reward.get('image_url')),int(reward.get('floor_price') or 0),source,
+                            str(reward.get('fragment_url') or ''),str(reward.get('fragment_number') or ''),
+                            str(reward.get('fragment_model') or ''),str(reward.get('fragment_backdrop') or ''),
+                            str(reward.get('fragment_symbol') or ''),str(reward.get('price_source') or ''),
+                            safe_image(reward.get('animation_url'))))
+            record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
+                               f'Награда за ТОП дня {title}: {reward.get("gift_name") or "Подарок"}')
+            detail=f'🏆 Вы заняли ТОП дня в {title}. Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
+        add_user_notification(db,uid,'daily_top_reward',detail)
+
+
 @app.get('/api/upgrade/recent-wins')
 @login_required
 def upgrade_recent_wins():
     with connect() as db:
+        settle_previous_daily_top_rewards(db)
+        db.commit()
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
@@ -2990,6 +3057,8 @@ def cashout():
 @login_required
 def recent_wins():
     with connect() as db:
+        settle_previous_daily_top_rewards(db)
+        db.commit()
         cutoff, max_round_id = wins_feed_cutoff(db, 'mines')
         selection = """SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,

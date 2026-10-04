@@ -2396,7 +2396,8 @@ def daily_top_rewards():
             item['image_url'] = str(reward.get('image_url') or '/static/img/ton.png')
         elif reward_type in ('catalog','fragment'):
             for key in ('gift_id','gift_name','image_url','fragment_url','fragment_number','fragment_model',
-                        'fragment_backdrop','fragment_symbol','price_source','animation_url'):
+                        'fragment_backdrop','fragment_symbol','price_source','animation_url',
+                        'model_percent','backdrop_percent','symbol_percent'):
                 item[key] = str(reward.get(key) or '')
             try: item['price_ton'] = max(0,int(reward.get('floor_price') or 0))/100
             except (TypeError,ValueError): item['price_ton'] = 0
@@ -3072,7 +3073,8 @@ def _fragment_traits_from_text(text):
 
 
 def _fragment_traits_from_json(payload):
-    traits = {'model': '', 'backdrop': '', 'symbol': ''}
+    traits = {'model': '', 'backdrop': '', 'symbol': '',
+              'model_percent': '', 'backdrop_percent': '', 'symbol_percent': ''}
     if not isinstance(payload, dict):
         return traits
     attrs = payload.get('attributes') or payload.get('traits') or []
@@ -3084,15 +3086,32 @@ def _fragment_traits_from_json(payload):
                 continue
             key = str(attr.get('trait_type') or attr.get('type') or attr.get('name') or attr.get('key') or '').casefold()
             value = str(attr.get('value') or attr.get('label') or attr.get('title') or '').strip()
+            percent = attr.get('percentage', attr.get('percent', attr.get('rarity', attr.get('probability', ''))))
+            try:
+                if isinstance(percent, str): percent = percent.strip().rstrip('%')
+                percent = float(percent)
+                if 0 < percent <= 1: percent *= 100
+                percent = f'{percent:.4f}'.rstrip('0').rstrip('.')
+            except (TypeError,ValueError):
+                percent = ''
             if not value:
                 continue
             if 'model' in key:
-                traits['model'] = value[:100]
+                traits['model'] = value[:100]; traits['model_percent'] = percent
             elif 'backdrop' in key or 'background' in key:
-                traits['backdrop'] = value[:100]
+                traits['backdrop'] = value[:100]; traits['backdrop_percent'] = percent
             elif 'symbol' in key or 'pattern' in key:
-                traits['symbol'] = value[:100]
+                traits['symbol'] = value[:100]; traits['symbol_percent'] = percent
     return traits
+
+
+def _fragment_trait_percentages_from_text(text):
+    out={'model_percent':'','backdrop_percent':'','symbol_percent':''}
+    raw=unescape(str(text or '')).replace('•','\n')
+    for key,label in (('model_percent','Model'),('backdrop_percent','Backdrop'),('symbol_percent','Symbol')):
+        match=re.search(rf'\b{label}\s*:\s*[^\n\r|]*?([0-9]+(?:[.,][0-9]+)?)\s*%',raw,re.I)
+        if match: out[key]=match.group(1).replace(',','.')
+    return out
 
 
 def _fragment_json_image(payload):
@@ -3322,6 +3341,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
     canonical = f'https://t.me/nft/{raw_slug}'
     image_url = f'https://nft.fragment.com/gift/{slug}.webp'
     model = backdrop = symbol = animation_url = ''
+    model_percent = backdrop_percent = symbol_percent = ''
     metadata_image = False
     floor_price = 0
     price_source = ''
@@ -3342,6 +3362,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 animation_url = _fragment_json_animation(payload)
                 traits = _fragment_traits_from_json(payload)
                 model, backdrop, symbol = traits['model'], traits['backdrop'], traits['symbol']
+                model_percent, backdrop_percent, symbol_percent = traits.get('model_percent',''), traits.get('backdrop_percent',''), traits.get('symbol_percent','')
                 floor_price = _price_from_json(payload)
                 if floor_price:
                     price_source = 'Fragment'
@@ -3366,6 +3387,10 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 animation_url = animation_url or safe_image(_fragment_meta_content(html_text, 'og:video'))
                 traits = _fragment_traits_from_text(description)
                 model = model or traits['model']; backdrop = backdrop or traits['backdrop']; symbol = symbol or traits['symbol']
+                rarity = _fragment_trait_percentages_from_text(description)
+                model_percent = model_percent or rarity['model_percent']
+                backdrop_percent = backdrop_percent or rarity['backdrop_percent']
+                symbol_percent = symbol_percent or rarity['symbol_percent']
                 if not floor_price:
                     floor_price = _fragment_price_from_text(description + ' ' + html_text[:500000])
                     if floor_price:
@@ -3404,6 +3429,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
                 fragment_number=number, fragment_model=model, fragment_backdrop=backdrop,
                 fragment_symbol=symbol, price_source=price_source, animation_url=animation_url,
+                model_percent=model_percent, backdrop_percent=backdrop_percent, symbol_percent=symbol_percent,
                 slug=slug, collection_name=collection_name)
     if fetch_meta and floor_price > 0:
         with fragment_preview_lock:

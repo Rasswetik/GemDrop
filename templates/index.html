@@ -3202,11 +3202,7 @@ body.studio #nav.nav button{color:#aab2cc!important;font-weight:600!important}
 body.studio #nav.nav button:hover{color:#fff!important;background:#ffffff0d!important}
 body.studio #nav.nav button.active{color:#3fb0ff!important;background:var(--pill)!important;box-shadow:inset 0 0 0 1px var(--pill-line)!important}
 body.studio #nav.nav button.active:after{display:none!important}
-@media(min-width:901px){
- body.studio .studio-header{height:78px!important;padding-inline:48px!important}
- body.studio.header-compact .studio-brand{display:flex!important}
- body.studio .header-controls{margin-left:auto;flex:0 1 auto!important;justify-content:flex-end}
- body.studio.header-compact .notification-button{margin-left:0!important}
+@media(min-width:1180px){
  body.studio #nav.nav{top:21px!important;bottom:auto!important;left:50%!important;width:auto!important;max-width:calc(100% - 640px)!important;height:36px!important;min-height:36px!important;padding:0!important;gap:6px!important;background:transparent!important;border:0!important;box-shadow:none!important;-webkit-backdrop-filter:none;backdrop-filter:none;z-index:41!important}
  body.studio #nav.nav button{flex:none!important;display:flex!important;flex-direction:row!important;align-items:center!important;gap:7px!important;height:36px!important;min-height:36px!important;padding:0 14px!important;border-radius:999px!important;font-size:13px!important;white-space:nowrap}
  body.studio #nav.nav button svg{width:16px!important;height:16px!important}
@@ -3254,7 +3250,9 @@ body.studio #upgradePage #upgradeTarget:not(.selected):after{content:'Выбер
 body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected):after{max-width:220px;color:var(--muted);font-size:12px;font-weight:500;line-height:1.5;text-align:center}
 
 @media(min-width:1000px){
- body.studio #upgradePage:not(.hidden){display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:24px;row-gap:0;max-width:1232px;margin:0 auto;align-items:stretch}
+ body.studio[data-page=upgradePage] .app{max-width:1328px!important}
+ body.studio #content>#upgradePage:not(.hidden){display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:24px;row-gap:0;max-width:1232px!important;margin:0 auto!important;padding-inline:0!important;background:none!important;align-items:stretch}
+ body.studio #upgradePage .upgrade-wheel-wrap{width:min(300px,calc(100% - 48px))!important}
  body.studio #upgradePage:before{content:'';grid-column:2;grid-row:2/7;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
  body.studio #upgradePage .upgrade-title{grid-column:1/-1;margin-bottom:24px}
  body.studio #upgradePage .upgrade-picks{display:contents!important}
@@ -3270,7 +3268,9 @@ body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected):after{max-w
  body.studio #upgradePage .upgrade-wheel-wrap:not(.ready) .upgrade-center{opacity:0}
  body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-legend{display:none!important}
  body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value{flex-direction:column-reverse!important;align-items:center!important;gap:4px!important;background:none!important;border:0!important;box-shadow:none!important}
- body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value>b{font-size:56px!important;font-weight:800!important;color:#fff!important}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value>#upgradeChance{font-size:56px!important;font-weight:800!important;color:#fff!important;line-height:1!important}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance{background:none!important;border:0!important;box-shadow:none!important;padding:0!important}
+ body.studio #upgradePage .upgrade-wheel:not(.has-chance){background:radial-gradient(circle,#0f1120 0 100%)!important}
  body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value>span{font-size:12px!important;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)!important}
  body.studio #upgradePage .upgrade-promo-note{grid-column:2;grid-row:4;z-index:1;margin:0 24px 8px}
  body.studio #upgradePage .upgrade-action-row{grid-column:2;grid-row:5;z-index:1;margin:8px 24px 24px;align-self:end}
@@ -3290,10 +3290,59 @@ body.studio #minesPage .ladder{padding:8px;border:1px solid var(--line);border-r
 body.studio #minesPage .control-labels{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 body.studio #minesPage .field{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md)}
 body.studio #minesPage .stepper button{background:#1b1e30;border-radius:10px;color:#8891b4}
+
+/* ===== header v2: left = avatar+nick+balance (not on profile), right = top-up (profile: notifications) ===== */
+body.studio .studio-header{display:flex!important;align-items:center!important;gap:12px!important}
+@media(min-width:701px){body.studio .studio-header{height:78px!important;padding-inline:max(24px,calc((100vw - 1232px)/2))!important}}
+body.studio .studio-brand{display:none!important}
+body.studio:not([data-page]) .studio-brand,body.studio[data-page=profilePage] .studio-brand{display:flex!important}
+body.studio[data-page]:not([data-page=profilePage]) #headerControls{display:flex!important}
+body.studio[data-page=profilePage] #headerControls{display:none!important}
+body.studio #headerControls{flex:0 1 auto!important;min-width:0;margin-right:auto!important;flex-wrap:nowrap!important;gap:10px!important}
+body.studio .header-avatar{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;overflow:hidden;background:#1b2340;border:2px solid #2a7fc4;color:#9fd4ff;font-size:15px;font-weight:800}
+body.studio .header-avatar img{width:100%;height:100%;object-fit:cover}
+body.studio .header-nick{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:700;color:var(--text)}
+body.studio #headerControls .top-actions{flex:none}
+/* right side */
+body.studio #depositMini{display:none!important}
+body.studio[data-page]:not([data-page=profilePage]) #depositMini{display:inline-flex!important;align-items:center;justify-content:center;gap:8px;position:static!important;flex:none;width:auto!important;height:40px!important;min-height:40px!important;margin:0 0 0 auto!important;padding:0 16px!important;border:0!important;border-radius:12px!important;background:linear-gradient(180deg,#3db3fa,#1f8fe0)!important;color:#fff!important;font-size:13px;font-weight:700;box-shadow:0 6px 18px #1f8fe040!important}
+body.studio[data-page]:not([data-page=profilePage]) #depositMini svg{width:18px!important;height:18px!important;fill:none;stroke:currentColor;stroke-width:2.4}
+body.studio[data-page]:not([data-page=profilePage]) #depositMini:after{content:'Пополнить'}
+body.studio #openNotifications{display:none!important;margin-left:auto!important}
+body.studio[data-page=profilePage] #openNotifications:not(.hidden){display:grid!important}
+@media(max-width:560px){
+ body.studio .header-nick{max-width:88px;font-size:13px}
+ body.studio[data-page]:not([data-page=profilePage]) #depositMini{width:40px!important;padding:0!important}
+ body.studio[data-page]:not([data-page=profilePage]) #depositMini:after{content:none}
+}
+@media(max-width:380px){body.studio .header-nick{display:none}}
+@media(min-width:701px) and (max-width:1179px){body.studio[data-page] #nav.nav{top:auto!important;bottom:20px!important}}
+/* roll page had its own balance row; header covers it now */
+body.studio #rollPage .roll-top{display:none!important}
+
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) .pick-art>span{display:grid;place-items:center;width:100%;height:100%;border:0!important;background:none!important;box-shadow:none!important;border-radius:50%!important;color:#9aa4c8;font-size:26px;line-height:1}
+
+/* upgrade picker modal: TON row + art box */
+body.studio #upgradeListModal .upgrade-ton-row{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;gap:8px!important;align-items:stretch}
+body.studio #upgradeListModal .upgrade-ton-row input{width:100%!important;min-width:0!important}
+body.studio #upgradeListModal .upgrade-ton-row button{position:static!important;width:auto!important;margin:0!important;white-space:nowrap}
+body.studio #upgradeListModal .upgrade-list-card{background:#131525!important;border-color:var(--line)!important}
+body.studio #upgradeListModal .picker-close{background:#171a2c;border-color:var(--line);color:#aab2cc}
+body.studio #upgradeListModal #upgradeList>.upgrade-option{background:#171a2c!important;border-color:var(--line)!important}
+body.studio #upgradeListModal #upgradeList>.upgrade-option:hover{border-color:var(--pill-line)!important;background:#1b1f33!important}
+body.studio #upgradeListModal #upgradeList .upgrade-list-art{background:transparent!important}
+body.studio #upgradeListModal #upgradeList .upgrade-option-chance{color:var(--accent)}
+body.studio #upgradeListModal .upgrade-ton-pick{background:#171a2c!important;border-color:var(--line)!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) .pick-art{height:56px!important;min-height:0!important;max-height:56px!important;aspect-ratio:1/1;flex:none}
+
+body.studio #upgradePage .upgrade-wheel:not(.has-chance){background:#0f1120!important}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected){justify-content:flex-start!important;padding-top:32px!important}
+@media(min-width:1000px){body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected){justify-content:center!important;padding-top:20px!important}}
+body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!important;border:1px solid var(--gold-deep)!important;color:var(--gold)!important}
 </style></head><body class="studio">
 <div id="loader" class="loader"><div class="loader-inner"><img id="loaderImage" src="/static/gifs/shard.gif" alt=""><div class="progress"><i id="loaderBar"></i></div><div id="loaderText" class="loader-text">Загрузка…</div></div></div>
-<header class="studio-header"><a class="studio-brand" href="/" aria-label="GemDrop — главная"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="12" width="24" height="6" rx="1.5"/><path d="M6 18v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9M16 12v17"/><path d="M16 12c-1-5-7.5-6.5-7.5-2.7 0 2 3 2.7 7.5 2.7Zm0 0c1-5 7.5-6.5 7.5-2.7 0 2-3 2.7-7.5 2.7Z"/></svg><span class="brand-name">GemDrop</span></a><div id="headerControls" class="header-controls hidden"><div class="top-actions"><div class="balance"><img id="balanceIcon" src="/static/img/ton.png" alt="TON"><span id="balance">0.00</span></div><button id="depositMini" class="deposit-mini" type="button" aria-label="Пополнить баланс" title="Пополнить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div><div id="headerRewards" class="rewards-header-actions hidden"><div class="giveaway-ticket-balance" title="Ваши билеты"><svg viewBox="0 0 24 24"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg><div><b id="giveawayTicketBalance">0</b></div></div>
-    <button id="rewardsHelp" type="button" aria-label="Как работают билеты"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button></div></div><button id="openNotifications" class="notification-button hidden" type="button" aria-label="Уведомления"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3V9ZM10 20h4"/></svg><span id="notificationBadge" class="hidden"></span></button></header><main class="app">
+<header class="studio-header"><a class="studio-brand" href="/" aria-label="GemDrop — главная"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="12" width="24" height="6" rx="1.5"/><path d="M6 18v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9M16 12v17"/><path d="M16 12c-1-5-7.5-6.5-7.5-2.7 0 2 3 2.7 7.5 2.7Zm0 0c1-5 7.5-6.5 7.5-2.7 0 2-3 2.7-7.5 2.7Z"/></svg><span class="brand-name">GemDrop</span></a><div id="headerControls" class="header-controls hidden"><div id="headerAvatar" class="header-avatar" aria-hidden="true">G</div><strong id="headerNick" class="header-nick">Игрок</strong><div class="top-actions"><div class="balance"><img id="balanceIcon" src="/static/img/ton.png" alt="TON"><span id="balance">0.00</span></div></div><div id="headerRewards" class="rewards-header-actions hidden"><div class="giveaway-ticket-balance" title="Ваши билеты"><svg viewBox="0 0 24 24"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg><div><b id="giveawayTicketBalance">0</b></div></div>
+    <button id="rewardsHelp" type="button" aria-label="Как работают билеты"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button></div></div><button id="depositMini" class="deposit-mini header-deposit" type="button" aria-label="Пополнить баланс" title="Пополнить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button id="openNotifications" class="notification-button hidden" type="button" aria-label="Уведомления"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3V9ZM10 20h4"/></svg><span id="notificationBadge" class="hidden"></span></button></header><main class="app">
 <section id="auth" class="auth hidden"><div class="auth-art" aria-hidden="true"><svg viewBox="0 0 200 200"><defs><linearGradient id="gemLight" x2="1" y2="1"><stop stop-color="#a4e6ff"/><stop offset=".5" stop-color="#678eff"/><stop offset="1" stop-color="#b5a0ff"/></linearGradient></defs><path fill="url(#gemLight)" d="M60 28h80l42 57-82 92L18 85Z"/><path fill="#fff" fill-opacity=".23" d="m60 28 40 149L18 85Zm80 0-40 57H18L60 28Z"/><path fill="none" stroke="#fff" stroke-opacity=".4" d="M18 85h164M60 28l40 149 40-149M60 28l40 57 40-57"/></svg></div><span class="studio-eyebrow">ВАША КОЛЛЕКЦИЯ НАЧИНАЕТСЯ ЗДЕСЬ</span><h1>Больше, чем<br><span class="gradient-text">просто подарок.</span></h1><p class="auth-intro">Собирайте, улучшайте и открывайте новое.<br>Один аккаунт Telegram — все возможности GemDrop.</p><p id="authText">Подключаем Telegram…</p><div id="webAuthPanel" class="web-auth-panel hidden"><p>Чтобы войти в свой аккаунт, отправьте боту эту команду в личном чате:</p><div class="web-auth-command"><code id="webAuthCommand">/auf …</code><button id="copyWebCommand" type="button" aria-label="Скопировать команду">Копировать</button></div><a id="webBotLink" class="web-bot-link hidden" target="_blank" rel="noopener noreferrer">Открыть бота →</a><small id="webAuthStatus" role="status">Ожидаем подтверждение в боте…</small><button id="webAuthRenew" class="secondary" type="button">Получить новый код</button></div><button id="retry" class="primary hidden">Повторить</button></section>
 <div id="content" class="hidden">
 <section id="minesPage" class="mines-page"><div class="identity hidden"><div id="smallAvatar" class="avatar">G</div><strong id="nick">Игрок</strong></div><div id="mineBadge" class="mine-badge hidden">3 мины</div><h1 class="page-title mines-title">Mines</h1><div class="mines-layout"><div class="mines-play"><div id="ladder" class="ladder" aria-label="Уровни призов"></div><div id="board" class="board" aria-label="Игровое поле, 25 клеток"></div>
@@ -4084,6 +4133,14 @@ document.addEventListener('keydown',event=>{const dialog=visibleDialogs().at(-1)
  paintUpgrade=function(){_paint.apply(this,arguments);try{if(!upgradePreviewData)$('upgradeChance').textContent='0%';renderInline()}catch(e){}};
  const q=$('upgradeQuick');if(q)q.onclick=()=>{if(!upgradeBusy)$('upgradeMine').click()};
  try{renderInline()}catch(e){}
+})();
+
+/* --- header: nick + balance on the left, top-up on the right; notifications only on the profile page --- */
+(function(){
+ const _show=show,_set=setUser;
+ show=function(name){_show.apply(this,arguments);document.body.dataset.page=name};
+ setUser=function(u){_set.apply(this,arguments);try{$('headerNick').textContent=u.name||'Игрок';avatar($('headerAvatar'),u)}catch(e){}};
+ if(user){try{setUser(user)}catch(e){}}
 })();
 $('retry').onclick=boot;boot();
 </script></body></html>

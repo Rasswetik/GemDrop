@@ -2021,9 +2021,21 @@ def claim_level(level):
                    (session['uid'],level,json.dumps(result,ensure_ascii=False)))
         log_event(db,session['uid'],'level_claim',level=level,reward=result)
         db.commit()
+        current_profile=profile()
         if result.get('code'):
             notify_promo_async(session['uid'], result['code'], 'levels')
-        return jsonify(ok=True,reward=result,user=profile())
+            message=f'Личный промокод {result["code"]} добавлен в Бонусы → Промокоды.'
+        elif result.get('type')=='tickets':
+            message=f'+{int(result.get("tickets") or 0)} билет(ов). Теперь у вас {int(current_profile.get("tickets") or 0)} билет(ов).'
+        elif result.get('type')=='balance':
+            message=f'+{float(result.get("amount") or 0):.2f} TON зачислено на баланс.'
+        elif result.get('type') in ('gift','wager_gift'):
+            message=f'{(result.get("gift") or {}).get("name") or "Подарок"} добавлен в инвентарь.'
+        elif result.get('type')=='transfer_unlock':
+            message='Переводы TON разблокированы.'
+        else:
+            message='Награда уровня получена.'
+        return jsonify(ok=True,reward=result,user=current_profile,message=message)
     finally:db.close()
 
 def reward_description(reward):

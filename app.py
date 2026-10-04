@@ -6133,7 +6133,8 @@ def normalize_promo_bundle_items(items):
     if not isinstance(items, list) or not items:
         raise ValueError('Добавьте хотя бы одну награду в промокод.')
     if len(items) > 30:
-        raise ValueError('В одном промокоде можно настроить не более 30 строк наград.')    try:
+        raise ValueError('В одном промокоде можно настроить не более 30 строк наград.')
+    try:
         catalog = {str(g.get('id')): g for g in read_catalog().get('gifts', [])}
     except (OSError, ValueError, json.JSONDecodeError):
         catalog = {}

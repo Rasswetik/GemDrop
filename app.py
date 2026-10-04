@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '69-burn-fragment-gift'
+BUILD_ID = '70-daily-top-rewards'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -335,6 +335,11 @@ def _initialize_schema():
             fragment_symbol TEXT NOT NULL DEFAULT '', price_source TEXT NOT NULL DEFAULT '',
             animation_url TEXT NOT NULL DEFAULT '', claimed_by INTEGER, claimed_inventory_id INTEGER,
             claimed_at TEXT, UNIQUE(freebet_code,slot_index)
+        );
+        CREATE TABLE IF NOT EXISTS daily_top_awards (
+            day TEXT NOT NULL, mode TEXT NOT NULL, user_id INTEGER NOT NULL DEFAULT 0,
+            reward_json TEXT NOT NULL DEFAULT '{}', awarded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(day,mode)
         );
         CREATE TABLE IF NOT EXISTS user_wallets (
             user_id INTEGER PRIMARY KEY, address TEXT NOT NULL,
@@ -1153,7 +1158,7 @@ def log_event(db,user_id,kind,**details):
 IMPORTANT_NOTIFICATION_KINDS = (
     'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
-    'transfer_received','promo_wager_burn',
+    'transfer_received','promo_wager_burn','daily_top_reward',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
@@ -2379,10 +2384,142 @@ def wins_feed_cutoff(db, kind):
     return (row['cleared_at'], int(row['max_round_id'] or 0)) if row else ('', 0)
 
 
+def daily_top_rewards():
+    doc = read_document('daily_top_rewards') or {}
+    result = {}
+    for mode in ('mines','upgrade'):
+        raw = doc.get(mode) if isinstance(doc,dict) else None
+        reward = raw if isinstance(raw,dict) else {}
+        reward_type = str(reward.get('type') or 'none')
+        if reward_type not in ('none','gram','catalog','fragment'):
+            reward_type = 'none'
+        item = {'type': reward_type}
+        if reward_type == 'gram':
+            try: item['amount'] = max(0.0, float(reward.get('amount') or 0))
+            except (TypeError,ValueError): item['amount'] = 0.0
+            item['name'] = str(reward.get('name') or 'GRAM')
+            item['image_url'] = str(reward.get('image_url') or '/static/img/ton.png')
+        elif reward_type in ('catalog','fragment'):
+            for key in ('gift_id','gift_name','image_url','fragment_url','fragment_number','fragment_model',
+                        'fragment_backdrop','fragment_symbol','price_source','animation_url',
+                        'model_percent','backdrop_percent','symbol_percent'):
+                item[key] = str(reward.get(key) or '')
+            try: item['price_ton'] = max(0,int(reward.get('floor_price') or 0))/100
+            except (TypeError,ValueError): item['price_ton'] = 0
+        result[mode] = item
+    return result
+
+
+def daily_top_reward(mode):
+    return daily_top_rewards().get(mode, {'type':'none'})
+
+
+@app.get('/api/admin/daily-top-rewards')
+@admin_required
+def admin_daily_top_rewards_get():
+    return jsonify(rewards=daily_top_rewards())
+
+
+@app.post('/api/admin/daily-top-rewards/<mode>')
+@admin_required
+def admin_daily_top_rewards_set(mode):
+    if mode not in ('mines','upgrade'):
+        return error('Неизвестный топ.',404)
+    data=request.get_json(silent=True) or {}
+    reward_type=str(data.get('type') or 'none')
+    if reward_type not in ('none','gram','catalog','fragment'):
+        return error('Выберите тип награды.')
+    reward={'type':reward_type}
+    try:
+        if reward_type=='gram':
+            amount=float(str(data.get('amount') or '0').replace(',','.'))
+            if not math.isfinite(amount) or amount<=0 or amount>100000000:
+                return error('GRAM: укажите сумму больше 0.')
+            reward.update(amount=amount,name='GRAM',image_url='/static/img/ton.png')
+        elif reward_type=='catalog':
+            gift=catalog_giveaway_prize(data.get('gift_id'))
+            reward.update(gift)
+        elif reward_type=='fragment':
+            gift=fragment_gift_from_url(data.get('fragment_url'),True,allow_missing_price=True)
+            reward.update(gift)
+    except (ValueError,TypeError,InvalidOperation) as exc:
+        return error(str(exc) or 'Проверьте награду.')
+    doc=read_document('daily_top_rewards') or {}
+    if not isinstance(doc,dict): doc={}
+    doc[mode]=reward
+    save_document('daily_top_rewards',doc)
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'daily_top_reward',json.dumps({'mode':mode,'reward':reward},ensure_ascii=False)))
+    return jsonify(ok=True,reward=daily_top_reward(mode))
+
+
+def settle_previous_daily_top_rewards(db):
+    local_tz=timezone(timedelta(hours=3))
+    now_local=datetime.now(local_tz)
+    end_local=now_local.replace(hour=0,minute=0,second=0,microsecond=0)
+    start_local=end_local-timedelta(days=1)
+    day_key=start_local.date().isoformat()
+    start_utc=start_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    end_utc=end_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    settings=daily_top_rewards()
+    for mode in ('mines','upgrade'):
+        reward=settings.get(mode) or {'type':'none'}
+        if reward.get('type')=='none':
+            continue
+        if db.execute('SELECT 1 FROM daily_top_awards WHERE day=? AND mode=?',(day_key,mode)).fetchone():
+            continue
+        if mode=='mines':
+            winner=db.execute("""SELECT r.user_id FROM rounds r
+                                 WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                                   AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
+                                 ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
+                                 LIMIT 1""",(start_utc,end_utc)).fetchone()
+        else:
+            winner=db.execute("""SELECT user_id FROM upgrade_spins
+                                 WHERE won=1 AND created_at>=? AND created_at<?
+                                   AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
+                                 ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_utc,end_utc)).fetchone()
+        if not winner:
+            continue
+        uid=int(winner['user_id'])
+        claimed=db.execute("""INSERT INTO daily_top_awards(day,mode,user_id,reward_json)
+                              VALUES(?,?,?,?) ON CONFLICT(day,mode) DO NOTHING""",
+                           (day_key,mode,uid,json.dumps(reward,ensure_ascii=False)))
+        if not claimed.rowcount:
+            continue
+        reward_type=reward.get('type')
+        title='Mines' if mode=='mines' else 'Upgrade'
+        if reward_type=='gram':
+            cents=max(0,int((Decimal(str(reward.get('amount') or 0))*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)))
+            if cents:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cents,uid))
+                record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{day_key}:{mode}',
+                                   f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
+            detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
+        else:
+            source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
+            cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                             external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (uid,str(reward.get('gift_id') or ''),str(reward.get('gift_name') or 'Подарок'),
+                            safe_image(reward.get('image_url')),int(reward.get('floor_price') or 0),source,
+                            str(reward.get('fragment_url') or ''),str(reward.get('fragment_number') or ''),
+                            str(reward.get('fragment_model') or ''),str(reward.get('fragment_backdrop') or ''),
+                            str(reward.get('fragment_symbol') or ''),str(reward.get('price_source') or ''),
+                            safe_image(reward.get('animation_url'))))
+            record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
+                               f'Награда за ТОП дня {title}: {reward.get("gift_name") or "Подарок"}')
+            detail=f'🏆 Вы заняли ТОП дня в {title}. Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
+        add_user_notification(db,uid,'daily_top_reward',detail)
+
+
 @app.get('/api/upgrade/recent-wins')
 @login_required
 def upgrade_recent_wins():
     with connect() as db:
+        settle_previous_daily_top_rewards(db)
+        db.commit()
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
@@ -2428,7 +2565,7 @@ def upgrade_recent_wins():
                     if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
                                                        str(item.get('created_at') or '')), default=None)
-    return jsonify(items=items,top_drop=top_drop)
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'))
 
 
 @app.post('/api/upgrade/spin')
@@ -2920,6 +3057,8 @@ def cashout():
 @login_required
 def recent_wins():
     with connect() as db:
+        settle_previous_daily_top_rewards(db)
+        db.commit()
         cutoff, max_round_id = wins_feed_cutoff(db, 'mines')
         selection = """SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
@@ -2963,7 +3102,7 @@ def recent_wins():
         if top_drop and gift_black_background(top_drop.get('gift') or {}):
             top_drop = max((item for item in items if str(item['created_at']) >= wins_day_start_utc()),
                            key=lambda item: item['amount'], default=None)
-    return jsonify(items=items,top_drop=top_drop)
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('mines'))
 
 
 FRAGMENT_GIFT_RE = re.compile(r'^https?://(?:(?:www\.)?fragment\.com/gift/|t\.me/nft/)([a-z0-9-]+?)(?:[/?#].*)?$', re.I)
@@ -3003,7 +3142,8 @@ def _fragment_traits_from_text(text):
 
 
 def _fragment_traits_from_json(payload):
-    traits = {'model': '', 'backdrop': '', 'symbol': ''}
+    traits = {'model': '', 'backdrop': '', 'symbol': '',
+              'model_percent': '', 'backdrop_percent': '', 'symbol_percent': ''}
     if not isinstance(payload, dict):
         return traits
     attrs = payload.get('attributes') or payload.get('traits') or []
@@ -3015,15 +3155,32 @@ def _fragment_traits_from_json(payload):
                 continue
             key = str(attr.get('trait_type') or attr.get('type') or attr.get('name') or attr.get('key') or '').casefold()
             value = str(attr.get('value') or attr.get('label') or attr.get('title') or '').strip()
+            percent = attr.get('percentage', attr.get('percent', attr.get('rarity', attr.get('probability', ''))))
+            try:
+                if isinstance(percent, str): percent = percent.strip().rstrip('%')
+                percent = float(percent)
+                if 0 < percent <= 1: percent *= 100
+                percent = f'{percent:.4f}'.rstrip('0').rstrip('.')
+            except (TypeError,ValueError):
+                percent = ''
             if not value:
                 continue
             if 'model' in key:
-                traits['model'] = value[:100]
+                traits['model'] = value[:100]; traits['model_percent'] = percent
             elif 'backdrop' in key or 'background' in key:
-                traits['backdrop'] = value[:100]
+                traits['backdrop'] = value[:100]; traits['backdrop_percent'] = percent
             elif 'symbol' in key or 'pattern' in key:
-                traits['symbol'] = value[:100]
+                traits['symbol'] = value[:100]; traits['symbol_percent'] = percent
     return traits
+
+
+def _fragment_trait_percentages_from_text(text):
+    out={'model_percent':'','backdrop_percent':'','symbol_percent':''}
+    raw=unescape(str(text or '')).replace('•','\n')
+    for key,label in (('model_percent','Model'),('backdrop_percent','Backdrop'),('symbol_percent','Symbol')):
+        match=re.search(rf'\b{label}\s*:\s*[^\n\r|]*?([0-9]+(?:[.,][0-9]+)?)\s*%',raw,re.I)
+        if match: out[key]=match.group(1).replace(',','.')
+    return out
 
 
 def _fragment_json_image(payload):
@@ -3253,6 +3410,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
     canonical = f'https://t.me/nft/{raw_slug}'
     image_url = f'https://nft.fragment.com/gift/{slug}.webp'
     model = backdrop = symbol = animation_url = ''
+    model_percent = backdrop_percent = symbol_percent = ''
     metadata_image = False
     floor_price = 0
     price_source = ''
@@ -3273,6 +3431,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 animation_url = _fragment_json_animation(payload)
                 traits = _fragment_traits_from_json(payload)
                 model, backdrop, symbol = traits['model'], traits['backdrop'], traits['symbol']
+                model_percent, backdrop_percent, symbol_percent = traits.get('model_percent',''), traits.get('backdrop_percent',''), traits.get('symbol_percent','')
                 floor_price = _price_from_json(payload)
                 if floor_price:
                     price_source = 'Fragment'
@@ -3297,6 +3456,10 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 animation_url = animation_url or safe_image(_fragment_meta_content(html_text, 'og:video'))
                 traits = _fragment_traits_from_text(description)
                 model = model or traits['model']; backdrop = backdrop or traits['backdrop']; symbol = symbol or traits['symbol']
+                rarity = _fragment_trait_percentages_from_text(description)
+                model_percent = model_percent or rarity['model_percent']
+                backdrop_percent = backdrop_percent or rarity['backdrop_percent']
+                symbol_percent = symbol_percent or rarity['symbol_percent']
                 if not floor_price:
                     floor_price = _fragment_price_from_text(description + ' ' + html_text[:500000])
                     if floor_price:
@@ -3335,6 +3498,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
                 image_url=image_url, floor_price=max(0, int(floor_price or 0)), fragment_url=canonical,
                 fragment_number=number, fragment_model=model, fragment_backdrop=backdrop,
                 fragment_symbol=symbol, price_source=price_source, animation_url=animation_url,
+                model_percent=model_percent, backdrop_percent=backdrop_percent, symbol_percent=symbol_percent,
                 slug=slug, collection_name=collection_name)
     if fetch_meta and floor_price > 0:
         with fragment_preview_lock:

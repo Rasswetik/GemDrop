@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '69-burn-fragment-gift'
+BUILD_ID = '70-daily-top-rewards'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2379,6 +2379,75 @@ def wins_feed_cutoff(db, kind):
     return (row['cleared_at'], int(row['max_round_id'] or 0)) if row else ('', 0)
 
 
+def daily_top_rewards():
+    doc = read_document('daily_top_rewards') or {}
+    result = {}
+    for mode in ('mines','upgrade'):
+        raw = doc.get(mode) if isinstance(doc,dict) else None
+        reward = raw if isinstance(raw,dict) else {}
+        reward_type = str(reward.get('type') or 'none')
+        if reward_type not in ('none','gram','catalog','fragment'):
+            reward_type = 'none'
+        item = {'type': reward_type}
+        if reward_type == 'gram':
+            try: item['amount'] = max(0.0, float(reward.get('amount') or 0))
+            except (TypeError,ValueError): item['amount'] = 0.0
+            item['name'] = str(reward.get('name') or 'GRAM')
+            item['image_url'] = str(reward.get('image_url') or '/static/img/ton.png')
+        elif reward_type in ('catalog','fragment'):
+            for key in ('gift_id','gift_name','image_url','fragment_url','fragment_number','fragment_model',
+                        'fragment_backdrop','fragment_symbol','price_source','animation_url'):
+                item[key] = str(reward.get(key) or '')
+            try: item['price_ton'] = max(0,int(reward.get('floor_price') or 0))/100
+            except (TypeError,ValueError): item['price_ton'] = 0
+        result[mode] = item
+    return result
+
+
+def daily_top_reward(mode):
+    return daily_top_rewards().get(mode, {'type':'none'})
+
+
+@app.get('/api/admin/daily-top-rewards')
+@admin_required
+def admin_daily_top_rewards_get():
+    return jsonify(rewards=daily_top_rewards())
+
+
+@app.post('/api/admin/daily-top-rewards/<mode>')
+@admin_required
+def admin_daily_top_rewards_set(mode):
+    if mode not in ('mines','upgrade'):
+        return error('Неизвестный топ.',404)
+    data=request.get_json(silent=True) or {}
+    reward_type=str(data.get('type') or 'none')
+    if reward_type not in ('none','gram','catalog','fragment'):
+        return error('Выберите тип награды.')
+    reward={'type':reward_type}
+    try:
+        if reward_type=='gram':
+            amount=float(str(data.get('amount') or '0').replace(',','.'))
+            if not math.isfinite(amount) or amount<=0 or amount>100000000:
+                return error('GRAM: укажите сумму больше 0.')
+            reward.update(amount=amount,name='GRAM',image_url='/static/img/ton.png')
+        elif reward_type=='catalog':
+            gift=catalog_giveaway_prize(data.get('gift_id'))
+            reward.update(gift)
+        elif reward_type=='fragment':
+            gift=fragment_gift_from_url(data.get('fragment_url'),True,allow_missing_price=True)
+            reward.update(gift)
+    except (ValueError,TypeError,InvalidOperation) as exc:
+        return error(str(exc) or 'Проверьте награду.')
+    doc=read_document('daily_top_rewards') or {}
+    if not isinstance(doc,dict): doc={}
+    doc[mode]=reward
+    save_document('daily_top_rewards',doc)
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'daily_top_reward',json.dumps({'mode':mode,'reward':reward},ensure_ascii=False)))
+    return jsonify(ok=True,reward=daily_top_reward(mode))
+
+
 @app.get('/api/upgrade/recent-wins')
 @login_required
 def upgrade_recent_wins():
@@ -2428,7 +2497,7 @@ def upgrade_recent_wins():
                     if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
                                                        str(item.get('created_at') or '')), default=None)
-    return jsonify(items=items,top_drop=top_drop)
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'))
 
 
 @app.post('/api/upgrade/spin')
@@ -2963,7 +3032,7 @@ def recent_wins():
         if top_drop and gift_black_background(top_drop.get('gift') or {}):
             top_drop = max((item for item in items if str(item['created_at']) >= wins_day_start_utc()),
                            key=lambda item: item['amount'], default=None)
-    return jsonify(items=items,top_drop=top_drop)
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('mines'))
 
 
 FRAGMENT_GIFT_RE = re.compile(r'^https?://(?:(?:www\.)?fragment\.com/gift/|t\.me/nft/)([a-z0-9-]+?)(?:[/?#].*)?$', re.I)

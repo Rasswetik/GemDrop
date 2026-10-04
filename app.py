@@ -36,8 +36,8 @@ BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if B
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
-GAME_RTP_DEFAULT = 0.97
-PROMO_RTP_DEFAULT = 0.90
+GAME_RTP_DEFAULT = 0.985
+PROMO_RTP_DEFAULT = 0.94
 MIN_GAME_RTP = 0.97
 MIN_PROMO_RTP = 0.89
 MIN_BET_CENTS = 10
@@ -667,6 +667,38 @@ def _initialize_schema():
                        (int(row['level']),))
         db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
 
+        # One-time balanced probability profile requested for the unified chance controls.
+        if not db.execute("SELECT 1 FROM schema_migrations WHERE name=?", ('chance_controls_medium_v1',)).fetchone():
+            settings_row = db.execute("SELECT payload FROM app_documents WHERE name='game_settings'").fetchone()
+            try:
+                game_settings_doc = json.loads(settings_row['payload']) if settings_row else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                game_settings_doc = {}
+            if not isinstance(game_settings_doc, dict):
+                game_settings_doc = {}
+            game_settings_doc.update({
+                'rtp': 0.985,
+                'promo_rtp': 0.94,
+                'upgrade_rtp_bp': 9500,
+                'loss_rtp_max_boost': 5.0,
+                'chance_profile': 'medium_v1',
+            })
+            db.execute("INSERT INTO app_documents(name,payload) VALUES('game_settings',?) "
+                       "ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                       (json.dumps(game_settings_doc, ensure_ascii=False),))
+            chance_doc = {
+                'roll_gift_weight_percent': 100.0,
+                'comp_balance_weight': 15,
+                'comp_tickets_weight': 10,
+                'comp_wager_gift_weight': 35,
+                'comp_gift_weight': 25,
+                'comp_promo_weight': 15,
+            }
+            db.execute("INSERT INTO app_documents(name,payload) VALUES('chance_control_settings',?) "
+                       "ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                       (json.dumps(chance_doc, ensure_ascii=False),))
+            db.execute("INSERT INTO schema_migrations(name) VALUES(?)", ('chance_controls_medium_v1',))
+
 
 
 initialize()
@@ -917,6 +949,53 @@ def read_document(name):
             row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
         cache[name] = json.loads(row['payload']) if row else None
     return deepcopy(cache[name])
+
+
+def chance_control_settings():
+    """Global, auditable probability controls used equally for all players."""
+    defaults = {
+        'roll_gift_weight_percent': 100.0,
+        'comp_balance_weight': 15,
+        'comp_tickets_weight': 10,
+        'comp_wager_gift_weight': 35,
+        'comp_gift_weight': 25,
+        'comp_promo_weight': 15,
+    }
+    try:
+        stored = read_document('chance_control_settings') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    result = dict(defaults)
+    try:
+        result['roll_gift_weight_percent'] = min(150.0, max(50.0, float(stored.get('roll_gift_weight_percent', defaults['roll_gift_weight_percent']))))
+    except (TypeError, ValueError):
+        pass
+    for key in ('comp_balance_weight','comp_tickets_weight','comp_wager_gift_weight','comp_gift_weight','comp_promo_weight'):
+        try:
+            result[key] = min(100, max(0, int(stored.get(key, defaults[key]))))
+        except (TypeError, ValueError):
+            pass
+    if sum(result[k] for k in ('comp_balance_weight','comp_tickets_weight','comp_wager_gift_weight','comp_gift_weight','comp_promo_weight')) <= 0:
+        for key in defaults:
+            result[key] = defaults[key]
+    return result
+
+
+def roll_global_gift_multiplier():
+    return chance_control_settings()['roll_gift_weight_percent'] / 100.0
+
+
+def compensation_reward_weights():
+    cfg = chance_control_settings()
+    return [
+        ('balance', cfg['comp_balance_weight']),
+        ('tickets', cfg['comp_tickets_weight']),
+        ('wager_gift', cfg['comp_wager_gift_weight']),
+        ('gift', cfg['comp_gift_weight']),
+        ('promo', cfg['comp_promo_weight']),
+    ]
 
 
 def section_settings():
@@ -1772,7 +1851,7 @@ ADMIN_SYSTEM_INJECTION = r"""
 <script id="gemdrop-system-tools">
 (()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
 ready(()=>{if(window.__gemdropSystemTools)return;window.__gemdropSystemTools=true;
-try{if(typeof upgradeTargetChance==='function'){upgradeTargetChance=function(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0);if(!(sp>0&&tp>sp&&tp<=sp*10))return 0;let chance=100*sp/tp;return chance>=1&&chance<=80?chance:0}}}catch(e){}
+try{if(typeof upgradeTargetChance==='function'){upgradeTargetChance=function(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0),rtp=Number(upgradeSettings?.rtp??95);if(!(sp>0&&tp>sp&&tp<=sp*10))return 0;let chance=(100*sp/tp)*(rtp/100);return chance>0&&chance<=80?chance:0}}}catch(e){}
 const adminPage=document.getElementById('adminPage');if(!adminPage)return;
 try{if(typeof pageIds!=='undefined'&&Array.isArray(pageIds)){for(const id of ['maintenanceAdminPage','dataResetAdminPage'])if(!pageIds.includes(id))pageIds.push(id)}}catch(e){}
 let systemGroup=[...adminPage.querySelectorAll('.admin-group')].find(g=>(g.querySelector('h2')?.textContent||'').trim()==='Система');let actions=systemGroup?.querySelector('.admin-actions');if(!actions){let menu=adminPage.querySelector('.admin-menu');if(menu){systemGroup=document.createElement('div');systemGroup.className='admin-group';systemGroup.innerHTML='<h2>Система</h2><div class="admin-actions"></div>';menu.append(systemGroup);actions=systemGroup.querySelector('.admin-actions')}}if(actions){
@@ -1932,6 +2011,21 @@ loadUserActivity=async function(reset=false){if(reset){activityOffset=0;$('userA
 """
 
 
+CHANCE_CONTROL_INJECTION = r'''
+<style id="gemdrop-chance-controls-style">
+.gd-chance-grid{display:grid;gap:11px}.gd-chance-card{padding:14px;border:1px solid var(--line,#2c304f);border-radius:14px;background:var(--surface2,#171a2c)}.gd-chance-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.gd-chance-head b{font-size:13px}.gd-chance-value{min-width:60px;text-align:right;color:var(--accent,#47b0f5);font-weight:900}.gd-chance-card input[type=range]{width:100%;accent-color:var(--accent,#47b0f5)}.gd-chance-card small{display:block;margin-top:7px;color:var(--muted,#8ea3b5);line-height:1.4}.gd-mix-total{display:flex;justify-content:space-between;align-items:center;padding:11px;border-radius:12px;background:#10121e;border:1px solid var(--line,#2c304f);font-weight:800}.gd-mix-total.bad{border-color:#7d4655;color:#ffc0cf}.gd-chance-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.gd-chance-actions button{min-height:47px}
+</style>
+<script id="gemdrop-chance-controls">
+(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}ready(()=>{if(window.__gemdropChanceControls)return;window.__gemdropChanceControls=true;const $=id=>document.getElementById(id),admin=$('adminPage');if(!admin)return;try{if(typeof pageIds!=='undefined'&&Array.isArray(pageIds)&&!pageIds.includes('chanceAdminPage'))pageIds.push('chanceAdminPage')}catch(e){}
+let group=[...admin.querySelectorAll('.admin-group')].find(g=>(g.querySelector('h2')?.textContent||'').includes('Экономика'));let actions=group?.querySelector('.admin-actions');if(actions&&!$('openChanceAdmin')){let b=document.createElement('button');b.id='openChanceAdmin';b.innerHTML='Управление шансами <span>→</span>';actions.insertBefore(b,actions.querySelector('#openRtp')||null)}
+const slider=(id,title,min,max,step,unit,help)=>`<div class="gd-chance-card"><div class="gd-chance-head"><b>${title}</b><span id="${id}Value" class="gd-chance-value">—</span></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}"><small>${help}</small></div>`;
+admin.insertAdjacentHTML('afterend',`<section id="chanceAdminPage" class="hidden"><button id="chanceAdminBack" class="back" type="button">← Админ-панель</button><h1>Управление шансами</h1><p class="muted">Глобальные настройки одинаковы для всех игроков. Показанный пользователю шанс Upgrade совпадает с фактическим серверным шансом.</p><div class="panel gd-chance-grid">${slider('chanceMines','Обычный Mines · RTP','97','99.9','0.1','%','Влияет на коэффициенты выплат Mines. Среднее значение: 98.5%.')}${slider('chancePromo','Freebet / отыгрыш · RTP','89','96.9','0.1','%','Основная настройка для отыгрышных подарков Freebet и промокодов. Среднее значение: 94%.')}${slider('chanceUpgrade','Upgrade · коэффициент шанса','1','100','0.5','%','Умножает расчётный шанс цена ставки / цена цели. Значение сразу учитывается в показанном игроку проценте.')}${slider('chanceLossBoost','Компенсация за игровой минус','0','15','0.5',' п.п.','Максимальная дополнительная прибавка RTP для компенсационных отыгрышных подарков.')}${slider('chanceRollGift','Roll · вес подарков','50','150','1','%','100% оставляет настроенные в Roll веса без изменений; выше — чаще подарок, ниже — реже.')}<div class="notice"><b>Компенсационный кейс Upgrade</b><div class="rtp-hint">Распределите 100% между типами наград.</div></div>${slider('chanceCompBalance','TON на баланс','0','100','1','%','Вес TON-компенсации.')}${slider('chanceCompTickets','Билеты','0','100','1','%','Вес билетов розыгрыша.')}${slider('chanceCompWager','Отыгрышный подарок','0','100','1','%','Вес отыгрышного подарка.')}${slider('chanceCompGift','Обычный подарок','0','100','1','%','Вес обычного подарка без отыгрыша.')}${slider('chanceCompPromo','Персональный промокод','0','100','1','%','Вес персонального промокода.') }<div id="chanceMixTotal" class="gd-mix-total"><span>Сумма компенсаций</span><b>100%</b></div><div class="gd-chance-actions"><button id="chanceMediumPreset" class="secondary" type="button">Средние значения</button><button id="chanceSave" class="primary" type="button">Сохранить</button></div><p id="chanceStatus" class="muted" role="status"></p></div></section>`);
+const ids=['chanceMines','chancePromo','chanceUpgrade','chanceLossBoost','chanceRollGift','chanceCompBalance','chanceCompTickets','chanceCompWager','chanceCompGift','chanceCompPromo'];function suffix(id){return id==='chanceLossBoost'?' п.п.':'%'}function update(){for(let id of ids){let el=$(id),v=$(id+'Value');if(el&&v)v.textContent=Number(el.value).toFixed(['chanceMines','chancePromo','chanceUpgrade','chanceLossBoost'].includes(id)?1:0)+suffix(id)}let mix=['chanceCompBalance','chanceCompTickets','chanceCompWager','chanceCompGift','chanceCompPromo'].reduce((a,id)=>a+Number($(id)?.value||0),0),box=$('chanceMixTotal');if(box){box.querySelector('b').textContent=mix+'%';box.classList.toggle('bad',mix!==100)}if($('chanceSave'))$('chanceSave').disabled=mix!==100}
+for(let id of ids)$(id)?.addEventListener('input',update);function fill(d){$('chanceMines').value=d.mines_rtp;$('chancePromo').value=d.promo_rtp;$('chanceUpgrade').value=d.upgrade_rtp;$('chanceLossBoost').value=d.loss_rtp_max_boost;$('chanceRollGift').value=d.roll_gift_weight_percent;$('chanceCompBalance').value=d.comp_balance_weight;$('chanceCompTickets').value=d.comp_tickets_weight;$('chanceCompWager').value=d.comp_wager_gift_weight;$('chanceCompGift').value=d.comp_gift_weight;$('chanceCompPromo').value=d.comp_promo_weight;update()}async function load(){try{fill(await api('/api/admin/chances'))}catch(e){toast(e.message)}}
+$('openChanceAdmin')?.addEventListener('click',()=>{show('chanceAdminPage');load()});$('chanceAdminBack').onclick=()=>show('adminPage');$('chanceMediumPreset').onclick=()=>{fill({mines_rtp:98.5,promo_rtp:94,upgrade_rtp:95,loss_rtp_max_boost:5,roll_gift_weight_percent:100,comp_balance_weight:15,comp_tickets_weight:10,comp_wager_gift_weight:35,comp_gift_weight:25,comp_promo_weight:15});$('chanceStatus').textContent='Средний профиль выбран. Нажмите «Сохранить».'};$('chanceSave').onclick=async()=>{let b=$('chanceSave');b.disabled=true;try{let d=await api('/api/admin/chances',{method:'POST',body:JSON.stringify({mines_rtp:$('chanceMines').value,promo_rtp:$('chancePromo').value,upgrade_rtp:$('chanceUpgrade').value,loss_rtp_max_boost:$('chanceLossBoost').value,roll_gift_weight_percent:$('chanceRollGift').value,comp_balance_weight:$('chanceCompBalance').value,comp_tickets_weight:$('chanceCompTickets').value,comp_wager_gift_weight:$('chanceCompWager').value,comp_gift_weight:$('chanceCompGift').value,comp_promo_weight:$('chanceCompPromo').value})});fill(d);if(typeof loadUpgrade==='function')loadUpgrade().catch(()=>{});$('chanceStatus').textContent='Настройки сохранены';toast('Шансы сохранены')}catch(e){toast(e.message);$('chanceStatus').textContent=e.message}finally{update()}};update();});})();
+</script>
+'''
+
 def injected_index_html():
     template_path = BASE / 'templates' / 'index.html'
     html = template_path.read_text(encoding='utf-8')
@@ -1960,6 +2054,11 @@ def injected_index_html():
             html = html.replace('</body>', BOT_ACCESS_INJECTION + '</body>', 1)
         else:
             html += BOT_ACCESS_INJECTION
+    if 'gemdrop-chance-controls' not in html:
+        if '</body>' in html:
+            html = html.replace('</body>', CHANCE_CONTROL_INJECTION + '</body>', 1)
+        else:
+            html += CHANCE_CONTROL_INJECTION
     if 'gemdrop-user-admin-activity' not in html:
         if '</body>' in html:
             html = html.replace('</body>', USER_ADMIN_ACTIVITY_INJECTION + '</body>', 1)
@@ -2023,11 +2122,18 @@ def roll_config(db):
 
 
 def public_rolls(rolls):
-    return [dict(id=r['id'], name=r['name'], price_ton=r['price']/100,
-                 entries=[dict(id=e['id'], kind=e['kind'], name=e['name'],
-                               image_url=e.get('image_url', ''), weight=e['weight'],
-                               probability=round(100*e['weight']/sum(x['weight'] for x in r['entries']), 2),
-                               boost=e.get('boost', 1), price_ton=e.get('price', 0)/100) for e in r['entries']]) for r in sorted(rolls, key=lambda r:r['price'])]
+    global_gift = roll_global_gift_multiplier()
+    result=[]
+    for r in sorted(rolls, key=lambda r:r['price']):
+        effective=[max(1, round(e['weight']*(global_gift if e['kind']=='gift' else 1))) for e in r['entries']]
+        total=max(1,sum(effective))
+        entries=[]
+        for e,w in zip(r['entries'],effective):
+            entries.append(dict(id=e['id'],kind=e['kind'],name=e['name'],image_url=e.get('image_url',''),
+                                weight=e['weight'],probability=round(100*w/total,2),boost=e.get('boost',1),
+                                price_ton=e.get('price',0)/100))
+        result.append(dict(id=r['id'],name=r['name'],price_ton=r['price']/100,entries=entries))
+    return result
 
 
 def normalize_level_reward(data):
@@ -2471,7 +2577,7 @@ def spin_roll(roll_id):
         if not player: return error('Пользователь не найден.',404)
         if player['balance']<roll['price']: return error('Недостаточно TON. Пополните баланс.')
         boost=max(1,min(3,float(player['roll_boost'] or 1)))
-        weights=[max(1,round(e['weight']*(boost if e['kind']=='gift' else 1))) for e in roll['entries']]
+        weights=[max(1,round(e['weight']*(boost*roll_global_gift_multiplier() if e['kind']=='gift' else 1))) for e in roll['entries']]
         ticket=secrets.randbelow(sum(weights))
         index=0
         for index,weight in enumerate(weights):
@@ -2558,9 +2664,9 @@ def game_net_loss_cents(db, user_id):
 
 def loss_rtp_max_boost():
     try:
-        value = float((read_document('game_settings') or {}).get('loss_rtp_max_boost', 8.0))
+        value = float((read_document('game_settings') or {}).get('loss_rtp_max_boost', 5.0))
     except (TypeError, ValueError):
-        value = 8.0
+        value = 5.0
     return max(0.0, min(15.0, value))
 
 
@@ -2647,15 +2753,14 @@ def upgrade_chance(source_price,target_price,rtp_bp=None):
 
 
 def upgrade_rtp_basis_points():
-    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9000))
-    except (TypeError,ValueError):return 9000
+    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9500))
+    except (TypeError,ValueError):return 9500
 
 
 @app.get('/api/upgrade/settings')
 @login_required
 def upgrade_settings():
-    # RTP affects only the hidden server probability, not the chance shown to a player.
-    return jsonify(min_chance=1,max_chance=80,max_target_multiplier=10,
+    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80,max_target_multiplier=10,
                    min_bet_ton=0.1,max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
@@ -2693,12 +2798,12 @@ def upgrade_preview():
     if not amount_text and source and source['promo_locked']:
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-    display_chance=upgrade_display_chance(source_price,target['price'])
-    if not display_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
-    # Hidden chance is deliberately not returned to the client.
-    upgrade_chance(source_price,target['price'],effective_rtp_bp)
+    base_chance=upgrade_display_chance(source_price,target['price'])
+    if not base_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+    effective_chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
-                   image_url=target['image_url'],price_ton=target['price']/100),chance=display_chance/100,
+                   image_url=target['image_url'],price_ton=target['price']/100),chance=effective_chance/100,
+                   base_chance=base_chance/100,rtp=effective_rtp_bp/100,
                    loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
@@ -2805,17 +2910,18 @@ def upgrade_spin():
         effective_rtp_bp = upgrade_rtp_basis_points()
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-        display_chance=upgrade_display_chance(source_price,target['price'])
-        if not display_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        base_chance=upgrade_display_chance(source_price,target['price'])
+        if not base_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
         real_chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
+        display_chance=real_chance
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
-        # Outcome uses the hidden RTP-adjusted chance. Example: visible 80% × RTP 80% = real 64%.
-        # Exact integer arithmetic avoids rounding the probability shown to the player.
+        # Outcome uses the same RTP-adjusted chance that is shown to the player.
+        # Exact integer arithmetic avoids rounding drift between UI and the server draw.
         won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
         awarded=None
         wager=bool(source['promo_locked'])
@@ -7174,11 +7280,10 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
                                      image_url=gift['image_url'], price_ton=gift['price']/100,
                                      wager_multiplier=multiplier if kind=='wager_gift' else 0))
     if gift_options:
-        # Gift / wagering / personal-code rewards together: 80%, 85%, 90%.
-        weights = [('balance', 8 if large else 12 if medium else 16),
-                   ('tickets', 10), ('wager_gift', 37), ('gift', 25),
-                   ('promo', 20 if large else 16 if medium else 12)]
-        roll = secrets.randbelow(100)
+        # Global, auditable reward mix from the admin chance controls.
+        weights = compensation_reward_weights()
+        total_weight = max(1, sum(weight for _, weight in weights))
+        roll = secrets.randbelow(total_weight)
         kind = 'balance'
         for candidate, weight in weights:
             if roll < weight:
@@ -8776,6 +8881,65 @@ def admin_transactions():
                                balance_after=None if x['balance_after'] is None else x['balance_after']/100,
                                reference_type=x['reference_type'], reference_id=x['reference_id'],
                                details=x['details'], created_at=x['created_at']) for x in rows])
+
+@app.get('/api/admin/chances')
+@admin_required
+def admin_chances_get():
+    cfg = chance_control_settings()
+    return jsonify(
+        mines_rtp=round(game_rtp()*100,2),
+        promo_rtp=round(promo_game_rtp()*100,2),
+        upgrade_rtp=round(upgrade_rtp_basis_points()/100,2),
+        loss_rtp_max_boost=round(loss_rtp_max_boost(),2),
+        roll_gift_weight_percent=round(cfg['roll_gift_weight_percent'],1),
+        comp_balance_weight=cfg['comp_balance_weight'],
+        comp_tickets_weight=cfg['comp_tickets_weight'],
+        comp_wager_gift_weight=cfg['comp_wager_gift_weight'],
+        comp_gift_weight=cfg['comp_gift_weight'],
+        comp_promo_weight=cfg['comp_promo_weight'],
+    )
+
+
+@app.post('/api/admin/chances')
+@admin_required
+def admin_chances_set():
+    data=request.get_json(silent=True) or {}
+    try:
+        mines=float(data.get('mines_rtp'))
+        promo=float(data.get('promo_rtp'))
+        upgrade=float(data.get('upgrade_rtp'))
+        loss_boost=float(data.get('loss_rtp_max_boost'))
+        roll_gift=float(data.get('roll_gift_weight_percent'))
+        mix={
+            'comp_balance_weight':int(float(data.get('comp_balance_weight'))),
+            'comp_tickets_weight':int(float(data.get('comp_tickets_weight'))),
+            'comp_wager_gift_weight':int(float(data.get('comp_wager_gift_weight'))),
+            'comp_gift_weight':int(float(data.get('comp_gift_weight'))),
+            'comp_promo_weight':int(float(data.get('comp_promo_weight'))),
+        }
+    except (TypeError,ValueError,OverflowError):
+        return error('Проверьте значения шансов.')
+    if not all(math.isfinite(x) for x in (mines,promo,upgrade,loss_boost,roll_gift)):
+        return error('Проверьте значения шансов.')
+    if not 97<=mines<=99.9:return error('Mines RTP: от 97 до 99.9%.')
+    if not 89<=promo<=96.9:return error('Freebet / промо RTP: от 89 до 96.9%.')
+    if promo>=mines:return error('Freebet / промо RTP должен быть ниже обычного Mines RTP.')
+    if not 1<=upgrade<=100:return error('Шанс Upgrade: коэффициент от 1 до 100%.')
+    if not 0<=loss_boost<=15:return error('Компенсационная прибавка: от 0 до 15 п.п.')
+    if not 50<=roll_gift<=150:return error('Roll: вес подарков от 50 до 150%.')
+    if any(v<0 or v>100 for v in mix.values()):return error('Вес каждой награды: от 0 до 100.')
+    if sum(mix.values())!=100:return error('Сумма весов компенсационного кейса должна быть ровно 100%.')
+    game=read_document('game_settings') or {}
+    if not isinstance(game,dict):game={}
+    game.update(rtp=mines/100,promo_rtp=promo/100,upgrade_rtp_bp=round(upgrade*100),
+                loss_rtp_max_boost=round(loss_boost,2),updated_at=datetime.now(timezone.utc).isoformat(),
+                admin_id=session['uid'])
+    save_document('game_settings',game)
+    chance=chance_control_settings()
+    chance.update(roll_gift_weight_percent=round(roll_gift,1),**mix)
+    save_document('chance_control_settings',chance)
+    return admin_chances_get()
+
 
 @app.get('/api/admin/rtp')
 @admin_required

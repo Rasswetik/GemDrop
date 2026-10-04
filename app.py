@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '68-wager-gift-lifecycle'
+BUILD_ID = '69-burn-fragment-gift'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2497,10 +2497,10 @@ def upgrade_spin():
             cur=None
             if wager:
                 completed_wager = bool(wager_target and wager_progress >= wager_target)
+                # Promo Upgrade never replaces the wager gift with the selected target.
+                # The target only determines chance/progress. The same promo gift remains
+                # in inventory until manual unlock in the profile.
                 unlock_payload = {}
-                if completed_wager:
-                    unlock_payload = dict(gift_id=target['id'], gift_name=target['name'],
-                                          image_url=target['image_url'], floor_price=target['price'])
                 cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
                                  promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload)
@@ -4877,7 +4877,7 @@ def burn_remaining_freebet_wagers(db, freebet_code, winner_id=0):
 
 
 def claim_freebet_burn_prize(db, freebet_code, user_id):
-    """Claim the one-winner burn race. Winner keeps their own unlocked/upgraded gift."""
+    """Atomically claim the single Fragment gift configured for a burn-race Freebet."""
     if not freebet_burn_pool_enabled(db, freebet_code):
         return None
     lock=' FOR UPDATE' if DATABASE_URL else ''
@@ -4885,17 +4885,18 @@ def claim_freebet_burn_prize(db, freebet_code, user_id):
                          WHERE freebet_code=? AND slot_index=1""" + lock,
                       (freebet_code,)).fetchone()
     if not marker:
-        return dict(enabled=True,claimed=False,inventory_id=None,gift=None,remaining=0)
+        return dict(enabled=True,claimed=False,gift=None,remaining=0)
     if marker['claimed_by'] is not None:
         return dict(enabled=True,claimed=int(marker['claimed_by'])==int(user_id),
-                    inventory_id=None,gift=None,remaining=0)
+                    gift=dict(marker),remaining=0)
     now=datetime.now(timezone.utc).isoformat()
     changed=db.execute("""UPDATE freebet_burn_prizes SET claimed_by=?,claimed_at=?
                           WHERE id=? AND claimed_by IS NULL""",(user_id,now,marker['id']))
     if not changed.rowcount:
         return claim_freebet_burn_prize(db,freebet_code,user_id)
     burn_remaining_freebet_wagers(db,freebet_code,user_id)
-    return dict(enabled=True,claimed=True,inventory_id=None,gift=None,remaining=0)
+    claimed=db.execute('SELECT * FROM freebet_burn_prizes WHERE id=?',(marker['id'],)).fetchone()
+    return dict(enabled=True,claimed=True,gift=dict(claimed),remaining=0)
 
 
 def apply_freebet_reward(db, promo, user_id, freebet_code):
@@ -5970,30 +5971,28 @@ def claim_promo_gift(item_id):
             if not pool_claim.get('claimed'):
                 db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid']))
                 db.commit()
-                return error('Сгораемый подарок уже отыграл и разблокировал другой игрок. Ваш подарок сгорел.',409)
+                return error('Сгораемый подарок уже разблокировал другой игрок. Ваш подарок сгорел.',409)
             burn_race_winner=True
-
-        unlock_payload = {}
-        try:
-            raw = item['promo_unlock_payload'] if 'promo_unlock_payload' in item.keys() else '{}'
-            unlock_payload = json.loads(raw or '{}') if isinstance(raw, str) else (raw or {})
-            if not isinstance(unlock_payload, dict):
-                unlock_payload = {}
-        except (TypeError, ValueError, json.JSONDecodeError):
-            unlock_payload = {}
-        if unlock_payload.get('gift_id') or unlock_payload.get('gift_name'):
-            gift_id=str(unlock_payload.get('gift_id') or item['gift_id'])
-            gift_name=str(unlock_payload.get('gift_name') or item['gift_name'])[:140]
-            image_url=safe_image(unlock_payload.get('image_url')) or item['image_url']
-            floor_price=max(0,int(unlock_payload.get('floor_price') or item['floor_price'] or 0))
+            prize=pool_claim.get('gift') or {}
+            gift_id=str(prize.get('gift_id') or item['gift_id'])
+            gift_name=str(prize.get('gift_name') or item['gift_name'])[:140]
+            image_url=safe_image(prize.get('image_url')) or item['image_url']
+            floor_price=max(0,int(prize.get('floor_price') or item['floor_price'] or 0))
             db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,
-                          promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
-                          promo_wager_progress=0,promo_code='',expires_at=NULL,source='promo_unlocked_upgrade',
+                          external_url=?,fragment_number=?,fragment_model=?,fragment_backdrop=?,fragment_symbol=?,
+                          price_source=?,animation_url=?,promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
+                          promo_wager_progress=0,promo_code='',expires_at=NULL,source='freebet_burn_claimed',
                           promo_unlock_payload='{}'
                           WHERE id=? AND user_id=?""",
-                       (gift_id,gift_name,image_url,floor_price,item_id,session['uid']))
-            detail=f'Разблокирован и улучшен: {item["gift_name"]} → {gift_name}'
+                       (gift_id,gift_name,image_url,floor_price,str(prize.get('fragment_url') or ''),
+                        str(prize.get('fragment_number') or ''),str(prize.get('fragment_model') or ''),
+                        str(prize.get('fragment_backdrop') or ''),str(prize.get('fragment_symbol') or ''),
+                        str(prize.get('price_source') or ''),safe_image(prize.get('animation_url')),
+                        item_id,session['uid']))
+            detail=f'Сгораемый Fragment-подарок разблокирован: {gift_name}'
         else:
+            # Normal wager gift unlock: keep the same gift. Upgrade targets never
+            # replace a promo-wager gift; they only add wager progress.
             db.execute("""UPDATE inventory SET promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
                           promo_wager_progress=0,promo_code='',expires_at=NULL,source='promo_claimed',
                           promo_unlock_payload='{}'
@@ -7243,14 +7242,32 @@ def _freebet_backing_values(data, code):
             if not 1 <= wager_attempts <= 100:
                 raise ValueError('Жизни подарка: от 1 до 100.')
             burn_pool_enabled = bool(data.get('burn_pool_enabled'))
-            # A burn gift is a race between all activators of this Freebet.
-            # There is one winner: the first player who completes the wager and
-            # explicitly unlocks it in the profile. No separate Fragment prize
-            # pool is required; the winner keeps their own upgraded result.
+            burn_fragment = None
+            if burn_pool_enabled:
+                burn_fragment_url = str(data.get('burn_fragment_url') or data.get('fragment_url') or '').strip()
+                if not burn_fragment_url:
+                    raise ValueError('Для сгораемого подарка укажите ссылку Fragment.')
+                exact = fragment_gift_from_url(burn_fragment_url, True, allow_missing_price=True)
+                if not int(exact.get('floor_price') or 0):
+                    exact['floor_price'] = gift_price
+                    exact['price_source'] = 'Portal · базовый подарок'
+                burn_fragment = {
+                    'gift_id': str(exact.get('gift_id') or ''),
+                    'gift_name': str(exact.get('gift_name') or gift_name)[:140],
+                    'image_url': safe_image(exact.get('image_url')) or gift_image,
+                    'floor_price': int(exact.get('floor_price') or gift_price),
+                    'fragment_url': str(exact.get('fragment_url') or burn_fragment_url),
+                    'fragment_number': str(exact.get('fragment_number') or ''),
+                    'fragment_model': str(exact.get('fragment_model') or '')[:120],
+                    'fragment_backdrop': str(exact.get('fragment_backdrop') or '')[:120],
+                    'fragment_symbol': str(exact.get('fragment_symbol') or '')[:120],
+                    'price_source': str(exact.get('price_source') or '')[:120],
+                    'animation_url': safe_image(exact.get('animation_url')),
+                }
             freebet_options={
                 'burn_pool_enabled':burn_pool_enabled,
                 'burn_pool_count':1 if burn_pool_enabled else 0,
-                'burn_pool':[],
+                'burn_fragment':burn_fragment,
                 'wager_attempts':wager_attempts,
                 'burn_on_loss':True,
             }
@@ -7334,6 +7351,7 @@ def admin_create_freebet():
      min_deposit,reward_json,gift_expires_days)=values
     options=json.loads(reward_json or '{}').get('freebet_options',{}) if reward_type=='wager_gift' else {}
     burn_pool_enabled=bool(options.get('burn_pool_enabled')) if isinstance(options,dict) else False
+    burn_fragment=options.get('burn_fragment') if burn_pool_enabled and isinstance(options,dict) else None
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -7349,11 +7367,18 @@ def admin_create_freebet():
                     min_turnover,min_deposit,expires_at,created_by) VALUES(?,?,?,1,?,?,?,?,?,?,?)""",
                    (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,activation_min_deposit,expires_at,session['uid']))
         if burn_pool_enabled:
+            if not isinstance(burn_fragment,dict) or not burn_fragment.get('fragment_url'):
+                return error('Для сгораемого подарка не сохранена ссылка Fragment.',409)
             db.execute("""INSERT INTO freebet_burn_prizes(
                           freebet_code,slot_index,gift_id,gift_name,image_url,floor_price,
                           fragment_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
                           VALUES(?,1,?,?,?,?,?,?,?,?,?,?,?)""",
-                       (code,gift_id,gift_name,gift_image,gift_price,'','','','','','Burn race',''))
+                       (code,str(burn_fragment.get('gift_id') or ''),str(burn_fragment.get('gift_name') or gift_name),
+                        safe_image(burn_fragment.get('image_url')),int(burn_fragment.get('floor_price') or gift_price),
+                        str(burn_fragment.get('fragment_url') or ''),str(burn_fragment.get('fragment_number') or ''),
+                        str(burn_fragment.get('fragment_model') or ''),str(burn_fragment.get('fragment_backdrop') or ''),
+                        str(burn_fragment.get('fragment_symbol') or ''),str(burn_fragment.get('price_source') or ''),
+                        safe_image(burn_fragment.get('animation_url'))))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],session['uid'],'freebet_create',code))
         db.commit()

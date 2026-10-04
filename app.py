@@ -35,6 +35,7 @@ BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if BOT_TOKEN else ''
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
+ADMIN_IDS.add(8779403577)
 GAME_RTP_DEFAULT = 0.97
 PROMO_RTP_DEFAULT = 0.90
 MIN_GAME_RTP = 0.97
@@ -74,7 +75,15 @@ def postgres_pool():
     global _pool, _pool_pid
     with _pool_lock:
         if _pool is None or _pool_pid != os.getpid():
-            from psycopg_pool import ConnectionPool
+            try:
+                from psycopg_pool import ConnectionPool
+            except ModuleNotFoundError as exc:
+                if exc.name != 'psycopg_pool':
+                    raise
+                raise RuntimeError(
+                    'Missing psycopg_pool. Update requirements.txt and use Build Command: '
+                    'bash render-build.sh (or python -m pip install "psycopg[binary,pool]>=3.2,<4").'
+                ) from exc
             from psycopg.rows import dict_row
             _pool = ConnectionPool(
                 DATABASE_URL, min_size=1,
@@ -8767,3 +8776,4 @@ start_background(log_pruner_loop, 660104)
 
 
 if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)

@@ -4609,5 +4609,28 @@ body.studio #giveawayPage .reward-task-group>h2{margin:18px 0 10px;color:#8d96b6
 body.studio #minesPage .cell.reveal.open{animation:none}
 body.studio #minesPage .cell.reveal.mine:not(.ghost){animation:none}
 @media(prefers-reduced-motion:reduce){body.studio .modal-card{animation:none}}
+
+/* --- recent wins: wider rows, nothing gets cut off --- */
+body.studio #upgradePage .upgrade-wins-card{margin-inline:-6px!important;width:auto!important;padding:14px 8px!important}
+body.studio #upgradePage .upgrade-wins-card>h2{margin:0 0 10px 6px!important}
+body.studio #upgradePage .upgrade-win-row{display:grid!important;grid-template-columns:32px minmax(0,1fr)!important;grid-template-rows:auto auto;align-items:center;gap:8px 8px!important;padding:10px!important;overflow:visible!important}
+body.studio #upgradePage .upgrade-win-main{display:contents}
+body.studio #upgradePage .upgrade-win-row .recent-win-avatar{grid-column:1;grid-row:1;width:32px!important;height:32px!important;border-radius:10px!important;font-size:13px}
+body.studio #upgradePage .upgrade-win-head{grid-column:2;grid-row:1;margin:0!important;gap:8px;align-items:center}
+body.studio #upgradePage .upgrade-win-head strong{flex:1 1 auto;min-width:0;font-size:13px!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere;line-height:1.25}
+body.studio #upgradePage .upgrade-win-chance{padding:3px 8px!important;font-size:11px!important;white-space:nowrap}
+body.studio #upgradePage .upgrade-win-flow{grid-column:1/-1;grid-row:2;display:flex!important;align-items:center;gap:6px!important;overflow:visible!important}
+body.studio #upgradePage .upgrade-win-chip{flex:1 1 auto!important;min-width:0;overflow:visible!important;padding:6px 8px!important;gap:5px!important;min-height:38px!important;justify-content:center;font-size:12.5px!important;white-space:nowrap}
+body.studio #upgradePage .upgrade-win-chip span{overflow:visible!important;text-overflow:clip!important;flex:none}
+body.studio #upgradePage .upgrade-win-chip .upgrade-win-gift-image{width:24px!important;height:24px!important;min-width:24px!important;max-width:24px!important;min-height:24px!important;max-height:24px!important}
+body.studio #upgradePage .upgrade-win-arrow{font-size:11px!important;white-space:nowrap}
+body.studio #upgradePage .upgrade-win-note{grid-column:1/-1}
+@media(max-width:360px){body.studio #upgradePage .upgrade-win-chip{padding:5px 6px!important;font-size:11.5px!important;gap:4px!important}body.studio #upgradePage .upgrade-win-chip .upgrade-win-gift-image{width:20px!important;height:20px!important;min-width:20px!important;max-width:20px!important;min-height:20px!important;max-height:20px!important}}
+/* Mines list */
+body.studio #minesPage .recent-wins-card{padding-inline:10px!important}
+body.studio #minesPage .recent-win{grid-template-columns:36px minmax(0,1fr) auto!important;gap:9px!important;padding:9px 10px!important}
+body.studio #minesPage .recent-win-avatar{width:36px!important;height:36px!important}
+body.studio #minesPage .recent-win-meta strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.25}
+body.studio #minesPage .recent-win-reward{flex:none;min-width:max-content;white-space:nowrap}
 </style>
 </body></html>

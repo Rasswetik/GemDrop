@@ -36,8 +36,8 @@ BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if B
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
-GAME_RTP_DEFAULT = 0.985
-PROMO_RTP_DEFAULT = 0.94
+GAME_RTP_DEFAULT = 0.97
+PROMO_RTP_DEFAULT = 0.90
 MIN_GAME_RTP = 0.97
 MIN_PROMO_RTP = 0.89
 MIN_BET_CENTS = 10
@@ -46,7 +46,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '70-withdraw-referrals-activity'
+BUILD_ID = '66-render-load-fixes'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -120,7 +120,7 @@ class PostgreSQL:
             sql = sql.replace('%', '%%').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
-        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks|withdrawals)\b', sql))
+        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks)\b', sql))
         if returning:
             sql += ' RETURNING id'
         cursor = self.connection.execute(sql, params)
@@ -214,6 +214,10 @@ def _initialize_schema():
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
             name TEXT PRIMARY KEY, payload TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS withdrawal_contact_notices (
+            user_id INTEGER PRIMARY KEY,
+            shown_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
@@ -420,13 +424,6 @@ def _initialize_schema():
             kind TEXT NOT NULL,text TEXT NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE TABLE IF NOT EXISTS wager_fragment_claims (
-            promo_code TEXT NOT NULL, fragment_index INTEGER NOT NULL,
-            user_id INTEGER NOT NULL, inventory_id INTEGER NOT NULL,
-            claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(promo_code,fragment_index),
-            UNIQUE(promo_code,inventory_id)
-        );
         ''')
         def ensure_columns(table, definitions):
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -468,7 +465,6 @@ def _initialize_schema():
             ('max_drop_override_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('max_drop_override_set_at', 'TEXT'),
             ('tickets', 'INTEGER NOT NULL DEFAULT 0'),
-            ('referral_percent_override', 'REAL'),
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
@@ -489,7 +485,6 @@ def _initialize_schema():
             ('promo_locked', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'),
             ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'), ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('expires_at', 'TEXT'),
-            ('wager_completion_counted', 'INTEGER NOT NULL DEFAULT 0'),
             ('external_url', "TEXT NOT NULL DEFAULT ''"), ('fragment_number', "TEXT NOT NULL DEFAULT ''"),
             ('fragment_model', "TEXT NOT NULL DEFAULT ''"), ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"),
             ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
@@ -523,17 +518,10 @@ def _initialize_schema():
             ('source_label', "TEXT NOT NULL DEFAULT ''"),
             ('description', "TEXT NOT NULL DEFAULT ''"),
             ('expires_at', 'TEXT'), ('gift_expires_days', 'INTEGER NOT NULL DEFAULT 0'),
-            ('min_referrals', 'INTEGER NOT NULL DEFAULT 0'),
-            ('wager_completion_limit', 'INTEGER NOT NULL DEFAULT 0'),
-            ('wager_completion_count', 'INTEGER NOT NULL DEFAULT 0'),
-            ('require_channel', 'INTEGER NOT NULL DEFAULT 0'),
-            ('require_chat', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
         ensure_columns('freebet_redemptions', [('seen_at', 'TEXT')])
-        ensure_columns('freebets', [('min_referrals', 'INTEGER NOT NULL DEFAULT 0'),
-                                    ('require_chat', 'INTEGER NOT NULL DEFAULT 0')])
         if not _had_seen_at:
             # Old redemptions predate the "received" window: don't pop them up retroactively.
             db.execute('UPDATE freebet_redemptions SET seen_at=created_at WHERE seen_at IS NULL')
@@ -543,10 +531,6 @@ def _initialize_schema():
             ('source', "TEXT NOT NULL DEFAULT 'withdrawal'"), ('round_id', 'INTEGER'),
             ('status', "TEXT NOT NULL DEFAULT 'pending'"), ('admin_id', 'INTEGER'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"), ('processed_at', 'TEXT'),
-            ('external_url', "TEXT NOT NULL DEFAULT ''"), ('fragment_number', "TEXT NOT NULL DEFAULT ''"),
-            ('fragment_model', "TEXT NOT NULL DEFAULT ''"), ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"),
-            ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
-            ('animation_url', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('referrals', [
             ('referrer_id', 'INTEGER NOT NULL DEFAULT 0'), ('created_at', "TEXT NOT NULL DEFAULT ''"),
@@ -667,38 +651,6 @@ def _initialize_schema():
                        (int(row['level']),))
         db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
 
-        # One-time balanced probability profile requested for the unified chance controls.
-        if not db.execute("SELECT 1 FROM schema_migrations WHERE name=?", ('chance_controls_medium_v1',)).fetchone():
-            settings_row = db.execute("SELECT payload FROM app_documents WHERE name='game_settings'").fetchone()
-            try:
-                game_settings_doc = json.loads(settings_row['payload']) if settings_row else {}
-            except (TypeError, ValueError, json.JSONDecodeError):
-                game_settings_doc = {}
-            if not isinstance(game_settings_doc, dict):
-                game_settings_doc = {}
-            game_settings_doc.update({
-                'rtp': 0.985,
-                'promo_rtp': 0.94,
-                'upgrade_rtp_bp': 9500,
-                'loss_rtp_max_boost': 5.0,
-                'chance_profile': 'medium_v1',
-            })
-            db.execute("INSERT INTO app_documents(name,payload) VALUES('game_settings',?) "
-                       "ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
-                       (json.dumps(game_settings_doc, ensure_ascii=False),))
-            chance_doc = {
-                'roll_gift_weight_percent': 100.0,
-                'comp_balance_weight': 15,
-                'comp_tickets_weight': 10,
-                'comp_wager_gift_weight': 35,
-                'comp_gift_weight': 25,
-                'comp_promo_weight': 15,
-            }
-            db.execute("INSERT INTO app_documents(name,payload) VALUES('chance_control_settings',?) "
-                       "ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
-                       (json.dumps(chance_doc, ensure_ascii=False),))
-            db.execute("INSERT INTO schema_migrations(name) VALUES(?)", ('chance_controls_medium_v1',))
-
 
 
 initialize()
@@ -746,8 +698,6 @@ def auth():
     if not user:
         return error('Telegram не подтвердил вход. Проверьте BOT_TOKEN на Render: он должен принадлежать боту, через которого открыто приложение.', 401)
     user_id = user['id']
-    if maintenance_settings()['enabled'] and user_id not in ADMIN_IDS:
-        return maintenance_response()
     name = (user.get('first_name') or 'Игрок')[:80]
     username = (user.get('username') or '')[:80]
     photo = user.get('photo_url') or ''
@@ -951,53 +901,6 @@ def read_document(name):
     return deepcopy(cache[name])
 
 
-def chance_control_settings():
-    """Global, auditable probability controls used equally for all players."""
-    defaults = {
-        'roll_gift_weight_percent': 100.0,
-        'comp_balance_weight': 15,
-        'comp_tickets_weight': 10,
-        'comp_wager_gift_weight': 35,
-        'comp_gift_weight': 25,
-        'comp_promo_weight': 15,
-    }
-    try:
-        stored = read_document('chance_control_settings') or {}
-    except (TypeError, ValueError, json.JSONDecodeError):
-        stored = {}
-    if not isinstance(stored, dict):
-        stored = {}
-    result = dict(defaults)
-    try:
-        result['roll_gift_weight_percent'] = min(150.0, max(50.0, float(stored.get('roll_gift_weight_percent', defaults['roll_gift_weight_percent']))))
-    except (TypeError, ValueError):
-        pass
-    for key in ('comp_balance_weight','comp_tickets_weight','comp_wager_gift_weight','comp_gift_weight','comp_promo_weight'):
-        try:
-            result[key] = min(100, max(0, int(stored.get(key, defaults[key]))))
-        except (TypeError, ValueError):
-            pass
-    if sum(result[k] for k in ('comp_balance_weight','comp_tickets_weight','comp_wager_gift_weight','comp_gift_weight','comp_promo_weight')) <= 0:
-        for key in defaults:
-            result[key] = defaults[key]
-    return result
-
-
-def roll_global_gift_multiplier():
-    return chance_control_settings()['roll_gift_weight_percent'] / 100.0
-
-
-def compensation_reward_weights():
-    cfg = chance_control_settings()
-    return [
-        ('balance', cfg['comp_balance_weight']),
-        ('tickets', cfg['comp_tickets_weight']),
-        ('wager_gift', cfg['comp_wager_gift_weight']),
-        ('gift', cfg['comp_gift_weight']),
-        ('promo', cfg['comp_promo_weight']),
-    ]
-
-
 def section_settings():
     defaults = {'mines': True, 'upgrade': True, 'giveaways': True, 'profile': True}
     try:
@@ -1013,30 +916,6 @@ def section_settings():
     if not any(result.values()):
         result['profile'] = True
     return result
-
-
-def maintenance_settings():
-    """Global maintenance state. Admins always keep access."""
-    try:
-        stored = read_document('maintenance_settings') or {}
-    except (TypeError, ValueError, json.JSONDecodeError):
-        stored = {}
-    if not isinstance(stored, dict):
-        stored = {}
-    return {
-        'enabled': stored.get('enabled') is True,
-        'updated_at': str(stored.get('updated_at') or ''),
-        'admin_id': int(stored.get('admin_id') or 0),
-        'version': int(stored.get('version') or 0),
-    }
-
-
-def maintenance_response():
-    response = jsonify(error='Сейчас идут технические работы.', maintenance=True)
-    response.status_code = 503
-    response.headers['X-GemDrop-Maintenance'] = '1'
-    response.headers['Retry-After'] = '30'
-    return response
 
 
 def black_backgrounds_enabled():
@@ -1116,21 +995,6 @@ def compress_response(response):
 @app.before_request
 def enforce_available_modes():
     path = request.path
-    # During maintenance, public API calls never reach game/business logic.
-    # /api/auth is checked after Telegram identity verification so admins can still log in.
-    if path.startswith('/api/') and maintenance_settings()['enabled']:
-        uid = session.get('uid')
-        is_admin_session = False
-        try:
-            is_admin_session = int(uid) in ADMIN_IDS if uid is not None else False
-        except (TypeError, ValueError):
-            is_admin_session = False
-        maintenance_public = {
-            '/api/auth', '/api/ui/settings', '/api/build', '/api/maintenance/status',
-            '/api/web-auth/start', '/api/web-auth/status'
-        }
-        if not is_admin_session and path not in maintenance_public:
-            return maintenance_response()
     if request.is_json and request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and not (
             request.method == 'DELETE' and not request.get_data(cache=True)):
         payload = request.get_json(silent=True)
@@ -1270,7 +1134,7 @@ def log_event(db,user_id,kind,**details):
 IMPORTANT_NOTIFICATION_KINDS = (
     'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
-    'transfer_received','wager_copy_burned','wager_completed','wager_pool_update',
+    'transfer_received',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
@@ -1563,98 +1427,6 @@ def inventory_item(row):
                 expires_at=expires.isoformat() if expires else None, expires_in_seconds=expires_in)
 
 
-def referral_count(db, user_id):
-    row = db.execute('SELECT COUNT(*) AS n FROM referrals WHERE referrer_id=?', (int(user_id),)).fetchone()
-    return int((row or {}).get('n') or 0)
-
-
-def apply_global_wager_completion(db, promo_code, winner_user_id, keep_inventory_ids=()):
-    """Count a completed promo wager and, at the configured global cap, burn all other copies.
-
-    The cap is stored on promo_codes and applies to both ordinary promocodes and Freebet backing codes.
-    Activations may be unlimited; only fully completed wagers consume this counter.
-    """
-    code = str(promo_code or '').strip().upper()
-    if not code:
-        return dict(reached=False, count=0, limit=0, burned_users=[])
-    lock = ' FOR UPDATE' if DATABASE_URL else ''
-    promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + lock, (code,)).fetchone()
-    if not promo or str(promo['reward_type'] or '') != 'wager_gift':
-        return dict(reached=False, count=0, limit=0, burned_users=[])
-    limit = max(0, int(promo['wager_completion_limit'] or 0))
-    count = max(0, int(promo['wager_completion_count'] or 0))
-    pool = promo_completion_fragments(promo)
-    if len(pool) > 1:
-        # Multi-NFT self-destruct codes are counted only when the completed player
-        # selects and claims one concrete Fragment gift.
-        claimed = len(fragment_pool_claimed_indexes(db, code))
-        return dict(reached=False, count=claimed, limit=len(pool), burned_users=[], pending_selection=True)
-    fragment = promo_completion_fragment(promo)
-    completed_name = (fragment or {}).get('gift_name') or promo['gift_name'] or 'Подарок'
-    completed_number = (fragment or {}).get('fragment_number') or ''
-    completed_label = completed_name + (f' #{completed_number}' if completed_number and ('#'+completed_number) not in completed_name else '')
-    keep = {int(x) for x in (keep_inventory_ids or ()) if x is not None}
-    if limit > 0 and count >= limit:
-        # Another transaction reached the global cap first. Never leave a second winner behind.
-        burned = False
-        for item_id in keep:
-            row = db.execute('SELECT user_id,gift_name FROM inventory WHERE id=?', (item_id,)).fetchone()
-            if row:
-                db.execute('DELETE FROM inventory WHERE id=?', (item_id,))
-                db.execute("UPDATE rounds SET state='lost',prize_inventory_id=NULL WHERE prize_inventory_id=?", (item_id,))
-                burned = True
-        text = (f'Другой участник завершил отыгрыш раньше. Самоуничтожившийся подарок «{completed_label}» '
-                f'аннулирован: лимит кода {code} уже исчерпан.')
-        add_user_notification(db, int(winner_user_id), 'wager_copy_burned', text)
-        log_event(db, int(winner_user_id), 'promo_wager_global_burn', code=code, gifts=[completed_label], limit=limit)
-        return dict(reached=True, count=count, limit=limit, burned_users=[int(winner_user_id)], late_burned=burned)
-    add_user_notification(db, int(winner_user_id), 'wager_completed',
-                          f'Отыгрышный подарок отыгран. Финальный подарок «{completed_label}» готов в профиле.')
-    log_event(db, int(winner_user_id), 'promo_wager_completed', code=code, gift_name=completed_label)
-    if limit <= 0:
-        return dict(reached=False, count=count, limit=0, burned_users=[])
-    count += 1
-    reached = count >= limit
-    db.execute('UPDATE promo_codes SET wager_completion_count=?,active=? WHERE code=?',
-               (count, 0 if reached else int(bool(promo['active'])), code))
-    if not reached:
-        return dict(reached=False, count=count, limit=limit, burned_users=[])
-
-    # A Freebet uses a promo code with the same code as its backing reward.
-    db.execute('UPDATE freebets SET active=0 WHERE promo_code=? OR code=?', (code, code))
-    rows = db.execute("SELECT id,user_id,gift_name FROM inventory WHERE promo_locked=1 AND promo_code=?", (code,)).fetchall()
-    affected = {}
-    for row in rows:
-        item_id = int(row['id'])
-        if item_id in keep:
-            continue
-        uid = int(row['user_id'])
-        affected.setdefault(uid, []).append(str(row['gift_name'] or 'Подарок'))
-        db.execute('DELETE FROM inventory WHERE id=?', (item_id,))
-        db.execute("""INSERT INTO transactions(user_id,kind,amount,balance_after,reference_type,reference_id,details)
-                      SELECT id,'promo_wager_global_burn',0,balance,'promo',?,? FROM users WHERE id=?""",
-                   (code, f'Код {code}: лимит успешных отыгрышей исчерпан', uid))
-
-    # Copies already placed into an active Mines round are no longer in inventory.
-    active_rounds = db.execute("""SELECT id,user_id,bet_gift_name FROM rounds
-                                WHERE state='active' AND bet_type='promo_gift' AND promo_code=?""", (code,)).fetchall()
-    settled_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
-    for row in active_rounds:
-        uid = int(row['user_id'])
-        affected.setdefault(uid, []).append(str(row['bet_gift_name'] or 'Подарок'))
-        db.execute("UPDATE rounds SET state='lost',settled_at=? WHERE id=? AND state='active'", (settled_at, row['id']))
-
-    for uid, names in affected.items():
-        unique_names = list(dict.fromkeys(names))
-        label = unique_names[0] if len(unique_names) == 1 else f'{len(unique_names)} подарка(ов)'
-        who = 'Вы завершили отыгрыш.' if uid == int(winner_user_id) else 'Другой участник завершил отыгрыш раньше.'
-        text = (f'{who} Самоуничтожившийся отыгрышный подарок «{label}» аннулирован: '
-                f'лимит успешных отыгрышей кода {code} исчерпан.')
-        add_user_notification(db, uid, 'wager_copy_burned', text)
-        log_event(db, uid, 'promo_wager_global_burn', code=code, gifts=unique_names, limit=limit)
-    return dict(reached=True, count=count, limit=limit, burned_users=sorted(affected))
-
-
 def promo_gift_expiry(days):
     try:
         days = int(days or 0)
@@ -1692,28 +1464,15 @@ def award_round(db, row, opened_count):
         previous = max(0, int(row['promo_wager_progress'] or 0))
         progress = min(target, previous + amount) if target else previous + amount
         completed = bool(target and progress >= target)
-        promo_row, completion_pool = promo_fragment_pool_for_code(db, row['promo_code']) if completed else (None, [])
-        choice_pending = bool(completed and len(completion_pool) > 1)
-        final_item = completed_wager_item(db, row['promo_code'], dict(
-            gift_id=row['bet_gift_id'], gift_name=row['bet_gift_name'], image_url=row['bet_gift_image'],
-            floor_price=row['bet_gift_price'], external_url='', fragment_number='', fragment_model='',
-            fragment_backdrop='', fragment_symbol='', price_source='', animation_url='')) if completed else dict(
-            gift_id=row['bet_gift_id'], gift_name=row['bet_gift_name'], image_url=row['bet_gift_image'],
-            floor_price=row['bet_gift_price'], external_url='', fragment_number='', fragment_model='',
-            fragment_backdrop='', fragment_symbol='', price_source='', animation_url='')
         cursor = db.execute("""INSERT INTO inventory(
                                 user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                                promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
-                                external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
-                              VALUES(?,?,?,?,?,'promo_wager',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (row['user_id'], final_item['gift_id'], final_item['gift_name'], final_item['image_url'],
-                             final_item['floor_price'], row['id'], 1 if choice_pending else (0 if completed else 1),
-                             float(row['promo_wager_multiplier'] or 0) if choice_pending else (0.0 if completed else float(row['promo_wager_multiplier'] or 0)),
-                             target if choice_pending else (0 if completed else target), progress if choice_pending else (0 if completed else progress),
-                             (row['promo_code'] or '') if choice_pending else ('' if completed else (row['promo_code'] or '')), None if completed else row['bet_expires_at'],
-                             final_item.get('external_url',''), final_item.get('fragment_number',''), final_item.get('fragment_model',''),
-                             final_item.get('fragment_backdrop',''), final_item.get('fragment_symbol',''), final_item.get('price_source',''),
-                             final_item.get('animation_url','')))
+                                promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
+                              VALUES(?,?,?,?,?,'promo_wager',?,?,?,?,?,?,?)""",
+                            (row['user_id'], row['bet_gift_id'], row['bet_gift_name'], row['bet_gift_image'],
+                             row['bet_gift_price'], row['id'], 0 if completed else 1,
+                             0.0 if completed else float(row['promo_wager_multiplier'] or 0),
+                             0 if completed else target, 0 if completed else progress,
+                             '' if completed else (row['promo_code'] or ''), None if completed else row['bet_expires_at']))
         db.execute("""UPDATE rounds SET state='won',payout=0,prize_inventory_id=?,win_total=?,win_multiplier=?,
                       promo_progress_after=?,win_gift_name='',win_gift_image='',win_gift_price=NULL,
                       settled_at=? WHERE id=?""",
@@ -1721,14 +1480,8 @@ def award_round(db, row, opened_count):
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'],
                            f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
         if completed:
-            if choice_pending:
-                add_user_notification(db, row['user_id'], 'wager_completed',
-                                      f'✅ Отыгрыш завершён. Выберите один из {len(completion_pool)} оставшихся Fragment-подарков.')
-            else:
-                record_transaction(db, row['user_id'], 'promo_wager_claim', 0, 'inventory', cursor.lastrowid,
-                                   f'Подарок успешно отыгран: {final_item["gift_name"]}')
-                db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (cursor.lastrowid,))
-                apply_global_wager_completion(db, row['promo_code'], row['user_id'], (cursor.lastrowid,))
+            record_transaction(db, row['user_id'], 'promo_wager_claim', 0, 'inventory', cursor.lastrowid,
+                               f'Подарок успешно отыгран: {row["bet_gift_name"]}')
         return
 
     prize = prize_for(amount)
@@ -1829,254 +1582,12 @@ def parse_amount(value):
     return int(value)
 
 
-MAINTENANCE_FETCH_GUARD = r"""<script id="gemdrop-maintenance-guard">
-(()=>{if(window.__gemdropMaintenanceGuard)return;window.__gemdropMaintenanceGuard=true;
-const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const response=await nativeFetch(...args);
-if(response.status===503&&response.headers.get('X-GemDrop-Maintenance')==='1'){return await new Promise(()=>{});}return response;};
-let maintenanceBusy=false;
-function maintenanceOverlay(){if(document.getElementById('gemdropMaintenanceLock'))return;let d=document.createElement('div');d.id='gemdropMaintenanceLock';d.style.cssText='position:fixed;z-index:2147483647;inset:0;background:#090a11;display:grid;place-items:center';d.innerHTML='<div style="width:min(260px,70vw);text-align:center"><img src="/static/gifs/shard.gif" alt="" style="width:110px;height:110px;object-fit:contain"><div style="height:4px;margin-top:18px;border-radius:99px;background:#1b1d30;overflow:hidden"><i style="display:block;height:100%;width:38%;background:#47b0f5;animation:gdMaintLoad 1.2s ease-in-out infinite"></i></div></div><style>@keyframes gdMaintLoad{0%{transform:translateX(-120%)}100%{transform:translateX(330%)}}</style>';document.body?.append(d)}
-async function checkMaintenance(){if(maintenanceBusy)return;maintenanceBusy=true;try{let r=await nativeFetch('/api/maintenance/status?_='+Date.now(),{credentials:'same-origin',cache:'no-store'});let d=await r.json();let key=String(d.version||1),seen=sessionStorage.getItem('gemdropMaintenanceVersion');if(d.blocked){if(seen!==key){sessionStorage.setItem('gemdropMaintenanceVersion',key);location.reload();return}maintenanceOverlay()}else if(!d.enabled||d.admin){if(seen){sessionStorage.removeItem('gemdropMaintenanceVersion');if(d.authenticated&&!d.admin){location.reload();return}}document.getElementById('gemdropMaintenanceLock')?.remove()}}catch(e){}finally{maintenanceBusy=false}}
-setInterval(checkMaintenance,900);setTimeout(checkMaintenance,350);
-})();
-</script>"""
-
-
-ADMIN_SYSTEM_INJECTION = r"""
-<style id="gemdrop-system-tools-style">
-.gd-system-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px solid var(--line,#2c304f);border-radius:14px;background:var(--surface2,#171a2c);box-shadow:inset 0 1px #ffffff08}
-.gd-system-status strong{font-size:13px}.gd-system-status small{display:block;margin-top:4px;color:var(--muted,#8ea3b5);font-size:10px}
-.gd-switch{position:relative;display:inline-block;width:48px;height:28px;flex:none}.gd-switch input{opacity:0;width:0;height:0}.gd-slider{position:absolute;inset:0;border-radius:999px;background:#34384f;transition:.2s;box-shadow:inset 0 0 0 1px #ffffff12}.gd-slider:before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#e8edf3;transition:.2s;box-shadow:0 2px 7px #0006}.gd-switch input:checked+.gd-slider{background:#47b0f5}.gd-switch input:checked+.gd-slider:before{transform:translateX(20px)}
-.gd-danger-panel{border-color:#3a3040!important;background:var(--surface,#141624)!important}.gd-warning{padding:12px;border:1px solid #513442;border-radius:12px;background:#1b171f;color:#cbb8c1;font-size:11px;line-height:1.5}.gd-warning b{color:#f4e9ee}.gd-reset-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.gd-reset-stat{padding:11px;border:1px solid var(--line,#2c304f);border-radius:12px;background:var(--surface2,#171a2c)}.gd-reset-stat small{display:block;color:var(--muted,#8ea3b5);font-size:9px}.gd-reset-stat b{display:block;margin-top:3px;font-size:15px}.gd-danger-action{width:100%;min-height:48px;margin-top:10px;border-radius:13px;background:#713247;color:#fff;font-weight:850}.gd-danger-action:disabled{opacity:.4}.gd-maintenance-on{color:#6eddb5}.gd-maintenance-off{color:#aeb9c5}
-</style>
-<script id="gemdrop-system-tools">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
-ready(()=>{if(window.__gemdropSystemTools)return;window.__gemdropSystemTools=true;
-try{if(typeof upgradeTargetChance==='function'){upgradeTargetChance=function(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0),rtp=Number(upgradeSettings?.rtp??95);if(!(sp>0&&tp>sp&&tp<=sp*10))return 0;let chance=(100*sp/tp)*(rtp/100);return chance>0&&chance<=80?chance:0}}}catch(e){}
-const adminPage=document.getElementById('adminPage');if(!adminPage)return;
-try{if(typeof pageIds!=='undefined'&&Array.isArray(pageIds)){for(const id of ['maintenanceAdminPage','dataResetAdminPage'])if(!pageIds.includes(id))pageIds.push(id)}}catch(e){}
-let systemGroup=[...adminPage.querySelectorAll('.admin-group')].find(g=>(g.querySelector('h2')?.textContent||'').trim()==='Система');let actions=systemGroup?.querySelector('.admin-actions');if(!actions){let menu=adminPage.querySelector('.admin-menu');if(menu){systemGroup=document.createElement('div');systemGroup.className='admin-group';systemGroup.innerHTML='<h2>Система</h2><div class="admin-actions"></div>';menu.append(systemGroup);actions=systemGroup.querySelector('.admin-actions')}}if(actions){
-const maintenanceBtn=document.createElement('button');maintenanceBtn.id='openMaintenanceAdmin';maintenanceBtn.innerHTML='Тех. работы <span>→</span>';actions.append(maintenanceBtn);
-const resetBtn=document.createElement('button');resetBtn.id='openDataResetAdmin';resetBtn.innerHTML='Очистить все данные <span>→</span>';actions.append(resetBtn);}
-adminPage.insertAdjacentHTML('afterend',`<section id="maintenanceAdminPage" class="hidden"><button id="maintenanceAdminBack" class="back" type="button">← Админ-панель</button><h1>Технические работы</h1><p class="muted">При включении активные пользователи принудительно перезагрузят Mini App и останутся на бесконечной загрузке. Новые входы также блокируются. Telegram-бот обычным пользователям не отвечает. Администраторы продолжают работать.</p><div class="panel stack"><div class="gd-system-status"><div><strong id="maintenanceAdminTitle">Проверяем состояние…</strong><small id="maintenanceAdminMeta">—</small></div><label class="gd-switch"><input id="maintenanceAdminToggle" type="checkbox"><span class="gd-slider"></span></label></div><p class="notice">Администраторы из ADMIN_IDS не блокируются, поэтому режим можно выключить в любой момент.</p></div></section>
-<section id="dataResetAdminPage" class="hidden"><button id="dataResetAdminBack" class="back" type="button">← Админ-панель</button><h1>Очистить все данные</h1><p class="muted">Полный сброс игрового состояния с сохранением аккаунтов пользователей, каталога Portal и системных настроек.</p><div class="panel stack gd-danger-panel"><div class="gd-warning"><b>Предупреждение 1.</b> Будут обнулены все TON-балансы, билеты, оборот, инвентари и пользовательский прогресс.</div><div class="gd-warning"><b>Предупреждение 2.</b> Будут безвозвратно удалены промокоды и фрибеты, история игр, пополнений, выводов и переводов, розыгрыши, заявки, уведомления и игровые логи. Сброс доступен только при включённых техработах.</div><div id="dataResetStats" class="gd-reset-stats"></div><div class="gd-system-status"><div><strong>Разблокировать удаление</strong><small>Сначала включите ползунок</small></div><label class="gd-switch"><input id="dataResetArm" type="checkbox"><span class="gd-slider"></span></label></div><button id="dataResetExecute" class="gd-danger-action" type="button" disabled>Удалить игровые данные</button><p id="dataResetStatus" class="muted" role="status"></p></div></section>`);
-const fmt=n=>Number(n||0).toLocaleString('ru-RU');
-async function loadMaintenance(){try{let d=await api('/api/admin/maintenance');let t=document.getElementById('maintenanceAdminToggle');t.checked=!!d.enabled;document.getElementById('maintenanceAdminTitle').textContent=d.enabled?'Тех. работы включены':'Тех. работы выключены';document.getElementById('maintenanceAdminTitle').className=d.enabled?'gd-maintenance-on':'gd-maintenance-off';document.getElementById('maintenanceAdminMeta').textContent=d.updated_at?('Изменено: '+d.updated_at):'Режим ещё не менялся'}catch(e){toast(e.message)}}
-async function loadResetStats(){try{let d=await api('/api/admin/data-reset');let s=d.summary||{};document.getElementById('dataResetStats').innerHTML=`<div class="gd-reset-stat"><small>Пользователей останется</small><b>${fmt(s.users)}</b></div><div class="gd-reset-stat"><small>TON будет обнулено</small><b>${Number(s.balance_ton||0).toFixed(2)}</b></div><div class="gd-reset-stat"><small>Подарков в инвентарях</small><b>${fmt(s.inventory)}</b></div><div class="gd-reset-stat"><small>Промокодов / фрибетов</small><b>${fmt((s.promocodes||0)+(s.freebets||0))}</b></div><div class="gd-reset-stat"><small>Игровых записей</small><b>${fmt(s.game_records)}</b></div><div class="gd-reset-stat"><small>Розыгрышей</small><b>${fmt(s.giveaways)}</b></div>`}catch(e){document.getElementById('dataResetStatus').textContent=e.message}}
-document.getElementById('openMaintenanceAdmin')?.addEventListener('click',()=>{show('maintenanceAdminPage');loadMaintenance()});document.getElementById('maintenanceAdminBack').onclick=()=>show('adminPage');
-document.getElementById('openDataResetAdmin')?.addEventListener('click',()=>{show('dataResetAdminPage');loadResetStats()});document.getElementById('dataResetAdminBack').onclick=()=>show('adminPage');
-document.getElementById('maintenanceAdminToggle').onchange=async e=>{let t=e.currentTarget;t.disabled=true;try{let d=await api('/api/admin/maintenance',{method:'POST',body:JSON.stringify({enabled:t.checked})});t.checked=!!d.enabled;await loadMaintenance();toast(d.enabled?'Технические работы включены':'Технические работы выключены')}catch(err){t.checked=!t.checked;toast(err.message)}finally{t.disabled=false}};
-const arm=document.getElementById('dataResetArm'),execute=document.getElementById('dataResetExecute');arm.onchange=()=>{execute.disabled=!arm.checked};execute.onclick=async()=>{if(!arm.checked)return;if(!confirm('Предупреждение 1 из 2: удалить балансы, билеты, инвентари и всю игровую историю?'))return;let phrase=prompt('Предупреждение 2 из 2. Для окончательного удаления введите: УДАЛИТЬ ВСЁ');if(phrase!=='УДАЛИТЬ ВСЁ'){toast('Удаление отменено');return}execute.disabled=true;document.getElementById('dataResetStatus').textContent='Подготавливаем безопасный сброс…';try{let prep=await api('/api/admin/data-reset/prepare',{method:'POST',body:JSON.stringify({armed:true,confirm:true})});let done=await api('/api/admin/data-reset/execute',{method:'POST',body:JSON.stringify({token:prep.token,phrase})});document.getElementById('dataResetStatus').textContent=`Готово. Сброшено таблиц: ${done.cleared_tables}. Пользователи сохранены: ${done.users_preserved}.`;arm.checked=false;toast('Все игровые данные очищены');await loadResetStats()}catch(err){document.getElementById('dataResetStatus').textContent=err.message;toast(err.message)}finally{execute.disabled=!arm.checked}};
-});})();
-</script>
-"""
-
-
-WITHDRAW_UI_INJECTION = r"""
-<style id="gemdrop-withdraw-confirm-style">
-#withdrawConfirmModal{z-index:2147482500!important}
-#withdrawConfirmModal .withdraw-confirm-card{width:min(100%,370px);padding:24px 18px 18px;text-align:center;border:1px solid #2b304d;border-radius:22px;background:linear-gradient(180deg,#171a2c,#121422);box-shadow:0 24px 70px #000b}
-#withdrawConfirmModal .withdraw-confirm-kicker{margin:0 0 12px;color:#f0f3fb;font-size:22px;font-weight:850;letter-spacing:-.02em}
-#withdrawConfirmModal .withdraw-confirm-art{display:grid;place-items:center;width:150px;height:150px;margin:0 auto 14px;border-radius:22px;background:radial-gradient(circle,#263854,#151727 72%);overflow:hidden}
-#withdrawConfirmModal .withdraw-confirm-art img{width:92%;height:92%;object-fit:contain}
-#withdrawConfirmModal .withdraw-confirm-name{margin:0 0 11px;color:#f3f6fb;font-size:15px;font-weight:800}
-#withdrawConfirmModal .withdraw-confirm-copy{margin:0 0 17px;color:#929db8;font-size:13px;line-height:1.5}
-#withdrawConfirmModal .withdraw-confirm-copy a{color:#56b9f7;text-decoration:none;font-weight:800}
-#withdrawConfirmModal .withdraw-confirm-actions{display:grid;gap:8px}
-#withdrawConfirmModal .withdraw-confirm-actions .primary{min-height:50px;border-radius:15px}
-#withdrawConfirmModal .withdraw-confirm-actions .secondary{min-height:44px;border-radius:14px}
-#rewardsReceivedModal .rr-badge svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
-#rewardsReceivedModal .rr-art svg{width:27px;height:27px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
-#rewardsReceivedModal .rr-item.balance .rr-art{color:#8ff7d3}
-#rewardsReceivedModal .rr-item.wager_gift .rr-art{color:#b7a7ff}
-#rewardsReceivedModal .rr-item.deposit_bonus .rr-art{color:#a9a4ff}
-#rewardsReceivedModal .rr-item.tickets .rr-art{color:#7cc9ff}
-#maintenanceAdminPage>.panel,#dataResetAdminPage>.panel{margin-top:16px}
-.gift-external-link{display:none!important}
-</style>
-<div id="withdrawConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmHeading">
-  <div class="modal-card withdraw-confirm-card">
-    <h2 id="withdrawConfirmHeading" class="withdraw-confirm-kicker">Внимание</h2>
-    <div class="withdraw-confirm-art"><img id="withdrawConfirmImage" src="/static/img/gift.svg" alt=""></div>
-    <div id="withdrawConfirmName" class="withdraw-confirm-name"></div>
-    <p class="withdraw-confirm-copy">Для получения подарка зайдите в <a id="withdrawPortalsLink" href="https://t.me/portals" target="_blank" rel="noopener noreferrer">https://t.me/portals</a></p>
-    <div class="withdraw-confirm-actions">
-      <button id="withdrawConfirmAction" class="primary" type="button">Подтвердить вывод</button>
-      <button id="withdrawConfirmCancel" class="secondary" type="button">Отмена</button>
-    </div>
-  </div>
-</div>
-<script id="gemdrop-withdraw-confirm-ui">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
-ready(()=>{if(window.__gemdropWithdrawConfirm)return;window.__gemdropWithdrawConfirm=true;
-const byId=id=>document.getElementById(id),modal=byId('withdrawConfirmModal'),confirmBtn=byId('withdrawConfirmAction'),cancelBtn=byId('withdrawConfirmCancel'),portals=byId('withdrawPortalsLink');
-let pending=null;
-const svg=(kind)=>({
- gift:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15M7.5 5C5.8 5 5 4.1 5 3.1c0-1.1.9-2 2-2 2.1 0 5 3.9 5 3.9M16.5 5c1.7 0 2.5-.9 2.5-1.9 0-1.1-.9-2-2-2-2.1 0-5 3.9-5 3.9"/></svg>',
- balance:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M9 9.2c.6-.8 1.6-1.2 3-1.2 1.8 0 3 .8 3 2 0 3-6 1.2-6 4 0 1.2 1.2 2 3 2 1.4 0 2.4-.4 3-1.2M12 6.5v11"/></svg>',
- wager_gift:'<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/></svg>',
- deposit_bonus:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18 10 13l3 3 6-8M14 8h5v5"/></svg>',
- tickets:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg>'
-}[kind]||'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.1 5.2L20 10l-4.5 3.5.2 5.7L12 16l-3.7 3.2.2-5.7L4 10l5.9-1.8L12 3Z"/></svg>');
-function paintSvg(el,kind){if(el)el.innerHTML=svg(kind)}
-paintSvg(document.querySelector('#rewardsReceivedModal .rr-badge'),'gift');
-try{showReceivedRewards=function(batches){pendingRewardBatches=batches;let list=byId('rrList');list.replaceChildren();let count=0;for(const batch of batches)for(const it of batch.items||[]){count++;let row=document.createElement('div');row.className='rr-item '+(it.kind||'');let art=document.createElement('div');art.className='rr-art';if(it.image_url){let im=new Image;im.src=it.image_url;im.alt='';im.onerror=()=>{im.remove();paintSvg(art,it.kind)};art.append(im)}else paintSvg(art,it.kind);let text=document.createElement('div');text.className='rr-text';let title=document.createElement('b');title.textContent=it.title;let detail=document.createElement('small');detail.textContent=it.detail||'';text.append(title,detail);row.append(art,text);list.append(row)}if(!count)return;let codes=batches.map(b=>b.code).filter(Boolean);byId('rrSub').textContent=codes.length?`Фрибет ${codes.join(', ')} активирован — награды уже у вас`:'Награды уже зачислены в ваш аккаунт';byId('rrClaim').disabled=false;byId('rewardsReceivedModal').classList.remove('hidden')}}catch(e){}
-portals?.addEventListener('click',e=>{try{if(window.Telegram?.WebApp?.openTelegramLink){e.preventDefault();Telegram.WebApp.openTelegramLink('https://t.me/portals')}}catch(err){}});
-let withdrawBusy=false;
-const withdraw=byId('withdrawGift');if(withdraw)withdraw.onclick=()=>{if(typeof selectedGift==='undefined'||!selectedGift||withdrawBusy)return;let snapshot={...selectedGift};pending={id:snapshot.id,name:snapshot.name||snapshot.gift_name||'Подарок',image_url:snapshot.image_url||'/static/img/gift.svg'};let image=byId('withdrawConfirmImage');image.src=pending.image_url;image.onerror=()=>{image.onerror=null;image.src='/static/img/gift.svg'};byId('withdrawConfirmName').textContent=pending.name;modal.classList.remove('hidden')};
-cancelBtn.onclick=()=>{if(withdrawBusy)return;pending=null;modal.classList.add('hidden')};
-confirmBtn.onclick=async()=>{if(!pending||withdrawBusy)return;withdrawBusy=true;let request={...pending};confirmBtn.disabled=true;cancelBtn.disabled=true;confirmBtn.textContent='Отправляем…';try{let d=await api(`/api/inventory/${request.id}/withdraw`,{method:'POST',body:'{}',timeoutMs:10000});pending=null;modal.classList.add('hidden');byId('giftModal')?.classList.add('hidden');try{if(typeof selectedGift!=='undefined'&&selectedGift?.id===request.id)selectedGift=null}catch(e){};try{if(Array.isArray(inventoryItems))inventoryItems=inventoryItems.filter(x=>Number(x.id)!==Number(request.id))}catch(e){};try{renderInventory?.()}catch(e){};toast('Заявка на вывод отправлена в обработку');setTimeout(()=>{try{loadInventory?.()}catch(e){}},0)}catch(e){toast(e.message)}finally{withdrawBusy=false;confirmBtn.disabled=false;cancelBtn.disabled=false;confirmBtn.textContent='Подтвердить вывод'}};
-modal.addEventListener('click',e=>{if(e.target===modal)cancelBtn.click()});
-});})();
-</script>
-"""
-
-
-
-PROMO_CONDITIONS_INJECTION = r"""
-<style id="gemdrop-promo-conditions-style">
-.gd-condition-switch{margin-top:10px;padding:12px;border:1px solid var(--line,#2c304f);border-radius:13px;background:var(--surface2,#171a2c)}
-.gd-condition-switch .gd-condition-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.gd-condition-switch b{font-size:12px}.gd-condition-switch small{display:block;margin-top:4px;color:var(--muted,#8ea3b5);font-size:10px;line-height:1.4}.gd-condition-limit{margin-top:10px}.gd-condition-limit.hidden{display:none!important}
-.gd-fragment-rows{display:grid;gap:8px;margin-top:10px}.gd-fragment-row{display:block}.gd-fragment-final{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:10px}.gd-fragment-final .gd-fragment-preview{grid-column:1/-1;display:flex;align-items:center;gap:10px;min-height:58px;padding:8px;border:1px solid var(--line,#303556);border-radius:12px;background:var(--surface,#141624);color:var(--muted,#8ea3b5);font-size:10px}.gd-fragment-preview img{width:50px;height:50px;object-fit:cover;border-radius:12px;overflow:hidden}.gd-access-check{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px}.gd-access-check input{width:18px;height:18px}
-.gift.fragment-owned .gift-art{overflow:hidden;border-radius:14px}.gift.fragment-owned .gift-art>img{width:108%!important;height:108%!important;object-fit:cover!important;border-radius:14px}.modal-art.fragment-exact{overflow:hidden;border-radius:18px}.modal-art.fragment-exact>img{width:106%!important;height:106%!important;object-fit:cover!important;border-radius:16px}.promo-ribbon.self-destruct{background:#5e3548!important;color:#fff!important}
-#wagerFragmentChoiceModal{z-index:2147482600!important}#wagerFragmentChoiceModal .wf-card{width:min(100%,430px);padding:20px 16px 16px;text-align:left}#wagerFragmentChoiceModal .wf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:55dvh;overflow:auto;margin:13px 0}#wagerFragmentChoiceModal .wf-option{position:relative;padding:9px;border:1px solid var(--line,#303556);border-radius:15px;background:var(--surface2,#171a2c);color:var(--text,#eef3f8);text-align:left}#wagerFragmentChoiceModal .wf-option.selected{border-color:#55b9f5;box-shadow:0 0 0 1px #55b9f566 inset}#wagerFragmentChoiceModal .wf-option img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:11px;margin-bottom:8px}#wagerFragmentChoiceModal .wf-option b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#wagerFragmentChoiceModal .wf-option small{display:block;margin-top:3px;color:var(--muted,#8da3b7);font-size:9px}.gift-external-link{display:none!important}
-</style>
-<div id="wagerFragmentChoiceModal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card wf-card"><h2>Выберите подарок</h2><p class="muted">Выберите конкретный Fragment-подарок, который получите за завершённый отыгрыш.</p><div id="wagerFragmentChoiceGrid" class="wf-grid"></div><button id="wagerFragmentTake" class="primary" type="button" disabled>Забрать</button><button id="wagerFragmentClose" class="secondary" type="button" style="margin-top:8px">Позже</button></div></div>
-<script id="gemdrop-promo-conditions">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
-ready(()=>{if(window.__gemdropPromoConditions)return;window.__gemdropPromoConditions=true;const $=id=>document.getElementById(id);
-function referralField(id,label){let wrap=document.createElement('label');wrap.innerHTML=`<span class="caption">${label}</span><input id="${id}" class="text-input" type="number" min="0" max="1000000" step="1" value="0">`;return wrap}
-let fbGrid=document.querySelector('#freebetsAdminPage .freebet-condition-grid');if(fbGrid&&!$('freebetMinReferrals'))fbGrid.append(referralField('freebetMinReferrals','Минимум рефералов'));
-let promoExtra=document.querySelector('#promocodesPage .promo-admin-extra');if(promoExtra&&!$('promoMinReferrals'))promoExtra.append(referralField('promoMinReferrals','Минимум рефералов'));
-function accessCheck(id,text){let l=document.createElement('label');l.className='gd-access-check';l.innerHTML=`<input id="${id}" type="checkbox"><span>${text}</span>`;return l}
-if(fbGrid&&!$('freebetRequireChat'))fbGrid.append(accessCheck('freebetRequireChat','Требовать вступление в чат'));
-if(promoExtra&&!$('promoRequireChannel')){promoExtra.append(accessCheck('promoRequireChannel','Требовать подписку на канал'));promoExtra.append(accessCheck('promoRequireChat','Требовать вступление в чат'))}
-function makeLimitBox(prefix,title){let box=document.createElement('div');box.id=prefix+'CompletionBox';box.className='gd-condition-switch hidden';box.innerHTML=`<div class="gd-condition-head"><div><b>${title}</b><small>Количество успешных отыгрышей равно количеству конкретных Fragment-подарков. Каждый победитель выбирает один из оставшихся; последний выдаётся автоматически.</small></div><label class="gd-switch"><input id="${prefix}CompletionEnabled" type="checkbox"><span class="gd-slider"></span></label></div><div id="${prefix}CompletionFields" class="gd-condition-limit hidden"><span class="caption">Количество сгораемых подарков</span><input id="${prefix}CompletionLimit" class="text-input" type="number" min="1" max="50" step="1" value="1"><div id="${prefix}FragmentRows" class="gd-fragment-rows"></div></div>`;return box}
-let fbW=$('freebetWagerFields');if(fbW&&!$('freebetCompletionBox'))fbW.append(makeLimitBox('freebet','Самоуничтожающийся отыгрыш'));
-let prW=$('promoWagerFields');if(prW&&!$('promoCompletionBox'))prW.append(makeLimitBox('promo','Самоуничтожающийся отыгрыш'));
-function fragmentValues(prefix){return Array.from(document.querySelectorAll(`#${prefix}FragmentRows input[data-fragment-url]`)).map(x=>x.value.trim())}
-function renderFragmentRows(prefix){let host=$(prefix+'FragmentRows'),limit=$(prefix+'CompletionLimit');if(!host||!limit)return;let count=Math.max(1,Math.min(50,Number(limit.value)||1)),old=fragmentValues(prefix);host.replaceChildren();for(let i=0;i<count;i++){let row=document.createElement('label');row.className='gd-fragment-row';row.innerHTML=`<span class="caption">Fragment-подарок ${i+1} из ${count}</span><input class="text-input" data-fragment-url="${i}" placeholder="https://fragment.com/gift/...-${i+1}">`;row.querySelector('input').value=old[i]||'';host.append(row)}}
-function sync(){let fbWager=$('freebetRewardType')?.value==='wager_gift',prWager=$('promoRewardType')?.value==='wager_gift';$('freebetCompletionBox')?.classList.toggle('hidden',!fbWager);$('promoCompletionBox')?.classList.toggle('hidden',!prWager);$('freebetCompletionFields')?.classList.toggle('hidden',!fbWager||!$('freebetCompletionEnabled')?.checked);$('promoCompletionFields')?.classList.toggle('hidden',!prWager||!$('promoCompletionEnabled')?.checked);if(fbWager&&$('freebetCompletionEnabled')?.checked)renderFragmentRows('freebet');if(prWager&&$('promoCompletionEnabled')?.checked)renderFragmentRows('promo')}
-for(let id of ['freebetRewardType','promoRewardType','freebetCompletionEnabled','promoCompletionEnabled'])$(id)?.addEventListener('change',sync);for(let id of ['freebetCompletionLimit','promoCompletionLimit'])$(id)?.addEventListener('input',()=>renderFragmentRows(id.startsWith('freebet')?'freebet':'promo'));sync();
-const previousFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{try{let url=typeof input==='string'?input:(input?.url||''),method=String(init?.method||'GET').toUpperCase();if(method==='POST'&&(url==='/api/admin/freebets'||url==='/api/admin/promocodes')&&typeof init.body==='string'){let body=JSON.parse(init.body||'{}');if(url==='/api/admin/freebets'){body.min_referrals=$('freebetMinReferrals')?.value||0;body.require_chat=!!$('freebetRequireChat')?.checked;body.wager_completion_limit=$('freebetRewardType')?.value==='wager_gift'&&$('freebetCompletionEnabled')?.checked?($('freebetCompletionLimit')?.value||1):0;body.completion_fragment_urls=$('freebetCompletionEnabled')?.checked?fragmentValues('freebet'):[]}else{body.min_referrals=$('promoMinReferrals')?.value||0;body.require_channel=!!$('promoRequireChannel')?.checked;body.require_chat=!!$('promoRequireChat')?.checked;body.wager_completion_limit=$('promoRewardType')?.value==='wager_gift'&&$('promoCompletionEnabled')?.checked?($('promoCompletionLimit')?.value||1):0;body.completion_fragment_urls=$('promoCompletionEnabled')?.checked?fragmentValues('promo'):[]}init={...init,body:JSON.stringify(body)}}}catch(e){}return previousFetch(input,init)};
-let wagerChoice={itemId:null,options:[],selected:null};const choiceModal=$('wagerFragmentChoiceModal'),choiceGrid=$('wagerFragmentChoiceGrid'),choiceTake=$('wagerFragmentTake');
-function paintChoice(itemId,options,message=''){wagerChoice={itemId,options:options||[],selected:null};choiceGrid.replaceChildren();for(const opt of wagerChoice.options){let b=document.createElement('button');b.type='button';b.className='wf-option';let im=new Image;im.src=opt.image_url||'/static/img/gift.svg';im.alt=opt.name||'';let title=document.createElement('b');title.textContent=opt.name||'Подарок';let meta=document.createElement('small');meta.textContent=[opt.fragment_number?'№ '+opt.fragment_number:'',opt.fragment_model||''].filter(Boolean).join(' · ');b.append(im,title,meta);b.onclick=()=>{choiceGrid.querySelectorAll('.wf-option').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');wagerChoice.selected=Number(opt.index);choiceTake.disabled=false};choiceGrid.append(b)}choiceTake.disabled=true;choiceModal.classList.remove('hidden');if(message)toast(message)}
-$('wagerFragmentClose').onclick=()=>choiceModal.classList.add('hidden');
-choiceTake.onclick=async()=>{if(wagerChoice.selected==null||!wagerChoice.itemId)return;choiceTake.disabled=true;try{let d=await api(`/api/inventory/${wagerChoice.itemId}/claim-promo`,{method:'POST',body:JSON.stringify({fragment_index:wagerChoice.selected})});if(d.selection_required){paintChoice(wagerChoice.itemId,d.options,d.message||'Список обновлён');return}choiceModal.classList.add('hidden');if(d.user)setUser(d.user);if(d.item){selectedGift=d.item;openGift(d.item)}await loadInventory();toast('Подарок выбран и добавлен в инвентарь')}catch(e){toast(e.message)}finally{choiceTake.disabled=wagerChoice.selected==null}};
-const claimPromo=$('claimPromoGift');if(claimPromo)claimPromo.onclick=async()=>{if(!selectedGift||busy)return;busy=true;try{let id=selectedGift.id,d=await api(`/api/inventory/${id}/claim-promo`,{method:'POST',body:'{}'});if(d.selection_required){paintChoice(id,d.options,d.message||'');return}if(d.user)setUser(d.user);if(d.item){selectedGift=d.item;openGift(d.item)}await loadInventory();toast('Отыгрыш завершён — подарок разблокирован')}catch(e){toast(e.message)}finally{busy=false}};
-async function maybePromptWagerChoice(){try{if(typeof inventoryItems==='undefined'||!Array.isArray(inventoryItems))return;let item=inventoryItems.find(x=>x?.self_destruct&&x?.promo_locked&&x?.wager_complete);if(!item||window.__wagerPromptItem===item.id)return;window.__wagerPromptItem=item.id;let d=await api(`/api/inventory/${item.id}/claim-promo`,{method:'POST',body:'{}'});if(d.selection_required){paintChoice(item.id,d.options,d.message||'');return}if(d.item){selectedGift=d.item;await loadInventory();toast('Последний подарок выдан автоматически')}}catch(e){window.__wagerPromptItem=null}}
-try{if(typeof loadInventory==='function'){const baseLoadInventory=loadInventory;loadInventory=async function(...args){let result=await baseLoadInventory(...args);setTimeout(maybePromptWagerChoice,80);return result};setTimeout(maybePromptWagerChoice,500)}}catch(e){}
-try{if(typeof itemCard==='function'){const originalItemCard=itemCard;itemCard=function(item,clickable=false){let card=originalItemCard(item,clickable);if(item?.self_destruct&&item?.promo_locked){let ribbon=card.querySelector('.promo-ribbon');if(ribbon){ribbon.classList.add('self-destruct');let remain=Number(item.wager_completion_remaining||0);ribbon.textContent=remain>0?`СГОРИТ · ${remain} осталось`:'СГОРЕЛ'}card.title=`Самоуничтожающийся отыгрыш · завершений ${Number(item.wager_completion_count||0)}/${Number(item.wager_completion_limit||0)}`};return card}}}catch(e){}
-});})();
-</script>
-"""
-
-
-
-BOT_ACCESS_INJECTION = r"""
-<style id="gemdrop-bot-access-style">
-.gd-bot-access-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.gd-bot-access-state{padding:10px;border:1px solid var(--line,#303556);border-radius:11px;background:var(--surface2,#151726);color:var(--muted,#8ea3b5);font-size:10px;line-height:1.45}.gd-bot-access-grid .row{align-items:end}.gd-bot-access-text{min-height:100px;resize:vertical}@media(max-width:600px){.gd-bot-access-grid{grid-template-columns:1fr}}
-</style>
-<script id="gemdrop-bot-access">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}ready(()=>{if(window.__gemdropBotAccess)return;window.__gemdropBotAccess=true;const $=id=>document.getElementById(id);let page=$('botSettingsPage'),tools=page?.querySelector('.bot-tools-card');if(!page||!tools)return;let panel=document.createElement('div');panel.className='panel stack';panel.id='botAccessPanel';panel.innerHTML=`<h2>Обязательная подписка</h2><p class="muted">Канал используется и для проверки подписки. Для чата добавьте бота в группу/супергруппу и сделайте администратором.</p><div class="gd-bot-access-grid"><div><label class="caption">Канал · ID или @username</label><div class="row"><input id="botAccessChannelId" class="text-input" placeholder="-100... или @channel"><button id="botAccessSaveChannel" class="mini-btn" type="button">Подключить</button></div><div id="botAccessChannelState" class="gd-bot-access-state">—</div></div><div><label class="caption">Чат · ID или @username</label><div class="row"><input id="botAccessChatId" class="text-input" placeholder="-100... или @group"><button id="botAccessSaveChat" class="mini-btn" type="button">Подключить</button></div><div id="botAccessChatState" class="gd-bot-access-state">—</div></div></div><label class="caption">Текст, когда не выполнена подписка / вступление</label><textarea id="botAccessText" class="text-input gd-bot-access-text" maxlength="4000" placeholder="Для получения награды подпишитесь на канал и вступите в чат..."></textarea><small class="muted">Можно использовать {channel} и {chat}. Этот текст приходит пользователю при проверке Freebet.</small><button id="botAccessSaveText" class="secondary" type="button">Сохранить текст уведомления</button>`;tools.insertAdjacentElement('beforebegin',panel);
-function state(el,d,label){el.textContent=d?.chat_id?`Подключено: ${d.title||d.chat_id}${d.username?' · @'+d.username:''}${d.chat_type?' · '+d.chat_type:''}`:`${label} не подключён`}
-async function load(){try{let d=await api('/api/admin/bot/settings');$('botAccessText').value=d.subscription_text||'';let c=d.required_channel||{};$('botAccessChannelId').value=c.username?'@'+c.username:(c.chat_id||'');state($('botAccessChannelState'),c,'Канал');let ch=d.required_chat||{};$('botAccessChatId').value=ch.username?'@'+ch.username:(ch.chat_id||'');state($('botAccessChatState'),ch,'Чат')}catch(e){toast(e.message)}}
-$('botAccessSaveChannel').onclick=async()=>{let b=$('botAccessSaveChannel');b.disabled=true;try{let d=await api('/api/admin/post/settings',{method:'POST',body:JSON.stringify({chat_id:$('botAccessChannelId').value})});state($('botAccessChannelState'),d,'Канал');toast('Канал подключён')}catch(e){toast(e.message)}finally{b.disabled=false}};
-$('botAccessSaveChat').onclick=async()=>{let b=$('botAccessSaveChat');b.disabled=true;try{let d=await api('/api/admin/access/chat',{method:'POST',body:JSON.stringify({chat_id:$('botAccessChatId').value})});state($('botAccessChatState'),d,'Чат');toast('Чат подключён')}catch(e){toast(e.message)}finally{b.disabled=false}};
-$('botAccessSaveText').onclick=async()=>{let b=$('botAccessSaveText');b.disabled=true;try{await api('/api/admin/bot/settings',{method:'POST',body:JSON.stringify({subscription_text:$('botAccessText').value})});toast('Текст уведомления сохранён')}catch(e){toast(e.message)}finally{b.disabled=false}};
-const oldOpen=$('openBotSettings')?.onclick;$('openBotSettings')?.addEventListener('click',()=>setTimeout(load,0));setTimeout(()=>{if(!$('botSettingsPage').classList.contains('hidden'))load()},0);
-});})();
-</script>
-"""
-USER_ADMIN_ACTIVITY_INJECTION = r"""
-<style id="gemdrop-user-admin-activity-style">
-.gd-referral-admin{display:grid;gap:10px}.gd-referral-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.gd-referral-stat{padding:10px;border:1px solid var(--line,#303556);border-radius:12px;background:var(--surface2,#151726);text-align:center}.gd-referral-stat b{display:block;font-size:17px}.gd-referral-stat small{display:block;margin-top:3px;color:var(--muted,#8196a9);font-size:9px}.gd-referral-actions{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px}.gd-referral-actions input{min-width:0}
-.activity-item .activity-art.gd-activity-svg{color:#74bdf0}.activity-item .activity-art.gd-activity-svg svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.activity-item .activity-result-win{color:#79ddb4}.activity-item .activity-result-loss{color:#f293a6}
-@media(max-width:370px){.gd-referral-stats{grid-template-columns:1fr 1fr}.gd-referral-actions{grid-template-columns:1fr 1fr}.gd-referral-actions input{grid-column:1/-1}}
-</style>
-<script id="gemdrop-user-admin-activity">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
-ready(()=>{if(window.__gemdropUserAdminActivity)return;window.__gemdropUserAdminActivity=true;const $=id=>document.getElementById(id);
-const balancePanel=$('adminBalance')?.closest('.panel');if(balancePanel&&!$('adminReferralPanel')){let panel=document.createElement('div');panel.id='adminReferralPanel';panel.className='panel stack gd-referral-admin';panel.innerHTML=`<h2>Реферальная система</h2><div class="gd-referral-stats"><div class="gd-referral-stat"><b id="adminReferralCount">0</b><small>Рефералов</small></div><div class="gd-referral-stat"><b id="adminReferralDepositors">0</b><small>С депозитом</small></div><div class="gd-referral-stat"><b id="adminReferralEarned">0</b><small>Заработано TON</small></div></div><label><span class="caption">Реферальный процент пользователя</span><div class="gd-referral-actions"><input id="adminReferralPercent" class="text-input" type="number" min="0" max="50" step="0.1"><button id="saveAdminReferralPercent" class="mini-btn" type="button">Сохранить</button><button id="resetAdminReferralPercent" class="secondary" type="button">Общий</button></div></label><small id="adminReferralHint" class="muted"></small>`;balancePanel.insertAdjacentElement('afterend',panel)}
-function applyReferral(d){let u=d?.user||{};$('adminReferralCount')&&($('adminReferralCount').textContent=String(u.referral_count||0));$('adminReferralDepositors')&&($('adminReferralDepositors').textContent=String(u.referral_depositors||0));$('adminReferralEarned')&&($('adminReferralEarned').textContent=money(Number(u.referral_earned||0)));if($('adminReferralPercent'))$('adminReferralPercent').value=Number(u.referral_percent??10).toFixed(1);if($('adminReferralHint'))$('adminReferralHint').textContent=u.referral_percent_custom==null?`Используется общий процент: ${Number(u.referral_percent??10).toFixed(1)}%`:`Установлен персональный процент: ${Number(u.referral_percent_custom).toFixed(1)}%`}
-const originalLoadUser=typeof loadUser==='function'?loadUser:null;if(originalLoadUser){loadUser=async function(...args){let result=await originalLoadUser.apply(this,args);if(selectedUser){try{let d=await api('/api/admin/users/'+selectedUser);applyReferral(d)}catch(e){}}return result}}
-$('saveAdminReferralPercent')?.addEventListener('click',async()=>{if(!selectedUser)return;let b=$('saveAdminReferralPercent');b.disabled=true;try{let d=await api(`/api/admin/users/${selectedUser}/referral-percent`,{method:'POST',body:JSON.stringify({percent:$('adminReferralPercent').value})});$('adminReferralPercent').value=Number(d.percent).toFixed(1);$('adminReferralHint').textContent=`Установлен персональный процент: ${Number(d.percent).toFixed(1)}%`;toast('Реферальный процент сохранён')}catch(e){toast(e.message)}finally{b.disabled=false}});
-$('resetAdminReferralPercent')?.addEventListener('click',async()=>{if(!selectedUser)return;let b=$('resetAdminReferralPercent');b.disabled=true;try{let d=await api(`/api/admin/users/${selectedUser}/referral-percent`,{method:'POST',body:JSON.stringify({reset:true})});$('adminReferralPercent').value=Number(d.percent).toFixed(1);$('adminReferralHint').textContent=`Используется общий процент: ${Number(d.percent).toFixed(1)}%`;toast('Возвращён общий реферальный процент')}catch(e){toast(e.message)}finally{b.disabled=false}});
-const icons={login:'<svg viewBox="0 0 24 24"><path d="M10 5H5v14h5M13 8l4 4-4 4M17 12H8"/></svg>',mines:'<svg viewBox="0 0 24 24"><path d="M12 4 5 9v7l7 4 7-4V9l-7-5Z"/><path d="m9 10 6 4M15 10l-6 4"/></svg>',upgrade:'<svg viewBox="0 0 24 24"><path d="M6 17 17 6M10 6h7v7"/></svg>',roll:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 3"/></svg>',deposit:'<svg viewBox="0 0 24 24"><path d="M4 7h16v12H4zM7 11h5M16 10v6"/></svg>',gift:'<svg viewBox="0 0 24 24"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15"/></svg>',other:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>'};
-function iconFor(kind){if(kind==='login')return icons.login;if(kind==='mines_round'||kind.startsWith('mines_'))return icons.mines;if(kind==='upgrade_round'||kind.startsWith('upgrade'))return icons.upgrade;if(kind==='roll_spin'||kind==='roll')return icons.roll;if(kind.includes('deposit')||kind.includes('balance')||kind==='referral_bonus')return icons.deposit;if(kind.includes('gift')||kind==='withdrawal'||kind==='promo_activation')return icons.gift;return icons.other}
-function titleFor(x){let d=x.details||{};if(x.kind==='mines_round')return d.result==='win'?'Мины · выигрыш':d.result==='loss'?'Мины · проигрыш':'Мины · активная игра';if(x.kind==='upgrade_round')return d.won?'Апгрейд · выигрыш':'Апгрейд · проигрыш';if(x.kind==='roll_spin')return d.result==='win'?'Roll · выигрыш':d.result==='loss'?'Roll · проигрыш':'Roll · результат';return ({login:'Вход в приложение',transfer_sent:'Перевод отправлен',transfer_received:'Перевод получен',deposit_confirmed:'Пополнение подтверждено',ton_deposit:'Пополнение TON',promo_activation:'Активация промокода',withdrawal:'Вывод подарка',withdrawal_request:'Заявка на вывод',level_claim:'Получение награды уровня'})[x.kind]||String(x.kind||'Событие').replaceAll('_',' ')}
-function detailFor(x){let d=x.details||{};if(x.kind==='mines_round'){let parts=[d.result==='win'?'Выигрыш':'Проигрыш',`${d.mines||0} мин`];if(Number(d.multiplier)>0)parts.push(`×${Number(d.multiplier).toFixed(2).replace(/\\.00$/,'')}`);if(d.lost_cell)parts.push(`мина №${d.lost_cell}`);parts.push(`ставка ${money(d.bet||0)} TON`);if(d.payout>0)parts.push(`выплата ${money(d.payout)} TON`);if(d.gift_name)parts.push(d.gift_name);return parts.join(' · ')}if(x.kind==='upgrade_round'){let parts=[d.won?'Выигрыш':'Проигрыш',`${d.source_name||'Ставка'} → ${d.target_name||'Цель'}`,`шанс ${Number(d.chance||0).toFixed(2).replace(/\\.00$/,'')}%`];if(Number(d.multiplier)>0)parts.push(`×${Number(d.multiplier).toFixed(2).replace(/\\.00$/,'')}`);return parts.join(' · ')}if(x.kind==='roll_spin'){let parts=[d.result==='win'?'Выигрыш':'Проигрыш',d.roll_id||'Roll',`ставка ${money(d.price||Math.abs(x.amount||0))} TON`];if(d.gift_name)parts.push(d.gift_name);else if(d.outcome)parts.push(d.outcome);return parts.join(' · ')}if(x.kind==='withdrawal'||x.kind==='withdrawal_request')return `${d.gift_name||'Подарок'}${d.status?' · '+d.status:''}`;if(x.kind==='promo_activation')return `${d.code||''}${d.reward_type?' · '+d.reward_type:''}`;if(d.text)return d.text+(x.amount?` · ${x.amount>0?'+':''}${money(x.amount)} TON`:'');return Object.entries(d).filter(([k,v])=>!k.includes('image')&&typeof v!=='object').map(([k,v])=>`${k}: ${v}`).join(' · ')||(x.amount?`${money(x.amount)} TON`:'Событие')}
-loadUserActivity=async function(reset=false){if(reset){activityOffset=0;$('userActivityList').replaceChildren()}if(!selectedUser)return;let b=$('moreActivity');b.disabled=true;try{let d=await api(`/api/admin/users/${selectedUser}/activity?offset=${activityOffset}`);$('userActivityTitle').textContent=$('adminUserName').textContent+' · ID '+selectedUser;for(let x of d.items){let card=document.createElement('div');card.className='activity-item';let art=document.createElement('div');art.className='activity-art';if(x.image){let img=new Image;img.src=x.image;img.alt='Подарок';img.onerror=()=>{art.classList.add('gd-activity-svg');art.innerHTML=iconFor(x.kind)};art.append(img)}else{art.classList.add('gd-activity-svg');art.innerHTML=iconFor(x.kind)}let meta=document.createElement('div');let name=document.createElement('strong');name.textContent=titleFor(x);if((x.details||{}).result==='win')name.classList.add('activity-result-win');if((x.details||{}).result==='loss')name.classList.add('activity-result-loss');let detail=document.createElement('small');detail.textContent=detailFor(x);let date=document.createElement('small');date.textContent=new Date(String(x.date).replace(' ','T')+'Z').toLocaleString('ru-RU');meta.append(name,detail,date);card.append(art,meta);$('userActivityList').append(card)}activityOffset+=d.items.length;b.classList.toggle('hidden',!d.has_more);if(!activityOffset)$('userActivityList').innerHTML='<div class="empty">Событий пока нет</div>'}catch(e){toast(e.message)}finally{b.disabled=false}};
-});})();
-</script>
-"""
-
-
-CHANCE_CONTROL_INJECTION = r'''
-<style id="gemdrop-chance-controls-style">
-.gd-chance-grid{display:grid;gap:11px}.gd-chance-card{padding:14px;border:1px solid var(--line,#2c304f);border-radius:14px;background:var(--surface2,#171a2c)}.gd-chance-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}.gd-chance-head b{font-size:13px}.gd-chance-value{min-width:60px;text-align:right;color:var(--accent,#47b0f5);font-weight:900}.gd-chance-card input[type=range]{width:100%;accent-color:var(--accent,#47b0f5)}.gd-chance-card small{display:block;margin-top:7px;color:var(--muted,#8ea3b5);line-height:1.4}.gd-mix-total{display:flex;justify-content:space-between;align-items:center;padding:11px;border-radius:12px;background:#10121e;border:1px solid var(--line,#2c304f);font-weight:800}.gd-mix-total.bad{border-color:#7d4655;color:#ffc0cf}.gd-chance-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.gd-chance-actions button{min-height:47px}
-</style>
-<script id="gemdrop-chance-controls">
-(()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}ready(()=>{if(window.__gemdropChanceControls)return;window.__gemdropChanceControls=true;const $=id=>document.getElementById(id),admin=$('adminPage');if(!admin)return;try{if(typeof pageIds!=='undefined'&&Array.isArray(pageIds)&&!pageIds.includes('chanceAdminPage'))pageIds.push('chanceAdminPage')}catch(e){}
-let group=[...admin.querySelectorAll('.admin-group')].find(g=>(g.querySelector('h2')?.textContent||'').includes('Экономика'));let actions=group?.querySelector('.admin-actions');if(actions&&!$('openChanceAdmin')){let b=document.createElement('button');b.id='openChanceAdmin';b.innerHTML='Управление шансами <span>→</span>';actions.insertBefore(b,actions.querySelector('#openRtp')||null)}
-const slider=(id,title,min,max,step,unit,help)=>`<div class="gd-chance-card"><div class="gd-chance-head"><b>${title}</b><span id="${id}Value" class="gd-chance-value">—</span></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}"><small>${help}</small></div>`;
-admin.insertAdjacentHTML('afterend',`<section id="chanceAdminPage" class="hidden"><button id="chanceAdminBack" class="back" type="button">← Админ-панель</button><h1>Управление шансами</h1><p class="muted">Глобальные настройки одинаковы для всех игроков. Показанный пользователю шанс Upgrade совпадает с фактическим серверным шансом.</p><div class="panel gd-chance-grid">${slider('chanceMines','Обычный Mines · RTP','97','99.9','0.1','%','Влияет на коэффициенты выплат Mines. Среднее значение: 98.5%.')}${slider('chancePromo','Freebet / отыгрыш · RTP','89','96.9','0.1','%','Основная настройка для отыгрышных подарков Freebet и промокодов. Среднее значение: 94%.')}${slider('chanceUpgrade','Upgrade · коэффициент шанса','1','100','0.5','%','Умножает расчётный шанс цена ставки / цена цели. Значение сразу учитывается в показанном игроку проценте.')}${slider('chanceLossBoost','Компенсация за игровой минус','0','15','0.5',' п.п.','Максимальная дополнительная прибавка RTP для компенсационных отыгрышных подарков.')}${slider('chanceRollGift','Roll · вес подарков','50','150','1','%','100% оставляет настроенные в Roll веса без изменений; выше — чаще подарок, ниже — реже.')}<div class="notice"><b>Компенсационный кейс Upgrade</b><div class="rtp-hint">Распределите 100% между типами наград.</div></div>${slider('chanceCompBalance','TON на баланс','0','100','1','%','Вес TON-компенсации.')}${slider('chanceCompTickets','Билеты','0','100','1','%','Вес билетов розыгрыша.')}${slider('chanceCompWager','Отыгрышный подарок','0','100','1','%','Вес отыгрышного подарка.')}${slider('chanceCompGift','Обычный подарок','0','100','1','%','Вес обычного подарка без отыгрыша.')}${slider('chanceCompPromo','Персональный промокод','0','100','1','%','Вес персонального промокода.') }<div id="chanceMixTotal" class="gd-mix-total"><span>Сумма компенсаций</span><b>100%</b></div><div class="gd-chance-actions"><button id="chanceMediumPreset" class="secondary" type="button">Средние значения</button><button id="chanceSave" class="primary" type="button">Сохранить</button></div><p id="chanceStatus" class="muted" role="status"></p></div></section>`);
-const ids=['chanceMines','chancePromo','chanceUpgrade','chanceLossBoost','chanceRollGift','chanceCompBalance','chanceCompTickets','chanceCompWager','chanceCompGift','chanceCompPromo'];function suffix(id){return id==='chanceLossBoost'?' п.п.':'%'}function update(){for(let id of ids){let el=$(id),v=$(id+'Value');if(el&&v)v.textContent=Number(el.value).toFixed(['chanceMines','chancePromo','chanceUpgrade','chanceLossBoost'].includes(id)?1:0)+suffix(id)}let mix=['chanceCompBalance','chanceCompTickets','chanceCompWager','chanceCompGift','chanceCompPromo'].reduce((a,id)=>a+Number($(id)?.value||0),0),box=$('chanceMixTotal');if(box){box.querySelector('b').textContent=mix+'%';box.classList.toggle('bad',mix!==100)}if($('chanceSave'))$('chanceSave').disabled=mix!==100}
-for(let id of ids)$(id)?.addEventListener('input',update);function fill(d){$('chanceMines').value=d.mines_rtp;$('chancePromo').value=d.promo_rtp;$('chanceUpgrade').value=d.upgrade_rtp;$('chanceLossBoost').value=d.loss_rtp_max_boost;$('chanceRollGift').value=d.roll_gift_weight_percent;$('chanceCompBalance').value=d.comp_balance_weight;$('chanceCompTickets').value=d.comp_tickets_weight;$('chanceCompWager').value=d.comp_wager_gift_weight;$('chanceCompGift').value=d.comp_gift_weight;$('chanceCompPromo').value=d.comp_promo_weight;update()}async function load(){try{fill(await api('/api/admin/chances'))}catch(e){toast(e.message)}}
-$('openChanceAdmin')?.addEventListener('click',()=>{show('chanceAdminPage');load()});$('chanceAdminBack').onclick=()=>show('adminPage');$('chanceMediumPreset').onclick=()=>{fill({mines_rtp:98.5,promo_rtp:94,upgrade_rtp:95,loss_rtp_max_boost:5,roll_gift_weight_percent:100,comp_balance_weight:15,comp_tickets_weight:10,comp_wager_gift_weight:35,comp_gift_weight:25,comp_promo_weight:15});$('chanceStatus').textContent='Средний профиль выбран. Нажмите «Сохранить».'};$('chanceSave').onclick=async()=>{let b=$('chanceSave');b.disabled=true;try{let d=await api('/api/admin/chances',{method:'POST',body:JSON.stringify({mines_rtp:$('chanceMines').value,promo_rtp:$('chancePromo').value,upgrade_rtp:$('chanceUpgrade').value,loss_rtp_max_boost:$('chanceLossBoost').value,roll_gift_weight_percent:$('chanceRollGift').value,comp_balance_weight:$('chanceCompBalance').value,comp_tickets_weight:$('chanceCompTickets').value,comp_wager_gift_weight:$('chanceCompWager').value,comp_gift_weight:$('chanceCompGift').value,comp_promo_weight:$('chanceCompPromo').value})});fill(d);if(typeof loadUpgrade==='function')loadUpgrade().catch(()=>{});$('chanceStatus').textContent='Настройки сохранены';toast('Шансы сохранены')}catch(e){toast(e.message);$('chanceStatus').textContent=e.message}finally{update()}};update();});})();
-</script>
-'''
-
-def injected_index_html():
-    template_path = BASE / 'templates' / 'index.html'
-    html = template_path.read_text(encoding='utf-8')
-    if 'gemdrop-maintenance-guard' not in html:
-        if '<head>' in html:
-            html = html.replace('<head>', '<head>' + MAINTENANCE_FETCH_GUARD, 1)
-        else:
-            html = MAINTENANCE_FETCH_GUARD + html
-    if 'gemdrop-system-tools' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', ADMIN_SYSTEM_INJECTION + '</body>', 1)
-        else:
-            html += ADMIN_SYSTEM_INJECTION
-    if 'gemdrop-withdraw-confirm-ui' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', WITHDRAW_UI_INJECTION + '</body>', 1)
-        else:
-            html += WITHDRAW_UI_INJECTION
-    if 'gemdrop-promo-conditions' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', PROMO_CONDITIONS_INJECTION + '</body>', 1)
-        else:
-            html += PROMO_CONDITIONS_INJECTION
-    if 'gemdrop-bot-access' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', BOT_ACCESS_INJECTION + '</body>', 1)
-        else:
-            html += BOT_ACCESS_INJECTION
-    if 'gemdrop-chance-controls' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', CHANCE_CONTROL_INJECTION + '</body>', 1)
-        else:
-            html += CHANCE_CONTROL_INJECTION
-    if 'gemdrop-user-admin-activity' not in html:
-        if '</body>' in html:
-            html = html.replace('</body>', USER_ADMIN_ACTIVITY_INJECTION + '</body>', 1)
-        else:
-            html += USER_ADMIN_ACTIVITY_INJECTION
-    return html
-
-
 @app.get('/')
 def index():
-    # Keep the user's current index.html untouched on disk. System controls are injected
-    # at response time so this backend update can be dropped into the existing version.
-    try:
-        response = app.response_class(injected_index_html(), mimetype='text/html')
-        response.headers['Cache-Control'] = 'no-store'
-        return response
-    except OSError:
-        return send_file(BASE / 'templates' / 'index.html', mimetype='text/html')
+    # index.html is plain HTML/CSS/JS and does not use Jinja syntax.
+    # Serving it directly prevents CSS sequences such as '{#' from ever
+    # being interpreted as Jinja comments.
+    return send_file(BASE / 'templates' / 'index.html', mimetype='text/html')
 
 
 @app.get('/health')
@@ -2122,18 +1633,11 @@ def roll_config(db):
 
 
 def public_rolls(rolls):
-    global_gift = roll_global_gift_multiplier()
-    result=[]
-    for r in sorted(rolls, key=lambda r:r['price']):
-        effective=[max(1, round(e['weight']*(global_gift if e['kind']=='gift' else 1))) for e in r['entries']]
-        total=max(1,sum(effective))
-        entries=[]
-        for e,w in zip(r['entries'],effective):
-            entries.append(dict(id=e['id'],kind=e['kind'],name=e['name'],image_url=e.get('image_url',''),
-                                weight=e['weight'],probability=round(100*w/total,2),boost=e.get('boost',1),
-                                price_ton=e.get('price',0)/100))
-        result.append(dict(id=r['id'],name=r['name'],price_ton=r['price']/100,entries=entries))
-    return result
+    return [dict(id=r['id'], name=r['name'], price_ton=r['price']/100,
+                 entries=[dict(id=e['id'], kind=e['kind'], name=e['name'],
+                               image_url=e.get('image_url', ''), weight=e['weight'],
+                               probability=round(100*e['weight']/sum(x['weight'] for x in r['entries']), 2),
+                               boost=e.get('boost', 1), price_ton=e.get('price', 0)/100) for e in r['entries']]) for r in sorted(rolls, key=lambda r:r['price'])]
 
 
 def normalize_level_reward(data):
@@ -2577,7 +2081,7 @@ def spin_roll(roll_id):
         if not player: return error('Пользователь не найден.',404)
         if player['balance']<roll['price']: return error('Недостаточно TON. Пополните баланс.')
         boost=max(1,min(3,float(player['roll_boost'] or 1)))
-        weights=[max(1,round(e['weight']*(boost*roll_global_gift_multiplier() if e['kind']=='gift' else 1))) for e in roll['entries']]
+        weights=[max(1,round(e['weight']*(boost if e['kind']=='gift' else 1))) for e in roll['entries']]
         ticket=secrets.randbelow(sum(weights))
         index=0
         for index,weight in enumerate(weights):
@@ -2664,9 +2168,9 @@ def game_net_loss_cents(db, user_id):
 
 def loss_rtp_max_boost():
     try:
-        value = float((read_document('game_settings') or {}).get('loss_rtp_max_boost', 5.0))
+        value = float((read_document('game_settings') or {}).get('loss_rtp_max_boost', 8.0))
     except (TypeError, ValueError):
-        value = 5.0
+        value = 8.0
     return max(0.0, min(15.0, value))
 
 
@@ -2733,28 +2237,21 @@ def upgrade_target(gift_id):
                 image_url=image_url,price=price)
 
 
-def upgrade_display_chance(source_price,target_price):
-    """Visible chance based only on the source/target price ratio (basis points)."""
+def upgrade_chance(source_price,target_price,rtp_bp=None):
     if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
         return 0
-    chance_bp = (10000 * source_price) / target_price
+    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
+    chance_bp = (rtp_bp * source_price) / target_price
+    # Upgrade targets are intentionally limited to the visible 1–80% range.
+    # Anything outside it is not a valid target at all, not merely hidden in UI.
     if chance_bp < 100 or chance_bp > 8000:
         return 0
     return chance_bp
 
 
-def upgrade_chance(source_price,target_price,rtp_bp=None):
-    """Server-only real chance after RTP is applied to the visible chance."""
-    displayed_bp = upgrade_display_chance(source_price,target_price)
-    if not displayed_bp:
-        return 0
-    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    return displayed_bp * rtp_bp / 10000
-
-
 def upgrade_rtp_basis_points():
-    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9500))
-    except (TypeError,ValueError):return 9500
+    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9000))
+    except (TypeError,ValueError):return 9000
 
 
 @app.get('/api/upgrade/settings')
@@ -2798,12 +2295,11 @@ def upgrade_preview():
     if not amount_text and source and source['promo_locked']:
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-    base_chance=upgrade_display_chance(source_price,target['price'])
-    if not base_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
-    effective_chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
+    chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
+    if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
-                   image_url=target['image_url'],price_ton=target['price']/100),chance=effective_chance/100,
-                   base_chance=base_chance/100,rtp=effective_rtp_bp/100,
+                   image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
+                   probability=chance/10000,rtp=effective_rtp_bp/100,
                    loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
@@ -2910,18 +2406,16 @@ def upgrade_spin():
         effective_rtp_bp = upgrade_rtp_basis_points()
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-        base_chance=upgrade_display_chance(source_price,target['price'])
-        if not base_chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
-        real_chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-        display_chance=real_chance
+        chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
+        if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
-        # Outcome uses the same RTP-adjusted chance that is shown to the player.
-        # Exact integer arithmetic avoids rounding drift between UI and the server draw.
+        # Exact integer ratio permits rare wins without rounding the chance up
+        # to 0.01% (or down to an impossible 0%).
         won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
         awarded=None
         wager=bool(source['promo_locked'])
@@ -2939,12 +2433,9 @@ def upgrade_spin():
                 cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
                                (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             awarded=cur.lastrowid
-            if wager and wager_target > 0 and wager_progress >= wager_target:
-                db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (awarded,))
-                apply_global_wager_completion(db, source['promo_code'], session['uid'], (awarded,))
         elif not wager:
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'])
-        result=dict(ok=True,id=request_id,won=won,chance=display_chance/100,
+        result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
@@ -2955,13 +2446,13 @@ def upgrade_spin():
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
-                    target['name'],target['image_url'],target['price'],round(display_chance),int(won),json.dumps(result,ensure_ascii=False),
+                    target['name'],target['image_url'],target['price'],round(chance),int(won),json.dumps(result,ensure_ascii=False),
                     datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
-                           f'{source["gift_name"]} → {target["name"]} · {display_chance/100:.2f}% · {"успех" if won else "проигрыш"}')
+                           f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
-                  target_price=target['price']/100,chance=display_chance/100,won=won,promo_wager=wager,
+                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Upgrade always advances level turnover by the stake value, for TON and gift bets.
         result['new_level']=increase_turnover(db,session['uid'],source_price)
@@ -5014,26 +4505,7 @@ def inventory():
         purge_expired_inventory(db, session['uid'])
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (session['uid'],)).fetchall()
-        views = [inventory_item(item) for item in items]
-        codes = sorted({str(x.get('promo_code') or '').upper() for x in views if x.get('promo_code')})
-        limits = {}
-        if codes:
-            marks = ','.join('?' for _ in codes)
-            rows = db.execute(f'SELECT code,wager_completion_limit,wager_completion_count,reward_json FROM promo_codes WHERE code IN ({marks})', tuple(codes)).fetchall()
-            for row in rows:
-                limit = int(row['wager_completion_limit'] or 0); count = int(row['wager_completion_count'] or 0)
-                limits[str(row['code']).upper()] = dict(limit=limit,count=count,fragment=promo_completion_fragment(row),fragments=promo_completion_fragments(row))
-        for item in views:
-            info = limits.get(str(item.get('promo_code') or '').upper())
-            if info and info['limit'] > 0:
-                item['self_destruct'] = True
-                item['wager_completion_limit'] = info['limit']
-                item['wager_completion_count'] = info['count']
-                item['wager_completion_remaining'] = max(0, info['limit']-info['count'])
-                if info['fragment'] and len(info.get('fragments') or []) <= 1:
-                    item['completion_fragment'] = info['fragment']
-                item['completion_fragment_count'] = len(info.get('fragments') or [])
-    return jsonify(items=visible_gifts(views))
+    return jsonify(items=visible_gifts([inventory_item(item) for item in items]))
 
 
 @app.post('/api/inventory/<int:item_id>/sell')
@@ -5115,251 +4587,6 @@ def post_channel_settings():
     }
 
 
-def required_chat_settings():
-    data = read_document('required_chat') or {}
-    return {
-        'chat_id': str(data.get('chat_id') or '').strip(),
-        'title': str(data.get('title') or '').strip(),
-        'username': str(data.get('username') or '').strip().lstrip('@'),
-        'join_url': str(data.get('join_url') or '').strip(),
-        'chat_type': str(data.get('chat_type') or '').strip(),
-        'saved_at': data.get('saved_at'),
-    }
-
-
-def access_requirement_text(channel_missing=False, chat_missing=False):
-    settings = read_document('bot_settings') or {}
-    custom = str(settings.get('subscription_text') or '').strip()
-    channel = post_channel_settings()
-    chat = required_chat_settings()
-    if custom:
-        return (custom.replace('{channel}', channel.get('title') or 'канал')
-                      .replace('{chat}', chat.get('title') or 'чат'))
-    if channel_missing and chat_missing:
-        return 'Для получения награды подпишитесь на канал и вступите в чат, затем нажмите «Проверить подписку».'
-    if channel_missing:
-        return 'Для получения награды сначала подпишитесь на канал, затем нажмите «Проверить подписку».'
-    if chat_missing:
-        return 'Для получения награды сначала вступите в чат, затем нажмите «Проверить подписку».'
-    return ''
-
-
-def inspect_required_chat(chat_id):
-    info = inspect_post_channel(chat_id)
-    if info.get('chat_type') not in ('group', 'supergroup'):
-        raise RuntimeError('Укажите Telegram-группу или супергруппу, а не канал.')
-    return info
-
-
-def telegram_member_in_required_chat(user_id, chat=None):
-    chat = chat or required_chat_settings()
-    chat_id = chat.get('chat_id')
-    if not chat_id:
-        return False, 'Чат для проверки вступления ещё не настроен.'
-    try:
-        member = telegram_api('getChatMember', {'chat_id': chat_id, 'user_id': int(user_id)})
-    except RuntimeError as exc:
-        return False, str(exc)
-    status = str(member.get('status') or '')
-    if status in ('creator', 'administrator', 'member'):
-        return True, ''
-    if status == 'restricted' and bool(member.get('is_member')):
-        return True, ''
-    return False, 'Пользователь не состоит в обязательном чате.'
-
-
-def promo_completion_fragments(promo):
-    if not promo:
-        return []
-    try:
-        payload = json.loads(promo['reward_json'] or '{}')
-    except (ValueError, TypeError, KeyError):
-        return []
-    if not isinstance(payload, dict):
-        return []
-    fragments = payload.get('completion_fragments')
-    if isinstance(fragments, list):
-        return [x for x in fragments if isinstance(x, dict) and x.get('fragment_url')]
-    fragment = payload.get('completion_fragment')
-    return [fragment] if isinstance(fragment, dict) and fragment.get('fragment_url') else []
-
-
-def promo_completion_fragment(promo):
-    fragments = promo_completion_fragments(promo)
-    return fragments[0] if fragments else None
-
-
-def completion_fragment_payload(value):
-    if not value:
-        return None
-    gift = fragment_gift_from_url(value, True, allow_missing_price=True)
-    return dict(gift_id=gift.get('gift_id') or '', gift_name=gift.get('gift_name') or 'Fragment Gift',
-                image_url=gift.get('image_url') or '', floor_price=int(gift.get('floor_price') or 0),
-                fragment_url=gift.get('fragment_url') or '', fragment_number=gift.get('fragment_number') or '',
-                fragment_model=gift.get('fragment_model') or '', fragment_backdrop=gift.get('fragment_backdrop') or '',
-                fragment_symbol=gift.get('fragment_symbol') or '', price_source=gift.get('price_source') or 'Fragment',
-                animation_url=gift.get('animation_url') or '')
-
-
-def completion_fragment_pool(values, required_count):
-    required_count = max(0, int(required_count or 0))
-    raw = values if isinstance(values, list) else ([values] if values else [])
-    urls = [str(x or '').strip() for x in raw if str(x or '').strip()]
-    if required_count <= 0:
-        return []
-    if len(urls) != required_count:
-        raise ValueError(f'Укажите ровно {required_count} Fragment-ссылок — по одной на каждый сгораемый подарок.')
-    fragments = [completion_fragment_payload(url) for url in urls]
-    if any(not x for x in fragments):
-        raise ValueError('Не удалось загрузить один из Fragment-подарков.')
-    normalized = [str(x.get('fragment_url') or '').lower() for x in fragments]
-    if len(set(normalized)) != len(normalized):
-        raise ValueError('Каждая Fragment-ссылка должна вести на отдельный подарок.')
-    return fragments
-
-
-def promo_fragment_pool_for_code(db, promo_code, lock=False):
-    code = str(promo_code or '').strip().upper()
-    if not code:
-        return None, []
-    suffix = ' FOR UPDATE' if lock and DATABASE_URL else ''
-    promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + suffix, (code,)).fetchone()
-    return promo, promo_completion_fragments(promo)
-
-
-def completed_wager_item(db, promo_code, fallback):
-    code = str(promo_code or '').strip().upper()
-    promo = db.execute('SELECT reward_json FROM promo_codes WHERE code=?', (code,)).fetchone() if code else None
-    fragments = promo_completion_fragments(promo)
-    # A multi-Fragment self-destruct pool is selected only after the player finishes
-    # wagering. Until then keep the ordinary promo gift and show the selection UI.
-    if len(fragments) > 1:
-        return dict(fallback)
-    fragment = fragments[0] if fragments else None
-    if not fragment:
-        return dict(fallback)
-    result = dict(fallback)
-    result.update({
-        'gift_id': fragment.get('gift_id') or result.get('gift_id') or '',
-        'gift_name': fragment.get('gift_name') or result.get('gift_name') or 'Подарок',
-        'image_url': fragment.get('image_url') or result.get('image_url') or '',
-        'floor_price': int(fragment.get('floor_price') or result.get('floor_price') or 0),
-        'external_url': fragment.get('fragment_url') or '',
-        'fragment_number': fragment.get('fragment_number') or '',
-        'fragment_model': fragment.get('fragment_model') or '',
-        'fragment_backdrop': fragment.get('fragment_backdrop') or '',
-        'fragment_symbol': fragment.get('fragment_symbol') or '',
-        'price_source': fragment.get('price_source') or 'Fragment',
-        'animation_url': fragment.get('animation_url') or '',
-    })
-    return result
-
-
-def fragment_pool_claimed_indexes(db, code):
-    return {int(r['fragment_index']) for r in db.execute(
-        'SELECT fragment_index FROM wager_fragment_claims WHERE promo_code=?', (str(code).upper(),)).fetchall()}
-
-
-def fragment_pool_public_options(fragments, claimed):
-    result=[]
-    for index, fragment in enumerate(fragments):
-        if index in claimed:
-            continue
-        result.append(dict(index=index, name=fragment.get('gift_name') or 'Подарок',
-                           image_url=fragment.get('image_url') or '',
-                           fragment_number=fragment.get('fragment_number') or '',
-                           fragment_model=fragment.get('fragment_model') or '',
-                           fragment_backdrop=fragment.get('fragment_backdrop') or '',
-                           price_ton=int(fragment.get('floor_price') or 0)/100))
-    return result
-
-
-def fragment_pool_participants(db, code):
-    ids=set()
-    for table in ('promo_redemptions','freebet_redemptions'):
-        try:
-            for row in db.execute(f'SELECT user_id FROM {table} WHERE code=?', (code,)).fetchall():
-                ids.add(int(row['user_id']))
-        except Exception:
-            pass
-    for row in db.execute('SELECT DISTINCT user_id FROM inventory WHERE promo_code=?', (code,)).fetchall():
-        ids.add(int(row['user_id']))
-    for row in db.execute("SELECT DISTINCT user_id FROM rounds WHERE promo_code=? AND bet_type='promo_gift'", (code,)).fetchall():
-        ids.add(int(row['user_id']))
-    return ids
-
-
-def burn_fragment_pool_remainders(db, promo, winner_inventory_id=None):
-    code = str(promo['code'] or '').upper()
-    multiplier = float(promo['wager_multiplier'] or 0)
-    base_name = str(promo['gift_name'] or 'Подарок')
-    affected={}
-    rows=db.execute('SELECT id,user_id,gift_name FROM inventory WHERE promo_locked=1 AND promo_code=?',(code,)).fetchall()
-    for row in rows:
-        if winner_inventory_id and int(row['id']) == int(winner_inventory_id):
-            continue
-        uid=int(row['user_id']); affected.setdefault(uid,[]).append(str(row['gift_name'] or base_name))
-        db.execute('DELETE FROM inventory WHERE id=?',(row['id'],))
-    active=db.execute("SELECT id,user_id,bet_gift_name FROM rounds WHERE state='active' AND bet_type='promo_gift' AND promo_code=?",(code,)).fetchall()
-    settled_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
-    for row in active:
-        uid=int(row['user_id']); affected.setdefault(uid,[]).append(str(row['bet_gift_name'] or base_name))
-        db.execute("UPDATE rounds SET state='lost',settled_at=? WHERE id=? AND state='active'",(settled_at,row['id']))
-    mult_text=(('%g'%multiplier) if multiplier else '0')
-    for uid in affected:
-        text=(f'🔥 Отыгрышный подарок «{base_name}» ×{mult_text} ({code}) был завершён. '
-              'Ваш подарок был сожжён.')
-        add_user_notification(db,uid,'wager_copy_burned',text)
-        log_event(db,uid,'promo_wager_global_burn',code=code,gifts=affected[uid],limit=len(promo_completion_fragments(promo)))
-    return sorted(affected)
-
-
-def finalize_fragment_pool_claim(db, item, promo, fragments, fragment_index):
-    code=str(promo['code'] or '').upper(); fragment_index=int(fragment_index)
-    if fragment_index < 0 or fragment_index >= len(fragments):
-        raise ValueError('Выберите доступный подарок.')
-    fragment=fragments[fragment_index]
-    # Unique PK guarantees that two simultaneous winners cannot take the same NFT.
-    try:
-        db.execute('INSERT INTO wager_fragment_claims(promo_code,fragment_index,user_id,inventory_id) VALUES(?,?,?,?)',
-                   (code,fragment_index,int(item['user_id']),int(item['id'])))
-    except Exception as exc:
-        text=str(exc).lower()
-        if 'unique' in text or 'duplicate' in text:
-            raise ValueError('Этот подарок только что забрал другой участник. Выберите оставшийся.')
-        raise
-    db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,external_url=?,fragment_number=?,
-                  fragment_model=?,fragment_backdrop=?,fragment_symbol=?,price_source=?,animation_url=?,
-                  promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,promo_wager_progress=0,
-                  promo_code='',expires_at=NULL,source='promo_claimed',wager_completion_counted=1
-                  WHERE id=? AND user_id=?""",
-               (fragment.get('gift_id') or item['gift_id'],fragment.get('gift_name') or item['gift_name'],
-                fragment.get('image_url') or item['image_url'],int(fragment.get('floor_price') or item['floor_price'] or 0),
-                fragment.get('fragment_url') or '',fragment.get('fragment_number') or '',fragment.get('fragment_model') or '',
-                fragment.get('fragment_backdrop') or '',fragment.get('fragment_symbol') or '',
-                fragment.get('price_source') or 'Fragment',fragment.get('animation_url') or '',item['id'],item['user_id']))
-    count_row=db.execute('SELECT COUNT(*) AS n FROM wager_fragment_claims WHERE promo_code=?',(code,)).fetchone()
-    count=int((count_row or {}).get('n') or 0)
-    finished=count>=len(fragments)
-    db.execute('UPDATE promo_codes SET wager_completion_count=?,active=? WHERE code=?',(count,0 if finished else int(bool(promo['active'])),code))
-    if finished:
-        db.execute('UPDATE freebets SET active=0 WHERE promo_code=? OR code=?',(code,code))
-    participants=fragment_pool_participants(db,code)|{int(item['user_id'])}
-    ordinal=fragment_index+1
-    label=str(fragment.get('gift_name') or 'Подарок')
-    number=str(fragment.get('fragment_number') or '')
-    if number and ('#'+number) not in label: label += f' #{number}'
-    remaining=max(0,len(fragments)-count)
-    update_text=f'🎁 Подарок {ordinal} ({code}) — «{label}» — был отыгран только что. Осталось: {remaining}.'
-    for uid in participants:
-        add_user_notification(db,uid,'wager_pool_update',update_text)
-    add_user_notification(db,int(item['user_id']),'wager_completed',f'✅ Отыгрыш завершён. Вы получили «{label}».')
-    log_event(db,int(item['user_id']),'promo_wager_completed',code=code,gift_name=label,fragment_index=fragment_index)
-    burned=[]
-    if finished:
-        burned=burn_fragment_pool_remainders(db,promo,winner_inventory_id=item['id'])
-    return dict(count=count,finished=finished,burned_users=burned,label=label)
-
 def normalize_channel_id(value):
     value = str(value or '').strip()
     if not value:
@@ -5437,15 +4664,12 @@ def freebet_reward_text(promo):
     return promo_purpose(promo)
 
 
-def freebet_keyboard(code, channel=None, chat=None):
+def freebet_keyboard(code, channel=None):
     channel = channel or post_channel_settings()
-    chat = chat or required_chat_settings()
     rows = []
     if channel.get('join_url'):
-        rows.append([{'text': 'Подписаться на канал', 'url': channel['join_url'], 'style': 'primary'}])
-    if chat.get('join_url'):
-        rows.append([{'text': 'Вступить в чат', 'url': chat['join_url'], 'style': 'primary'}])
-    rows.append([{'text': 'Проверить подписку', 'callback_data': f'freebet_check:{code}', 'style': 'success'}])
+        rows.append([{'text': '📢 Подписаться', 'url': channel['join_url'], 'style': 'primary'}])
+    rows.append([{'text': '✅ Проверить подписку', 'callback_data': f'freebet_check:{code}', 'style': 'success'}])
     return {'inline_keyboard': rows}
 
 
@@ -5624,9 +4848,6 @@ def try_activate_freebet(user_id, code):
             return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
         if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
             return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
-        promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (fb['promo_code'],)).fetchone()
-        if promo and int(promo['wager_completion_limit'] or 0) > 0 and int(promo['wager_completion_count'] or 0) >= int(promo['wager_completion_limit'] or 0):
-            return {'status': 'exhausted', 'text': 'Лимит успешных отыгрышей этого фрибета уже исчерпан.'}
         user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
         if not user:
             return {'status': 'invalid', 'text': 'Сначала запустите бота заново.'}
@@ -5636,25 +4857,12 @@ def try_activate_freebet(user_id, code):
             return {'status': 'condition', 'text': f'Для этого фрибета нужен уровень GemDrop {int(fb["min_level"])} или выше. Ваш уровень: {current_level}.'}
         if int(fb['min_turnover'] or 0) and turnover < int(fb['min_turnover']):
             return {'status': 'condition', 'text': f'Для этого фрибета нужен оборот от {int(fb["min_turnover"])/100:.2f} TON. Ваш оборот: {turnover/100:.2f} TON.'}
-        needed_refs = int(fb['min_referrals'] or 0)
-        if needed_refs:
-            refs = referral_count(db, user_id)
-            if refs < needed_refs:
-                return {'status': 'condition', 'text': f'Для этого фрибета нужно пригласить минимум {needed_refs} реферал(ов). Сейчас: {refs}.'}
         require_subscription = bool(fb['require_subscription'])
-        require_chat = bool(fb['require_chat']) if 'require_chat' in fb.keys() else False
         min_tg_level = int(fb['min_telegram_level'] or 0)
-    missing_channel = False
-    missing_chat = False
     if require_subscription:
-        subscribed, _ = telegram_member_subscribed(user_id)
-        missing_channel = not subscribed
-    if require_chat:
-        joined, _ = telegram_member_in_required_chat(user_id)
-        missing_chat = not joined
-    if missing_channel or missing_chat:
-        return {'status': 'subscription', 'text': access_requirement_text(missing_channel, missing_chat),
-                'reply_markup': freebet_keyboard(code)}
+        subscribed, reason = telegram_member_subscribed(user_id)
+        if not subscribed:
+            return {'status': 'subscription', 'text': reason, 'reply_markup': freebet_keyboard(code)}
     if min_tg_level:
         actual = telegram_rating_level(user_id)
         if actual < min_tg_level:
@@ -5669,13 +4877,9 @@ def try_activate_freebet(user_id, code):
             return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
         if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
             return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
-        promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (fb['promo_code'],)).fetchone()
+        promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (fb['promo_code'],)).fetchone()
         if not promo:
             raise ValueError('Награда фрибета не найдена.')
-        if int(fb['min_referrals'] or 0) and referral_count(db, user_id) < int(fb['min_referrals'] or 0):
-            return {'status': 'condition', 'text': f'Для этого фрибета нужно пригласить минимум {int(fb["min_referrals"])} реферал(ов).'}
-        if int(promo['wager_completion_limit'] or 0) > 0 and int(promo['wager_completion_count'] or 0) >= int(promo['wager_completion_limit'] or 0):
-            return {'status': 'exhausted', 'text': 'Лимит успешных отыгрышей этого фрибета уже исчерпан.'}
         reward = apply_freebet_reward(db, promo, user_id, code)
         db.execute('INSERT INTO freebet_redemptions(code,user_id,reward_json) VALUES(?,?,?)',
                    (code, user_id, json.dumps(reward, ensure_ascii=False)))
@@ -6027,16 +5231,11 @@ def admin_bot_settings():
             buttons = normalize_start_buttons(data.get('buttons', start_buttons_for_api(current)))
         except ValueError as exc:
             return error(str(exc))
-        subscription_text = str(data.get('subscription_text', current.get('subscription_text', '')) or '').strip()
-        if len(subscription_text) > 4000:
-            return error('Текст требования подписки слишком длинный.')
-        save_document('bot_settings', dict(welcome_text=text, buttons=buttons, subscription_text=subscription_text))
+        save_document('bot_settings', dict(welcome_text=text, buttons=buttons))
         remember_emojis(emojis_in_post(text, buttons))
     data = read_document('bot_settings') or {}
     return jsonify(ok=True, welcome_text=data.get('welcome_text', ''),
-                   subscription_text=data.get('subscription_text', ''),
-                   effective_text=welcome_text(), buttons=start_buttons_for_api(data), emoji_notice=EMOJI_NOTICE,
-                   required_channel=post_channel_settings(), required_chat=required_chat_settings())
+                   effective_text=welcome_text(), buttons=start_buttons_for_api(data), emoji_notice=EMOJI_NOTICE)
 
 
 @app.get('/api/admin/emojis')
@@ -6362,6 +5561,16 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     keyboard = []
     if WEBAPP_URL.startswith('https://'):
         keyboard.append([{'text': '🎁 Открыть инвентарь', 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
+    seen = set()
+    for win in winnings:
+        url = str(win.get('fragment_url') or '')
+        if not re.match(r'^https://(?:t\.me/nft/|(?:www\.)?fragment\.com/gift/)', url, re.I) or url in seen:
+            continue
+        seen.add(url)
+        label = f'🔗 Fragment #{win.get("fragment_number")}' if win.get('fragment_number') else '🔗 Открыть во Fragment'
+        keyboard.append([{'text': label[:64], 'url': url}])
+        if len(keyboard) >= 8:
+            break
     markup = {'inline_keyboard': keyboard} if keyboard else None
     notify_user_async(user_id, '\n'.join(lines), markup, 'HTML', db=db)
 
@@ -6371,93 +5580,50 @@ def notify_level_up_async(user_id, level):
     return None
 
 
-def _withdrawal_confirm_token(user_id, item_id, expires):
-    payload = f'{int(user_id)}:{int(item_id)}:{int(expires)}'
-    signature = hmac.new(app.secret_key.encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return f'{int(expires)}.{signature}'
-
-
-def _withdrawal_confirm_valid(token, user_id, item_id):
-    try:
-        expires_text, signature = str(token or '').split('.', 1)
-        expires = int(expires_text)
-    except (TypeError, ValueError):
-        return False
-    if expires < int(time.time()) or expires > int(time.time()) + 600:
-        return False
-    expected = _withdrawal_confirm_token(user_id, item_id, expires).split('.', 1)[1]
-    return bool(signature) and secrets.compare_digest(expected, signature)
-
-
-def _withdrawal_item_check(db, item_id):
-    purge_expired_inventory(db, session['uid'])
-    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
-                         (session['uid'],)).fetchone()
-    if not account:
-        return None, error('Пользователь не найден.', 404)
-    if not bool(account['withdrawal_enabled']):
-        reason = str(account['withdrawal_block_reason'] or '').strip()
-        return None, error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
-    item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
-                      (item_id, session['uid'])).fetchone()
-    if not item:
-        return None, error('Подарок не найден или уже отправлен на вывод.', 404)
-    if item['promo_locked']:
-        return None, error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
-    return item, None
-
-
-@app.post('/api/inventory/<int:item_id>/withdraw/prepare')
+@app.post('/api/withdrawal/contact-notice')
 @login_required
-def prepare_withdrawal(item_id):
-    """Validate the gift without touching inventory and sign one short confirmation."""
-    db = connect()
-    try:
-        item, failure = _withdrawal_item_check(db, item_id)
-        if failure:
-            return failure
-        expires = int(time.time()) + 300
-        token = _withdrawal_confirm_token(session['uid'], item_id, expires)
-        return jsonify(ok=True, confirm_token=token, expires_in=300,
-                       portals_url='https://t.me/portals',
-                       gift=dict(id=item['id'], name=item['gift_name'], image_url=item['image_url'],
-                                 price_ton=int(item['floor_price'] or 0)/100))
-    finally:
-        db.close()
+def withdrawal_contact_notice():
+    # Account-level, atomic claim: refreshed pages and other devices do not
+    # repeatedly display the notice. This does not create a withdrawal.
+    with connect() as db:
+        inserted = db.execute('''INSERT INTO withdrawal_contact_notices(user_id)
+                                 VALUES(?) ON CONFLICT(user_id) DO NOTHING''',
+                              (session['uid'],))
+        show_notice = bool(inserted.rowcount)
+        db.commit()
+    return jsonify(ok=True, show_notice=show_notice)
 
 
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
-    # The branded confirmation is a UI step. The real POST is executed only after
-    # the user presses “Подтвердить вывод”; no fragile prepare/session token is required.
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        item, failure = _withdrawal_item_check(db, item_id)
-        if failure:
-            return failure
-        existing = db.execute("SELECT id FROM withdrawals WHERE inventory_id=? AND user_id=? AND status='pending'",
-                              (item_id, session['uid'])).fetchone()
-        if existing:
-            return jsonify(ok=True, withdrawal_id=existing['id'], duplicate=True)
-        cursor = db.execute("""INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,
-                            external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
-                            VALUES(?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?)""",
-                            (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
-                             item['floor_price'], item['source'], item['round_id'], item['external_url'] or '',
-                             item['fragment_number'] or '', item['fragment_model'] or '', item['fragment_backdrop'] or '',
-                             item['fragment_symbol'] or '', item['price_source'] or '', item['animation_url'] or ''))
-        withdrawal_id = cursor.lastrowid
+        purge_expired_inventory(db, session['uid'])
+        account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
+                             (session['uid'],)).fetchone()
+        if not account:
+            return error('Пользователь не найден.', 404)
+        if not bool(account['withdrawal_enabled']):
+            reason = str(account['withdrawal_block_reason'] or '').strip()
+            return error(reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.', 403)
+        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
+                          (item_id, session['uid'])).fetchone()
+        if not item:
+            return error('Подарок не найден или уже отправлен на вывод.', 404)
+        if item['promo_locked']:
+            return error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
+        db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status)
+                      VALUES(?,?,?,?,?,?,?,?,'pending')''',
+                   (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
+                    item['floor_price'], item['source'], item['round_id']))
         deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid']))
         if not deleted.rowcount:
             return error('Не удалось зарезервировать подарок.', 409)
-        record_transaction(db, session['uid'], 'withdrawal_request', 0, 'withdrawal', withdrawal_id or item_id,
-                           item['gift_name'])
-        log_event(db, session['uid'], 'withdrawal_request', gift_name=item['gift_name'],
-                  gift_image=item['image_url'], withdrawal_id=withdrawal_id)
+        record_transaction(db, session['uid'], 'withdrawal_request', 0, 'inventory', item_id, item['gift_name'])
         db.commit()
-        return jsonify(ok=True, withdrawal_id=withdrawal_id, removed_inventory_id=item_id)
+        return jsonify(ok=True)
     finally:
         db.close()
 
@@ -6465,8 +5631,6 @@ def request_withdrawal(item_id):
 @app.post('/api/inventory/<int:item_id>/claim-promo')
 @login_required
 def claim_promo_gift(item_id):
-    data = request.get_json(silent=True) or {}
-    requested_index = data.get('fragment_index')
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -6482,93 +5646,23 @@ def claim_promo_gift(item_id):
         progress = int(item['promo_wager_progress'] or 0)
         if target <= 0 or progress < target:
             return error('Отыгрыш ещё не завершён.', 409)
-        promo, fragments = promo_fragment_pool_for_code(db, item['promo_code'], lock=True)
-        if promo and len(fragments) > 1:
-            claimed = fragment_pool_claimed_indexes(db, promo['code'])
-            options = fragment_pool_public_options(fragments, claimed)
-            if not options:
-                db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid']))
-                add_user_notification(db,session['uid'],'wager_copy_burned',
-                                      f'🔥 Все подарки ({promo["code"]}) уже разобраны. Ваша незавершённая копия была сожжена.')
-                db.commit()
-                return jsonify(ok=False,burned=True,error='Все подарки уже разобраны.'),409
-            if requested_index is None and len(options) > 1:
-                return jsonify(ok=True, selection_required=True, code=promo['code'], options=options,
-                               remaining=len(options))
-            if requested_index is None:
-                requested_index = options[0]['index']
-            try:
-                requested_index = int(requested_index)
-            except (TypeError,ValueError):
-                return error('Выберите подарок.',400)
-            if requested_index in claimed:
-                fresh=fragment_pool_public_options(fragments,fragment_pool_claimed_indexes(db,promo['code']))
-                return jsonify(ok=True,selection_required=True,conflict=True,code=promo['code'],options=fresh,
-                               remaining=len(fresh),message='Этот подарок только что забрали. Выберите оставшийся.')
-            try:
-                finalize_fragment_pool_claim(db,item,promo,fragments,requested_index)
-            except ValueError as exc:
-                fresh=fragment_pool_public_options(fragments,fragment_pool_claimed_indexes(db,promo['code']))
-                return jsonify(ok=True,selection_required=True,conflict=True,code=promo['code'],options=fresh,
-                               remaining=len(fresh),message=str(exc))
-            record_transaction(db, session['uid'], 'promo_wager_claim', 0, 'inventory', item_id,
-                               fragments[requested_index].get('gift_name') or item['gift_name'])
-            db.commit()
-            updated = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
-            return jsonify(ok=True, selection_required=False, item=inventory_item(updated), user=profile())
-
-        if not int(item['wager_completion_counted'] or 0) and item['promo_code']:
-            db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (item_id,))
-            apply_global_wager_completion(db, item['promo_code'], session['uid'], (item_id,))
-        final_item = completed_wager_item(db, item['promo_code'], dict(
-            gift_id=item['gift_id'], gift_name=item['gift_name'], image_url=item['image_url'], floor_price=item['floor_price'],
-            external_url=item['external_url'] or '', fragment_number=item['fragment_number'] or '',
-            fragment_model=item['fragment_model'] or '', fragment_backdrop=item['fragment_backdrop'] or '',
-            fragment_symbol=item['fragment_symbol'] or '', price_source=item['price_source'] or '',
-            animation_url=item['animation_url'] or ''))
-        db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,external_url=?,fragment_number=?,
-                      fragment_model=?,fragment_backdrop=?,fragment_symbol=?,price_source=?,animation_url=?,
-                      promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
+        db.execute("""UPDATE inventory SET promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,
                       promo_wager_progress=0,promo_code='',expires_at=NULL,source='promo_claimed'
-                      WHERE id=? AND user_id=?""",
-                   (final_item['gift_id'],final_item['gift_name'],final_item['image_url'],final_item['floor_price'],
-                    final_item.get('external_url',''),final_item.get('fragment_number',''),final_item.get('fragment_model',''),
-                    final_item.get('fragment_backdrop',''),final_item.get('fragment_symbol',''),final_item.get('price_source',''),
-                    final_item.get('animation_url',''),item_id,session['uid']))
+                      WHERE id=? AND user_id=?""", (item_id, session['uid']))
         record_transaction(db, session['uid'], 'promo_wager_claim', 0,
-                           'inventory', item_id, final_item['gift_name'])
+                           'inventory', item_id, item['gift_name'])
         db.commit()
         updated = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
         return jsonify(ok=True, item=inventory_item(updated), user=profile())
     finally:
         db.close()
 
+
 def referral_percent():
     try:
         return min(50.0, max(0.0, float((read_document('ton_settings') or {}).get('referral_percent', 10))))
     except (TypeError, ValueError, json.JSONDecodeError):
         return 10.0
-
-
-def referral_percent_for_user(user_id, db=None):
-    """Effective referral reward percent for one referrer.
-
-    A NULL override means that the account follows the global TON setting.
-    """
-    close_db = db is None
-    if close_db:
-        db = connect()
-    try:
-        row = db.execute('SELECT referral_percent_override FROM users WHERE id=?', (int(user_id),)).fetchone()
-        if row and row['referral_percent_override'] is not None:
-            try:
-                return min(50.0, max(0.0, float(row['referral_percent_override'])))
-            except (TypeError, ValueError):
-                pass
-        return referral_percent()
-    finally:
-        if close_db:
-            db.close()
 
 
 def current_bot_username():
@@ -6677,8 +5771,7 @@ def loader_catalog():
 def public_ui_settings():
     # Intentionally public: loader and visible navigation are needed before auth finishes.
     return jsonify(loader_gif=loader_settings()['path'], sections=section_settings(),
-                   black_backgrounds_enabled=black_backgrounds_enabled(),
-                   maintenance=maintenance_settings()['enabled'])
+                   black_backgrounds_enabled=black_backgrounds_enabled())
 
 
 @app.get('/api/admin/section-settings')
@@ -6703,149 +5796,6 @@ def save_admin_section_settings():
     if 'black_backgrounds_enabled' in data:
         save_document('gift_display_settings', {'black_backgrounds_enabled': data['black_backgrounds_enabled']})
     return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled())
-
-
-@app.get('/api/maintenance/status')
-def maintenance_status():
-    settings = maintenance_settings()
-    uid = session.get('uid')
-    try:
-        uid = int(uid) if uid is not None else None
-    except (TypeError, ValueError):
-        uid = None
-    is_admin = bool(uid in ADMIN_IDS) if uid is not None else False
-    return jsonify(enabled=bool(settings['enabled']), version=int(settings.get('version') or 0),
-                   authenticated=uid is not None, admin=is_admin,
-                   blocked=bool(settings['enabled'] and uid is not None and not is_admin))
-
-
-@app.get('/api/admin/maintenance')
-@admin_required
-def admin_maintenance_get():
-    return jsonify(**maintenance_settings())
-
-
-@app.post('/api/admin/maintenance')
-@admin_required
-def admin_maintenance_set():
-    data = request.get_json(silent=True) or {}
-    enabled = data.get('enabled')
-    if not isinstance(enabled, bool):
-        return error('Передайте enabled=true или enabled=false.')
-    current = maintenance_settings()
-    document = {
-        'enabled': enabled,
-        'updated_at': datetime.now(timezone.utc).isoformat(),
-        'admin_id': int(session['uid']),
-        'version': int(current.get('version') or 0) + 1,
-    }
-    save_document('maintenance_settings', document)
-    return jsonify(ok=True, **maintenance_settings())
-
-
-def data_reset_summary():
-    with connect() as db:
-        def count(table):
-            row = db.execute(f'SELECT COUNT(*) AS n FROM {table}').fetchone()
-            return int((row or {}).get('n') or 0)
-        users = count('users')
-        totals = db.execute('SELECT COALESCE(SUM(balance),0) AS balance,COALESCE(SUM(tickets),0) AS tickets FROM users').fetchone()
-        game_records = count('rounds') + count('upgrade_spins') + count('roll_spins') + count('craft_spins')
-        return dict(
-            users=users,
-            balance_ton=round(int((totals or {}).get('balance') or 0)/100, 2),
-            tickets=int((totals or {}).get('tickets') or 0),
-            inventory=count('inventory'),
-            promocodes=count('promo_codes'),
-            freebets=count('freebets'),
-            game_records=game_records,
-            giveaways=count('giveaways'),
-            transactions=count('transactions'),
-            withdrawals=count('withdrawals'),
-            transfers=count('transfers'),
-        )
-
-
-@app.get('/api/admin/data-reset')
-@admin_required
-def admin_data_reset_status():
-    return jsonify(summary=data_reset_summary(),
-                   preserved=['users', 'Portal catalog', 'system settings'])
-
-
-@app.post('/api/admin/data-reset/prepare')
-@admin_required
-def admin_data_reset_prepare():
-    data = request.get_json(silent=True) or {}
-    if not maintenance_settings()['enabled']:
-        return error('Сначала включите технические работы, чтобы во время сброса никто не создавал новые данные.', 409)
-    if data.get('armed') is not True or data.get('confirm') is not True:
-        return error('Сначала включите защитный ползунок и подтвердите первое предупреждение.')
-    token = secrets.token_urlsafe(32)
-    session['data_reset_token_hash'] = hashlib.sha256(token.encode()).hexdigest()
-    session['data_reset_token_expires'] = int(time.time()) + 90
-    return jsonify(ok=True, token=token, expires_in=90, summary=data_reset_summary())
-
-
-def reset_dynamic_data():
-    # Keep identities/configuration/catalog intact. Clear all mutable economy/game state.
-    child_first_tables = [
-        'notification_outbox', 'user_notifications', 'user_events', 'wager_fragment_claims',
-        'giveaway_winners', 'giveaway_entries', 'giveaway_prizes', 'giveaways',
-        'reward_task_claims', 'ticket_ledger', 'transfers',
-        'upgrade_promo_pity', 'upgrade_spins', 'level_claims', 'roll_spins', 'craft_spins', 'rounds',
-        'ton_deposit_orders', 'user_wallets',
-        'freebet_redemptions', 'freebets',
-        'promo_views', 'promo_redemptions', 'promo_codes',
-        'withdrawals', 'deposits', 'referrals', 'transactions',
-        'inventory', 'wins_feed_clears', 'web_login_challenges', 'bot_updates', 'admin_log',
-    ]
-    db = connect()
-    try:
-        db.execute('BEGIN IMMEDIATE')
-        for table in child_first_tables:
-            db.execute(f'DELETE FROM {table}')
-        db.execute('''UPDATE users SET balance=0,roll_boost=1,turnover_cents=0,tickets=0,
-                      withdrawal_enabled=1,withdrawal_block_reason='',
-                      max_drop_override_name='',max_drop_override_image='',max_drop_override_price=0,
-                      max_drop_override_set_at=NULL''')
-        # User-scoped/runtime documents are data, while global settings and Portal catalogue stay.
-        db.execute("DELETE FROM app_documents WHERE name LIKE 'bot_input:%' OR name LIKE 'post_draft:%' OR name IN ('portal_job','portal_logs')")
-        db.commit()
-    except Exception:
-        try:
-            db.connection.rollback() if hasattr(db, 'connection') else db.rollback()
-        except Exception:
-            pass
-        raise
-    finally:
-        db.close()
-    return len(child_first_tables)
-
-
-@app.post('/api/admin/data-reset/execute')
-@admin_required
-def admin_data_reset_execute():
-    data = request.get_json(silent=True) or {}
-    if not maintenance_settings()['enabled']:
-        return error('Технические работы выключены. Для безопасного сброса включите их снова.', 409)
-    token = str(data.get('token') or '')
-    phrase = str(data.get('phrase') or '')
-    expected_hash = str(session.get('data_reset_token_hash') or '')
-    expires = int(session.get('data_reset_token_expires') or 0)
-    # Consume the confirmation before touching the database; a retry needs a new preparation step.
-    session.pop('data_reset_token_hash', None)
-    session.pop('data_reset_token_expires', None)
-    if phrase != 'УДАЛИТЬ ВСЁ':
-        return error('Неверная контрольная фраза.')
-    if not token or not expected_hash or expires < int(time.time()):
-        return error('Подтверждение истекло. Начните удаление заново.', 409)
-    if not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), expected_hash):
-        return error('Некорректное подтверждение.', 409)
-    users_preserved = data_reset_summary()['users']
-    cleared_tables = reset_dynamic_data()
-    app.logger.warning('ADMIN DATA RESET completed by admin_id=%s; users preserved=%s', session['uid'], users_preserved)
-    return jsonify(ok=True, cleared_tables=cleared_tables, users_preserved=users_preserved)
 
 
 @app.get('/api/admin/loader-settings')
@@ -6890,7 +5840,7 @@ def my_referrals():
                            (session['uid'],)).fetchone()[0]
     username = current_bot_username()
     return jsonify(count=count, depositors=depositors, earned=total/100,
-                   percent=referral_percent_for_user(session['uid']), bot_username=username,
+                   percent=referral_percent(), bot_username=username,
                    link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
 
 
@@ -7280,10 +6230,11 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
                                      image_url=gift['image_url'], price_ton=gift['price']/100,
                                      wager_multiplier=multiplier if kind=='wager_gift' else 0))
     if gift_options:
-        # Global, auditable reward mix from the admin chance controls.
-        weights = compensation_reward_weights()
-        total_weight = max(1, sum(weight for _, weight in weights))
-        roll = secrets.randbelow(total_weight)
+        # Gift / wagering / personal-code rewards together: 80%, 85%, 90%.
+        weights = [('balance', 8 if large else 12 if medium else 16),
+                   ('tickets', 10), ('wager_gift', 37), ('gift', 25),
+                   ('promo', 20 if large else 16 if medium else 12)]
+        roll = secrets.randbelow(100)
         kind = 'balance'
         for candidate, weight in weights:
             if roll < weight:
@@ -7497,23 +6448,6 @@ def redeem_promocode():
         if prior:return error('Вы уже активировали этот промокод.',409)
         if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
             return error('Лимит активаций этого промокода исчерпан.', 409)
-        needed_refs = int(promo['min_referrals'] or 0)
-        if needed_refs:
-            refs = referral_count(db, session['uid'])
-            if refs < needed_refs:
-                return error(f'Для этого промокода нужно пригласить минимум {needed_refs} реферал(ов). Сейчас: {refs}.', 409)
-        if int(promo['wager_completion_limit'] or 0) > 0 and int(promo['wager_completion_count'] or 0) >= int(promo['wager_completion_limit'] or 0):
-            return error('Лимит успешных отыгрышей этого промокода уже исчерпан.', 409)
-        require_channel = bool(promo['require_channel']) if 'require_channel' in promo.keys() else False
-        require_chat = bool(promo['require_chat']) if 'require_chat' in promo.keys() else False
-        if require_channel:
-            subscribed, _ = telegram_member_subscribed(session['uid'])
-            if not subscribed:
-                return error(access_requirement_text(True, False), 409)
-        if require_chat:
-            joined, _ = telegram_member_in_required_chat(session['uid'])
-            if not joined:
-                return error(access_requirement_text(False, True), 409)
         inventory_id = None
         if promo['reward_type'] == 'balance':
             amount = max(0, int(promo['amount']))
@@ -7748,27 +6682,6 @@ def admin_save_post_settings():
     return jsonify(ok=True, **info)
 
 
-@app.route('/api/admin/access/chat', methods=['GET', 'POST'])
-@admin_required
-def admin_required_chat_settings():
-    if request.method == 'POST':
-        data = request.get_json(silent=True) or {}
-        try:
-            chat_id = normalize_channel_id(data.get('chat_id'))
-            info = inspect_required_chat(chat_id)
-        except ValueError as exc:
-            return error(str(exc))
-        except RuntimeError as exc:
-            return error('Telegram: ' + str(exc), 409)
-        info['saved_at'] = datetime.now(timezone.utc).isoformat()
-        save_document('required_chat', info)
-        with connect() as db:
-            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                       (session['uid'], session['uid'], 'required_chat_save', info['chat_id']))
-    data = required_chat_settings()
-    return jsonify(ok=True, **data, configured=bool(data['chat_id']))
-
-
 @app.post('/api/admin/post/publish')
 @admin_required
 def admin_publish_post():
@@ -7989,8 +6902,7 @@ def _freebet_backing_values(data, code):
 def admin_freebets():
     with connect() as db:
         rows = db.execute("""SELECT f.*,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
-                             p.bonus_percent,p.bonus_fixed,p.min_deposit,p.reward_json,p.gift_expires_days,
-                             p.wager_completion_limit,p.wager_completion_count
+                             p.bonus_percent,p.bonus_fixed,p.min_deposit,p.reward_json,p.gift_expires_days
                              FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
                              ORDER BY f.created_at DESC""").fetchall()
     items=[]
@@ -7998,13 +6910,10 @@ def admin_freebets():
         promo=x
         items.append(dict(code=x['code'],link=freebet_link(x['code']),active=bool(x['active']),max_uses=int(x['max_uses'] or 0),
                           uses_count=int(x['uses_count'] or 0),require_subscription=bool(x['require_subscription']),
-                          require_chat=bool(x['require_chat']) if 'require_chat' in x.keys() else False,
                           min_level=int(x['min_level'] or 0),min_telegram_level=int(x['min_telegram_level'] or 0),
-                          min_turnover=int(x['min_turnover'] or 0)/100,min_referrals=int(x['min_referrals'] or 0),expires_at=x['expires_at'],
-                          wager_completion_limit=int(x['wager_completion_limit'] or 0),
-                          wager_completion_count=int(x['wager_completion_count'] or 0),
+                          min_turnover=int(x['min_turnover'] or 0)/100,expires_at=x['expires_at'],
                           created_at=x['created_at'],reward_type=x['reward_type'],purpose=promo_purpose(promo)))
-    return jsonify(items=items, channel=post_channel_settings(), required_chat=required_chat_settings(), bot_username=bot_username_value())
+    return jsonify(items=items, channel=post_channel_settings(), bot_username=bot_username_value())
 
 
 @app.post('/api/admin/freebets')
@@ -8020,37 +6929,23 @@ def admin_create_freebet():
             return int(float(text)) if text else default
         max_uses=_fb_int(data.get('max_uses'), 1); min_level=_fb_int(data.get('min_level'))
         min_tg=_fb_int(data.get('min_telegram_level')); min_turnover=parse_amount(data.get('min_turnover') or 0)
-        min_referrals=_fb_int(data.get('min_referrals')); wager_completion_limit=_fb_int(data.get('wager_completion_limit'))
         expires_days=_fb_int(data.get('expires_in_days'))
         values=_freebet_backing_values(data, code)
     except (ValueError,TypeError,InvalidOperation,OSError,json.JSONDecodeError) as exc:
         return error(str(exc) or 'Проверьте настройки фрибета.')
     if not 0 <= max_uses <= 1000000:return error('Лимит активаций: 0–1 000 000. 0 — без лимита.')
     if min_level < 0 or min_tg < 0:return error('Минимальные уровни не могут быть отрицательными.')
-    if not 0 <= min_referrals <= 1000000:return error('Количество рефералов: от 0 до 1 000 000.')
-    if not 0 <= wager_completion_limit <= 1000000:return error('Лимит успешных отыгрышей: от 0 до 1 000 000.')
     if min_level:
         with connect() as check_db:
             if not check_db.execute('SELECT 1 FROM levels WHERE level=?',(min_level,)).fetchone():
                 return error('Укажите существующий уровень GemDrop.')
     if not 0 <= expires_days <= 3650:return error('Срок действия: 0–3650 дней.')
     require_subscription=1 if bool(data.get('require_subscription')) else 0
-    require_chat=1 if bool(data.get('require_chat')) else 0
     if require_subscription and not post_channel_settings().get('chat_id'):
-        return error('Сначала привяжите обязательный канал в настройках бота или отключите требование подписки.',409)
-    if require_chat and not required_chat_settings().get('chat_id'):
-        return error('Сначала привяжите обязательный чат в настройках бота или отключите требование вступления.',409)
+        return error('Сначала привяжите канал в разделе Post или отключите требование подписки.',409)
     expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
     (reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,bonus_percent,bonus_fixed,
      min_deposit,reward_json,gift_expires_days)=values
-    if reward_type != 'wager_gift':
-        wager_completion_limit = 0
-    elif wager_completion_limit > 0:
-        try:
-            fragments = completion_fragment_pool(data.get('completion_fragment_urls') or data.get('completion_fragment_url'), wager_completion_limit)
-        except ValueError as exc:
-            return error('Fragment: ' + str(exc))
-        reward_json = json.dumps({'completion_fragments': fragments}, ensure_ascii=False)
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -8058,15 +6953,13 @@ def admin_create_freebet():
             return error('Такой код уже существует.',409)
         db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                     max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,
-                    source_label,description,expires_at,gift_expires_days,min_referrals,wager_completion_limit,wager_completion_count)
-                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?,?,?,0)""",
+                    source_label,description,expires_at,gift_expires_days)
+                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?)""",
                    (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,session['uid'],
-                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days,min_referrals,wager_completion_limit))
-        db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,require_chat,min_level,min_telegram_level,
-                    min_turnover,min_referrals,expires_at,created_by) VALUES(?,?,?,1,?,?,?,?,?,?,?,?)""",
-                   (code,code,max_uses,require_subscription,require_chat,min_level,min_tg,min_turnover,min_referrals,expires_at,session['uid']))
-        db.execute('UPDATE promo_codes SET require_channel=?,require_chat=? WHERE code=?',
-                   (require_subscription,require_chat,code))
+                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days))
+        db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,min_level,min_telegram_level,
+                    min_turnover,expires_at,created_by) VALUES(?,?,?,1,?,?,?,?,?,?)""",
+                   (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,expires_at,session['uid']))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],session['uid'],'freebet_create',code))
         db.commit()
@@ -8120,11 +7013,6 @@ def admin_promocodes():
                                active=bool(x['active']), created_at=x['created_at'],
                                assigned_user_id=int(x['assigned_user_id'] or 0),source=x['source_label'] or '',
                                description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),gift_expires_days=int(x['gift_expires_days'] or 0),
-                               min_referrals=int(x['min_referrals'] or 0),
-                               require_channel=bool(x['require_channel']) if 'require_channel' in x.keys() else False,
-                               require_chat=bool(x['require_chat']) if 'require_chat' in x.keys() else False,
-                               wager_completion_limit=int(x['wager_completion_limit'] or 0),
-                               wager_completion_count=int(x['wager_completion_count'] or 0),
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
                                min_deposit=x['min_deposit']/100,purpose=promo_purpose(x),
                                components=public_level_reward(json.loads(x['reward_json'])).get('components',{})
@@ -8146,15 +7034,6 @@ def admin_create_promocode():
         return error('Некорректный лимит активаций.')
     if not 0 <= max_uses <= 1000000:
         return error('Лимит активаций должен быть от 0 до 1 000 000. 0 — без лимита.')
-    try:
-        min_referrals = int(float(str(data.get('min_referrals') or 0).replace(',', '.')))
-        wager_completion_limit = int(float(str(data.get('wager_completion_limit') or 0).replace(',', '.')))
-    except (TypeError, ValueError):
-        return error('Проверьте условия по рефералам и успешным отыгрышам.')
-    if not 0 <= min_referrals <= 1000000:
-        return error('Количество рефералов: от 0 до 1 000 000.')
-    if not 0 <= wager_completion_limit <= 1000000:
-        return error('Лимит успешных отыгрышей: от 0 до 1 000 000.')
     amount = 0; gift_id = ''; gift_name = ''; gift_image = ''; gift_price = 0; wager_multiplier = 0.0; gift_expires_days = 0
     bonus_percent=0;bonus_fixed=0;min_deposit=0;multi_reward=None
     try:
@@ -8166,12 +7045,6 @@ def admin_create_promocode():
     if not 0 <= expires_days <= 3650:return error('Срок действия: от 0 до 3650 дней. 0 — без срока.')
     source_label=str(data.get('source_label') or 'Администрация').strip()[:80]
     description=str(data.get('description') or '').strip()[:300]
-    require_channel=1 if bool(data.get('require_channel')) else 0
-    require_chat=1 if bool(data.get('require_chat')) else 0
-    if require_channel and not post_channel_settings().get('chat_id'):
-        return error('Сначала привяжите обязательный канал в настройках бота.',409)
-    if require_chat and not required_chat_settings().get('chat_id'):
-        return error('Сначала привяжите обязательный чат в настройках бота.',409)
     expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
     if reward_type == 'balance':
         try:
@@ -8236,28 +7109,18 @@ def admin_create_promocode():
             return error('Укажите один бонус: процент до 100% или сумму в TON.')
     else:
         return error('Выберите тип промокода.')
-    if reward_type != 'wager_gift':
-        wager_completion_limit = 0
-    elif wager_completion_limit > 0:
-        try:
-            fragments = completion_fragment_pool(data.get('completion_fragment_urls') or data.get('completion_fragment_url'), wager_completion_limit)
-        except ValueError as exc:
-            return error('Fragment: ' + str(exc))
-        multi_reward = {'completion_fragments': fragments}
     try:
         with connect() as db:
             if assigned_user_id and not db.execute('SELECT 1 FROM users WHERE id=?',(assigned_user_id,)).fetchone():
                 return error('Пользователь с таким ID не найден.',404)
             if assigned_user_id:
                 max_uses=1
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,min_referrals,wager_completion_limit,wager_completion_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)',
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
                         json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
-                        assigned_user_id,source_label,description,expires_at,gift_expires_days,min_referrals,wager_completion_limit))
-            db.execute('UPDATE promo_codes SET require_channel=?,require_chat=? WHERE code=?',
-                       (require_channel,require_chat,code))
+                        assigned_user_id,source_label,description,expires_at,gift_expires_days))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:
@@ -8317,20 +7180,9 @@ def admin_user(user_id):
                             (user_id,)).fetchall()
         level=level_number(db,int(user['turnover_cents'] or 0))
         available_levels=[int(r['level']) for r in db.execute('SELECT level FROM levels ORDER BY level').fetchall()]
-        referral_count=int(db.execute('SELECT COUNT(*) AS n FROM referrals WHERE referrer_id=?',(user_id,)).fetchone()['n'] or 0)
-        referral_depositors=int(db.execute('''SELECT COUNT(DISTINCT user_id) AS n FROM deposits
-                                               WHERE referrer_id=? AND referral_bonus>0''',(user_id,)).fetchone()['n'] or 0)
-        referral_earned=int(db.execute("SELECT COALESCE(SUM(amount),0) AS n FROM transactions WHERE user_id=? AND kind='referral_bonus'",(user_id,)).fetchone()['n'] or 0)
-        custom_referral_percent=user['referral_percent_override']
-        effective_referral_percent=(min(50.0,max(0.0,float(custom_referral_percent)))
-                                    if custom_referral_percent is not None else referral_percent())
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'] or '',
                              balance=user['balance']/100,level=level,
                              turnover=user['turnover_cents']/100,
-                             referral_count=referral_count,referral_depositors=referral_depositors,
-                             referral_earned=referral_earned/100,
-                             referral_percent=effective_referral_percent,
-                             referral_percent_custom=(None if custom_referral_percent is None else float(custom_referral_percent)),
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or '',
                              max_drop_override=(dict(name=user['max_drop_override_name'],image_url=user['max_drop_override_image'],
@@ -8341,32 +7193,6 @@ def admin_user(user_id):
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
                                 active=bool(p['active'] and not promo_is_expired(p)),
                                 used=bool(p['uses_count'])) for p in promos])
-
-
-@app.post('/api/admin/users/<int:user_id>/referral-percent')
-@admin_required
-def admin_user_referral_percent(user_id):
-    data = request.get_json(silent=True) or {}
-    raw = data.get('percent')
-    reset = bool(data.get('reset')) or raw in (None, '')
-    value = None
-    if not reset:
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return error('Укажите реферальный процент числом.')
-        if not math.isfinite(value) or not 0 <= value <= 50:
-            return error('Реферальный процент должен быть от 0 до 50%.')
-        value = round(value, 2)
-    with connect() as db:
-        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
-            return error('Пользователь не найден.', 404)
-        db.execute('UPDATE users SET referral_percent_override=? WHERE id=?', (value, user_id))
-        effective = referral_percent_for_user(user_id, db)
-        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], user_id, 'referral_percent_set',
-                    'global' if value is None else f'{value:g}%'))
-    return jsonify(ok=True, percent=effective, custom=value, global_percent=referral_percent())
 
 
 @app.post('/api/admin/users/<int:user_id>/max-drop')
@@ -8611,66 +7437,26 @@ def admin_user_activity(user_id):
             image=payload.get('gift_image') or payload.get('target_image') or payload.get('source_image') or ''
             events.append(dict(id='e'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
                                amount=None,image=image,details=payload))
-        game_transaction_kinds={'game_bet','promo_wager_bet','gift_bet','gift_bet_lost','game_win_ton',
-                                'upgrade_bet','roll_spin','roll_gift'}
         for r in db.execute('SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            if str(r['kind'] or '') in game_transaction_kinds:
-                continue
             events.append(dict(id='t'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
                                amount=r['amount']/100,image='',details=dict(text=r['details'],
                                balance_after=r['balance_after']/100 if r['balance_after'] is not None else None,
                                reference_type=r['reference_type'],reference_id=r['reference_id'])))
         for r in db.execute('SELECT * FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            try: opened_cells=json.loads(r['opened'] or '[]')
-            except (TypeError,ValueError,json.JSONDecodeError): opened_cells=[]
-            state=str(r['state'] or '')
-            result=('win' if state=='won' else 'loss' if state=='lost' else 'active')
-            bet=max(0,int(r['bet'] or 0))
-            payout=max(0,int(r['payout'] or 0))
-            multiplier=float(r['win_multiplier'] or (payout/bet if bet and payout else 0) or 0)
-            lost_cell=(int(r['lost_cell'])+1 if r['lost_cell'] is not None else None)
             events.append(dict(id='m'+str(r['id']),date=str(r['created_at']),kind='mines_round',
-                               amount=bet/100,image=r['bet_gift_image'] or r['win_gift_image'],
-                               details=dict(result=result,mines=int(r['mines'] or 0),bet=bet/100,state=state,
+                               amount=r['bet']/100,image=r['bet_gift_image'] or r['win_gift_image'],
+                               details=dict(mines=r['mines'],bet=r['bet']/100,state=r['state'],
                                             bet_type=r['bet_type'],gift_name=r['bet_gift_name'] or r['win_gift_name'],
-                                            opened=len(opened_cells),opened_cells=opened_cells,lost_cell=lost_cell,
-                                            payout=payout/100,multiplier=multiplier,round_id=r['id'])))
-        for r in db.execute('SELECT * FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            try: result_json=json.loads(r['result_json'] or '{}')
-            except (TypeError,ValueError,json.JSONDecodeError): result_json={}
-            source_price=int(r['source_price'] or 0); target_price=int(r['target_price'] or 0)
-            x=(target_price/source_price if source_price>0 else 0)
-            events.append(dict(id='u'+str(r['id']),date=str(r['created_at']),kind='upgrade_round',
-                               amount=-source_price/100,image=r['source_image'] or r['target_image'],
-                               details=dict(result='win' if r['won'] else 'loss',won=bool(r['won']),
-                                            source_name=r['source_name'],target_name=r['target_name'],
-                                            source_price=source_price/100,target_price=target_price/100,
-                                            chance=float(r['chance_bp'] or 0)/100,multiplier=x,
-                                            target_image=r['target_image'],source_image=r['source_image'],
-                                            reward_type=result_json.get('reward_type',''))))
+                                            opened=len(json.loads(r['opened'] or '[]')),payout=r['payout']/100)))
         for r in db.execute('SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
             events.append(dict(id='w'+str(r['id']),date=str(r['created_at']),kind='withdrawal',amount=0,
                                image=r['image_url'],details=dict(gift_name=r['gift_name'],status=r['status'])))
-        for r in db.execute('''SELECT r.*,p.gift_image_url,p.gift_name FROM promo_redemptions r
-                               LEFT JOIN promo_codes p ON p.code=r.code
-                               WHERE r.user_id=? ORDER BY r.created_at DESC LIMIT ?''',(user_id,limit)).fetchall():
+        for r in db.execute('SELECT * FROM promo_redemptions WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
             events.append(dict(id='p'+r['code'],date=str(r['created_at']),kind='promo_activation',amount=r['amount']/100,
-                               image=r['gift_image_url'] or '',details=dict(code=r['code'],reward_type=r['reward_type'],
-                               gift_name=r['gift_name'] or '',consumed_at=r['consumed_at'])))
-        try:
-            catalog_by_name={str(g.get('name') or ''):safe_image(g.get('image_url')) for g in read_catalog().get('gifts',[]) if g.get('name')}
-        except (OSError,ValueError,json.JSONDecodeError):
-            catalog_by_name={}
+                               image='',details=dict(code=r['code'],reward_type=r['reward_type'],consumed_at=r['consumed_at'])))
         for r in db.execute('SELECT * FROM roll_spins WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            gift_name=str(r['gift_name'] or '')
-            outcome=str(r['outcome'] or '')
-            outcome_lower=outcome.lower()
-            result=('win' if gift_name or outcome_lower in ('gift','win','won','prize') else
-                    'loss' if outcome_lower in ('empty','lose','loss','lost','none','no_prize') else outcome_lower or 'unknown')
             events.append(dict(id='r'+r['id'],date=str(r['created_at']),kind='roll_spin',amount=-r['price']/100,
-                               image=catalog_by_name.get(gift_name,''),
-                               details=dict(roll_id=r['roll_id'],outcome=outcome,gift_name=gift_name,
-                                            result=result,price=int(r['price'] or 0)/100)))
+                               image='',details=dict(roll_id=r['roll_id'],outcome=r['outcome'],gift_name=r['gift_name'])))
         for r in db.execute('SELECT * FROM ton_deposit_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
             events.append(dict(id='d'+r['id'],date=str(r['created_at']),kind='deposit_order',amount=r['amount']/100,
                                image='',details=dict(status=r['status'],promo_code=r['promo_code'],order_id=r['id'])))
@@ -8803,8 +7589,6 @@ def admin_withdrawals():
     return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], user_name=x['user_name'],
                                username=x['username'], gift_name=x['gift_name'], image_url=x['image_url'],
                                price_ton=x['floor_price']/100, status=x['status'], admin_id=x['admin_id'],
-                               external_url=x['external_url'] or '', fragment_number=x['fragment_number'] or '',
-                               fragment_model=x['fragment_model'] or '', fragment_backdrop=x['fragment_backdrop'] or '',
                                admin_name=x['admin_name'], admin_username=x['admin_username'],
                                created_at=x['created_at'], processed_at=x['processed_at']) for x in rows])
 
@@ -8841,13 +7625,10 @@ def reject_withdrawal(withdrawal_id):
                          (withdrawal_id,)).fetchone()
         if not row:
             return error('Заявка не найдена или уже обработана.', 404)
-        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                      external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                      VALUES(?,?,?,?,?,?,?)''',
                    (row['user_id'], row['gift_id'], row['gift_name'], row['image_url'],
-                    row['floor_price'], row['source'], row['round_id'], row['external_url'] or '',
-                    row['fragment_number'] or '', row['fragment_model'] or '', row['fragment_backdrop'] or '',
-                    row['fragment_symbol'] or '', row['price_source'] or '', row['animation_url'] or ''))
+                    row['floor_price'], row['source'], row['round_id']))
         db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
                    (session['uid'], withdrawal_id))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
@@ -8881,65 +7662,6 @@ def admin_transactions():
                                balance_after=None if x['balance_after'] is None else x['balance_after']/100,
                                reference_type=x['reference_type'], reference_id=x['reference_id'],
                                details=x['details'], created_at=x['created_at']) for x in rows])
-
-@app.get('/api/admin/chances')
-@admin_required
-def admin_chances_get():
-    cfg = chance_control_settings()
-    return jsonify(
-        mines_rtp=round(game_rtp()*100,2),
-        promo_rtp=round(promo_game_rtp()*100,2),
-        upgrade_rtp=round(upgrade_rtp_basis_points()/100,2),
-        loss_rtp_max_boost=round(loss_rtp_max_boost(),2),
-        roll_gift_weight_percent=round(cfg['roll_gift_weight_percent'],1),
-        comp_balance_weight=cfg['comp_balance_weight'],
-        comp_tickets_weight=cfg['comp_tickets_weight'],
-        comp_wager_gift_weight=cfg['comp_wager_gift_weight'],
-        comp_gift_weight=cfg['comp_gift_weight'],
-        comp_promo_weight=cfg['comp_promo_weight'],
-    )
-
-
-@app.post('/api/admin/chances')
-@admin_required
-def admin_chances_set():
-    data=request.get_json(silent=True) or {}
-    try:
-        mines=float(data.get('mines_rtp'))
-        promo=float(data.get('promo_rtp'))
-        upgrade=float(data.get('upgrade_rtp'))
-        loss_boost=float(data.get('loss_rtp_max_boost'))
-        roll_gift=float(data.get('roll_gift_weight_percent'))
-        mix={
-            'comp_balance_weight':int(float(data.get('comp_balance_weight'))),
-            'comp_tickets_weight':int(float(data.get('comp_tickets_weight'))),
-            'comp_wager_gift_weight':int(float(data.get('comp_wager_gift_weight'))),
-            'comp_gift_weight':int(float(data.get('comp_gift_weight'))),
-            'comp_promo_weight':int(float(data.get('comp_promo_weight'))),
-        }
-    except (TypeError,ValueError,OverflowError):
-        return error('Проверьте значения шансов.')
-    if not all(math.isfinite(x) for x in (mines,promo,upgrade,loss_boost,roll_gift)):
-        return error('Проверьте значения шансов.')
-    if not 97<=mines<=99.9:return error('Mines RTP: от 97 до 99.9%.')
-    if not 89<=promo<=96.9:return error('Freebet / промо RTP: от 89 до 96.9%.')
-    if promo>=mines:return error('Freebet / промо RTP должен быть ниже обычного Mines RTP.')
-    if not 1<=upgrade<=100:return error('Шанс Upgrade: коэффициент от 1 до 100%.')
-    if not 0<=loss_boost<=15:return error('Компенсационная прибавка: от 0 до 15 п.п.')
-    if not 50<=roll_gift<=150:return error('Roll: вес подарков от 50 до 150%.')
-    if any(v<0 or v>100 for v in mix.values()):return error('Вес каждой награды: от 0 до 100.')
-    if sum(mix.values())!=100:return error('Сумма весов компенсационного кейса должна быть ровно 100%.')
-    game=read_document('game_settings') or {}
-    if not isinstance(game,dict):game={}
-    game.update(rtp=mines/100,promo_rtp=promo/100,upgrade_rtp_bp=round(upgrade*100),
-                loss_rtp_max_boost=round(loss_boost,2),updated_at=datetime.now(timezone.utc).isoformat(),
-                admin_id=session['uid'])
-    save_document('game_settings',game)
-    chance=chance_control_settings()
-    chance.update(roll_gift_weight_percent=round(roll_gift,1),**mix)
-    save_document('chance_control_settings',chance)
-    return admin_chances_get()
-
 
 @app.get('/api/admin/rtp')
 @admin_required
@@ -9057,8 +7779,7 @@ def credit_verified_ton_deposit(db, order, tx_hash):
     amount = int(order['amount'])
     referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (user_id,)).fetchone()
     referrer = referral['referrer_id'] if referral else None
-    referrer_percent = referral_percent_for_user(referrer, db) if referrer else 0.0
-    bonus = int(amount * referrer_percent / 100) if referrer else 0
+    bonus = int(amount * referral_percent() / 100) if referrer else 0
     active=db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
                          JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'
                          AND r.code=? AND r.consumed_at IS NULL""" + (' FOR UPDATE OF r' if DATABASE_URL else ''),
@@ -9085,7 +7806,7 @@ def credit_verified_ton_deposit(db, order, tx_hash):
               promo_code=active['code'] if deposit_bonus else '',transaction=tx_hash)
     if referrer and bonus:
         record_transaction(db, referrer, 'referral_bonus', bonus, 'ton_tx', tx_hash,
-                           f'Реферальный бонус {referrer_percent:g}% от TON-пополнения пользователя {user_id}')
+                           f'Реферальный бонус {referral_percent():g}% от TON-пополнения пользователя {user_id}')
     return bonus
 
 
@@ -9826,10 +8547,6 @@ def telegram_webhook():
     chat = message.get('chat') or {}
     command = str(message.get('text') or '').split(maxsplit=1)
     callback = update.get('callback_query') or {}
-    maintenance_uid = (callback.get('from') or {}).get('id') if callback else sender.get('id')
-    if maintenance_settings()['enabled'] and isinstance(maintenance_uid, int) and maintenance_uid not in ADMIN_IDS:
-        # Silent success prevents Telegram retries while the bot is deliberately unavailable.
-        return jsonify(ok=True)
     if callback and isinstance((callback.get('from') or {}).get('id'), int):
         callback_id = str(callback.get('id') or '')
         callback_data = str(callback.get('data') or '')

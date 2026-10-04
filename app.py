@@ -120,7 +120,7 @@ class PostgreSQL:
             sql = sql.replace('%', '%%').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
-        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks)\b', sql))
+        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks|withdrawals)\b', sql))
         if returning:
             sql += ' RETURNING id'
         cursor = self.connection.execute(sql, params)
@@ -419,6 +419,13 @@ def _initialize_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,
             kind TEXT NOT NULL,text TEXT NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS wager_fragment_claims (
+            promo_code TEXT NOT NULL, fragment_index INTEGER NOT NULL,
+            user_id INTEGER NOT NULL, inventory_id INTEGER NOT NULL,
+            claimed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(promo_code,fragment_index),
+            UNIQUE(promo_code,inventory_id)
         );
         ''')
         def ensure_columns(table, definitions):
@@ -1184,7 +1191,7 @@ def log_event(db,user_id,kind,**details):
 IMPORTANT_NOTIFICATION_KINDS = (
     'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
-    'transfer_received','wager_copy_burned','wager_completed',
+    'transfer_received','wager_copy_burned','wager_completed','wager_pool_update',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
@@ -1497,6 +1504,12 @@ def apply_global_wager_completion(db, promo_code, winner_user_id, keep_inventory
         return dict(reached=False, count=0, limit=0, burned_users=[])
     limit = max(0, int(promo['wager_completion_limit'] or 0))
     count = max(0, int(promo['wager_completion_count'] or 0))
+    pool = promo_completion_fragments(promo)
+    if len(pool) > 1:
+        # Multi-NFT self-destruct codes are counted only when the completed player
+        # selects and claims one concrete Fragment gift.
+        claimed = len(fragment_pool_claimed_indexes(db, code))
+        return dict(reached=False, count=claimed, limit=len(pool), burned_users=[], pending_selection=True)
     fragment = promo_completion_fragment(promo)
     completed_name = (fragment or {}).get('gift_name') or promo['gift_name'] or 'Подарок'
     completed_number = (fragment or {}).get('fragment_number') or ''
@@ -1600,6 +1613,8 @@ def award_round(db, row, opened_count):
         previous = max(0, int(row['promo_wager_progress'] or 0))
         progress = min(target, previous + amount) if target else previous + amount
         completed = bool(target and progress >= target)
+        promo_row, completion_pool = promo_fragment_pool_for_code(db, row['promo_code']) if completed else (None, [])
+        choice_pending = bool(completed and len(completion_pool) > 1)
         final_item = completed_wager_item(db, row['promo_code'], dict(
             gift_id=row['bet_gift_id'], gift_name=row['bet_gift_name'], image_url=row['bet_gift_image'],
             floor_price=row['bet_gift_price'], external_url='', fragment_number='', fragment_model='',
@@ -1613,10 +1628,10 @@ def award_round(db, row, opened_count):
                                 external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
                               VALUES(?,?,?,?,?,'promo_wager',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                             (row['user_id'], final_item['gift_id'], final_item['gift_name'], final_item['image_url'],
-                             final_item['floor_price'], row['id'], 0 if completed else 1,
-                             0.0 if completed else float(row['promo_wager_multiplier'] or 0),
-                             0 if completed else target, 0 if completed else progress,
-                             '' if completed else (row['promo_code'] or ''), None if completed else row['bet_expires_at'],
+                             final_item['floor_price'], row['id'], 1 if choice_pending else (0 if completed else 1),
+                             float(row['promo_wager_multiplier'] or 0) if choice_pending else (0.0 if completed else float(row['promo_wager_multiplier'] or 0)),
+                             target if choice_pending else (0 if completed else target), progress if choice_pending else (0 if completed else progress),
+                             (row['promo_code'] or '') if choice_pending else ('' if completed else (row['promo_code'] or '')), None if completed else row['bet_expires_at'],
                              final_item.get('external_url',''), final_item.get('fragment_number',''), final_item.get('fragment_model',''),
                              final_item.get('fragment_backdrop',''), final_item.get('fragment_symbol',''), final_item.get('price_source',''),
                              final_item.get('animation_url','')))
@@ -1627,10 +1642,14 @@ def award_round(db, row, opened_count):
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'],
                            f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
         if completed:
-            record_transaction(db, row['user_id'], 'promo_wager_claim', 0, 'inventory', cursor.lastrowid,
-                               f'Подарок успешно отыгран: {final_item["gift_name"]}')
-            db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (cursor.lastrowid,))
-            apply_global_wager_completion(db, row['promo_code'], row['user_id'], (cursor.lastrowid,))
+            if choice_pending:
+                add_user_notification(db, row['user_id'], 'wager_completed',
+                                      f'✅ Отыгрыш завершён. Выберите один из {len(completion_pool)} оставшихся Fragment-подарков.')
+            else:
+                record_transaction(db, row['user_id'], 'promo_wager_claim', 0, 'inventory', cursor.lastrowid,
+                                   f'Подарок успешно отыгран: {final_item["gift_name"]}')
+                db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (cursor.lastrowid,))
+                apply_global_wager_completion(db, row['promo_code'], row['user_id'], (cursor.lastrowid,))
         return
 
     prize = prize_for(amount)
@@ -1793,6 +1812,7 @@ WITHDRAW_UI_INJECTION = r"""
 #rewardsReceivedModal .rr-item.deposit_bonus .rr-art{color:#a9a4ff}
 #rewardsReceivedModal .rr-item.tickets .rr-art{color:#7cc9ff}
 #maintenanceAdminPage>.panel,#dataResetAdminPage>.panel{margin-top:16px}
+.gift-external-link{display:none!important}
 </style>
 <div id="withdrawConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="withdrawConfirmHeading">
   <div class="modal-card withdraw-confirm-card">
@@ -1823,9 +1843,9 @@ paintSvg(document.querySelector('#rewardsReceivedModal .rr-badge'),'gift');
 try{showReceivedRewards=function(batches){pendingRewardBatches=batches;let list=byId('rrList');list.replaceChildren();let count=0;for(const batch of batches)for(const it of batch.items||[]){count++;let row=document.createElement('div');row.className='rr-item '+(it.kind||'');let art=document.createElement('div');art.className='rr-art';if(it.image_url){let im=new Image;im.src=it.image_url;im.alt='';im.onerror=()=>{im.remove();paintSvg(art,it.kind)};art.append(im)}else paintSvg(art,it.kind);let text=document.createElement('div');text.className='rr-text';let title=document.createElement('b');title.textContent=it.title;let detail=document.createElement('small');detail.textContent=it.detail||'';text.append(title,detail);row.append(art,text);list.append(row)}if(!count)return;let codes=batches.map(b=>b.code).filter(Boolean);byId('rrSub').textContent=codes.length?`Фрибет ${codes.join(', ')} активирован — награды уже у вас`:'Награды уже зачислены в ваш аккаунт';byId('rrClaim').disabled=false;byId('rewardsReceivedModal').classList.remove('hidden')}}catch(e){}
 portals?.addEventListener('click',e=>{try{if(window.Telegram?.WebApp?.openTelegramLink){e.preventDefault();Telegram.WebApp.openTelegramLink('https://t.me/portals')}}catch(err){}});
 let withdrawBusy=false;
-const withdraw=byId('withdrawGift');if(withdraw)withdraw.onclick=async()=>{if(typeof selectedGift==='undefined'||!selectedGift||withdrawBusy)return;withdrawBusy=true;withdraw.disabled=true;let snapshot={...selectedGift};try{let d=await api(`/api/inventory/${snapshot.id}/withdraw/prepare`,{method:'POST',body:'{}',timeoutMs:8000});pending={id:snapshot.id,token:d.confirm_token,name:d.gift?.name||snapshot.name||'Подарок',image_url:d.gift?.image_url||snapshot.image_url||'/static/img/gift.svg'};let image=byId('withdrawConfirmImage');image.src=pending.image_url;image.onerror=()=>{image.onerror=null;image.src='/static/img/gift.svg'};byId('withdrawConfirmName').textContent=pending.name;modal.classList.remove('hidden')}catch(e){toast(e.message)}finally{withdrawBusy=false;withdraw.disabled=false}};
+const withdraw=byId('withdrawGift');if(withdraw)withdraw.onclick=()=>{if(typeof selectedGift==='undefined'||!selectedGift||withdrawBusy)return;let snapshot={...selectedGift};pending={id:snapshot.id,name:snapshot.name||snapshot.gift_name||'Подарок',image_url:snapshot.image_url||'/static/img/gift.svg'};let image=byId('withdrawConfirmImage');image.src=pending.image_url;image.onerror=()=>{image.onerror=null;image.src='/static/img/gift.svg'};byId('withdrawConfirmName').textContent=pending.name;modal.classList.remove('hidden')};
 cancelBtn.onclick=()=>{if(withdrawBusy)return;pending=null;modal.classList.add('hidden')};
-confirmBtn.onclick=async()=>{if(!pending||withdrawBusy)return;withdrawBusy=true;let request={...pending};confirmBtn.disabled=true;cancelBtn.disabled=true;confirmBtn.textContent='Отправляем…';try{let d=await api(`/api/inventory/${request.id}/withdraw`,{method:'POST',body:JSON.stringify({confirm_token:request.token}),timeoutMs:10000});pending=null;modal.classList.add('hidden');byId('giftModal')?.classList.add('hidden');try{if(typeof selectedGift!=='undefined'&&selectedGift?.id===request.id)selectedGift=null}catch(e){};try{if(Array.isArray(inventoryItems))inventoryItems=inventoryItems.filter(x=>Number(x.id)!==Number(request.id))}catch(e){};try{renderInventory?.()}catch(e){};toast('Заявка на вывод отправлена в обработку');Promise.race([Promise.resolve().then(()=>loadInventory()),new Promise(r=>setTimeout(r,2500))]).catch(()=>{})}catch(e){toast(e.message)}finally{withdrawBusy=false;confirmBtn.disabled=false;cancelBtn.disabled=false;confirmBtn.textContent='Подтвердить вывод'}};
+confirmBtn.onclick=async()=>{if(!pending||withdrawBusy)return;withdrawBusy=true;let request={...pending};confirmBtn.disabled=true;cancelBtn.disabled=true;confirmBtn.textContent='Отправляем…';try{let d=await api(`/api/inventory/${request.id}/withdraw`,{method:'POST',body:'{}',timeoutMs:10000});pending=null;modal.classList.add('hidden');byId('giftModal')?.classList.add('hidden');try{if(typeof selectedGift!=='undefined'&&selectedGift?.id===request.id)selectedGift=null}catch(e){};try{if(Array.isArray(inventoryItems))inventoryItems=inventoryItems.filter(x=>Number(x.id)!==Number(request.id))}catch(e){};try{renderInventory?.()}catch(e){};toast('Заявка на вывод отправлена в обработку');setTimeout(()=>{try{loadInventory?.()}catch(e){}},0)}catch(e){toast(e.message)}finally{withdrawBusy=false;confirmBtn.disabled=false;cancelBtn.disabled=false;confirmBtn.textContent='Подтвердить вывод'}};
 modal.addEventListener('click',e=>{if(e.target===modal)cancelBtn.click()});
 });})();
 </script>
@@ -1837,9 +1857,11 @@ PROMO_CONDITIONS_INJECTION = r"""
 <style id="gemdrop-promo-conditions-style">
 .gd-condition-switch{margin-top:10px;padding:12px;border:1px solid var(--line,#2c304f);border-radius:13px;background:var(--surface2,#171a2c)}
 .gd-condition-switch .gd-condition-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.gd-condition-switch b{font-size:12px}.gd-condition-switch small{display:block;margin-top:4px;color:var(--muted,#8ea3b5);font-size:10px;line-height:1.4}.gd-condition-limit{margin-top:10px}.gd-condition-limit.hidden{display:none!important}
-.gd-fragment-final{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:10px}.gd-fragment-final .gd-fragment-preview{grid-column:1/-1;display:flex;align-items:center;gap:10px;min-height:58px;padding:8px;border:1px solid var(--line,#303556);border-radius:12px;background:var(--surface,#141624);color:var(--muted,#8ea3b5);font-size:10px}.gd-fragment-preview img{width:50px;height:50px;object-fit:cover;border-radius:12px;overflow:hidden}.gd-access-check{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px}.gd-access-check input{width:18px;height:18px}
+.gd-fragment-rows{display:grid;gap:8px;margin-top:10px}.gd-fragment-row{display:block}.gd-fragment-final{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-top:10px}.gd-fragment-final .gd-fragment-preview{grid-column:1/-1;display:flex;align-items:center;gap:10px;min-height:58px;padding:8px;border:1px solid var(--line,#303556);border-radius:12px;background:var(--surface,#141624);color:var(--muted,#8ea3b5);font-size:10px}.gd-fragment-preview img{width:50px;height:50px;object-fit:cover;border-radius:12px;overflow:hidden}.gd-access-check{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px}.gd-access-check input{width:18px;height:18px}
 .gift.fragment-owned .gift-art{overflow:hidden;border-radius:14px}.gift.fragment-owned .gift-art>img{width:108%!important;height:108%!important;object-fit:cover!important;border-radius:14px}.modal-art.fragment-exact{overflow:hidden;border-radius:18px}.modal-art.fragment-exact>img{width:106%!important;height:106%!important;object-fit:cover!important;border-radius:16px}.promo-ribbon.self-destruct{background:#5e3548!important;color:#fff!important}
+#wagerFragmentChoiceModal{z-index:2147482600!important}#wagerFragmentChoiceModal .wf-card{width:min(100%,430px);padding:20px 16px 16px;text-align:left}#wagerFragmentChoiceModal .wf-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;max-height:55dvh;overflow:auto;margin:13px 0}#wagerFragmentChoiceModal .wf-option{position:relative;padding:9px;border:1px solid var(--line,#303556);border-radius:15px;background:var(--surface2,#171a2c);color:var(--text,#eef3f8);text-align:left}#wagerFragmentChoiceModal .wf-option.selected{border-color:#55b9f5;box-shadow:0 0 0 1px #55b9f566 inset}#wagerFragmentChoiceModal .wf-option img{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:11px;margin-bottom:8px}#wagerFragmentChoiceModal .wf-option b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#wagerFragmentChoiceModal .wf-option small{display:block;margin-top:3px;color:var(--muted,#8da3b7);font-size:9px}.gift-external-link{display:none!important}
 </style>
+<div id="wagerFragmentChoiceModal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card wf-card"><h2>Выберите подарок</h2><p class="muted">Выберите конкретный Fragment-подарок, который получите за завершённый отыгрыш.</p><div id="wagerFragmentChoiceGrid" class="wf-grid"></div><button id="wagerFragmentTake" class="primary" type="button" disabled>Забрать</button><button id="wagerFragmentClose" class="secondary" type="button" style="margin-top:8px">Позже</button></div></div>
 <script id="gemdrop-promo-conditions">
 (()=>{function ready(fn){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn()}
 ready(()=>{if(window.__gemdropPromoConditions)return;window.__gemdropPromoConditions=true;const $=id=>document.getElementById(id);
@@ -1849,15 +1871,22 @@ let promoExtra=document.querySelector('#promocodesPage .promo-admin-extra');if(p
 function accessCheck(id,text){let l=document.createElement('label');l.className='gd-access-check';l.innerHTML=`<input id="${id}" type="checkbox"><span>${text}</span>`;return l}
 if(fbGrid&&!$('freebetRequireChat'))fbGrid.append(accessCheck('freebetRequireChat','Требовать вступление в чат'));
 if(promoExtra&&!$('promoRequireChannel')){promoExtra.append(accessCheck('promoRequireChannel','Требовать подписку на канал'));promoExtra.append(accessCheck('promoRequireChat','Требовать вступление в чат'))}
-function makeLimitBox(prefix,title){let box=document.createElement('div');box.id=prefix+'CompletionBox';box.className='gd-condition-switch hidden';box.innerHTML=`<div class="gd-condition-head"><div><b>${title}</b><small>После указанного количества полностью завершённых отыгрышей остальные копии самоуничтожатся. Финальный победитель получит точный Fragment-подарок.</small></div><label class="gd-switch"><input id="${prefix}CompletionEnabled" type="checkbox"><span class="gd-slider"></span></label></div><div id="${prefix}CompletionFields" class="gd-condition-limit hidden"><span class="caption">Через сколько успешных отыгрышей аннулировать</span><input id="${prefix}CompletionLimit" class="text-input" type="number" min="1" max="1000000" step="1" value="1"><div class="gd-fragment-final"><label><span class="caption">Ссылка на конкретный Fragment-подарок</span><input id="${prefix}CompletionFragment" class="text-input" placeholder="https://fragment.com/gift/...-12345"></label><button id="${prefix}FragmentPreviewBtn" class="mini-btn" type="button">Загрузить</button><div id="${prefix}FragmentPreview" class="gd-fragment-preview">После загрузки здесь появятся PNG, номер и модель подарка.</div></div></div>`;return box}
+function makeLimitBox(prefix,title){let box=document.createElement('div');box.id=prefix+'CompletionBox';box.className='gd-condition-switch hidden';box.innerHTML=`<div class="gd-condition-head"><div><b>${title}</b><small>Количество успешных отыгрышей равно количеству конкретных Fragment-подарков. Каждый победитель выбирает один из оставшихся; последний выдаётся автоматически.</small></div><label class="gd-switch"><input id="${prefix}CompletionEnabled" type="checkbox"><span class="gd-slider"></span></label></div><div id="${prefix}CompletionFields" class="gd-condition-limit hidden"><span class="caption">Количество сгораемых подарков</span><input id="${prefix}CompletionLimit" class="text-input" type="number" min="1" max="50" step="1" value="1"><div id="${prefix}FragmentRows" class="gd-fragment-rows"></div></div>`;return box}
 let fbW=$('freebetWagerFields');if(fbW&&!$('freebetCompletionBox'))fbW.append(makeLimitBox('freebet','Самоуничтожающийся отыгрыш'));
 let prW=$('promoWagerFields');if(prW&&!$('promoCompletionBox'))prW.append(makeLimitBox('promo','Самоуничтожающийся отыгрыш'));
-function sync(){let fbWager=$('freebetRewardType')?.value==='wager_gift',prWager=$('promoRewardType')?.value==='wager_gift';$('freebetCompletionBox')?.classList.toggle('hidden',!fbWager);$('promoCompletionBox')?.classList.toggle('hidden',!prWager);$('freebetCompletionFields')?.classList.toggle('hidden',!fbWager||!$('freebetCompletionEnabled')?.checked);$('promoCompletionFields')?.classList.toggle('hidden',!prWager||!$('promoCompletionEnabled')?.checked)}
-for(let id of ['freebetRewardType','promoRewardType','freebetCompletionEnabled','promoCompletionEnabled'])$(id)?.addEventListener('change',sync);sync();
-async function preview(prefix){let input=$(prefix+'CompletionFragment'),box=$(prefix+'FragmentPreview'),btn=$(prefix+'FragmentPreviewBtn');if(!input?.value.trim())return toast('Вставьте ссылку на Fragment');btn.disabled=true;box.textContent='Загружаем подарок…';try{let d=await api('/api/admin/giveaways/fragment-preview',{method:'POST',body:JSON.stringify({url:input.value.trim()})});let g=d.gift||{};box.replaceChildren();if(g.image_url){let im=new Image;im.src=g.image_url;im.alt=g.name||'';box.append(im)}let t=document.createElement('div');t.innerHTML=`<b>${escapeHtml(g.name||'Fragment Gift')}</b><br>${g.fragment_number?'№ '+escapeHtml(g.fragment_number)+' · ':''}${g.model?'модель '+escapeHtml(g.model):'модель не указана'}${g.backdrop?' · '+escapeHtml(g.backdrop):''}`;box.append(t)}catch(e){box.textContent=e.message;toast(e.message)}finally{btn.disabled=false}}
-$('freebetFragmentPreviewBtn')?.addEventListener('click',()=>preview('freebet'));$('promoFragmentPreviewBtn')?.addEventListener('click',()=>preview('promo'));
+function fragmentValues(prefix){return Array.from(document.querySelectorAll(`#${prefix}FragmentRows input[data-fragment-url]`)).map(x=>x.value.trim())}
+function renderFragmentRows(prefix){let host=$(prefix+'FragmentRows'),limit=$(prefix+'CompletionLimit');if(!host||!limit)return;let count=Math.max(1,Math.min(50,Number(limit.value)||1)),old=fragmentValues(prefix);host.replaceChildren();for(let i=0;i<count;i++){let row=document.createElement('label');row.className='gd-fragment-row';row.innerHTML=`<span class="caption">Fragment-подарок ${i+1} из ${count}</span><input class="text-input" data-fragment-url="${i}" placeholder="https://fragment.com/gift/...-${i+1}">`;row.querySelector('input').value=old[i]||'';host.append(row)}}
+function sync(){let fbWager=$('freebetRewardType')?.value==='wager_gift',prWager=$('promoRewardType')?.value==='wager_gift';$('freebetCompletionBox')?.classList.toggle('hidden',!fbWager);$('promoCompletionBox')?.classList.toggle('hidden',!prWager);$('freebetCompletionFields')?.classList.toggle('hidden',!fbWager||!$('freebetCompletionEnabled')?.checked);$('promoCompletionFields')?.classList.toggle('hidden',!prWager||!$('promoCompletionEnabled')?.checked);if(fbWager&&$('freebetCompletionEnabled')?.checked)renderFragmentRows('freebet');if(prWager&&$('promoCompletionEnabled')?.checked)renderFragmentRows('promo')}
+for(let id of ['freebetRewardType','promoRewardType','freebetCompletionEnabled','promoCompletionEnabled'])$(id)?.addEventListener('change',sync);for(let id of ['freebetCompletionLimit','promoCompletionLimit'])$(id)?.addEventListener('input',()=>renderFragmentRows(id.startsWith('freebet')?'freebet':'promo'));sync();
+const previousFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{try{let url=typeof input==='string'?input:(input?.url||''),method=String(init?.method||'GET').toUpperCase();if(method==='POST'&&(url==='/api/admin/freebets'||url==='/api/admin/promocodes')&&typeof init.body==='string'){let body=JSON.parse(init.body||'{}');if(url==='/api/admin/freebets'){body.min_referrals=$('freebetMinReferrals')?.value||0;body.require_chat=!!$('freebetRequireChat')?.checked;body.wager_completion_limit=$('freebetRewardType')?.value==='wager_gift'&&$('freebetCompletionEnabled')?.checked?($('freebetCompletionLimit')?.value||1):0;body.completion_fragment_urls=$('freebetCompletionEnabled')?.checked?fragmentValues('freebet'):[]}else{body.min_referrals=$('promoMinReferrals')?.value||0;body.require_channel=!!$('promoRequireChannel')?.checked;body.require_chat=!!$('promoRequireChat')?.checked;body.wager_completion_limit=$('promoRewardType')?.value==='wager_gift'&&$('promoCompletionEnabled')?.checked?($('promoCompletionLimit')?.value||1):0;body.completion_fragment_urls=$('promoCompletionEnabled')?.checked?fragmentValues('promo'):[]}init={...init,body:JSON.stringify(body)}}}catch(e){}return previousFetch(input,init)};
+let wagerChoice={itemId:null,options:[],selected:null};const choiceModal=$('wagerFragmentChoiceModal'),choiceGrid=$('wagerFragmentChoiceGrid'),choiceTake=$('wagerFragmentTake');
+function paintChoice(itemId,options,message=''){wagerChoice={itemId,options:options||[],selected:null};choiceGrid.replaceChildren();for(const opt of wagerChoice.options){let b=document.createElement('button');b.type='button';b.className='wf-option';let im=new Image;im.src=opt.image_url||'/static/img/gift.svg';im.alt=opt.name||'';let title=document.createElement('b');title.textContent=opt.name||'Подарок';let meta=document.createElement('small');meta.textContent=[opt.fragment_number?'№ '+opt.fragment_number:'',opt.fragment_model||''].filter(Boolean).join(' · ');b.append(im,title,meta);b.onclick=()=>{choiceGrid.querySelectorAll('.wf-option').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');wagerChoice.selected=Number(opt.index);choiceTake.disabled=false};choiceGrid.append(b)}choiceTake.disabled=true;choiceModal.classList.remove('hidden');if(message)toast(message)}
+$('wagerFragmentClose').onclick=()=>choiceModal.classList.add('hidden');
+choiceTake.onclick=async()=>{if(wagerChoice.selected==null||!wagerChoice.itemId)return;choiceTake.disabled=true;try{let d=await api(`/api/inventory/${wagerChoice.itemId}/claim-promo`,{method:'POST',body:JSON.stringify({fragment_index:wagerChoice.selected})});if(d.selection_required){paintChoice(wagerChoice.itemId,d.options,d.message||'Список обновлён');return}choiceModal.classList.add('hidden');if(d.user)setUser(d.user);if(d.item){selectedGift=d.item;openGift(d.item)}await loadInventory();toast('Подарок выбран и добавлен в инвентарь')}catch(e){toast(e.message)}finally{choiceTake.disabled=wagerChoice.selected==null}};
+const claimPromo=$('claimPromoGift');if(claimPromo)claimPromo.onclick=async()=>{if(!selectedGift||busy)return;busy=true;try{let id=selectedGift.id,d=await api(`/api/inventory/${id}/claim-promo`,{method:'POST',body:'{}'});if(d.selection_required){paintChoice(id,d.options,d.message||'');return}if(d.user)setUser(d.user);if(d.item){selectedGift=d.item;openGift(d.item)}await loadInventory();toast('Отыгрыш завершён — подарок разблокирован')}catch(e){toast(e.message)}finally{busy=false}};
+async function maybePromptWagerChoice(){try{if(typeof inventoryItems==='undefined'||!Array.isArray(inventoryItems))return;let item=inventoryItems.find(x=>x?.self_destruct&&x?.promo_locked&&x?.wager_complete);if(!item||window.__wagerPromptItem===item.id)return;window.__wagerPromptItem=item.id;let d=await api(`/api/inventory/${item.id}/claim-promo`,{method:'POST',body:'{}'});if(d.selection_required){paintChoice(item.id,d.options,d.message||'');return}if(d.item){selectedGift=d.item;await loadInventory();toast('Последний подарок выдан автоматически')}}catch(e){window.__wagerPromptItem=null}}
+try{if(typeof loadInventory==='function'){const baseLoadInventory=loadInventory;loadInventory=async function(...args){let result=await baseLoadInventory(...args);setTimeout(maybePromptWagerChoice,80);return result};setTimeout(maybePromptWagerChoice,500)}}catch(e){}
 try{if(typeof itemCard==='function'){const originalItemCard=itemCard;itemCard=function(item,clickable=false){let card=originalItemCard(item,clickable);if(item?.self_destruct&&item?.promo_locked){let ribbon=card.querySelector('.promo-ribbon');if(ribbon){ribbon.classList.add('self-destruct');let remain=Number(item.wager_completion_remaining||0);ribbon.textContent=remain>0?`СГОРИТ · ${remain} осталось`:'СГОРЕЛ'}card.title=`Самоуничтожающийся отыгрыш · завершений ${Number(item.wager_completion_count||0)}/${Number(item.wager_completion_limit||0)}`};return card}}}catch(e){}
-const previousFetch=window.fetch.bind(window);window.fetch=async(input,init={})=>{try{let url=typeof input==='string'?input:(input?.url||''),method=String(init?.method||'GET').toUpperCase();if(method==='POST'&&(url==='/api/admin/freebets'||url==='/api/admin/promocodes')&&typeof init.body==='string'){let body=JSON.parse(init.body||'{}');if(url==='/api/admin/freebets'){body.min_referrals=$('freebetMinReferrals')?.value||0;body.require_chat=!!$('freebetRequireChat')?.checked;body.wager_completion_limit=$('freebetRewardType')?.value==='wager_gift'&&$('freebetCompletionEnabled')?.checked?($('freebetCompletionLimit')?.value||1):0;body.completion_fragment_url=$('freebetCompletionEnabled')?.checked?($('freebetCompletionFragment')?.value||''):''}else{body.min_referrals=$('promoMinReferrals')?.value||0;body.require_channel=!!$('promoRequireChannel')?.checked;body.require_chat=!!$('promoRequireChat')?.checked;body.wager_completion_limit=$('promoRewardType')?.value==='wager_gift'&&$('promoCompletionEnabled')?.checked?($('promoCompletionLimit')?.value||1):0;body.completion_fragment_url=$('promoCompletionEnabled')?.checked?($('promoCompletionFragment')?.value||''):''}init={...init,body:JSON.stringify(body)}}}catch(e){}return previousFetch(input,init)};
 });})();
 </script>
 """
@@ -4887,7 +4916,7 @@ def inventory():
             rows = db.execute(f'SELECT code,wager_completion_limit,wager_completion_count,reward_json FROM promo_codes WHERE code IN ({marks})', tuple(codes)).fetchall()
             for row in rows:
                 limit = int(row['wager_completion_limit'] or 0); count = int(row['wager_completion_count'] or 0)
-                limits[str(row['code']).upper()] = dict(limit=limit,count=count,fragment=promo_completion_fragment(row))
+                limits[str(row['code']).upper()] = dict(limit=limit,count=count,fragment=promo_completion_fragment(row),fragments=promo_completion_fragments(row))
         for item in views:
             info = limits.get(str(item.get('promo_code') or '').upper())
             if info and info['limit'] > 0:
@@ -4895,8 +4924,9 @@ def inventory():
                 item['wager_completion_limit'] = info['limit']
                 item['wager_completion_count'] = info['count']
                 item['wager_completion_remaining'] = max(0, info['limit']-info['count'])
-                if info['fragment']:
+                if info['fragment'] and len(info.get('fragments') or []) <= 1:
                     item['completion_fragment'] = info['fragment']
+                item['completion_fragment_count'] = len(info.get('fragments') or [])
     return jsonify(items=visible_gifts(views))
 
 
@@ -5032,15 +5062,25 @@ def telegram_member_in_required_chat(user_id, chat=None):
     return False, 'Пользователь не состоит в обязательном чате.'
 
 
-def promo_completion_fragment(promo):
+def promo_completion_fragments(promo):
     if not promo:
-        return None
+        return []
     try:
         payload = json.loads(promo['reward_json'] or '{}')
     except (ValueError, TypeError, KeyError):
-        return None
-    fragment = payload.get('completion_fragment') if isinstance(payload, dict) else None
-    return fragment if isinstance(fragment, dict) and fragment.get('fragment_url') else None
+        return []
+    if not isinstance(payload, dict):
+        return []
+    fragments = payload.get('completion_fragments')
+    if isinstance(fragments, list):
+        return [x for x in fragments if isinstance(x, dict) and x.get('fragment_url')]
+    fragment = payload.get('completion_fragment')
+    return [fragment] if isinstance(fragment, dict) and fragment.get('fragment_url') else []
+
+
+def promo_completion_fragment(promo):
+    fragments = promo_completion_fragments(promo)
+    return fragments[0] if fragments else None
 
 
 def completion_fragment_payload(value):
@@ -5055,10 +5095,41 @@ def completion_fragment_payload(value):
                 animation_url=gift.get('animation_url') or '')
 
 
+def completion_fragment_pool(values, required_count):
+    required_count = max(0, int(required_count or 0))
+    raw = values if isinstance(values, list) else ([values] if values else [])
+    urls = [str(x or '').strip() for x in raw if str(x or '').strip()]
+    if required_count <= 0:
+        return []
+    if len(urls) != required_count:
+        raise ValueError(f'Укажите ровно {required_count} Fragment-ссылок — по одной на каждый сгораемый подарок.')
+    fragments = [completion_fragment_payload(url) for url in urls]
+    if any(not x for x in fragments):
+        raise ValueError('Не удалось загрузить один из Fragment-подарков.')
+    normalized = [str(x.get('fragment_url') or '').lower() for x in fragments]
+    if len(set(normalized)) != len(normalized):
+        raise ValueError('Каждая Fragment-ссылка должна вести на отдельный подарок.')
+    return fragments
+
+
+def promo_fragment_pool_for_code(db, promo_code, lock=False):
+    code = str(promo_code or '').strip().upper()
+    if not code:
+        return None, []
+    suffix = ' FOR UPDATE' if lock and DATABASE_URL else ''
+    promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + suffix, (code,)).fetchone()
+    return promo, promo_completion_fragments(promo)
+
+
 def completed_wager_item(db, promo_code, fallback):
     code = str(promo_code or '').strip().upper()
     promo = db.execute('SELECT reward_json FROM promo_codes WHERE code=?', (code,)).fetchone() if code else None
-    fragment = promo_completion_fragment(promo)
+    fragments = promo_completion_fragments(promo)
+    # A multi-Fragment self-destruct pool is selected only after the player finishes
+    # wagering. Until then keep the ordinary promo gift and show the selection UI.
+    if len(fragments) > 1:
+        return dict(fallback)
+    fragment = fragments[0] if fragments else None
     if not fragment:
         return dict(fallback)
     result = dict(fallback)
@@ -5077,6 +5148,111 @@ def completed_wager_item(db, promo_code, fallback):
     })
     return result
 
+
+def fragment_pool_claimed_indexes(db, code):
+    return {int(r['fragment_index']) for r in db.execute(
+        'SELECT fragment_index FROM wager_fragment_claims WHERE promo_code=?', (str(code).upper(),)).fetchall()}
+
+
+def fragment_pool_public_options(fragments, claimed):
+    result=[]
+    for index, fragment in enumerate(fragments):
+        if index in claimed:
+            continue
+        result.append(dict(index=index, name=fragment.get('gift_name') or 'Подарок',
+                           image_url=fragment.get('image_url') or '',
+                           fragment_number=fragment.get('fragment_number') or '',
+                           fragment_model=fragment.get('fragment_model') or '',
+                           fragment_backdrop=fragment.get('fragment_backdrop') or '',
+                           price_ton=int(fragment.get('floor_price') or 0)/100))
+    return result
+
+
+def fragment_pool_participants(db, code):
+    ids=set()
+    for table in ('promo_redemptions','freebet_redemptions'):
+        try:
+            for row in db.execute(f'SELECT user_id FROM {table} WHERE code=?', (code,)).fetchall():
+                ids.add(int(row['user_id']))
+        except Exception:
+            pass
+    for row in db.execute('SELECT DISTINCT user_id FROM inventory WHERE promo_code=?', (code,)).fetchall():
+        ids.add(int(row['user_id']))
+    for row in db.execute("SELECT DISTINCT user_id FROM rounds WHERE promo_code=? AND bet_type='promo_gift'", (code,)).fetchall():
+        ids.add(int(row['user_id']))
+    return ids
+
+
+def burn_fragment_pool_remainders(db, promo, winner_inventory_id=None):
+    code = str(promo['code'] or '').upper()
+    multiplier = float(promo['wager_multiplier'] or 0)
+    base_name = str(promo['gift_name'] or 'Подарок')
+    affected={}
+    rows=db.execute('SELECT id,user_id,gift_name FROM inventory WHERE promo_locked=1 AND promo_code=?',(code,)).fetchall()
+    for row in rows:
+        if winner_inventory_id and int(row['id']) == int(winner_inventory_id):
+            continue
+        uid=int(row['user_id']); affected.setdefault(uid,[]).append(str(row['gift_name'] or base_name))
+        db.execute('DELETE FROM inventory WHERE id=?',(row['id'],))
+    active=db.execute("SELECT id,user_id,bet_gift_name FROM rounds WHERE state='active' AND bet_type='promo_gift' AND promo_code=?",(code,)).fetchall()
+    settled_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+    for row in active:
+        uid=int(row['user_id']); affected.setdefault(uid,[]).append(str(row['bet_gift_name'] or base_name))
+        db.execute("UPDATE rounds SET state='lost',settled_at=? WHERE id=? AND state='active'",(settled_at,row['id']))
+    mult_text=(('%g'%multiplier) if multiplier else '0')
+    for uid in affected:
+        text=(f'🔥 Отыгрышный подарок «{base_name}» ×{mult_text} ({code}) был завершён. '
+              'Ваш подарок был сожжён.')
+        add_user_notification(db,uid,'wager_copy_burned',text)
+        log_event(db,uid,'promo_wager_global_burn',code=code,gifts=affected[uid],limit=len(promo_completion_fragments(promo)))
+    return sorted(affected)
+
+
+def finalize_fragment_pool_claim(db, item, promo, fragments, fragment_index):
+    code=str(promo['code'] or '').upper(); fragment_index=int(fragment_index)
+    if fragment_index < 0 or fragment_index >= len(fragments):
+        raise ValueError('Выберите доступный подарок.')
+    fragment=fragments[fragment_index]
+    # Unique PK guarantees that two simultaneous winners cannot take the same NFT.
+    try:
+        db.execute('INSERT INTO wager_fragment_claims(promo_code,fragment_index,user_id,inventory_id) VALUES(?,?,?,?)',
+                   (code,fragment_index,int(item['user_id']),int(item['id'])))
+    except Exception as exc:
+        text=str(exc).lower()
+        if 'unique' in text or 'duplicate' in text:
+            raise ValueError('Этот подарок только что забрал другой участник. Выберите оставшийся.')
+        raise
+    db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,external_url=?,fragment_number=?,
+                  fragment_model=?,fragment_backdrop=?,fragment_symbol=?,price_source=?,animation_url=?,
+                  promo_locked=0,promo_wager_multiplier=0,promo_wager_target=0,promo_wager_progress=0,
+                  promo_code='',expires_at=NULL,source='promo_claimed',wager_completion_counted=1
+                  WHERE id=? AND user_id=?""",
+               (fragment.get('gift_id') or item['gift_id'],fragment.get('gift_name') or item['gift_name'],
+                fragment.get('image_url') or item['image_url'],int(fragment.get('floor_price') or item['floor_price'] or 0),
+                fragment.get('fragment_url') or '',fragment.get('fragment_number') or '',fragment.get('fragment_model') or '',
+                fragment.get('fragment_backdrop') or '',fragment.get('fragment_symbol') or '',
+                fragment.get('price_source') or 'Fragment',fragment.get('animation_url') or '',item['id'],item['user_id']))
+    count_row=db.execute('SELECT COUNT(*) AS n FROM wager_fragment_claims WHERE promo_code=?',(code,)).fetchone()
+    count=int((count_row or {}).get('n') or 0)
+    finished=count>=len(fragments)
+    db.execute('UPDATE promo_codes SET wager_completion_count=?,active=? WHERE code=?',(count,0 if finished else int(bool(promo['active'])),code))
+    if finished:
+        db.execute('UPDATE freebets SET active=0 WHERE promo_code=? OR code=?',(code,code))
+    participants=fragment_pool_participants(db,code)|{int(item['user_id'])}
+    ordinal=fragment_index+1
+    label=str(fragment.get('gift_name') or 'Подарок')
+    number=str(fragment.get('fragment_number') or '')
+    if number and ('#'+number) not in label: label += f' #{number}'
+    remaining=max(0,len(fragments)-count)
+    update_text=f'🎁 Подарок {ordinal} ({code}) — «{label}» — был отыгран только что. Осталось: {remaining}.'
+    for uid in participants:
+        add_user_notification(db,uid,'wager_pool_update',update_text)
+    add_user_notification(db,int(item['user_id']),'wager_completed',f'✅ Отыгрыш завершён. Вы получили «{label}».')
+    log_event(db,int(item['user_id']),'promo_wager_completed',code=code,gift_name=label,fragment_index=fragment_index)
+    burned=[]
+    if finished:
+        burned=burn_fragment_pool_remainders(db,promo,winner_inventory_id=item['id'])
+    return dict(count=count,finished=finished,burned_users=burned,label=label)
 
 def normalize_channel_id(value):
     value = str(value or '').strip()
@@ -6080,16 +6256,6 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     keyboard = []
     if WEBAPP_URL.startswith('https://'):
         keyboard.append([{'text': '🎁 Открыть инвентарь', 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
-    seen = set()
-    for win in winnings:
-        url = str(win.get('fragment_url') or '')
-        if not re.match(r'^https://(?:t\.me/nft/|(?:www\.)?fragment\.com/gift/)', url, re.I) or url in seen:
-            continue
-        seen.add(url)
-        label = f'🔗 Fragment #{win.get("fragment_number")}' if win.get('fragment_number') else '🔗 Открыть во Fragment'
-        keyboard.append([{'text': label[:64], 'url': url}])
-        if len(keyboard) >= 8:
-            break
     markup = {'inline_keyboard': keyboard} if keyboard else None
     notify_user_async(user_id, '\n'.join(lines), markup, 'HTML', db=db)
 
@@ -6157,11 +6323,8 @@ def prepare_withdrawal(item_id):
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
-    data = request.get_json(silent=True) or {}
-    submitted_token = str(data.get('confirm_token') or '')
-    if not _withdrawal_confirm_valid(submitted_token, session['uid'], item_id):
-        return jsonify(error='Подтверждение вывода истекло. Откройте подарок и подтвердите вывод ещё раз.',
-                       confirmation_required=True), 428
+    # The branded confirmation is a UI step. The real POST is executed only after
+    # the user presses “Подтвердить вывод”; no fragile prepare/session token is required.
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -6188,8 +6351,7 @@ def request_withdrawal(item_id):
         log_event(db, session['uid'], 'withdrawal_request', gift_name=item['gift_name'],
                   gift_image=item['image_url'], withdrawal_id=withdrawal_id)
         db.commit()
-        return jsonify(ok=True, withdrawal_id=withdrawal_id,
-                       removed_inventory_id=item_id, user=profile())
+        return jsonify(ok=True, withdrawal_id=withdrawal_id, removed_inventory_id=item_id)
     finally:
         db.close()
 
@@ -6197,6 +6359,8 @@ def request_withdrawal(item_id):
 @app.post('/api/inventory/<int:item_id>/claim-promo')
 @login_required
 def claim_promo_gift(item_id):
+    data = request.get_json(silent=True) or {}
+    requested_index = data.get('fragment_index')
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -6212,6 +6376,41 @@ def claim_promo_gift(item_id):
         progress = int(item['promo_wager_progress'] or 0)
         if target <= 0 or progress < target:
             return error('Отыгрыш ещё не завершён.', 409)
+        promo, fragments = promo_fragment_pool_for_code(db, item['promo_code'], lock=True)
+        if promo and len(fragments) > 1:
+            claimed = fragment_pool_claimed_indexes(db, promo['code'])
+            options = fragment_pool_public_options(fragments, claimed)
+            if not options:
+                db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid']))
+                add_user_notification(db,session['uid'],'wager_copy_burned',
+                                      f'🔥 Все подарки ({promo["code"]}) уже разобраны. Ваша незавершённая копия была сожжена.')
+                db.commit()
+                return jsonify(ok=False,burned=True,error='Все подарки уже разобраны.'),409
+            if requested_index is None and len(options) > 1:
+                return jsonify(ok=True, selection_required=True, code=promo['code'], options=options,
+                               remaining=len(options))
+            if requested_index is None:
+                requested_index = options[0]['index']
+            try:
+                requested_index = int(requested_index)
+            except (TypeError,ValueError):
+                return error('Выберите подарок.',400)
+            if requested_index in claimed:
+                fresh=fragment_pool_public_options(fragments,fragment_pool_claimed_indexes(db,promo['code']))
+                return jsonify(ok=True,selection_required=True,conflict=True,code=promo['code'],options=fresh,
+                               remaining=len(fresh),message='Этот подарок только что забрали. Выберите оставшийся.')
+            try:
+                finalize_fragment_pool_claim(db,item,promo,fragments,requested_index)
+            except ValueError as exc:
+                fresh=fragment_pool_public_options(fragments,fragment_pool_claimed_indexes(db,promo['code']))
+                return jsonify(ok=True,selection_required=True,conflict=True,code=promo['code'],options=fresh,
+                               remaining=len(fresh),message=str(exc))
+            record_transaction(db, session['uid'], 'promo_wager_claim', 0, 'inventory', item_id,
+                               fragments[requested_index].get('gift_name') or item['gift_name'])
+            db.commit()
+            updated = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
+            return jsonify(ok=True, selection_required=False, item=inventory_item(updated), user=profile())
+
         if not int(item['wager_completion_counted'] or 0) and item['promo_code']:
             db.execute('UPDATE inventory SET wager_completion_counted=1 WHERE id=?', (item_id,))
             apply_global_wager_completion(db, item['promo_code'], session['uid'], (item_id,))
@@ -6237,7 +6436,6 @@ def claim_promo_gift(item_id):
         return jsonify(ok=True, item=inventory_item(updated), user=profile())
     finally:
         db.close()
-
 
 def referral_percent():
     try:
@@ -6486,7 +6684,7 @@ def admin_data_reset_prepare():
 def reset_dynamic_data():
     # Keep identities/configuration/catalog intact. Clear all mutable economy/game state.
     child_first_tables = [
-        'notification_outbox', 'user_notifications', 'user_events',
+        'notification_outbox', 'user_notifications', 'user_events', 'wager_fragment_claims',
         'giveaway_winners', 'giveaway_entries', 'giveaway_prizes', 'giveaways',
         'reward_task_claims', 'ticket_ledger', 'transfers',
         'upgrade_promo_pity', 'upgrade_spins', 'level_claims', 'roll_spins', 'craft_spins', 'rounds',
@@ -7744,12 +7942,10 @@ def admin_create_freebet():
         wager_completion_limit = 0
     elif wager_completion_limit > 0:
         try:
-            fragment = completion_fragment_payload(data.get('completion_fragment_url'))
+            fragments = completion_fragment_pool(data.get('completion_fragment_urls') or data.get('completion_fragment_url'), wager_completion_limit)
         except ValueError as exc:
             return error('Fragment: ' + str(exc))
-        if not fragment:
-            return error('Для самоуничтожающегося отыгрышного подарка укажите ссылку на конкретный Fragment-подарок.')
-        reward_json = json.dumps({'completion_fragment': fragment}, ensure_ascii=False)
+        reward_json = json.dumps({'completion_fragments': fragments}, ensure_ascii=False)
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -7939,12 +8135,10 @@ def admin_create_promocode():
         wager_completion_limit = 0
     elif wager_completion_limit > 0:
         try:
-            fragment = completion_fragment_payload(data.get('completion_fragment_url'))
+            fragments = completion_fragment_pool(data.get('completion_fragment_urls') or data.get('completion_fragment_url'), wager_completion_limit)
         except ValueError as exc:
             return error('Fragment: ' + str(exc))
-        if not fragment:
-            return error('Для самоуничтожающегося отыгрышного подарка укажите ссылку на конкретный Fragment-подарок.')
-        multi_reward = {'completion_fragment': fragment}
+        multi_reward = {'completion_fragments': fragments}
     try:
         with connect() as db:
             if assigned_user_id and not db.execute('SELECT 1 FROM users WHERE id=?',(assigned_user_id,)).fetchone():

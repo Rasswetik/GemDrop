@@ -44,7 +44,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '64-essential-notifications-inventory'
+BUILD_ID = '65-shared-mode-header'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -6487,14 +6487,14 @@ def _freebet_backing_values(data, code):
         if gift_price <= 0:
             raise ValueError('У подарка должна быть актуальная цена Portal.')
         if reward_type == 'wager_gift':
-            wager_multiplier = float(data.get('wager_multiplier') or 0)
+            wager_multiplier = float(str(data.get('wager_multiplier') or 0).replace(',', '.'))
             if not 1 <= wager_multiplier <= 1000:
                 raise ValueError('X отыгрыша должен быть от 1 до 1000.')
-            gift_expires_days = int(data.get('gift_expires_days') or 0)
+            gift_expires_days = int(float(str(data.get('gift_expires_days') or 0).replace(',', '.')))
             if not 0 <= gift_expires_days <= 3650:
                 raise ValueError('Срок жизни подарка: от 0 до 3650 дней.')
     elif reward_type == 'deposit_bonus':
-        bonus_percent = float(data.get('bonus_percent') or 0)
+        bonus_percent = float(str(data.get('bonus_percent') or 0).replace(',', '.'))
         bonus_fixed = parse_amount(data.get('bonus_fixed') or 0)
         min_deposit = parse_amount(data.get('min_deposit') or 0)
         if not math.isfinite(bonus_percent) or not 0 <= bonus_percent <= 100 or not (bonus_percent or bonus_fixed) or (bonus_percent and bonus_fixed):
@@ -6536,9 +6536,12 @@ def admin_create_freebet():
     if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
         return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
     try:
-        max_uses=int(data.get('max_uses',1)); min_level=int(data.get('min_level') or 0)
-        min_tg=int(data.get('min_telegram_level') or 0); min_turnover=parse_amount(data.get('min_turnover') or 0)
-        expires_days=int(data.get('expires_in_days') or 0)
+        def _fb_int(value, default=0):
+            text = str(value if value is not None else '').strip().replace(',', '.')
+            return int(float(text)) if text else default
+        max_uses=_fb_int(data.get('max_uses'), 1); min_level=_fb_int(data.get('min_level'))
+        min_tg=_fb_int(data.get('min_telegram_level')); min_turnover=parse_amount(data.get('min_turnover') or 0)
+        expires_days=_fb_int(data.get('expires_in_days'))
         values=_freebet_backing_values(data, code)
     except (ValueError,TypeError,InvalidOperation,OSError,json.JSONDecodeError) as exc:
         return error(str(exc) or 'Проверьте настройки фрибета.')

@@ -15,11 +15,12 @@ from functools import wraps
 from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from threading import Thread
+from threading import Thread, Lock
+from copy import deepcopy
 from urllib.parse import parse_qsl, quote_plus
 
 import requests
-from flask import Flask, jsonify, request, session, send_file
+from flask import Flask, jsonify, request, session, send_file, g, has_request_context
 
 
 BASE = Path(__file__).resolve().parent
@@ -44,7 +45,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '65-shared-mode-header'
+BUILD_ID = '66-render-load-fixes'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -54,7 +55,8 @@ app.secret_key = os.environ.get('SECRET_KEY') or (
     else secret_path.read_text(encoding='utf-8'))
 WEBHOOK_SECRET = hashlib.sha256((app.secret_key + BOT_TOKEN).encode()).hexdigest()[:48]
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
-                  SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')))
+                  SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')),
+                  MAX_CONTENT_LENGTH=2 * 1024 * 1024)
 
 
 class DatabaseRow(dict):
@@ -62,12 +64,37 @@ class DatabaseRow(dict):
         return list(self.values())[key] if isinstance(key, int) else super().__getitem__(key)
 
 
+_pool = None
+_pool_pid = None
+_pool_lock = Lock()
+
+
+def postgres_pool():
+    """Each worker owns a bounded pool; never share sockets across forks."""
+    global _pool, _pool_pid
+    with _pool_lock:
+        if _pool is None or _pool_pid != os.getpid():
+            from psycopg_pool import ConnectionPool
+            from psycopg.rows import dict_row
+            _pool = ConnectionPool(
+                DATABASE_URL, min_size=1,
+                max_size=int(os.environ.get('DB_POOL_MAX', '12')),
+                timeout=5, max_waiting=32, max_idle=120,
+                kwargs=dict(autocommit=True, row_factory=dict_row,
+                            connect_timeout=5,
+                            options='-c statement_timeout=15000 -c lock_timeout=5000 '
+                                    '-c idle_in_transaction_session_timeout=30000'),
+                check=ConnectionPool.check_connection, open=True)
+            _pool_pid = os.getpid()
+        return _pool
+
+
 class PostgreSQL:
     """Small SQL compatibility layer for the existing parameterized SQLite queries."""
     def __init__(self):
-        import psycopg
-        from psycopg.rows import dict_row
-        self.connection = psycopg.connect(DATABASE_URL, autocommit=True, row_factory=dict_row, connect_timeout=10)
+        self.pool = postgres_pool()
+        self.connection = self.pool.getconn()
+        self.closed = False
 
     def execute(self, sql, params=()):
         sql = sql.strip()
@@ -90,7 +117,8 @@ class PostgreSQL:
         cursor = self.connection.execute(sql, params)
         class Result:
             rowcount = cursor.rowcount
-            lastrowid = cursor.fetchone()['id'] if returning else None
+            inserted = cursor.fetchone() if returning else None
+            lastrowid = inserted['id'] if inserted else None
             def fetchone(self):
                 row = cursor.fetchone()
                 return DatabaseRow(row) if row else None
@@ -111,7 +139,14 @@ class PostgreSQL:
         self.connection.commit()
 
     def close(self):
-        self.connection.close()
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            # An early HTTP return must not leak a transaction or lock to a borrower.
+            self.connection.rollback()
+        finally:
+            self.pool.putconn(self.connection)
 
     def __enter__(self):
         return self
@@ -148,6 +183,20 @@ def connect():
 
 
 def initialize():
+    if DATABASE_URL:
+        import psycopg
+        # Serialize additive migrations across concurrent worker/deploy startups.
+        with psycopg.connect(DATABASE_URL, autocommit=True, connect_timeout=10) as guard:
+            guard.execute('SELECT pg_advisory_lock(660100)')
+            try:
+                _initialize_schema()
+            finally:
+                guard.execute('SELECT pg_advisory_unlock(660100)')
+    else:
+        _initialize_schema()
+
+
+def _initialize_schema():
     with connect() as db:
         # WAL is persistent for the SQLite database. Set it once at startup instead
         # of executing journal_mode on every API request/connection.
@@ -362,20 +411,6 @@ def initialize():
             kind TEXT NOT NULL,text TEXT NOT NULL,is_read INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE TABLE IF NOT EXISTS broadcasts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'running', text TEXT NOT NULL DEFAULT '',
-            photo TEXT NOT NULL DEFAULT '', buttons TEXT NOT NULL DEFAULT '[]',
-            filters TEXT NOT NULL DEFAULT '{}', silent INTEGER NOT NULL DEFAULT 0,
-            protect INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT
-        );
-        CREATE TABLE IF NOT EXISTS broadcast_recipients (
-            broadcast_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
-            state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
-            attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (broadcast_id, user_id)
-        );
         ''')
         def ensure_columns(table, definitions):
             existing = {row['name'] for row in db.execute(f'PRAGMA table_info({table})')}
@@ -519,8 +554,6 @@ def initialize():
         # Upgrade the late-added ID/money fields in place. Avoid touching FK-bound
         # primary keys here; base tables created by this app already use BIGINT.
         ensure_postgres_bigint('users', ['turnover_cents', 'max_drop_override_price'])
-        ensure_postgres_bigint('broadcast_recipients', ['user_id', 'next_at'])
-        ensure_postgres_bigint('broadcasts', ['admin_id'])
         ensure_postgres_bigint('rounds', ['prize_inventory_id', 'win_total', 'win_gift_price',
                                           'bet_inventory_id', 'bet_gift_price', 'promo_wager_target',
                                           'promo_wager_progress', 'promo_progress_after'])
@@ -539,6 +572,22 @@ def initialize():
         ensure_postgres_bigint('user_notifications', ['user_id'])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
+        db.executescript("""
+        CREATE TABLE IF NOT EXISTS notification_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, payload TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+            next_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS outbox_due ON notification_outbox(state,next_at,id);
+        CREATE INDEX IF NOT EXISTS rounds_active_user ON rounds(user_id,id DESC) WHERE state='active';
+        CREATE INDEX IF NOT EXISTS rounds_user_history ON rounds(user_id,id DESC);
+        CREATE INDEX IF NOT EXISTS rounds_recent_wins ON rounds(settled_at DESC,id DESC) WHERE state='won';
+        CREATE INDEX IF NOT EXISTS upgrade_user_history ON upgrade_spins(user_id,id DESC);
+        CREATE INDEX IF NOT EXISTS inventory_promo_expiry ON inventory(expires_at) WHERE promo_locked=1;
+        CREATE INDEX IF NOT EXISTS user_events_retention ON user_events(created_at);
+        CREATE INDEX IF NOT EXISTS notification_retention ON user_notifications(created_at);
+        """)
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer_id)')
         db.execute('CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC)')
@@ -548,8 +597,6 @@ def initialize():
         db.execute('CREATE INDEX IF NOT EXISTS ton_deposit_orders_user ON ton_deposit_orders(user_id,id)')
         db.execute('CREATE INDEX IF NOT EXISTS user_events_user ON user_events(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS notifications_user ON user_notifications(user_id,id DESC)')
-        db.execute('CREATE INDEX IF NOT EXISTS broadcast_recipients_state ON broadcast_recipients(broadcast_id,state,next_at)')
-        db.execute('CREATE INDEX IF NOT EXISTS broadcast_recipients_user ON broadcast_recipients(user_id,state)')
         db.execute('CREATE INDEX IF NOT EXISTS notifications_delivery ON user_notifications(delivery_state,delivery_next_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebets_active ON freebets(active,created_at)')
@@ -827,12 +874,18 @@ def save_document(name, document):
     with connect() as db:
         db.execute('INSERT INTO app_documents(name,payload) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload',
                    (name, json.dumps(document, ensure_ascii=False)))
+    if has_request_context():
+        g.get('documents', {}).pop(name, None)
 
 
 def read_document(name):
-    with connect() as db:
-        row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
-    return json.loads(row['payload']) if row else None
+    # Reuse documents only inside one HTTP request. No stale cross-worker cache.
+    cache = g.setdefault('documents', {}) if has_request_context() else {}
+    if name not in cache:
+        with connect() as db:
+            row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
+        cache[name] = json.loads(row['payload']) if row else None
+    return deepcopy(cache[name])
 
 
 def section_settings():
@@ -901,20 +954,26 @@ def visible_gifts(items):
 
 @app.after_request
 def compress_response(response):
+    response.vary.add('Accept-Encoding')
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
     try:
         if (response.direct_passthrough or response.status_code < 200 or response.status_code >= 300
                 or 'Content-Encoding' in response.headers
-                or 'gzip' not in request.headers.get('Accept-Encoding', '')
+                or request.accept_encodings['gzip'] <= 0
                 or not (response.mimetype.startswith('text/') or response.mimetype in ('application/json', 'application/javascript', 'image/svg+xml'))):
             return response
         data = response.get_data()
         if len(data) < 700:
             return response
         import gzip
-        response.set_data(gzip.compress(data, 5))
+        compressed = gzip.compress(data, 1)
+        if len(compressed) >= len(data):
+            return response
+        response.set_data(compressed)
         response.headers['Content-Encoding'] = 'gzip'
         response.headers['Content-Length'] = str(len(response.get_data()))
-        response.headers.add('Vary', 'Accept-Encoding')
+        response.vary.add('Accept-Encoding')
     except Exception:
         pass
     return response
@@ -1030,6 +1089,8 @@ def prune_old_logs():
             db.execute(f'DELETE FROM user_events WHERE kind IN ({marks})', NOISY_EVENT_KINDS)
             cutoff = (datetime.now(timezone.utc) - timedelta(days=EVENT_RETENTION_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
             db.execute('DELETE FROM user_events WHERE created_at < ?', (cutoff,))
+            db.execute("DELETE FROM notification_outbox WHERE state IN ('sent','failed') AND created_at < ?",
+                       (int(time.time()) - EVENT_RETENTION_DAYS * 86400,))
             db.execute("DELETE FROM user_notifications WHERE created_at < ? AND delivery_state IN ('sent','none','failed')", (cutoff,))
     except Exception:
         app.logger.exception('Log pruning failed')
@@ -1166,6 +1227,10 @@ def repair_legacy_upgrade_wagers():
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        if DATABASE_URL:
+            db.execute('SELECT pg_advisory_xact_lock(660105)')
+        if db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('repair_upgrade_wagers_build66',)).fetchone():
+            return
         items=db.execute("""SELECT * FROM inventory WHERE promo_locked=1
                             AND source IN ('upgrade','promo_wager')""").fetchall()
         for item in items:
@@ -1202,6 +1267,7 @@ def repair_legacy_upgrade_wagers():
                           promo_wager_target=?,promo_wager_progress=?,source='upgrade_wager_repaired'
                           WHERE id=? AND user_id=?""",original+(target,progress,item['id'],item['user_id']))
             log_event(db,item['user_id'],'upgrade_wager_repaired',inventory_id=item['id'],gift_name=original[1])
+        db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('repair_upgrade_wagers_build66',))
         db.commit()
     finally:db.close()
 
@@ -1513,6 +1579,17 @@ def index():
 
 @app.get('/health')
 def health():
+    return jsonify(status='ok', build=BUILD_ID)
+
+
+@app.get('/ready')
+def readiness():
+    try:
+        with connect() as db:
+            db.execute('SELECT 1').fetchone()
+    except Exception:
+        app.logger.exception('Database readiness failed')
+        return jsonify(status='unavailable'), 503
     return jsonify(status='ok', build=BUILD_ID)
 
 
@@ -3221,7 +3298,7 @@ def finalize_giveaway(db, giveaway_id):
     db.execute("UPDATE giveaways SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?", (giveaway_id,))
     # Deliver one compact message per winner even if the same person won several places.
     for user_id, wins in notifications.items():
-        notify_giveaway_wins_async(user_id, giveaway['title'], wins)
+        notify_giveaway_wins_async(user_id, giveaway['title'], wins, db=db)
     return True
 
 
@@ -5298,460 +5375,6 @@ def normalize_post_buttons(raw):
     return rows
 
 
-# ---------------------------------------------------------------- broadcasts
-BROADCAST_SECTIONS = {'': '', 'giveaways': 'giveaways', 'profile': 'profile', 'bonuses': 'bonuses', 'levels': 'levels'}
-BROADCAST_MAX_USER_IDS = 5000
-
-
-def _broadcast_int(value, label, low=0, high=3650):
-    if value in (None, ''):
-        return None
-    try:
-        number = int(Decimal(str(value).strip().replace(',', '.')))
-    except (InvalidOperation, ValueError):
-        raise ValueError(f'«{label}»: укажите число.')
-    if not low <= number <= high:
-        raise ValueError(f'«{label}»: допустимо от {low} до {high}.')
-    return number
-
-
-def _broadcast_money(value, label):
-    if value in (None, ''):
-        return None
-    try:
-        cents = parse_amount(str(value).strip().replace(',', '.'))
-    except (InvalidOperation, ValueError):
-        raise ValueError(f'«{label}»: укажите сумму в TON.')
-    if cents < 0:
-        raise ValueError(f'«{label}»: сумма не может быть отрицательной.')
-    return cents
-
-
-def normalize_broadcast_filters(raw):
-    raw = raw if isinstance(raw, dict) else {}
-    clean = {}
-    for key, label in (('age_min_days', 'В боте не менее, дней'), ('age_max_days', 'В боте не более, дней')):
-        number = _broadcast_int(raw.get(key), label)
-        if number is not None:
-            clean[key] = number
-    for key, label in (('deposit_min', 'Депозиты от'), ('deposit_max', 'Депозиты до'),
-                       ('turnover_min', 'Оборот от'), ('turnover_max', 'Оборот до'),
-                       ('balance_min', 'Баланс от')):
-        cents = _broadcast_money(raw.get(key), label)
-        if cents is not None:
-            clean[key] = cents
-    if clean.get('age_min_days') is not None and clean.get('age_max_days') is not None \
-            and clean['age_min_days'] > clean['age_max_days']:
-        raise ValueError('«В боте не менее» больше, чем «не более».')
-    for low, high, label in (('deposit_min', 'deposit_max', 'Депозиты'), ('turnover_min', 'turnover_max', 'Оборот')):
-        if clean.get(low) is not None and clean.get(high) is not None and clean[low] > clean[high]:
-            raise ValueError(f'«{label}»: значение «от» больше значения «до».')
-    ids_raw = raw.get('user_ids')
-    if isinstance(ids_raw, str):
-        ids_raw = re.findall(r'\d{1,20}', ids_raw)
-    ids = []
-    for item in ids_raw if isinstance(ids_raw, list) else []:
-        try:
-            ids.append(int(item))
-        except (TypeError, ValueError):
-            continue
-    if ids:
-        clean['user_ids'] = sorted(set(ids))[:BROADCAST_MAX_USER_IDS]
-    clean['skip_blocked'] = bool(raw.get('skip_blocked', True))
-    return clean
-
-
-def broadcast_audience_query(filters):
-    joins = ('LEFT JOIN (SELECT user_id, SUM(amount) AS dep FROM deposits GROUP BY user_id) d '
-             'ON d.user_id=u.id')
-    where, params = ['1=1'], []
-    now = datetime.now(timezone.utc)
-    if 'age_min_days' in filters:
-        where.append('u.created_at<=?')
-        params.append((now - timedelta(days=filters['age_min_days'])).strftime('%Y-%m-%d %H:%M:%S'))
-    if 'age_max_days' in filters:
-        where.append('u.created_at>?')
-        params.append((now - timedelta(days=filters['age_max_days'])).strftime('%Y-%m-%d %H:%M:%S'))
-    if 'deposit_min' in filters:
-        where.append('COALESCE(d.dep,0)>=?')
-        params.append(filters['deposit_min'])
-    if 'deposit_max' in filters:
-        where.append('COALESCE(d.dep,0)<=?')
-        params.append(filters['deposit_max'])
-    if 'turnover_min' in filters:
-        where.append('COALESCE(u.turnover_cents,0)>=?')
-        params.append(filters['turnover_min'])
-    if 'turnover_max' in filters:
-        where.append('COALESCE(u.turnover_cents,0)<=?')
-        params.append(filters['turnover_max'])
-    if 'balance_min' in filters:
-        where.append('u.balance>=?')
-        params.append(filters['balance_min'])
-    if filters.get('user_ids'):
-        where.append('u.id IN (' + ','.join('?' for _ in filters['user_ids']) + ')')
-        params.extend(filters['user_ids'])
-    if filters.get('skip_blocked', True):
-        where.append("u.id NOT IN (SELECT user_id FROM broadcast_recipients WHERE state='blocked')")
-    return joins, ' AND '.join(where), params
-
-
-def broadcast_audience_count(filters):
-    joins, where, params = broadcast_audience_query(filters)
-    with connect() as db:
-        row = db.execute(f'SELECT COUNT(*) AS n FROM users u {joins} WHERE {where}', params).fetchone()
-    return int(row['n'] or 0)
-
-
-def describe_broadcast_filters(filters):
-    parts = []
-    ton = lambda cents: f'{cents / 100:g} TON'
-    if 'age_min_days' in filters:
-        parts.append(f'в боте ≥ {filters["age_min_days"]} дн.')
-    if 'age_max_days' in filters:
-        parts.append(f'в боте ≤ {filters["age_max_days"]} дн.')
-    if 'deposit_min' in filters:
-        parts.append(f'депозиты ≥ {ton(filters["deposit_min"])}')
-    if 'deposit_max' in filters:
-        parts.append(f'депозиты ≤ {ton(filters["deposit_max"])}')
-    if 'turnover_min' in filters:
-        parts.append(f'оборот ≥ {ton(filters["turnover_min"])}')
-    if 'turnover_max' in filters:
-        parts.append(f'оборот ≤ {ton(filters["turnover_max"])}')
-    if 'balance_min' in filters:
-        parts.append(f'баланс ≥ {ton(filters["balance_min"])}')
-    if filters.get('user_ids'):
-        parts.append(f'только указанные ID ({len(filters["user_ids"])})')
-    return ', '.join(parts) or 'все пользователи'
-
-
-def normalize_broadcast_buttons(raw):
-    """Inline keyboard for a private chat: links, Mini App, copy-text; rows and order are kept."""
-    if not isinstance(raw, list):
-        return []
-    rows, total = [], 0
-    for raw_row in raw[:12]:
-        if not isinstance(raw_row, list):
-            continue
-        row = []
-        for item in raw_row[:8]:
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get('text') or '').strip()[:64]
-            if not text:
-                continue
-            button = {'text': text}
-            style = str(item.get('style') or '').lower()
-            if style in ('primary', 'success', 'danger'):
-                button['style'] = style
-            icon = str(item.get('icon_custom_emoji_id') or '').strip()
-            if icon and not re.fullmatch(r'[0-9]{5,30}', icon):
-                raise ValueError(f'Некорректный ID premium emoji у кнопки «{text}».')
-            if icon:
-                button['icon_custom_emoji_id'] = icon
-            kind = str(item.get('type') or 'url').lower()
-            value = str(item.get('value') or '').strip()
-            if kind == 'url':
-                if not re.match(r'^(https?://|tg://)', value, re.I):
-                    raise ValueError(f'У кнопки «{text}» должна быть ссылка http(s):// или tg://.')
-                button['url'] = value[:2048]
-            elif kind == 'web_app':
-                if not WEBAPP_URL.startswith('https://'):
-                    raise ValueError('WEBAPP_URL не настроен — кнопка мини-приложения недоступна.')
-                if value not in BROADCAST_SECTIONS:
-                    raise ValueError(f'Неизвестный раздел приложения у кнопки «{text}».')
-                button['web_app'] = {'url': WEBAPP_URL + ('/?open=' + value if value else '/')}
-            elif kind == 'copy':
-                if not value:
-                    raise ValueError(f'У кнопки «{text}» нет текста для копирования.')
-                button['copy_text'] = {'text': value[:256]}
-            else:
-                raise ValueError(f'Неизвестный тип кнопки «{text}».')
-            row.append(button)
-            total += 1
-            if total >= 48:
-                break
-        if row:
-            rows.append(row)
-        if total >= 48:
-            break
-    return rows
-
-
-def broadcast_calls(chat_id, spec, name=''):
-    text = str(spec.get('text') or '').replace('{name}', escape(name or 'друг'))
-    photo = str(spec.get('photo') or '')
-    markup = {'inline_keyboard': spec['buttons']} if spec.get('buttons') else None
-    base = {'chat_id': chat_id, 'disable_notification': bool(spec.get('silent')),
-            'protect_content': bool(spec.get('protect'))}
-    visible = len(re.sub(r'<[^>]+>', '', text))
-    calls = []
-    if photo:
-        caption_ok = bool(text) and visible <= 1024
-        payload = dict(base, photo=photo)
-        if caption_ok:
-            payload.update(caption=text, parse_mode='HTML')
-        if markup and (caption_ok or not text):
-            payload['reply_markup'] = markup
-        calls.append(('sendPhoto', payload))
-        if text and not caption_ok:
-            payload = dict(base, text=text, parse_mode='HTML', link_preview_options={'is_disabled': True})
-            if markup:
-                payload['reply_markup'] = markup
-            calls.append(('sendMessage', payload))
-    else:
-        payload = dict(base, text=text, parse_mode='HTML', link_preview_options={'is_disabled': True})
-        if markup:
-            payload['reply_markup'] = markup
-        calls.append(('sendMessage', payload))
-    return calls
-
-
-def broadcast_send(chat_id, spec, name=''):
-    """Returns (state, detail, retry_after): sent | blocked | failed | retry."""
-    for method, payload in broadcast_calls(chat_id, spec, name):
-        try:
-            response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/{method}', json=payload, timeout=(3, 15))
-            data = response.json()
-        except (requests.RequestException, ValueError):
-            return 'retry', 'Telegram недоступен', 0
-        if data.get('ok'):
-            continue
-        description = str(data.get('description') or f'HTTP {response.status_code}')[:300]
-        retry_after = int((data.get('parameters') or {}).get('retry_after') or 0)
-        if response.status_code == 429 or retry_after:
-            return 'retry', description, max(1, retry_after)
-        if response.status_code == 403:
-            return 'blocked', description, 0
-        if response.status_code >= 500:
-            return 'retry', description, 0
-        return 'failed', description, 0
-    return 'sent', '', 0
-
-
-def broadcast_spec_from_request(admin_id):
-    multipart = bool(request.files) or bool(request.form) or str(request.content_type or '').startswith('multipart/form-data')
-    data = request.form if multipart else (request.get_json(silent=True) or {})
-    raw_text = str(data.get('text') or '').strip()
-    raw_buttons = data.get('buttons') or '[]'
-    raw_buttons = json.loads(raw_buttons) if isinstance(raw_buttons, str) else raw_buttons
-    rows = normalize_broadcast_buttons(raw_buttons)
-    flag = lambda key: str(data.get(key) or '').lower() in ('1', 'true', 'on', 'yes')
-    text, _ = resolve_post_custom_emojis(raw_text, rows)
-    if flag('auto_premium'):
-        text = notification_premium_html(text)
-    visible = len(re.sub(r'<[^>]+>', '', text))
-    photo = str(data.get('image') or '').strip()
-    upload = request.files.get('photo') if multipart and hasattr(request.files, 'get') else None
-    if upload and getattr(upload, 'filename', ''):
-        try:
-            sent = telegram_api('sendPhoto', {'chat_id': admin_id, 'disable_notification': 'true'},
-                                files={'photo': (upload.filename or 'broadcast.jpg', upload.stream,
-                                                 upload.mimetype or 'application/octet-stream')}, timeout=(3, 25))
-        except RuntimeError as exc:
-            raise ValueError('Telegram не принял изображение: ' + str(exc))
-        sizes = sent.get('photo') or []
-        photo = sizes[-1].get('file_id', '') if sizes else ''
-        try:
-            telegram_api('deleteMessage', {'chat_id': admin_id, 'message_id': sent.get('message_id')}, timeout=(2, 6))
-        except RuntimeError:
-            pass
-        if not photo:
-            raise ValueError('Telegram не вернул file_id изображения.')
-    elif photo and not re.fullmatch(r'https?://\S+|[A-Za-z0-9_\-]{20,}', photo):
-        raise ValueError('Изображение: укажите ссылку http(s):// или Telegram file_id.')
-    if not text and not photo:
-        raise ValueError('Добавьте текст или изображение.')
-    if visible > 4096:
-        raise ValueError('Текст длиннее 4096 символов.')
-    filters = normalize_broadcast_filters(json.loads(data.get('filters') or '{}') if isinstance(data.get('filters'), str)
-                                          else data.get('filters'))
-    return dict(text=text, photo=photo, buttons=rows, silent=flag('silent'), protect=flag('protect')), filters
-
-
-@app.post('/api/admin/broadcast/audience')
-@admin_required
-def admin_broadcast_audience():
-    try:
-        filters = normalize_broadcast_filters((request.get_json(silent=True) or {}).get('filters'))
-    except ValueError as exc:
-        return error(str(exc))
-    with connect() as db:
-        total = int(db.execute('SELECT COUNT(*) AS n FROM users').fetchone()['n'] or 0)
-    return jsonify(count=broadcast_audience_count(filters), total=total, summary=describe_broadcast_filters(filters))
-
-
-@app.post('/api/admin/broadcast/test')
-@admin_required
-def admin_broadcast_test():
-    try:
-        spec, _ = broadcast_spec_from_request(session['uid'])
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        return error(str(exc))
-    except RuntimeError as exc:
-        return error('Telegram: ' + str(exc), 409)
-    user = current_user()
-    state, detail, _ = broadcast_send(int(session['uid']), spec, user['name'] if user else '')
-    if state != 'sent':
-        return error('Telegram не принял сообщение: ' + (detail or 'нет ответа') +
-                     ('. Откройте бота и нажмите /start.' if state == 'blocked' else ''), 409)
-    return jsonify(ok=True)
-
-
-@app.post('/api/admin/broadcast/send')
-@admin_required
-def admin_broadcast_send():
-    if not BOT_TOKEN:
-        return error('BOT_TOKEN не настроен.', 409)
-    admin_id = int(session['uid'])
-    try:
-        spec, filters = broadcast_spec_from_request(admin_id)
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        return error(str(exc))
-    except RuntimeError as exc:
-        return error('Telegram: ' + str(exc), 409)
-    count = broadcast_audience_count(filters)
-    if not count:
-        return error('Под выбранные условия не подходит ни один пользователь.')
-    # A verification copy goes to the sender first: Telegram rejects broken HTML, bad IDs
-    # or buttons here, before thousands of messages are queued.
-    user = current_user()
-    state, detail, _ = broadcast_send(admin_id, spec, user['name'] if user else '')
-    if state != 'sent':
-        return error('Рассылка не запущена, Telegram не принял сообщение: ' + (detail or 'нет ответа') +
-                     ('. Откройте бота и нажмите /start.' if state == 'blocked' else ''), 409)
-    joins, where, params = broadcast_audience_query(filters)
-    with connect() as db:
-        db.execute('BEGIN IMMEDIATE')
-        db.execute('INSERT INTO broadcasts(admin_id,status,text,photo,buttons,filters,silent,protect,total) VALUES(?,?,?,?,?,?,?,?,?)',
-                   (admin_id, 'running', spec['text'], spec['photo'], json.dumps(spec['buttons'], ensure_ascii=False),
-                    json.dumps(filters, ensure_ascii=False), int(spec['silent']), int(spec['protect']), count))
-        broadcast_id = int(db.execute('SELECT MAX(id) AS id FROM broadcasts WHERE admin_id=?', (admin_id,)).fetchone()['id'])
-        db.execute(f'INSERT INTO broadcast_recipients(broadcast_id,user_id) SELECT ?, u.id FROM users u {joins} WHERE {where}',
-                   [broadcast_id] + params)
-        db.execute("UPDATE broadcast_recipients SET state='sent' WHERE broadcast_id=? AND user_id=?", (broadcast_id, admin_id))
-        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (admin_id, admin_id, 'broadcast_start', f'{broadcast_id}:{count}:{describe_broadcast_filters(filters)}'[:500]))
-        db.commit()
-    return jsonify(ok=True, id=broadcast_id, total=count)
-
-
-@app.get('/api/admin/broadcast/list')
-@admin_required
-def admin_broadcast_list():
-    with connect() as db:
-        rows = db.execute('SELECT * FROM broadcasts ORDER BY id DESC LIMIT 20').fetchall()
-        ids = [int(r['id']) for r in rows]
-        counts = {}
-        if ids:
-            marks = ','.join('?' for _ in ids)
-            for r in db.execute(f'SELECT broadcast_id, state, COUNT(*) AS n FROM broadcast_recipients '
-                                f'WHERE broadcast_id IN ({marks}) GROUP BY broadcast_id, state', ids).fetchall():
-                counts.setdefault(int(r['broadcast_id']), {})[r['state']] = int(r['n'])
-    items = []
-    for r in rows:
-        c = counts.get(int(r['id']), {})
-        try:
-            summary = describe_broadcast_filters(json.loads(r['filters'] or '{}'))
-        except (ValueError, TypeError):
-            summary = ''
-        preview = unescape(re.sub(r'<[^>]+>', '', r['text'] or '')).strip().replace('\n', ' ')
-        items.append(dict(id=int(r['id']), status=r['status'], created_at=str(r['created_at'] or '')[:19],
-                          finished_at=str(r['finished_at'] or '')[:19], total=int(r['total'] or 0),
-                          sent=c.get('sent', 0), blocked=c.get('blocked', 0), failed=c.get('failed', 0),
-                          pending=c.get('pending', 0) + c.get('sending', 0),
-                          preview=preview[:90] or '(только изображение)', has_photo=bool(r['photo']),
-                          filters=summary))
-    return jsonify(items=items)
-
-
-@app.post('/api/admin/broadcast/<int:broadcast_id>/cancel')
-@admin_required
-def admin_broadcast_cancel(broadcast_id):
-    with connect() as db:
-        changed = db.execute("UPDATE broadcasts SET status='cancelled', finished_at=? WHERE id=? AND status='running'",
-                             (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), broadcast_id)).rowcount
-        if changed:
-            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                       (session['uid'], session['uid'], 'broadcast_cancel', str(broadcast_id)))
-    if not changed:
-        return error('Рассылка уже завершена или не найдена.', 404)
-    return jsonify(ok=True)
-
-
-def broadcast_worker_step():
-    """Send one small batch of the oldest running broadcast. Returns True when work was done."""
-    now = int(time.time())
-    with connect() as db:
-        job = db.execute("SELECT * FROM broadcasts WHERE status='running' ORDER BY id LIMIT 1").fetchone()
-    if not job:
-        return False
-    bid = int(job['id'])
-    with connect() as db:
-        db.execute('BEGIN IMMEDIATE')
-        db.execute("UPDATE broadcast_recipients SET state='pending' WHERE broadcast_id=? AND state='sending' AND next_at<?",
-                   (bid, now - 120))
-        claimed = db.execute("SELECT r.user_id, r.attempts, u.name FROM broadcast_recipients r LEFT JOIN users u ON u.id=r.user_id "
-                             "WHERE r.broadcast_id=? AND r.state='pending' AND r.next_at<=? ORDER BY r.user_id LIMIT 20"
-                             + (' FOR UPDATE OF r SKIP LOCKED' if DATABASE_URL else ''), (bid, now)).fetchall()
-        for row in claimed:
-            db.execute("UPDATE broadcast_recipients SET state='sending', next_at=? WHERE broadcast_id=? AND user_id=?",
-                       (now, bid, row['user_id']))
-        db.commit()
-    if not claimed:
-        with connect() as db:
-            left = db.execute("SELECT COUNT(*) AS n FROM broadcast_recipients WHERE broadcast_id=? AND state IN ('pending','sending')",
-                              (bid,)).fetchone()
-            if not int(left['n'] or 0):
-                db.execute("UPDATE broadcasts SET status='done', finished_at=? WHERE id=? AND status='running'",
-                           (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), bid))
-                return True
-        return False
-    spec = dict(text=job['text'], photo=job['photo'], buttons=json.loads(job['buttons'] or '[]'),
-                silent=bool(job['silent']), protect=bool(job['protect']))
-    unsent = [int(r['user_id']) for r in claimed]
-    for row in claimed:
-        with connect() as db:
-            status = db.execute('SELECT status FROM broadcasts WHERE id=?', (bid,)).fetchone()
-        if not status or status['status'] != 'running':
-            break
-        uid = int(row['user_id'])
-        state, detail, retry_after = broadcast_send(uid, spec, row['name'] or '')
-        attempts = int(row['attempts'] or 0) + 1
-        with connect() as db:
-            if state == 'retry':
-                if retry_after or attempts < 4:
-                    db.execute("UPDATE broadcast_recipients SET state='pending',attempts=?,error=?,next_at=? WHERE broadcast_id=? AND user_id=?",
-                               (attempts if not retry_after else attempts - 1, detail[:300],
-                                int(time.time()) + (retry_after + 1 if retry_after else 10 * attempts), bid, uid))
-                else:
-                    state = 'failed'
-            if state != 'retry':
-                db.execute('UPDATE broadcast_recipients SET state=?,attempts=?,error=? WHERE broadcast_id=? AND user_id=?',
-                           (state, attempts, detail[:300], bid, uid))
-        unsent.remove(uid)
-        if state == 'retry' and retry_after:
-            time.sleep(min(retry_after, 30))
-            break
-        time.sleep(.04)
-    if unsent:
-        with connect() as db:
-            for uid in unsent:
-                db.execute("UPDATE broadcast_recipients SET state='pending' WHERE broadcast_id=? AND user_id=? AND state='sending'",
-                           (bid, uid))
-    return True
-
-
-def broadcast_loop():
-    while True:
-        busy = False
-        try:
-            busy = broadcast_worker_step()
-        except Exception:
-            app.logger.exception('Broadcast delivery failed')
-        if not busy:
-            time.sleep(2)
-
-
 def notification_premium_html(text):
     """Use the saved Telegram emoji catalogue; keep a normal emoji fallback."""
     text = str(text)
@@ -5834,17 +5457,50 @@ def deliver_activity_notifications():
 
 def activity_notification_loop():
     while True:
-        try: deliver_activity_notifications()
-        except Exception: app.logger.exception('Activity notification delivery failed')
+        try:
+            deliver_notification_outbox()
+            deliver_activity_notifications()
+        except Exception:
+            app.logger.exception('Activity notification delivery failed')
         NOTIFY_WAKE.wait(1.5)
         if NOTIFY_WAKE.is_set():
             time.sleep(.2)
             NOTIFY_WAKE.clear()
 
 
-def notify_user_async(user_id, text, reply_markup=None, parse_mode=None):
-    Thread(target=send_user_notification,
-           args=(user_id, text, reply_markup, parse_mode), daemon=True).start()
+def notify_user_async(user_id, text, reply_markup=None, parse_mode=None, db=None):
+    if not BOT_TOKEN:
+        return
+    # Durable queue instead of creating one OS thread per notification.
+    payload = json.dumps(dict(text=str(text), reply_markup=reply_markup,
+                              parse_mode=parse_mode), ensure_ascii=False)
+    params = (int(user_id), payload, int(time.time()))
+    if db is not None:
+        db.execute('INSERT INTO notification_outbox(user_id,payload,created_at) VALUES(?,?,?)', params)
+    else:
+        with connect() as queue_db:
+            queue_db.execute('INSERT INTO notification_outbox(user_id,payload,created_at) VALUES(?,?,?)', params)
+    NOTIFY_WAKE.set()
+
+
+def deliver_notification_outbox():
+    for _ in range(10):
+        now = int(time.time())
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute("UPDATE notification_outbox SET state='pending' WHERE state='sending' AND next_at<?", (now-60,))
+            row = db.execute("SELECT * FROM notification_outbox WHERE state='pending' AND next_at<=? ORDER BY id LIMIT 1"
+                             + (' FOR UPDATE SKIP LOCKED' if DATABASE_URL else ''), (now,)).fetchone()
+            if not row:
+                return
+            db.execute("UPDATE notification_outbox SET state='sending',next_at=? WHERE id=?", (now, row['id']))
+        payload = json.loads(row['payload'])
+        ok = send_user_notification(row['user_id'], **payload)
+        attempts = int(row['attempts']) + 1
+        with connect() as db:
+            db.execute('UPDATE notification_outbox SET state=?,attempts=?,next_at=? WHERE id=?',
+                       ('sent' if ok else 'failed' if attempts >= 3 else 'pending',
+                        attempts, now + 30 * attempts, row['id']))
 
 
 def miniapp_markup(text, action=''):
@@ -5877,7 +5533,7 @@ def notify_promo_async(user_id, code, action='bonuses'):
     notify_user_async(user_id, text, miniapp_markup('🎁 Забрать', action), 'HTML')
 
 
-def notify_giveaway_wins_async(user_id, giveaway_title, winnings):
+def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     """Send one Telegram message for all places won in a single giveaway."""
     if not winnings:
         return
@@ -5903,7 +5559,7 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings):
         if len(keyboard) >= 8:
             break
     markup = {'inline_keyboard': keyboard} if keyboard else None
-    notify_user_async(user_id, '\n'.join(lines), markup, 'HTML')
+    notify_user_async(user_id, '\n'.join(lines), markup, 'HTML', db=db)
 
 
 def notify_level_up_async(user_id, level):
@@ -8992,6 +8648,28 @@ def telegram_webhook():
         return error('Не удалось обработать команду.', 500)
 
 
+def database_busy(exc):
+    app.logger.warning('Database temporarily unavailable: %s', type(exc).__name__)
+    response = jsonify(error='Сервер занят. Повторите запрос через несколько секунд.')
+    response.status_code = 503
+    response.headers['Retry-After'] = '2'
+    return response
+
+
+@app.errorhandler(sqlite3.OperationalError)
+def sqlite_error(exc):
+    if 'locked' in str(exc).lower() or 'busy' in str(exc).lower():
+        return database_busy(exc)
+    return internal_error_handler(exc)
+
+
+if DATABASE_URL:
+    import psycopg
+    from psycopg_pool import PoolTimeout, TooManyRequests
+    for transient_error in (PoolTimeout, TooManyRequests, psycopg.OperationalError):
+        app.register_error_handler(transient_error, database_busy)
+
+
 @app.errorhandler(500)
 def internal_error_handler(exc):
     app.logger.exception('Unhandled server error: %s', exc)
@@ -9020,10 +8698,31 @@ def portal_auto_loop():
         time.sleep(30)
 
 
-Thread(target=portal_auto_loop, daemon=True).start()
+def singleton_background(target, lock_id):
+    if not DATABASE_URL:
+        target()
+        return
+    import psycopg
+    while True:
+        try:
+            # A dedicated connection owns the lock without occupying the HTTP pool.
+            with psycopg.connect(DATABASE_URL, autocommit=True, connect_timeout=5) as guard:
+                if guard.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
+                    target()
+                    return
+        except Exception:
+            app.logger.exception('Background leader failed: %s', target.__name__)
+        time.sleep(15)
+
+
+def start_background(target, lock_id):
+    if os.environ.get('ENABLE_BACKGROUND_JOBS', '1') == '1':
+        Thread(target=singleton_background, args=(target, lock_id), daemon=True).start()
+
+
+start_background(portal_auto_loop, 660101)
 if BOT_TOKEN:
-    Thread(target=activity_notification_loop,daemon=True).start()
-    Thread(target=broadcast_loop, daemon=True).start()
+    start_background(activity_notification_loop, 660102)
 
 
 def configure_bot():
@@ -9059,12 +8758,13 @@ def configure_bot():
 
 
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
-    Thread(target=configure_bot, daemon=True).start()
+    start_background(configure_bot, 660103)
 
 
-repair_legacy_upgrade_wagers()
-Thread(target=log_pruner_loop, daemon=True).start()
+if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
+    repair_legacy_upgrade_wagers()
+start_background(log_pruner_loop, 660104)
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)ы
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)

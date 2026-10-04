@@ -458,6 +458,11 @@ def initialize():
             ('expires_at', 'TEXT'), ('gift_expires_days', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
+        _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
+        ensure_columns('freebet_redemptions', [('seen_at', 'TEXT')])
+        if not _had_seen_at:
+            # Old redemptions predate the "received" window: don't pop them up retroactively.
+            db.execute('UPDATE freebet_redemptions SET seen_at=created_at WHERE seen_at IS NULL')
         ensure_columns('ton_deposit_orders', [('promo_code', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('withdrawals', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -4661,6 +4666,64 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
     return reward
 
 
+def describe_reward_items(reward):
+    """Flatten a reward dict into a clear list of lines for the UI and bot message.
+
+    Each item: kind, title, detail, image_url (optional), amount (optional).
+    """
+    items = []
+    if not isinstance(reward, dict):
+        return items
+    kind = reward.get('type')
+    if kind == 'multi':
+        for sub in reward.get('rewards') or []:
+            items.extend(describe_reward_items(sub))
+        return items
+    if kind == 'balance':
+        amount = float(reward.get('amount') or 0)
+        items.append(dict(kind='balance', title=f'+{amount:.2f} TON', detail='Зачислено на игровой баланс',
+                          amount=amount))
+    elif kind == 'gift':
+        gift = reward.get('gift') or {}
+        items.append(dict(kind='gift', title=str(gift.get('name') or 'Подарок'),
+                          detail=f"Подарок в инвентаре · {float(gift.get('price_ton') or 0):.2f} TON",
+                          image_url=gift.get('image_url') or '', amount=float(gift.get('price_ton') or 0)))
+    elif kind == 'wager_gift':
+        gift = reward.get('gift') or {}
+        mult = float(gift.get('wager_multiplier') or 0)
+        target = float(gift.get('wager_target') or 0)
+        detail = f"Отыгрышный подарок · X{mult:g}"
+        if target:
+            detail += f' · нужно отыграть {target:.2f} TON'
+        items.append(dict(kind='wager_gift', title=str(gift.get('name') or 'Подарок'), detail=detail,
+                          image_url=gift.get('image_url') or '', amount=float(gift.get('price_ton') or 0),
+                          expires_at=gift.get('expires_at') or ''))
+    elif kind == 'deposit_bonus':
+        pct = float(reward.get('bonus_percent') or 0)
+        fixed = float(reward.get('bonus_fixed') or 0)
+        minimum = float(reward.get('min_deposit') or 0)
+        value = f'+{pct:g}%' if pct else f'+{fixed:.2f} TON'
+        detail = 'Бонус к следующему пополнению'
+        if minimum:
+            detail += f' от {minimum:.2f} TON'
+        items.append(dict(kind='deposit_bonus', title=f'Бонус {value}', detail=detail))
+    elif kind == 'tickets':
+        qty = int(reward.get('amount') or 0)
+        items.append(dict(kind='tickets', title=f'{qty} билет(ов)', detail='Для участия в розыгрышах'))
+    return items
+
+
+def freebet_reward_html(reward, fallback=''):
+    items = describe_reward_items(reward)
+    if not items:
+        return escape(fallback)
+    lines = []
+    icons = dict(balance='💰', gift='🎁', wager_gift='🔒', deposit_bonus='📈', tickets='🎟')
+    for it in items:
+        lines.append(f"{icons.get(it['kind'], '•')} <b>{escape(it['title'])}</b> — {escape(it['detail'])}")
+    return '\n'.join(lines)
+
+
 def try_activate_freebet(user_id, code):
     code = str(code or '').strip().upper()
     if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
@@ -4715,7 +4778,7 @@ def try_activate_freebet(user_id, code):
         db.execute('UPDATE freebets SET uses_count=uses_count+1 WHERE code=?', (code,))
         db.commit()
         return {'status': 'ok', 'reward': reward,
-                'text': f'🎁 <b>Фрибет получен!</b>\n\n{escape(freebet_reward_text(promo))}\n\nНаграда выдана только по этой ссылке и уже зачислена в GemDrop.',
+                'text': f'🎁 <b>Фрибет активирован!</b>\n\n<b>Вы получили:</b>\n{freebet_reward_html(reward, freebet_reward_text(promo))}\n\nНаграда уже зачислена в GemDrop. Откройте приложение и нажмите «Забрать».',
                 'reply_markup': freebet_play_keyboard(), 'parse_mode': 'HTML'}
     except Exception:
         try:
@@ -6079,6 +6142,43 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
     # Keep the replay payload small even for large catalogs.
     comp['reel'] = [secrets.choice(reel_options or pool or gift_options) for _ in range(36)]
     return comp
+
+
+@app.get('/api/rewards/pending')
+@login_required
+def pending_rewards():
+    """Freebet rewards the user has received but not yet acknowledged in the Mini App."""
+    with connect() as db:
+        rows = db.execute("""SELECT code, reward_json, created_at FROM freebet_redemptions
+                             WHERE user_id=? AND seen_at IS NULL ORDER BY created_at ASC LIMIT 20""",
+                          (session['uid'],)).fetchall()
+    batches = []
+    for row in rows:
+        try:
+            reward = json.loads(row['reward_json'] or '{}')
+        except (ValueError, TypeError):
+            reward = {}
+        items = describe_reward_items(reward)
+        if items:
+            batches.append(dict(code=row['code'], created_at=row['created_at'], items=items))
+    return jsonify(batches=batches)
+
+
+@app.post('/api/rewards/ack')
+@login_required
+def ack_rewards():
+    data = request.get_json(silent=True) or {}
+    codes = [str(c).strip().upper() for c in (data.get('codes') or []) if str(c).strip()][:50]
+    with connect() as db:
+        if codes:
+            for code in codes:
+                db.execute("""UPDATE freebet_redemptions SET seen_at=CURRENT_TIMESTAMP
+                              WHERE user_id=? AND code=? AND seen_at IS NULL""", (session['uid'], code))
+        else:
+            db.execute("""UPDATE freebet_redemptions SET seen_at=CURRENT_TIMESTAMP
+                          WHERE user_id=? AND seen_at IS NULL""", (session['uid'],))
+        db.commit()
+    return jsonify(ok=True)
 
 
 @app.get('/api/promocodes/mine')

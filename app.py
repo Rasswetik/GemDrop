@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '70-daily-top-rewards'
+BUILD_ID = '71-final-stability-audit'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2354,7 +2354,7 @@ def upgrade_preview():
             source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).fetchone()
         if not source:return error('Выберите доступный подарок из инвентаря.')
         if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
-            return error('Отыгрыш завершён — сначала получите подарок.')
+            return error('Отыгрыш завершён — сначала разблокируйте подарок в профиле.')
         source_price=int(source['floor_price'] or 0)
         if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
         source_view=dict(type='gift',**inventory_item(source))
@@ -2385,7 +2385,11 @@ def wins_feed_cutoff(db, kind):
 
 
 def daily_top_rewards():
-    doc = read_document('daily_top_rewards') or {}
+    try:
+        doc = read_document('daily_top_rewards') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        app.logger.exception('Invalid daily top reward settings; falling back to no rewards')
+        doc = {}
     result = {}
     for mode in ('mines','upgrade'):
         raw = doc.get(mode) if isinstance(doc,dict) else None
@@ -2404,8 +2408,12 @@ def daily_top_rewards():
                         'fragment_backdrop','fragment_symbol','price_source','animation_url',
                         'model_percent','backdrop_percent','symbol_percent'):
                 item[key] = str(reward.get(key) or '')
-            try: item['price_ton'] = max(0,int(reward.get('floor_price') or 0))/100
-            except (TypeError,ValueError): item['price_ton'] = 0
+            try:
+                floor_price = max(0,int(reward.get('floor_price') or 0))
+            except (TypeError,ValueError):
+                floor_price = 0
+            item['floor_price'] = floor_price
+            item['price_ton'] = floor_price/100
         result[mode] = item
     return result
 
@@ -2518,8 +2526,12 @@ def settle_previous_daily_top_rewards(db):
 @login_required
 def upgrade_recent_wins():
     with connect() as db:
-        settle_previous_daily_top_rewards(db)
-        db.commit()
+        try:
+            settle_previous_daily_top_rewards(db)
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('Daily top reward settlement failed while loading Upgrade wins')
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
@@ -2605,7 +2617,7 @@ def upgrade_spin():
             source_price=int(source['floor_price'] or 0)
             if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
             if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
-                return error('Отыгрыш завершён — сначала получите подарок.')
+                return error('Отыгрыш завершён — сначала разблокируйте подарок в профиле.')
         effective_rtp_bp = upgrade_rtp_basis_points()
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
@@ -2994,7 +3006,7 @@ def open_cell():
                                       int(burns), row['bet_external_url'] or ''))
                     db.execute('UPDATE rounds SET prize_inventory_id=? WHERE id=?', (cur.lastrowid, row['id']))
                     record_transaction(db, row['user_id'], 'promo_wager_attempt_lost', 0, 'round', row['id'],
-                                       f'{row["bet_gift_name"]}: осталось шансов {attempts_after}')
+                                       f'{row["bet_gift_name"]}: осталось жизней {attempts_after}')
                 else:
                     record_transaction(db, row['user_id'], 'promo_wager_burn', 0, 'round', row['id'],
                                        f'Сгорел промо-подарок: {row["bet_gift_name"]}')
@@ -3057,8 +3069,12 @@ def cashout():
 @login_required
 def recent_wins():
     with connect() as db:
-        settle_previous_daily_top_rewards(db)
-        db.commit()
+        try:
+            settle_previous_daily_top_rewards(db)
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('Daily top reward settlement failed while loading Mines wins')
         cutoff, max_round_id = wins_feed_cutoff(db, 'mines')
         selection = """SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
                                     r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
@@ -5203,7 +5219,7 @@ def describe_reward_items(reward):
         if gift.get('wager_burn_on_loss') is False:
             detail += ' · не сгорает при проигрыше'
         elif attempts:
-            detail += f' · шансов: {attempts}'
+            detail += f' · жизней: {attempts}'
         items.append(dict(kind='wager_gift', title=str(gift.get('name') or 'Подарок'), detail=detail,
                           image_url=gift.get('image_url') or '', amount=float(gift.get('price_ton') or 0),
                           expires_at=gift.get('expires_at') or ''))

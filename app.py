@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '66-render-load-fixes'
+BUILD_ID = '67-user-logs-withdraw-settings'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -5827,8 +5827,24 @@ def notify_level_up_async(user_id, level):
     return None
 
 
-WITHDRAWAL_MIN_TON_CONNECT_CENTS = 500
-WITHDRAWAL_MIN_TON_CONNECT_MESSAGE = 'Для вывода нужен депозит от 5 TON через TON Connect.'
+WITHDRAWAL_MIN_TON_CONNECT_DEFAULT_CENTS = 300
+
+
+def withdrawal_settings():
+    doc = read_document('withdrawal_settings') or {}
+    try:
+        minimum = int(doc.get('min_ton_connect_deposit_cents', WITHDRAWAL_MIN_TON_CONNECT_DEFAULT_CENTS))
+    except (TypeError, ValueError):
+        minimum = WITHDRAWAL_MIN_TON_CONNECT_DEFAULT_CENTS
+    minimum = max(0, min(100000000, minimum))
+    return dict(min_ton_connect_deposit_cents=minimum, min_ton_connect_deposit=minimum / 100)
+
+
+def withdrawal_minimum_message(required_cents, deposited_cents):
+    required = f'{required_cents / 100:.2f}'.rstrip('0').rstrip('.')
+    deposited = f'{deposited_cents / 100:.2f}'.rstrip('0').rstrip('.')
+    return (f'Для вывода нужен подтверждённый депозит от {required} TON через TON Connect. '
+            f'Сейчас учтено: {deposited} TON.')
 
 
 def ton_connect_deposit_total(db, user_id):
@@ -5848,9 +5864,37 @@ def withdrawal_access_error(db, user_id):
     if not bool(account['withdrawal_enabled']):
         reason = str(account['withdrawal_block_reason'] or '').strip()
         return reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.'
-    if ton_connect_deposit_total(db, user_id) < WITHDRAWAL_MIN_TON_CONNECT_CENTS:
-        return WITHDRAWAL_MIN_TON_CONNECT_MESSAGE
+    required = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
+    deposited = ton_connect_deposit_total(db, user_id)
+    if deposited < required:
+        return withdrawal_minimum_message(required, deposited)
     return ''
+
+
+@app.get('/api/admin/withdrawal-settings')
+@admin_required
+def admin_withdrawal_settings_get():
+    return jsonify(**withdrawal_settings())
+
+
+@app.post('/api/admin/withdrawal-settings')
+@admin_required
+def admin_withdrawal_settings_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        minimum = parse_amount(data.get('min_ton_connect_deposit', data.get('min_deposit_ton', '3')))
+    except (ValueError, TypeError, InvalidOperation):
+        return error('Введите минимальный депозит с точностью до 0.01 TON.')
+    if not 0 <= minimum <= 100000000:
+        return error('Минимальный депозит: от 0 до 1 000 000 TON.')
+    save_document('withdrawal_settings', {
+        'min_ton_connect_deposit_cents': minimum,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    })
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,0,?,?)',
+                   (session['uid'], 'withdrawal_settings', f'min_ton_connect_deposit={minimum}'))
+    return jsonify(ok=True, **withdrawal_settings())
 
 
 @app.post('/api/withdrawal/contact-notice')
@@ -7804,11 +7848,34 @@ def admin_user_activity(user_id):
                                balance_after=r['balance_after']/100 if r['balance_after'] is not None else None,
                                reference_type=r['reference_type'],reference_id=r['reference_id'])))
         for r in db.execute('SELECT * FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+            try:
+                opened_cells = json.loads(r['opened'] or '[]')
+            except (TypeError, ValueError, json.JSONDecodeError):
+                opened_cells = []
+            opened_count = len(opened_cells) if isinstance(opened_cells, list) else 0
+            try:
+                multiplier = (float(r['win_multiplier']) if r['win_multiplier'] is not None
+                              else float(multiplier_for(int(r['mines']), opened_count, r['rtp_snapshot']))
+                              if opened_count else 1.0)
+            except (TypeError, ValueError, InvalidOperation):
+                multiplier = 1.0
             events.append(dict(id='m'+str(r['id']),date=str(r['created_at']),kind='mines_round',
                                amount=r['bet']/100,image=r['bet_gift_image'] or r['win_gift_image'],
-                               details=dict(mines=r['mines'],bet=r['bet']/100,state=r['state'],
+                               details=dict(game='Mines',mines=int(r['mines']),bet=r['bet']/100,state=r['state'],
                                             bet_type=r['bet_type'],gift_name=r['bet_gift_name'] or r['win_gift_name'],
-                                            opened=len(json.loads(r['opened'] or '[]')),payout=r['payout']/100)))
+                                            opened=opened_count,multiplier=round(multiplier,4),
+                                            payout=r['payout']/100)))
+        for r in db.execute('SELECT * FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?',
+                            (user_id,limit)).fetchall():
+            events.append(dict(id='u'+str(r['id']),date=str(r['created_at']),kind='upgrade',
+                               amount=-int(r['source_price'] or 0)/100,
+                               image=(r['target_image'] if r['won'] else r['source_image']) or '',
+                               details=dict(game='Upgrade',source_name=r['source_name'] or 'Ставка',
+                                            target_name=r['target_name'] or 'Цель',
+                                            source_price=int(r['source_price'] or 0)/100,
+                                            target_price=int(r['target_price'] or 0)/100,
+                                            chance=int(r['chance_bp'] or 0)/100,
+                                            won=bool(r['won']))))
         for r in db.execute('SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
             events.append(dict(id='w'+str(r['id']),date=str(r['created_at']),kind='withdrawal',amount=0,
                                image=r['image_url'],details=dict(gift_name=r['gift_name'],status=r['status'])))

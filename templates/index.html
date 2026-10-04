@@ -3219,19 +3219,90 @@ body.studio ::selection{background:#2ea8f54d}
 body.studio{scrollbar-color:#262a40 transparent}
 @media(prefers-reduced-motion:reduce){body.studio *{transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
+
+/* ===== page titles, brand, upgrade 3-column screen, Mines column (matches reference screenshots) ===== */
+body.studio .page-title{margin:0 0 18px;font-size:clamp(24px,5vw,30px);font-weight:800;letter-spacing:-.03em;color:var(--text)}
+body.studio .studio-brand svg{width:34px;height:34px;fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+body.studio .studio-brand .brand-name{display:none}
+body.studio .mines-title{max-width:490px;margin:0 auto 14px}
+body.studio .upgrade-title{text-align:center}
+body.studio .upgrade-action-row{display:grid;grid-template-columns:minmax(0,1fr) 54px;gap:10px;align-items:stretch}
+body.studio .upgrade-action-row .upgrade-action{margin:0!important}
+body.studio .upgrade-quick{display:grid;place-items:center;width:54px;border-radius:var(--r-md);background:#171a2c;border:1px solid var(--line);color:#8891b4}
+body.studio .upgrade-quick svg{width:20px;height:20px;fill:currentColor}
+body.studio .upgrade-quick:hover{color:var(--accent);border-color:var(--pill-line)}
+body.studio .upgrade-inline{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:18px}
+body.studio .inline-panel{padding:20px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);min-width:0}
+body.studio .inline-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+body.studio .inline-head h2{margin:0;font-size:15px}
+body.studio .inline-count{display:grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border:1px solid var(--line);border-radius:999px;background:var(--inner);color:var(--muted);font-size:11px;font-weight:700}
+body.studio .inline-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;max-height:340px;overflow:auto;overscroll-behavior:contain;padding:2px}
+body.studio .inline-empty{grid-column:1/-1;display:grid;place-items:center;min-height:96px;padding:16px;border:1px dashed #262a40;border-radius:var(--r-md);background:var(--inner);color:var(--muted);font-size:12px;text-align:center;line-height:1.5}
+body.studio .inline-gift{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;padding:10px 8px;border:1px solid var(--line);border-radius:var(--r-md);background:#171a2c;color:var(--text);text-align:center;transition:border-color .15s,background .15s}
+body.studio .inline-gift:hover{border-color:#2a3050;background:#1b1f33}
+body.studio .inline-gift.selected{border-color:var(--pill-line);background:var(--pill)}
+body.studio .inline-art{display:block;width:64px;height:64px;border-radius:12px;overflow:hidden}
+body.studio .inline-art img{display:block;width:100%;height:100%;object-fit:contain}
+body.studio .inline-gift strong{max-width:100%;font-size:12px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+body.studio .inline-gift small{font-size:11px;color:var(--muted)}
+body.studio .inline-gift em{position:absolute;top:6px;right:6px;padding:2px 6px;border-radius:999px;background:#0c0e1f99;color:var(--accent);font-size:10px;font-style:normal;font-weight:700}
+
+/* empty pick cards: dashed + circle with hint, like the reference */
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected) .pick-art{display:grid!important;place-items:center;width:56px!important;height:56px!important;border-radius:50%!important;border:1px dashed #2a2f48!important;background:#171a2c!important;color:#9aa4c8;font-size:24px}
+body.studio #upgradePage #upgradeMine:not(.selected):after{content:'Выберите подарок из своего инвентаря'}
+body.studio #upgradePage #upgradeTarget:not(.selected):after{content:'Выберите подарок из инвентаря сервиса'}
+body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected):after{max-width:220px;color:var(--muted);font-size:12px;font-weight:500;line-height:1.5;text-align:center}
+
+@media(min-width:1000px){
+ body.studio #upgradePage:not(.hidden){display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:24px;row-gap:0;max-width:1232px;margin:0 auto;align-items:stretch}
+ body.studio #upgradePage:before{content:'';grid-column:2;grid-row:2/7;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface)}
+ body.studio #upgradePage .upgrade-title{grid-column:1/-1;margin-bottom:24px}
+ body.studio #upgradePage .upgrade-picks{display:contents!important}
+ body.studio #upgradePage #upgradeMine.upgrade-pick{grid-column:1!important;grid-row:2/7!important}
+ body.studio #upgradePage #upgradeTarget.upgrade-pick{grid-column:3!important;grid-row:2/7!important}
+ body.studio #upgradePage .upgrade-pick{min-height:408px!important;height:auto!important;border-radius:var(--r-lg)!important;padding:20px!important}
+ body.studio #upgradePage .upgrade-picks .upgrade-pick:not(.selected){min-height:408px!important}
+ body.studio #upgradePage #upgradeMine.gift-source,body.studio #upgradePage #upgradeTarget.gift-target{grid-template-rows:140px auto auto!important;align-content:center!important;gap:12px!important}
+ body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art,body.studio #upgradePage :is(#upgradeMine.gift-source,#upgradeTarget.gift-target) .pick-art img{width:140px!important;height:140px!important;max-width:140px!important;max-height:140px!important}
+ body.studio #upgradePage .upgrade-wheel-wrap{grid-column:2;grid-row:2;margin:28px auto 8px!important;z-index:1}
+ body.studio #upgradePage .upgrade-chance{grid-column:2;grid-row:3;justify-self:center;z-index:1;margin:0 24px 8px}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance{grid-row:2;align-self:center;margin:0;pointer-events:none}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready) .upgrade-center{opacity:0}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-legend{display:none!important}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value{flex-direction:column-reverse!important;align-items:center!important;gap:4px!important;background:none!important;border:0!important;box-shadow:none!important}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value>b{font-size:56px!important;font-weight:800!important;color:#fff!important}
+ body.studio #upgradePage .upgrade-wheel-wrap:not(.ready)~.upgrade-chance .upgrade-chance-value>span{font-size:12px!important;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)!important}
+ body.studio #upgradePage .upgrade-promo-note{grid-column:2;grid-row:4;z-index:1;margin:0 24px 8px}
+ body.studio #upgradePage .upgrade-action-row{grid-column:2;grid-row:5;z-index:1;margin:8px 24px 24px;align-self:end}
+ body.studio #upgradePage .upgrade-status{grid-column:2;grid-row:6;z-index:1;margin:0 24px 16px;text-align:center}
+ body.studio #upgradePage .upgrade-status:empty{display:none}
+ body.studio #upgradePage .upgrade-inline{grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:24px}
+ body.studio #upgradePage .upgrade-wins-card{grid-column:1/-1;margin-top:24px}
+}
+
+/* Mines: single narrow column like the reference */
+@media(min-width:701px){
+ body.studio #minesPage .mines-layout{display:block;max-width:490px;margin:0 auto}
+ body.studio #minesPage .mines-settings{margin-top:22px}
+ body.studio #minesPage .recent-wins-card{max-width:490px;margin-inline:auto}
+}
+body.studio #minesPage .ladder{padding:8px;border:1px solid var(--line);border-radius:var(--r-md);background:#101224;margin-bottom:16px}
+body.studio #minesPage .control-labels{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+body.studio #minesPage .field{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md)}
+body.studio #minesPage .stepper button{background:#1b1e30;border-radius:10px;color:#8891b4}
 </style></head><body class="studio">
 <div id="loader" class="loader"><div class="loader-inner"><img id="loaderImage" src="/static/gifs/shard.gif" alt=""><div class="progress"><i id="loaderBar"></i></div><div id="loaderText" class="loader-text">Загрузка…</div></div></div>
-<header class="studio-header"><a class="studio-brand" href="/" aria-label="GemDrop — главная"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 4h14l7 10-14 15L2 14Z"/><path d="M2 14h28M9 4l7 25L23 4M9 4l7 10 7-10"/></svg>GemDrop</a><div id="headerControls" class="header-controls hidden"><div class="top-actions"><div class="balance"><img id="balanceIcon" src="/static/img/ton.png" alt="TON"><span id="balance">0.00</span></div><button id="depositMini" class="deposit-mini" type="button" aria-label="Пополнить баланс" title="Пополнить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div><div id="headerRewards" class="rewards-header-actions hidden"><div class="giveaway-ticket-balance" title="Ваши билеты"><svg viewBox="0 0 24 24"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg><div><b id="giveawayTicketBalance">0</b></div></div>
+<header class="studio-header"><a class="studio-brand" href="/" aria-label="GemDrop — главная"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="12" width="24" height="6" rx="1.5"/><path d="M6 18v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-9M16 12v17"/><path d="M16 12c-1-5-7.5-6.5-7.5-2.7 0 2 3 2.7 7.5 2.7Zm0 0c1-5 7.5-6.5 7.5-2.7 0 2-3 2.7-7.5 2.7Z"/></svg><span class="brand-name">GemDrop</span></a><div id="headerControls" class="header-controls hidden"><div class="top-actions"><div class="balance"><img id="balanceIcon" src="/static/img/ton.png" alt="TON"><span id="balance">0.00</span></div><button id="depositMini" class="deposit-mini" type="button" aria-label="Пополнить баланс" title="Пополнить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div><div id="headerRewards" class="rewards-header-actions hidden"><div class="giveaway-ticket-balance" title="Ваши билеты"><svg viewBox="0 0 24 24"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg><div><b id="giveawayTicketBalance">0</b></div></div>
     <button id="rewardsHelp" type="button" aria-label="Как работают билеты"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button></div></div><button id="openNotifications" class="notification-button hidden" type="button" aria-label="Уведомления"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v5l2 3H4l2-3V9ZM10 20h4"/></svg><span id="notificationBadge" class="hidden"></span></button></header><main class="app">
 <section id="auth" class="auth hidden"><div class="auth-art" aria-hidden="true"><svg viewBox="0 0 200 200"><defs><linearGradient id="gemLight" x2="1" y2="1"><stop stop-color="#a4e6ff"/><stop offset=".5" stop-color="#678eff"/><stop offset="1" stop-color="#b5a0ff"/></linearGradient></defs><path fill="url(#gemLight)" d="M60 28h80l42 57-82 92L18 85Z"/><path fill="#fff" fill-opacity=".23" d="m60 28 40 149L18 85Zm80 0-40 57H18L60 28Z"/><path fill="none" stroke="#fff" stroke-opacity=".4" d="M18 85h164M60 28l40 149 40-149M60 28l40 57 40-57"/></svg></div><span class="studio-eyebrow">ВАША КОЛЛЕКЦИЯ НАЧИНАЕТСЯ ЗДЕСЬ</span><h1>Больше, чем<br><span class="gradient-text">просто подарок.</span></h1><p class="auth-intro">Собирайте, улучшайте и открывайте новое.<br>Один аккаунт Telegram — все возможности GemDrop.</p><p id="authText">Подключаем Telegram…</p><div id="webAuthPanel" class="web-auth-panel hidden"><p>Чтобы войти в свой аккаунт, отправьте боту эту команду в личном чате:</p><div class="web-auth-command"><code id="webAuthCommand">/auf …</code><button id="copyWebCommand" type="button" aria-label="Скопировать команду">Копировать</button></div><a id="webBotLink" class="web-bot-link hidden" target="_blank" rel="noopener noreferrer">Открыть бота →</a><small id="webAuthStatus" role="status">Ожидаем подтверждение в боте…</small><button id="webAuthRenew" class="secondary" type="button">Получить новый код</button></div><button id="retry" class="primary hidden">Повторить</button></section>
 <div id="content" class="hidden">
-<section id="minesPage" class="mines-page"><div class="identity hidden"><div id="smallAvatar" class="avatar">G</div><strong id="nick">Игрок</strong></div><div id="mineBadge" class="mine-badge hidden">3 мины</div><div class="mines-layout"><div class="mines-play"><div id="ladder" class="ladder" aria-label="Уровни призов"></div><div id="board" class="board" aria-label="Игровое поле, 25 клеток"></div>
+<section id="minesPage" class="mines-page"><div class="identity hidden"><div id="smallAvatar" class="avatar">G</div><strong id="nick">Игрок</strong></div><div id="mineBadge" class="mine-badge hidden">3 мины</div><h1 class="page-title mines-title">Mines</h1><div class="mines-layout"><div class="mines-play"><div id="ladder" class="ladder" aria-label="Уровни призов"></div><div id="board" class="board" aria-label="Игровое поле, 25 клеток"></div>
 </div><aside class="mines-settings"><div id="setupControls"><div class="control-labels"><label for="bet">Ставка, TON</label><span>Мины</span></div><div class="controls mines-bet-controls"><div id="betField" class="field mines-bet-field"><img class="ton" src="/static/img/ton.png" alt="TON"><input id="bet" type="text" value="0.10" inputmode="decimal" autocomplete="off" enterkeyhint="done" aria-label="Сумма ставки"></div><div class="gift-bet-slot"><button id="giftBetToggle" class="gift-bet-toggle" type="button" aria-label="Ставка подарком" title="Ставка подарком"><svg viewBox="0 0 24 24"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15M7.5 5C5.8 5 5 4.1 5 3.1c0-1.1.9-2 2-2 2.1 0 5 3.9 5 3.9M16.5 5c1.7 0 2.5-.9 2.5-1.9 0-1.1-.9-2-2-2-2.1 0-5 3.9-5 3.9"/></svg></button></div><div class="field stepper mines-stepper" aria-label="Количество мин"><button id="minusMine" type="button" aria-label="Уменьшить количество мин">−</button><strong id="mineCount">3</strong><button id="plusMine" type="button" aria-label="Увеличить количество мин">+</button></div></div>
 <div id="quickBets" class="quick"><button data-bet="min">MIN</button><button data-bet="half">/2</button><button data-bet="double">×2</button><button data-bet="max">MAX</button></div><button id="start" class="primary">Сделать ставку</button></div>
 <div id="activeActions" class="game-action-row hidden"><button id="cashout" class="primary">Забрать</button><button id="randomCell" class="random-btn" aria-label="Открыть случайную клетку" title="Открыть случайную клетку"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.7 9.2a2.55 2.55 0 0 1 4.83 1.15c0 1.72-1.6 2.18-2.28 3.12-.25.35-.3.68-.3 1.15M12 17.6h.01"/></svg></button></div>
 </aside></div><section class="recent-wins-card"><h2>Последние победы</h2><div id="minesTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="recentWins" class="recent-wins"><div class="recent-win-empty">Загружаем победы…</div></div></section></section>
 <section id="rollPage" class="hidden"><header class="roll-top"><div id="rollAvatar" class="roll-avatar">G</div><div class="top-actions"><div class="balance"><img src="/static/img/ton.png" alt="TON"><span id="rollBalance">0.00</span></div><button id="rollDeposit" class="deposit-mini" type="button" aria-label="Пополнить баланс" title="Пополнить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div></header><h1 id="rollTitle" class="roll-title">Загружаем…</h1><div id="rollPrice" class="roll-subtitle">Выберите ролл</div><button id="rollPoolOpen" class="roll-pool-link" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15M7.5 5C5.8 5 5 4.1 5 3.1c0-1.1.9-2 2-2 2.1 0 5 3.9 5 3.9M16.5 5c1.7 0 2.5-.9 2.5-1.9 0-1.1-.9-2-2-2-2.1 0-5 3.9-5 3.9"/></svg><b>Призовой пул</b><small id="rollPoolCount">0 подарков</small></button><div class="roll-stage"><div id="rollWheel" class="roll-wheel"></div><div class="roll-pointer"></div><div id="rollHub" class="roll-hub">Roll</div></div><div class="roll-picker"><div class="roll-picker-head"><span>ВЫБРАТЬ ROLL</span><strong id="rollPickerName">—</strong></div><input id="rollSelector" class="roll-range" type="range" min="0" max="0" value="0" aria-label="Выбрать Roll"><div id="rollTicks" class="roll-ticks"></div></div><div class="roll-actions"><button id="rollSpin" class="roll-action-main" type="button">Загрузка…</button></div><p id="rollStatus" class="roll-status"></p></section>
-<section id="upgradePage" class="hidden"><div class="upgrade-picks"><button id="upgradeMine" class="upgrade-pick" type="button" aria-label="Выбрать ставку"><small>МОЯ СТАВКА</small><div class="pick-art" id="upgradeMineArt"><span>＋</span></div><b id="upgradeMineName"></b><span class="pick-price" id="upgradeMinePrice"></span></button><button id="upgradeTarget" class="upgrade-pick target" type="button" aria-label="Выбрать целевой подарок"><small>ЦЕЛЬ</small><div class="pick-art" id="upgradeTargetArt"><span>✦</span></div><b id="upgradeTargetName"></b><span class="pick-price" id="upgradeTargetPrice"></span></button></div><div class="upgrade-wheel-wrap"><div id="upgradeWheel" class="upgrade-wheel"></div><div id="upgradePointer" class="upgrade-pointer"><i></i></div><div class="upgrade-center" id="upgradeCenter"><span>✦</span></div></div><div class="upgrade-chance"><span class="upgrade-chance-value"><span>Шанс</span><b id="upgradeChance">—</b></span><span class="upgrade-chance-legend"><em><i class="win"></i>Выигрыш</em><em><i class="lose"></i>Проигрыш</em></span></div><p id="upgradePromoNote" class="upgrade-promo-note hidden">При выигрыше цена цели идёт в отыгрыш исходного подарка. При проигрыше подарок сгорает.</p><button id="upgradeAction" class="primary upgrade-action" type="button" disabled>Крутить</button><p id="upgradeStatus" class="upgrade-status"></p><section class="recent-wins-card upgrade-wins-card" aria-label="Последние победы в апгрейдах"><h2>Последние победы</h2><div id="upgradeTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="upgradeRecentWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section></section><section id="giveawayPage" class="hidden">
+<section id="upgradePage" class="hidden"><h1 class="page-title upgrade-title">Апгрейд</h1><div class="upgrade-picks"><button id="upgradeMine" class="upgrade-pick" type="button" aria-label="Выбрать ставку"><small>МОЯ СТАВКА</small><div class="pick-art" id="upgradeMineArt"><span>＋</span></div><b id="upgradeMineName"></b><span class="pick-price" id="upgradeMinePrice"></span></button><button id="upgradeTarget" class="upgrade-pick target" type="button" aria-label="Выбрать целевой подарок"><small>ЦЕЛЬ</small><div class="pick-art" id="upgradeTargetArt"><span>✦</span></div><b id="upgradeTargetName"></b><span class="pick-price" id="upgradeTargetPrice"></span></button></div><div class="upgrade-wheel-wrap"><div id="upgradeWheel" class="upgrade-wheel"></div><div id="upgradePointer" class="upgrade-pointer"><i></i></div><div class="upgrade-center" id="upgradeCenter"><span>✦</span></div></div><div class="upgrade-chance"><span class="upgrade-chance-value"><span>Шанс</span><b id="upgradeChance">—</b></span><span class="upgrade-chance-legend"><em><i class="win"></i>Выигрыш</em><em><i class="lose"></i>Проигрыш</em></span></div><p id="upgradePromoNote" class="upgrade-promo-note hidden">При выигрыше цена цели идёт в отыгрыш исходного подарка. При проигрыше подарок сгорает.</p><div class="upgrade-action-row"><button id="upgradeAction" class="primary upgrade-action" type="button" disabled>Крутить</button><button id="upgradeQuick" class="upgrade-quick" type="button" aria-label="Выбрать ставку" title="Выбрать ставку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6Z"/></svg></button></div><p id="upgradeStatus" class="upgrade-status"></p><div class="upgrade-inline" id="upgradeInline"><section class="inline-panel"><div class="inline-head"><h2>Ваш инвентарь</h2><span class="inline-count" id="inlineMineCount">0</span></div><div class="inline-list" id="inlineMineList"></div></section><section class="inline-panel"><div class="inline-head"><h2>Желаемый подарок</h2><span class="inline-count" id="inlineTargetCount">0</span></div><div class="inline-list" id="inlineTargetList"></div></section></div><section class="recent-wins-card upgrade-wins-card" aria-label="Последние победы в апгрейдах"><h2>Последние победы</h2><div id="upgradeTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="upgradeRecentWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section></section><section id="giveawayPage" class="hidden">
 
     <div class="rewards-main-tabs" role="tablist"><button id="rewardsTasksTab" class="active" type="button" role="tab">Бонусы</button><button id="rewardsGiveawaysTab" type="button" role="tab">Розыгрыши <span id="rewardsGiveawaysCount">0</span></button></div>
     <div id="rewardsTasksView"><span id="rewardsTicketCount" class="hidden" aria-hidden="true">0</span><div id="rewardsTaskGroups" class="rewards-task-groups"><div class="giveaway-empty">Загружаем задания…</div></div></div>
@@ -3978,5 +4049,41 @@ const dialogObserver=new MutationObserver(records=>{
 });
 document.querySelectorAll('.modal').forEach(el=>dialogObserver.observe(el,{attributes:true,attributeFilter:['class']}));
 document.addEventListener('keydown',event=>{const dialog=visibleDialogs().at(-1);if(!dialog)return;const controls=[...dialog.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]')].filter(el=>el.getClientRects().length);if(event.key==='Escape'){const close=dialog.querySelector('button[id^="close"],button[id$="Close"]');if(close&&!close.disabled){event.preventDefault();close.click()}}if(event.key==='Tab'&&controls.length){const first=controls[0],last=controls.at(-1);if(event.shiftKey&&(document.activeElement===first||!dialog.contains(document.activeElement))){event.preventDefault();last.focus()}else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){event.preventDefault();first.focus()}}});
+
+/* --- inline inventory panels for the upgrade page (reuses existing selection logic) --- */
+(function(){
+ const _paint=paintUpgrade;
+ function card(item,mine){
+  const b=document.createElement('button');b.type='button';b.className='inline-gift';
+  const art=document.createElement('span');art.className='inline-art';
+  const im=new Image;im.src=item.image_url||TON;im.alt='';im.loading='lazy';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};art.append(im);
+  const n=document.createElement('strong');n.textContent=giftDisplayName(item);
+  const pr=document.createElement('small');pr.textContent=money(item.price_ton)+' TON';
+  b.append(art,n,pr);
+  if(!mine){const c=document.createElement('em');c.textContent=formatUpgradeChance(upgradeTargetChance(upgradeSource,item));b.append(c)}
+  const sel=mine?(upgradeSource&&upgradeSource.type!=='ton'&&upgradeSource.id===item.id):(upgradeGoal&&String(upgradeGoal.id)===String(item.id));
+  if(sel)b.classList.add('selected');
+  b.onclick=async()=>{
+   if(upgradeBusy)return;
+   if(mine){upgradeSource=item;upgradeGoal=null;upgradePreviewData=null;upgradePendingId=null;paintUpgrade()}
+   else{try{const pv=await api(upgradePreviewUrl(item.id));upgradeGoal=item;upgradePreviewData=pv;upgradePendingId=null;$('upgradeStatus').textContent='';paintUpgrade()}catch(e){toast(e.message)}}
+  };
+  return b;
+ }
+ function fill(id,cid,items,mine,empty){
+  const box=$(id);if(!box)return;box.replaceChildren();$(cid).textContent=items.length;
+  if(!items.length){const e=document.createElement('div');e.className='inline-empty';e.textContent=empty;box.append(e);return}
+  items.forEach(it=>box.append(card(it,mine)));
+ }
+ function renderInline(){
+  const mineItems=upgradeInventory||[];
+  const targets=upgradeSource?(upgradeCatalog||[]).filter(i=>{const c=upgradeTargetChance(upgradeSource,i);return Number(i.price_ton)>Number(upgradeSource.price_ton)&&Number(i.price_ton)<=Number(upgradeSource.price_ton)*10&&c>=1&&c<=80}):[];
+  fill('inlineMineList','inlineMineCount',mineItems,true,'У вас пока нет подарков. Пополните баланс или выиграйте в кейсах.');
+  fill('inlineTargetList','inlineTargetCount',targets,false,upgradeSource?'Для этой ставки нет подходящих подарков':'Сначала выберите свою ставку');
+ }
+ paintUpgrade=function(){_paint.apply(this,arguments);try{if(!upgradePreviewData)$('upgradeChance').textContent='0%';renderInline()}catch(e){}};
+ const q=$('upgradeQuick');if(q)q.onclick=()=>{if(!upgradeBusy)$('upgradeMine').click()};
+ try{renderInline()}catch(e){}
+})();
 $('retry').onclick=boot;boot();
 </script></body></html>

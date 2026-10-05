@@ -7628,7 +7628,7 @@ def effective_games():
 
 # ================================== Arena ==================================
 ARENA_BETTING_MS = 20000      # first bet starts a 20s round; a lone bet is refunded after it closes
-ARENA_RESULT_MS = 9000        # enough time for the eased winner animation and a short result hold
+ARENA_RESULT_MS = 11000       # keep the settled round visible through the full eased winner animation
 ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
 
 

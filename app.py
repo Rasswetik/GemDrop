@@ -997,6 +997,7 @@ def creator_record(user_id):
         demo_crash=dict(raw.get('demo_crash') or {}) if isinstance(raw.get('demo_crash'), dict) else {},
         demo_arena=dict(raw.get('demo_arena') or {}) if isinstance(raw.get('demo_arena'), dict) else {},
         youtube=dict(youtube),
+        creator_limit_reset_at=raw.get('creator_limit_reset_at'),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
     )
@@ -10326,13 +10327,22 @@ def admin_creator_level(user_id):
     if not previous.get('active'):
         return error('Пользователь не является активным автором.', 404)
     old = creator_level_key(previous.get('creator_level'))
-    record = save_creator_record(user_id, {'creator_level': raw_level})
+    order = {'base': 0, 'creator': 1, 'super_creator': 2}
+    promoted = order.get(raw_level, 0) > order.get(old, 0)
+    changes = {'creator_level': raw_level}
+    if promoted:
+        # A promotion immediately grants a fresh quota for the new tier.
+        changes['creator_limit_reset_at'] = datetime.now(timezone.utc).isoformat()
+    record = save_creator_record(user_id, changes)
     if old != raw_level:
+        cfg = CREATOR_LEVELS[raw_level]
+        refill = (f'\n\n✅ <b>Лимит восстановлен.</b> Шкала: 0 / {cfg["daily_budget_cents"]/100:.2f} TON.'
+                  if promoted else '')
         notify_user_async(
             user_id,
             f'✨ <b>Уровень автора изменён</b>\n\n'
             f'{escape(CREATOR_LEVELS[old]["name"])} → <b>{escape(CREATOR_LEVELS[raw_level]["name"])}</b>\n'
-            f'{escape(CREATOR_LEVELS[raw_level]["description"])}',
+            f'{escape(CREATOR_LEVELS[raw_level]["description"])}{refill}',
             miniapp_markup('Открыть панель автора', 'creator'),
             'HTML')
     return jsonify(ok=True, creator_level=record['creator_level'],
@@ -10364,12 +10374,26 @@ def creator_required(fn):
 
 
 
-def creator_bonus_usage(db, user_id):
-    day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+def creator_limit_window(record=None, now_utc=None):
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    local_now = now_utc.astimezone(DAILY_TOP_TZ)
+    start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(timezone.utc)
+    end_utc = end_local.astimezone(timezone.utc)
+    reset_at = parse_datetime_utc((record or {}).get('creator_limit_reset_at'))
+    if reset_at and start_utc < reset_at < end_utc:
+        start_utc = reset_at
+    return start_utc, end_utc, local_now.strftime('%Y-%m-%d')
+
+
+def creator_bonus_usage(db, user_id, record=None):
+    record = record or creator_record(user_id)
+    start_utc, end_utc, day = creator_limit_window(record)
     rows = db.execute("""SELECT reward_type,amount,max_uses,source_label,created_at
                          FROM promo_codes
-                         WHERE author_user_id=? AND SUBSTR(created_at,1,10)=?""",
-                      (int(user_id), day)).fetchall()
+                         WHERE author_user_id=? AND created_at>=? AND created_at<?""",
+                      (int(user_id), _daily_top_db_string(start_utc), _daily_top_db_string(end_utc))).fetchall()
     budget = 0
     wager_count = 0
     for row in rows:
@@ -10377,7 +10401,8 @@ def creator_bonus_usage(db, user_id):
             budget += max(0, int(row['amount'] or 0)) * max(1, int(row['max_uses'] or 1))
         elif row['reward_type'] == 'wager_gift':
             wager_count += 1
-    return dict(day=day, budget_used=budget/100, code_count=len(rows), wager_count=wager_count)
+    return dict(day=day, budget_used=budget/100, code_count=len(rows), wager_count=wager_count,
+                reset_at=start_utc.isoformat())
 
 
 def creator_bonus_builder_state(user_id):
@@ -10385,7 +10410,7 @@ def creator_bonus_builder_state(user_id):
     level = creator_level_key(record.get('creator_level'))
     cfg = CREATOR_LEVELS[level]
     with connect() as db:
-        usage = creator_bonus_usage(db, user_id)
+        usage = creator_bonus_usage(db, user_id, record)
     gifts = []
     if cfg['wager_daily_limit']:
         for gift in read_catalog().get('gifts', []):
@@ -13111,6 +13136,73 @@ def daily_top_settlement_loop():
 
 
 
+
+def creator_limit_refill_text(level):
+    cfg = CREATOR_LEVELS[creator_level_key(level)]
+    parts = [
+        '♻️ <b>Дневной лимит автора восстановлен</b>',
+        '',
+        f'Уровень: <b>{escape(cfg["name"])}</b>',
+        f'Шкала: <b>0 / {cfg["daily_budget_cents"]/100:.2f} TON</b>',
+    ]
+    if int(cfg.get('wager_daily_limit') or 0):
+        parts.append(
+            f'Отыгрышные подарки: <b>0 / {int(cfg["wager_daily_limit"])}</b> · '
+            f'{cfg["wager_gift_min_cents"]/100:.0f}–{cfg["wager_gift_max_cents"]/100:.0f} TON · '
+            f'X от {int(cfg["wager_min_x"])}'
+        )
+    parts.extend(['', 'Новый дневной лимит уже доступен в панели автора.'])
+    return '\n'.join(parts)
+
+
+def creator_daily_limit_refill_loop():
+    # Creator quotas follow the same UTC+3 midnight used by TOP-day windows.
+    # State is persistent so restarts around midnight do not create duplicate messages.
+    time.sleep(7)
+    while True:
+        try:
+            local_now = datetime.now(timezone.utc).astimezone(DAILY_TOP_TZ)
+            today = local_now.strftime('%Y-%m-%d')
+            state = read_document('creator_limit_refill_state') or {}
+            if not isinstance(state, dict):
+                state = {}
+            stored_day = str(state.get('day') or '')
+            if not stored_day:
+                # First deployment should not send a surprise midday broadcast.
+                save_document('creator_limit_refill_state', {'day': today, 'sent': []})
+            elif stored_day != today:
+                state = {'day': today, 'sent': []}
+                save_document('creator_limit_refill_state', state)
+                with connect() as db:
+                    rows = db.execute(
+                        "SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%' ORDER BY name"
+                    ).fetchall()
+                active = []
+                for row in rows:
+                    try:
+                        uid = int(str(row['name']).split(':', 1)[1])
+                        payload = json.loads(row['payload'] or '{}')
+                    except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+                        continue
+                    if isinstance(payload, dict) and payload.get('active'):
+                        active.append((uid, creator_level_key(payload.get('creator_level'))))
+                sent = set()
+                for uid, level in active:
+                    notify_user_async(
+                        uid,
+                        creator_limit_refill_text(level),
+                        miniapp_markup('Открыть панель автора', 'creator'),
+                        'HTML')
+                    sent.add(uid)
+                    save_document('creator_limit_refill_state', {
+                        'day': today, 'sent': sorted(sent),
+                        'updated_at': datetime.now(timezone.utc).isoformat(),
+                    })
+        except Exception:
+            app.logger.exception('Creator daily limit refill loop failed')
+        time.sleep(20)
+
+
 def singleton_background(target, lock_id):
     if not DATABASE_URL:
         target()
@@ -13186,6 +13278,7 @@ if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
 start_background(portal_auto_loop, 660101)
 start_background(daily_top_settlement_loop, 661201)
 if BOT_TOKEN:
+    start_background(creator_daily_limit_refill_loop, 661202)
     start_background(activity_notification_loop, 660102)
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
     start_background(configure_bot, 660103)

@@ -696,6 +696,26 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('<tg-emoji emoji-id="12345678901">🔥</tg-emoji>',html)
         self.assertNotIn('🎁 <b>QA gift</b>',html)
 
+    def test_creator_program_add_and_remove_send_user_notifications(self):
+        with patch.object(m,'ADMIN_IDS',{self.uid}), patch.object(m,'notify_user_async') as send:
+            self.post(f'/api/admin/creators/{self.uid}',{})
+            self.assertEqual(send.call_count,1)
+            add_args=send.call_args.args
+            self.assertEqual(add_args[0],self.uid)
+            self.assertIn('Вы подключены к программе авторов GemDrop',add_args[1])
+            self.assertEqual(add_args[2]['inline_keyboard'][0][0]['text'],'Открыть программу')
+            self.assertIn('?open=creator',add_args[2]['inline_keyboard'][0][0]['web_app']['url'])
+            self.client.delete(f'/api/admin/creators/{self.uid}')
+            self.assertEqual(send.call_count,2)
+            remove_args=send.call_args.args
+            self.assertIn('К сожалению, вы были отключены от программы авторов GemDrop.',remove_args[1])
+            self.assertIsNone(remove_args[2])
+
+    def test_stars_payment_notification_uses_real_newlines(self):
+        source=Path(m.__file__).read_text(encoding='utf-8')
+        self.assertIn("f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\\n\\n'",source)
+        self.assertNotIn("подтверждена.</b>\\\\n\\\\n",source)
+
     def test_creator_panel_can_hide_and_reveal_with_secret_code(self):
         with patch.object(m,'ADMIN_IDS',{self.uid}):
             self.post(f'/api/admin/creators/{self.uid}',{})

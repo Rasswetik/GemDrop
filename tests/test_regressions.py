@@ -31,7 +31,7 @@ class RegressionTests(unittest.TestCase):
         with m.connect() as db:
             db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)',
                        (self.uid, 'Test', f'qa{self.uid}', 10000))
-            db.execute("DELETE FROM app_documents WHERE name IN ('section_settings','portal_catalog')")
+            db.execute("DELETE FROM app_documents WHERE name IN ('section_settings','portal_catalog','game_modes')")
         with self.client.session_transaction() as session:
             session['uid'] = self.uid
         m.save_document('gift_display_settings', {'black_backgrounds_enabled': True})

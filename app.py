@@ -29,6 +29,8 @@ DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'gemdrop.sqlite3'
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 CATALOG = DATA / 'portal_gifts.json'
+CREATOR_CHAT_DIR = DATA / 'creator_chat'
+CREATOR_CHAT_DIR.mkdir(parents=True, exist_ok=True)
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
@@ -48,7 +50,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '81-creator-youtube-freebets'
+BUILD_ID = '82-creator-chat-promos'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -577,6 +579,7 @@ def _initialize_schema():
             ('description', "TEXT NOT NULL DEFAULT ''"),
             ('expires_at', 'TEXT'), ('gift_expires_days', 'INTEGER NOT NULL DEFAULT 0'),
             ('activation_min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
+            ('author_user_id', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
@@ -633,7 +636,7 @@ def _initialize_schema():
                                           'bet_inventory_id', 'bet_gift_price', 'promo_wager_target',
                                           'promo_wager_progress', 'promo_progress_after'])
         ensure_postgres_bigint('inventory', ['floor_price', 'round_id', 'promo_wager_target', 'promo_wager_progress'])
-        ensure_postgres_bigint('promo_codes', ['created_by', 'bonus_fixed', 'min_deposit', 'activation_min_deposit', 'assigned_user_id'])
+        ensure_postgres_bigint('promo_codes', ['created_by', 'bonus_fixed', 'min_deposit', 'activation_min_deposit', 'assigned_user_id', 'author_user_id'])
         ensure_postgres_bigint('freebets', ['min_turnover', 'min_deposit', 'created_by', 'author_user_id'])
         ensure_postgres_bigint('freebet_redemptions', ['user_id'])
         ensure_postgres_bigint('withdrawals', ['floor_price', 'round_id', 'admin_id'])
@@ -654,7 +657,15 @@ def _initialize_schema():
             state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
             next_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS creator_chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id BIGINT NOT NULL,
+            text TEXT NOT NULL DEFAULT '',
+            image_name TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE INDEX IF NOT EXISTS outbox_due ON notification_outbox(state,next_at,id);
+        CREATE INDEX IF NOT EXISTS creator_chat_messages_id ON creator_chat_messages(id DESC);
         CREATE INDEX IF NOT EXISTS rounds_active_user ON rounds(user_id,id DESC) WHERE state='active';
         CREATE INDEX IF NOT EXISTS rounds_user_history ON rounds(user_id,id DESC);
         CREATE INDEX IF NOT EXISTS rounds_recent_wins ON rounds(settled_at DESC,id DESC) WHERE state='won';
@@ -8865,7 +8876,7 @@ def admin_promocodes():
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
                                active=bool(x['active']), created_at=x['created_at'],
-                               assigned_user_id=int(x['assigned_user_id'] or 0),source=x['source_label'] or '',
+                               assigned_user_id=int(x['assigned_user_id'] or 0),author_user_id=int(x['author_user_id'] or 0),source=x['source_label'] or '',
                                description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),gift_expires_days=int(x['gift_expires_days'] or 0),
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
                                min_deposit=x['min_deposit']/100,activation_min_deposit=int(x['activation_min_deposit'] or 0)/100,purpose=promo_purpose(x),
@@ -8893,10 +8904,14 @@ def admin_create_promocode():
     try:
         activation_min_deposit=parse_amount(data.get('activation_min_deposit') or 0)
         assigned_user_id=int(data.get('assigned_user_id') or 0)
+        author_user_id=int(data.get('author_user_id') or 0)
         expires_days=int(data.get('expires_in_days') or 0)
     except (TypeError,ValueError,InvalidOperation):
         return error('Проверьте ID пользователя, срок действия и минимальный депозит.')
     if assigned_user_id < 0:return error('ID пользователя указан неверно.')
+    if author_user_id < 0:return error('ID автора указан неверно.')
+    if author_user_id and not creator_record(author_user_id).get('active'):
+        return error('Выбранный пользователь не является активным автором.',409)
     if not 0 <= activation_min_deposit <= 100000000:return error('Минимальный депозит для активации: от 0 до 1 000 000 TON.')
     if not 0 <= expires_days <= 3650:return error('Срок действия: от 0 до 3650 дней. 0 — без срока.')
     source_label=str(data.get('source_label') or 'Администрация').strip()[:80]
@@ -8971,12 +8986,12 @@ def admin_create_promocode():
                 return error('Пользователь с таким ID не найден.',404)
             if assigned_user_id:
                 max_uses=1
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
                         json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
-                        assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit))
+                        assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:
@@ -9268,6 +9283,101 @@ def creator_freebets():
             min_deposit=int(x['min_deposit'] or 0)/100,
             created_at=x['created_at'], expires_at=x['expires_at']))
     return jsonify(items=items)
+
+
+
+@app.get('/api/creator/promocodes')
+@login_required
+@creator_required
+def creator_promocodes():
+    with connect() as db:
+        rows = db.execute("""SELECT * FROM promo_codes
+                             WHERE author_user_id=? AND source_label<>'Freebet'
+                             ORDER BY created_at DESC""", (session['uid'],)).fetchall()
+    return jsonify(items=[dict(
+        code=x['code'], reward_type=x['reward_type'], purpose=promo_purpose(x),
+        max_uses=int(x['max_uses'] or 0), uses_count=int(x['uses_count'] or 0),
+        remaining=(None if int(x['max_uses'] or 0)==0 else max(0,int(x['max_uses'] or 0)-int(x['uses_count'] or 0))),
+        active=bool(x['active']) and not promo_is_expired(x),
+        expired=promo_is_expired(x), expires_at=x['expires_at'], created_at=x['created_at'],
+        source=x['source_label'] or '', description=x['description'] or ''
+    ) for x in rows])
+
+
+def creator_chat_item(row, viewer_id):
+    image_name = str(row['image_name'] or '')
+    return dict(
+        id=int(row['id']), user_id=int(row['user_id']), name=row['name'] or 'Автор',
+        username=row['username'] or '', photo_url=row['photo_url'] or '',
+        text=row['text'] or '',
+        image_url=('/api/creator/chat/media/' + image_name) if image_name else '',
+        created_at=row['created_at'], mine=int(row['user_id']) == int(viewer_id))
+
+
+@app.get('/api/creator/chat/messages')
+@login_required
+@creator_required
+def creator_chat_messages():
+    try:
+        after = max(0, int(request.args.get('after') or 0))
+    except (TypeError, ValueError):
+        after = 0
+    with connect() as db:
+        if after:
+            rows = db.execute("""SELECT m.*,u.name,u.username,u.photo_url
+                                 FROM creator_chat_messages m JOIN users u ON u.id=m.user_id
+                                 WHERE m.id>? ORDER BY m.id ASC LIMIT 100""", (after,)).fetchall()
+        else:
+            rows = db.execute("""SELECT m.*,u.name,u.username,u.photo_url
+                                 FROM creator_chat_messages m JOIN users u ON u.id=m.user_id
+                                 ORDER BY m.id DESC LIMIT 100""").fetchall()
+            rows = list(reversed(rows))
+        count_row = db.execute("SELECT COUNT(*) AS n FROM app_documents WHERE name LIKE 'creator:%' AND payload LIKE '%\"active\": true%'").fetchone()
+    return jsonify(items=[creator_chat_item(x, session['uid']) for x in rows],
+                   author_count=int(count_row['n'] or 0) if count_row else 0)
+
+
+@app.post('/api/creator/chat/messages')
+@login_required
+@creator_required
+def creator_chat_send():
+    multipart = str(request.content_type or '').startswith('multipart/form-data') or bool(request.files)
+    data = request.form if multipart else (request.get_json(silent=True) or {})
+    text_value = str(data.get('text') or '').strip()
+    if len(text_value) > 4000:
+        return error('Сообщение слишком длинное. Максимум 4000 символов.')
+    photo = request.files.get('photo') if multipart else None
+    image_name = ''
+    if photo and getattr(photo, 'filename', ''):
+        mime = str(getattr(photo, 'mimetype', '') or '').lower()
+        ext = {'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','image/gif':'.gif'}.get(mime)
+        if not ext:
+            return error('Поддерживаются JPG, PNG, WEBP и GIF.')
+        image_name = secrets.token_hex(18) + ext
+        photo.save(CREATOR_CHAT_DIR / image_name)
+    if not text_value and not image_name:
+        return error('Напишите сообщение или прикрепите фото.')
+    with connect() as db:
+        db.execute('INSERT INTO creator_chat_messages(user_id,text,image_name) VALUES(?,?,?)',
+                   (session['uid'], text_value, image_name))
+        row = db.execute("""SELECT m.*,u.name,u.username,u.photo_url
+                            FROM creator_chat_messages m JOIN users u ON u.id=m.user_id
+                            WHERE m.id=(SELECT MAX(id) FROM creator_chat_messages WHERE user_id=?)""",
+                         (session['uid'],)).fetchone()
+    return jsonify(ok=True, item=creator_chat_item(row, session['uid']))
+
+
+@app.get('/api/creator/chat/media/<name>')
+@login_required
+@creator_required
+def creator_chat_media(name):
+    name = str(name or '')
+    if not re.fullmatch(r'[a-f0-9]{36}\.(?:jpg|png|webp|gif)', name):
+        return error('Файл не найден.', 404)
+    path = CREATOR_CHAT_DIR / name
+    if not path.is_file():
+        return error('Файл не найден.', 404)
+    return send_file(path, max_age=86400)
 
 
 @app.post('/api/creator/panel-visibility')

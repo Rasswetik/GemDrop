@@ -743,6 +743,28 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(data['items'][0]['max_uses'],5)
         self.assertEqual(data['items'][0]['uses_count'],0)
 
+    def test_creator_personal_promocode_and_chat(self):
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}',{})
+            promo=self.post('/api/admin/promocodes',{
+                'code':'AUTHOR_PROMO','reward_type':'balance','amount':'1.00',
+                'max_uses':10,'author_user_id':self.uid
+            })
+        self.assertEqual(promo['code'],'AUTHOR_PROMO')
+        promos=self.client.get('/api/creator/promocodes').get_json()['items']
+        self.assertEqual(len(promos),1)
+        self.assertEqual(promos[0]['code'],'AUTHOR_PROMO')
+        sent=self.post('/api/creator/chat/messages',{'text':'Привет, авторы'})
+        self.assertEqual(sent['item']['text'],'Привет, авторы')
+        self.assertTrue(sent['item']['mine'])
+        chat=self.client.get('/api/creator/chat/messages').get_json()['items']
+        self.assertEqual(chat[-1]['text'],'Привет, авторы')
+
+    def test_creator_chat_rejects_non_creator(self):
+        m.save_creator_record(self.uid,{'active':False})
+        response=self.client.get('/api/creator/chat/messages')
+        self.assertEqual(response.status_code,403)
+
     def test_youtube_channel_snapshot_filters_gemdrop_videos(self):
         def fake_api(path, params):
             if path=='channels':

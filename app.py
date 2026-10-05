@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '71-final-stability-audit'
+BUILD_ID = '72-daily-top-demo-balance'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -471,6 +471,7 @@ def _initialize_schema():
             ('username', "TEXT NOT NULL DEFAULT ''"),
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('demo_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
             ('turnover_cents', 'INTEGER NOT NULL DEFAULT 0'),
@@ -495,6 +496,7 @@ def _initialize_schema():
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'), ('bet_expires_at', 'TEXT'),
             ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
+            ('is_demo', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -585,12 +587,13 @@ def _initialize_schema():
             ('source_price', 'INTEGER NOT NULL DEFAULT 0'), ('target_name', "TEXT NOT NULL DEFAULT ''"),
             ('target_image', "TEXT NOT NULL DEFAULT ''"), ('target_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('chance_bp', 'INTEGER NOT NULL DEFAULT 0'), ('won', 'INTEGER NOT NULL DEFAULT 0'),
-            ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''")
+            ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''"),
+            ('is_demo', 'INTEGER NOT NULL DEFAULT 0')
         ])
         # Columns added by older releases used plain INTEGER on PostgreSQL.
         # Upgrade the late-added ID/money fields in place. Avoid touching FK-bound
         # primary keys here; base tables created by this app already use BIGINT.
-        ensure_postgres_bigint('users', ['turnover_cents', 'max_drop_override_price'])
+        ensure_postgres_bigint('users', ['turnover_cents', 'max_drop_override_price', 'demo_balance'])
         ensure_postgres_bigint('rounds', ['prize_inventory_id', 'win_total', 'win_gift_price',
                                           'bet_inventory_id', 'bet_gift_price', 'promo_wager_target',
                                           'promo_wager_progress', 'promo_progress_after'])
@@ -850,8 +853,12 @@ def admin_required(fn):
 
 def profile():
     user = current_user()
+    demo_balance = max(0, int(user['demo_balance'] or 0))
+    real_balance = max(0, int(user['balance'] or 0))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
-                balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
+                balance=(demo_balance if demo_balance > 0 else real_balance) / 100,
+                real_balance=real_balance / 100, demo_balance=demo_balance / 100, demo_mode=demo_balance > 0,
+                tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
                 withdrawal_enabled=bool(user['withdrawal_enabled']),
                 admin=user['id'] in ADMIN_IDS,
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
@@ -870,6 +877,12 @@ def admin_display():
 def level_number(db, turnover):
     row = db.execute('SELECT MAX(level) AS n FROM levels WHERE required_turnover<=?', (turnover,)).fetchone()
     return int(row['n'] or 1)
+
+
+def demo_balance_cents(db, user_id, lock=False):
+    suffix = ' FOR UPDATE' if lock and DATABASE_URL else ''
+    row = db.execute('SELECT demo_balance FROM users WHERE id=?' + suffix, (user_id,)).fetchone()
+    return max(0, int(row['demo_balance'] or 0)) if row else 0
 
 
 def increase_turnover(db, user_id, amount):
@@ -2504,7 +2517,9 @@ def admin_daily_top_rewards_set(mode):
             gift=catalog_giveaway_prize(data.get('gift_id'))
             reward.update(gift)
         elif reward_type=='fragment':
-            gift=fragment_gift_from_url(data.get('fragment_url'),True,allow_missing_price=True)
+            gift=fragment_gift_from_url(data.get('fragment_url'),True,refresh=True,allow_missing_price=True)
+            if int(gift.get('floor_price') or 0) <= 0:
+                raise ValueError('Не удалось определить цену Fragment-подарка. Обновите Portal Market и попробуйте ещё раз.')
             reward.update(gift)
     except (ValueError,TypeError,InvalidOperation) as exc:
         return error(str(exc) or 'Проверьте награду.')
@@ -2591,12 +2606,13 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
     if mode=='mines':
         winner=db.execute("""SELECT r.user_id FROM rounds r
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                               AND COALESCE(r.is_demo,0)=0
                                AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
                              ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
                              LIMIT 1""",(start_db,end_db)).fetchone()
     else:
         winner=db.execute("""SELECT user_id FROM upgrade_spins
-                             WHERE won=1 AND created_at>=? AND created_at<?
+                             WHERE won=1 AND COALESCE(is_demo,0)=0 AND created_at>=? AND created_at<?
                                AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
                              ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_db,end_db)).fetchone()
     if not winner:
@@ -2617,6 +2633,13 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
                                f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
         detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
     else:
+        if reward_type=='fragment' and int(reward.get('floor_price') or 0) <= 0 and reward.get('fragment_url'):
+            try:
+                refreshed=fragment_gift_from_url(reward.get('fragment_url'),True,refresh=True,allow_missing_price=True)
+                if int(refreshed.get('floor_price') or 0) > 0:
+                    reward={**reward,**refreshed}
+            except Exception:
+                app.logger.warning('Could not refresh daily top Fragment price', exc_info=True)
         source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
         cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                          external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)

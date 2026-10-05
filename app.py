@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '85-arena-real-only'
+BUILD_ID = '87-creator-deposit-restore'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -936,7 +936,8 @@ CREATOR_LEVELS = {
         key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0,
         activation_min_deposit_cents=50, wager_daily_limit=3, wager_min_x=20,
         wager_gift_min_cents=300, wager_gift_max_cents=1000, wager_max_uses=15,
-        description='До 5 TON в день и до 3 отыгрышных подарков стоимостью 3–10 TON.',
+        custom_deposit=True,
+        description='До 5 TON в день и до 3 отыгрышных подарков стоимостью 3–10 TON. Условие депозита задаёте сами: можно без депозита или с любым минимумом.',
     ),
 }
 
@@ -948,6 +949,7 @@ def creator_level_key(value):
 
 def creator_level_public(value):
     cfg = dict(CREATOR_LEVELS[creator_level_key(value)])
+    cfg['custom_deposit'] = bool(cfg.get('custom_deposit'))
     for key in ('daily_budget_cents', 'activation_min_deposit_cents',
                 'wager_gift_min_cents', 'wager_gift_max_cents'):
         cfg[key.replace('_cents', '_ton')] = cfg.pop(key) / 100
@@ -998,6 +1000,7 @@ def creator_record(user_id):
         demo_arena=dict(raw.get('demo_arena') or {}) if isinstance(raw.get('demo_arena'), dict) else {},
         youtube=dict(youtube),
         creator_limit_reset_at=raw.get('creator_limit_reset_at'),
+        creator_limit_credit=(dict(raw.get('creator_limit_credit')) if isinstance(raw.get('creator_limit_credit'), dict) else {}),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
     )
@@ -7828,10 +7831,22 @@ def demo_arena_bet(data):
     close_at = int(state.get('close_at') or 0)
     if state.get('state') != 'open' or (close_at > 0 and now >= close_at):
         raise ValueError('Приём ставок закрыт. Дождитесь следующей арены.')
-    if any(int(x.get('user_id') or 0) == uid for x in state.get('players') or []):
-        raise ValueError('Вы уже участвуете в этой арене.')
+    mine = next((x for x in state.get('players') or [] if int(x.get('user_id') or 0) == uid), None)
+    if mine and int(mine.get('amount') or 0) + amount > MAX_BET_CENTS:
+        raise ValueError('Общая ставка в арене не может превышать 300 TON.')
     if int(record.get('demo_balance_cents') or 0) < amount:
         raise ValueError('Недостаточно DEMO TON.')
+    if mine:
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) - amount
+        increase_demo_turnover(record, amount)
+        mine['amount'] = int(mine.get('amount') or 0) + amount
+        record['demo_arena'] = state
+        save_creator_record(uid, {
+            'demo_arena': state,
+            'demo_balance_cents': record['demo_balance_cents'],
+            'demo_turnover_cents': record['demo_turnover_cents'],
+        })
+        return demo_arena_state_payload(uid, now)
     with connect() as db:
         user = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (uid,)).fetchone()
     record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) - amount
@@ -7945,18 +7960,24 @@ def arena_bet():
         if row['state'] != 'open' or (close_at > 0 and now >= close_at):
             db.rollback()
             return error('Приём ставок закрыт. Дождитесь следующей арены.', 409)
-        if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?',
-                      (row['id'], uid)).fetchone():
+        existing = db.execute('SELECT amount FROM arena_bets WHERE round_id=? AND user_id=?',
+                              (row['id'], uid)).fetchone()
+        existing_amount = int(existing['amount'] or 0) if existing else 0
+        if existing_amount + amount > MAX_BET_CENTS:
             db.rollback()
-            return error('Вы уже участвуете в этой арене.', 409)
+            return error('Общая ставка в арене не может превышать 300 TON.', 409)
         if DATABASE_URL:
             db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
         if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                           (amount, uid, amount)).rowcount:
             db.rollback()
             return error('Недостаточно TON.', 409)
-        db.execute('INSERT INTO arena_bets(round_id,user_id,amount) VALUES(?,?,?)',
-                   (row['id'], uid, amount))
+        if existing:
+            db.execute('UPDATE arena_bets SET amount=amount+? WHERE round_id=? AND user_id=?',
+                       (amount, row['id'], uid))
+        else:
+            db.execute('INSERT INTO arena_bets(round_id,user_id,amount) VALUES(?,?,?)',
+                       (row['id'], uid, amount))
         if close_at <= 0:
             # The very first bet starts the round: only now the countdown begins.
             db.execute("UPDATE arena_rounds SET open_at=?,close_at=? WHERE id=? AND state='open'",
@@ -10289,6 +10310,7 @@ def admin_creators():
                 youtube_title=str((record.get('youtube') or {}).get('title') or ''),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
                 demo_gifts=len(record.get('demo_inventory') or []),
+                limit_usage=creator_bonus_usage(db, uid, creator_record(uid)),
             ))
     return jsonify(items=result)
 
@@ -10350,6 +10372,51 @@ def admin_creator_level(user_id):
                    creator_level_info=creator_level_public(record['creator_level']))
 
 
+@app.post('/api/admin/creators/<int:user_id>/restore-limit')
+@admin_required
+def admin_creator_restore_limit(user_id):
+    """Restore the creator's daily scale: fully (100%) or by a percentage of the daily limit."""
+    data = request.get_json(silent=True) or {}
+    try:
+        percent = float(str(data.get('percent', 100)).replace(',', '.'))
+    except (TypeError, ValueError):
+        return error('Укажите процент от 1 до 100.')
+    if not math.isfinite(percent) or not 0 < percent <= 100:
+        return error('Укажите процент от 1 до 100.')
+    record = creator_record(user_id)
+    if not record.get('active'):
+        return error('Пользователь не является активным автором.', 404)
+    cfg = CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]
+    if percent >= 100:
+        changes = {'creator_limit_reset_at': datetime.now(timezone.utc).isoformat(),
+                   'creator_limit_credit': {}}
+    else:
+        _, _, day = creator_limit_window(record)
+        old = record.get('creator_limit_credit') or {}
+        if old.get('day') != day:
+            old = {}
+        budget_add = int(round(int(cfg['daily_budget_cents']) * percent / 100))
+        wager_add = int(math.ceil(int(cfg['wager_daily_limit']) * percent / 100)) if cfg['wager_daily_limit'] else 0
+        code_add = int(math.ceil(int(cfg['daily_code_limit']) * percent / 100)) if cfg['daily_code_limit'] else 0
+        changes = {'creator_limit_credit': dict(
+            day=day,
+            budget_cents=int(old.get('budget_cents') or 0) + budget_add,
+            wager_count=int(old.get('wager_count') or 0) + wager_add,
+            code_count=int(old.get('code_count') or 0) + code_add)}
+    save_creator_record(user_id, changes)
+    with connect() as db:
+        usage = creator_bonus_usage(db, user_id)
+    total = cfg['daily_budget_cents'] / 100
+    notify_user_async(
+        user_id,
+        '✅ <b>Лимит восстановлен.</b>\n\n'
+        + ('Шкала восстановлена полностью. ' if percent >= 100 else f'Шкала восстановлена на {percent:g}%. ')
+        + f'Сейчас: {usage["budget_used"]:.2f} / {total:.2f} TON.',
+        miniapp_markup('Открыть панель автора', 'creator'),
+        'HTML')
+    return jsonify(ok=True, percent=percent, limit_usage=usage)
+
+
 @app.delete('/api/admin/creators/<int:user_id>')
 @admin_required
 def admin_creator_remove(user_id):
@@ -10402,7 +10469,17 @@ def creator_bonus_usage(db, user_id, record=None):
             budget += max(0, int(row['amount'] or 0)) * max(1, int(row['max_uses'] or 1))
         elif row['reward_type'] == 'wager_gift':
             wager_count += 1
-    return dict(day=day, budget_used=budget/100, code_count=len(rows), wager_count=wager_count,
+    code_count = len(rows)
+    # Partial restore from the admin panel: credit is valid only for the current day.
+    credit = record.get('creator_limit_credit') or {}
+    if isinstance(credit, dict) and credit.get('day') == day:
+        try:
+            budget = max(0, budget - max(0, int(credit.get('budget_cents') or 0)))
+            wager_count = max(0, wager_count - max(0, int(credit.get('wager_count') or 0)))
+            code_count = max(0, code_count - max(0, int(credit.get('code_count') or 0)))
+        except (TypeError, ValueError):
+            pass
+    return dict(day=day, budget_used=budget/100, code_count=code_count, wager_count=wager_count,
                 reset_at=start_utc.isoformat())
 
 
@@ -10458,6 +10535,17 @@ def creator_create_bonus():
     level = creator_level_key(record.get('creator_level'))
     cfg = CREATOR_LEVELS[level]
     activation_min_deposit = int(cfg['activation_min_deposit_cents'])
+    if cfg.get('custom_deposit'):
+        # Super Creator chooses the condition: empty/0 = no deposit required, or any minimum.
+        raw_deposit = data.get('min_deposit')
+        if raw_deposit in (None, ''):
+            raw_deposit = 0
+        try:
+            activation_min_deposit = parse_amount(raw_deposit)
+        except (ValueError, TypeError, InvalidOperation):
+            return error('Минимальный депозит укажите числом с точностью до 0.01 (0 — без депозита).')
+        if not 0 <= activation_min_deposit <= 100000000:
+            return error('Минимальный депозит: от 0 до 1 000 000 TON.')
     amount = 0
     gift_id = gift_name = gift_image = ''
     gift_price = 0

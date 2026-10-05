@@ -730,6 +730,52 @@ class RegressionTests(unittest.TestCase):
         self.assertFalse(shown['panel_hidden'])
         self.assertTrue(shown['user']['creator_button_visible'])
 
+    def test_creator_personal_freebet_is_visible_read_only(self):
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}',{})
+            self.post('/api/admin/freebets', {
+                'code':'CREATOR_FB','reward_type':'balance','amount':'1.00',
+                'max_uses':5,'author_user_id':self.uid
+            })
+        data=self.client.get('/api/creator/freebets').get_json()
+        self.assertEqual(len(data['items']),1)
+        self.assertEqual(data['items'][0]['code'],'CREATOR_FB')
+        self.assertEqual(data['items'][0]['max_uses'],5)
+        self.assertEqual(data['items'][0]['uses_count'],0)
+
+    def test_youtube_channel_snapshot_filters_gemdrop_videos(self):
+        def fake_api(path, params):
+            if path=='channels':
+                return {'items':[{'id':'UC1234567890123456789012','snippet':{
+                    'title':'Creator','customUrl':'@creator',
+                    'thumbnails':{'high':{'url':'https://example.com/a.jpg'}}},
+                    'statistics':{'subscriberCount':'1234','hiddenSubscriberCount':False},
+                    'contentDetails':{'relatedPlaylists':{'uploads':'UU_TEST'}}}]}
+            if path=='playlistItems':
+                return {'items':[
+                    {'snippet':{'title':'GemDrop update','description':'','publishedAt':'2026-01-01',
+                                'thumbnails':{'high':{'url':'https://example.com/1.jpg'}},
+                                'resourceId':{'videoId':'v1'}},
+                     'contentDetails':{'videoId':'v1'}},
+                    {'snippet':{'title':'Other','description':'#GemDrop test','publishedAt':'2026-01-02',
+                                'thumbnails':{'high':{'url':'https://example.com/2.jpg'}},
+                                'resourceId':{'videoId':'v2'}},
+                     'contentDetails':{'videoId':'v2'}},
+                    {'snippet':{'title':'Unrelated','description':'nothing','publishedAt':'2026-01-03',
+                                'thumbnails':{'high':{'url':'https://example.com/3.jpg'}},
+                                'resourceId':{'videoId':'v3'}},
+                     'contentDetails':{'videoId':'v3'}}]}
+            if path=='videos':
+                return {'items':[{'id':'v1','statistics':{'viewCount':'10'}},
+                                 {'id':'v2','statistics':{'viewCount':'20'}}]}
+            return {}
+        with patch.object(m,'YOUTUBE_API_KEY','key'), patch.object(m,'youtube_api_get',side_effect=fake_api):
+            snap=m.youtube_channel_snapshot('https://youtube.com/@creator')
+        self.assertEqual(snap['title'],'Creator')
+        self.assertEqual(snap['subscribers'],1234)
+        self.assertEqual([x['video_id'] for x in snap['videos']],['v1','v2'])
+        self.assertEqual([x['views'] for x in snap['videos']],[10,20])
+
     def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'

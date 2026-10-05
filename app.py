@@ -34,6 +34,7 @@ WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_UR
 BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if BOT_TOKEN else ''
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
+YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
@@ -47,7 +48,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '78-emoji-broadcast-creators-mines-fix'
+BUILD_ID = '81-creator-youtube-freebets'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -580,7 +581,8 @@ def _initialize_schema():
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
         ensure_columns('freebet_redemptions', [('seen_at', 'TEXT')])
-        ensure_columns('freebets', [('min_deposit', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('freebets', [('min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
+                                   ('author_user_id', 'INTEGER NOT NULL DEFAULT 0')])
         if not _had_seen_at:
             # Old redemptions predate the "received" window: don't pop them up retroactively.
             db.execute('UPDATE freebet_redemptions SET seen_at=created_at WHERE seen_at IS NULL')
@@ -902,12 +904,14 @@ def creator_record(user_id):
         demo_balance = max(0, min(100000000000, int(raw.get('demo_balance_cents') or 0)))
     except (TypeError, ValueError):
         demo_balance = 0
+    youtube = raw.get('youtube') if isinstance(raw.get('youtube'), dict) else {}
     return dict(
         active=bool(raw.get('active')),
         panel_hidden=bool(raw.get('active') and raw.get('panel_hidden')),
         demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
         demo_balance_cents=demo_balance,
         demo_inventory=clean_inventory,
+        youtube=dict(youtube),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
     )
@@ -926,6 +930,8 @@ def save_creator_record(user_id, data):
     if not isinstance(current.get('demo_inventory'), list):
         current['demo_inventory'] = []
     current['demo_inventory'] = current['demo_inventory'][:200]
+    if not isinstance(current.get('youtube'), dict):
+        current['youtube'] = {}
     current['updated_at'] = datetime.now(timezone.utc).isoformat()
     if not current.get('created_at'):
         current['created_at'] = current['updated_at']
@@ -8735,6 +8741,7 @@ def admin_freebets():
                           min_level=int(x['min_level'] or 0),min_telegram_level=int(x['min_telegram_level'] or 0),
                           min_turnover=int(x['min_turnover'] or 0)/100,min_deposit=int(x['freebet_min_deposit'] or 0)/100,expires_at=x['expires_at'],
                           created_at=x['created_at'],reward_type=x['reward_type'],purpose=promo_purpose(promo),
+                          author_user_id=int(x['author_user_id'] or 0),
                           burn_pool_enabled=bool(options.get('burn_pool_enabled')),
                           pool_total=pool['total'],pool_claimed=pool['claimed'],pool_remaining=max(0,pool['total']-pool['claimed'])))
     return jsonify(items=items, channel=post_channel_settings(), bot_username=bot_username_value())
@@ -8752,6 +8759,7 @@ def admin_create_freebet():
             text = str(value if value is not None else '').strip().replace(',', '.')
             return int(float(text)) if text else default
         max_uses=_fb_int(data.get('max_uses'), 1); min_level=_fb_int(data.get('min_level'))
+        author_user_id=_fb_int(data.get('author_user_id'), 0)
         min_tg=_fb_int(data.get('min_telegram_level')); min_turnover=parse_amount(data.get('min_turnover') or 0)
         activation_min_deposit=parse_amount(data.get('activation_min_deposit') or 0)
         expires_days=_fb_int(data.get('expires_in_days'))
@@ -8759,6 +8767,8 @@ def admin_create_freebet():
     except (ValueError,TypeError,InvalidOperation,OSError,json.JSONDecodeError) as exc:
         return error(str(exc) or 'Проверьте настройки фрибета.')
     if not 0 <= max_uses <= 1000000:return error('Лимит активаций: 0–1 000 000. 0 — без лимита.')
+    if author_user_id and not creator_record(author_user_id).get('active'):
+        return error('Выбранный пользователь не является активным автором.', 409)
     if min_level < 0 or min_tg < 0:return error('Минимальные уровни не могут быть отрицательными.')
     if not 0 <= activation_min_deposit <= 100000000:return error('Минимальный депозит: от 0 до 1 000 000 TON.')
     if min_level:
@@ -8787,8 +8797,9 @@ def admin_create_freebet():
                    (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,session['uid'],
                     bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days))
         db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,min_level,min_telegram_level,
-                    min_turnover,min_deposit,expires_at,created_by) VALUES(?,?,?,1,?,?,?,?,?,?,?)""",
-                   (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,activation_min_deposit,expires_at,session['uid']))
+                    min_turnover,min_deposit,expires_at,created_by,author_user_id) VALUES(?,?,?,1,?,?,?,?,?,?,?,?)""",
+                   (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,activation_min_deposit,
+                    expires_at,session['uid'],author_user_id))
         if burn_pool_enabled:
             if not isinstance(burn_fragment,dict) or not burn_fragment.get('fragment_url'):
                 return error('Для сгораемого подарка не сохранена ссылка Fragment.',409)
@@ -8993,6 +9004,110 @@ def admin_toggle_promocode(code):
 
 
 
+
+def youtube_channel_ref(value):
+    value = str(value or '').strip()
+    if not value:
+        raise ValueError('Вставьте ссылку на YouTube-канал.')
+    if len(value) > 500:
+        raise ValueError('Ссылка на YouTube слишком длинная.')
+    m = re.search(r'youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})', value, re.I)
+    if m:
+        return 'id', m.group(1)
+    m = re.search(r'youtube\.com/@([A-Za-z0-9._-]{3,100})', value, re.I)
+    if m:
+        return 'handle', m.group(1)
+    if re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', value):
+        return 'id', value
+    if re.fullmatch(r'@?[A-Za-z0-9._-]{3,100}', value):
+        return 'handle', value.lstrip('@')
+    raise ValueError('Используйте ссылку вида https://youtube.com/@channel или /channel/UC…')
+
+
+def youtube_api_get(path, params):
+    if not YOUTUBE_API_KEY:
+        raise RuntimeError('YouTube API не настроен. Добавьте YOUTUBE_API_KEY в окружение сервера.')
+    payload = dict(params or {})
+    payload['key'] = YOUTUBE_API_KEY
+    try:
+        response = requests.get('https://www.googleapis.com/youtube/v3/' + path,
+                                params=payload, timeout=(4, 14))
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        raise RuntimeError('YouTube временно недоступен. Попробуйте позже.') from exc
+    if not isinstance(data, dict):
+        raise RuntimeError('YouTube вернул некорректный ответ.')
+    return data
+
+
+def youtube_channel_snapshot(value):
+    kind, ref = youtube_channel_ref(value)
+    params = {'part': 'snippet,statistics,contentDetails'}
+    params['id' if kind == 'id' else 'forHandle'] = ref
+    data = youtube_api_get('channels', params)
+    items = data.get('items') or []
+    if not items:
+        raise ValueError('YouTube-канал не найден.')
+    channel = items[0]
+    snippet = channel.get('snippet') or {}
+    stats = channel.get('statistics') or {}
+    uploads = ((channel.get('contentDetails') or {}).get('relatedPlaylists') or {}).get('uploads') or ''
+    channel_id = str(channel.get('id') or '')
+    thumbs = snippet.get('thumbnails') or {}
+    avatar = ((thumbs.get('high') or thumbs.get('medium') or thumbs.get('default') or {}).get('url') or '')
+    snapshot = dict(
+        channel_id=channel_id,
+        url='https://www.youtube.com/channel/' + channel_id if channel_id else str(value),
+        title=str(snippet.get('title') or 'YouTube'),
+        handle=str(snippet.get('customUrl') or ''),
+        avatar_url=safe_image(avatar),
+        subscribers=int(stats.get('subscriberCount') or 0) if not bool(stats.get('hiddenSubscriberCount')) else None,
+        subscriber_count_hidden=bool(stats.get('hiddenSubscriberCount')),
+        uploads_playlist=str(uploads),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    snapshot['videos'] = youtube_gemdrop_videos(snapshot)
+    return snapshot
+
+
+def youtube_gemdrop_videos(channel):
+    playlist_id = str((channel or {}).get('uploads_playlist') or '')
+    if not playlist_id:
+        return []
+    data = youtube_api_get('playlistItems', {
+        'part': 'snippet,contentDetails', 'playlistId': playlist_id, 'maxResults': 50
+    })
+    matches = []
+    for item in data.get('items') or []:
+        snippet = item.get('snippet') or {}
+        title = str(snippet.get('title') or '')
+        description = str(snippet.get('description') or '')
+        if 'gemdrop' not in title.casefold() and '#gemdrop' not in description.casefold():
+            continue
+        video_id = str((item.get('contentDetails') or {}).get('videoId') or
+                       (snippet.get('resourceId') or {}).get('videoId') or '')
+        if not video_id:
+            continue
+        thumbs = snippet.get('thumbnails') or {}
+        thumb = ((thumbs.get('high') or thumbs.get('medium') or thumbs.get('default') or {}).get('url') or '')
+        matches.append(dict(video_id=video_id, title=title, thumbnail_url=safe_image(thumb),
+                            published_at=snippet.get('publishedAt') or '', views=0,
+                            url='https://www.youtube.com/watch?v=' + video_id))
+        if len(matches) >= 20:
+            break
+    if not matches:
+        return []
+    details = youtube_api_get('videos', {
+        'part': 'statistics', 'id': ','.join(x['video_id'] for x in matches)
+    })
+    views = {str(x.get('id') or ''): int((x.get('statistics') or {}).get('viewCount') or 0)
+             for x in details.get('items') or []}
+    for item in matches:
+        item['views'] = views.get(item['video_id'], 0)
+    return matches
+
+
 @app.get('/api/admin/creators')
 @admin_required
 def admin_creators():
@@ -9018,6 +9133,7 @@ def admin_creators():
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
                 photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
                 panel_hidden=bool(record.get('panel_hidden')),
+                youtube_title=str((record.get('youtube') or {}).get('title') or ''),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
                 demo_gifts=len(record.get('demo_inventory') or []),
             ))
@@ -9080,7 +9196,73 @@ def creator_state():
         panel_hidden=record['panel_hidden'],
         demo_balance=record['demo_balance_cents']/100,
         demo_inventory=record['demo_inventory'],
+        youtube=record.get('youtube') or {},
+        youtube_configured=bool(YOUTUBE_API_KEY),
     )
+
+
+
+@app.post('/api/creator/youtube')
+@login_required
+@creator_required
+def creator_youtube_link():
+    data = request.get_json(silent=True) or {}
+    try:
+        snapshot = youtube_channel_snapshot(data.get('url'))
+    except ValueError as exc:
+        return error(str(exc))
+    except RuntimeError as exc:
+        return error(str(exc), 503)
+    record = save_creator_record(session['uid'], {'youtube': snapshot})
+    return jsonify(ok=True, youtube=record.get('youtube') or {})
+
+
+@app.post('/api/creator/youtube/refresh')
+@login_required
+@creator_required
+def creator_youtube_refresh():
+    current = creator_record(session['uid']).get('youtube') or {}
+    ref = current.get('url') or current.get('channel_id')
+    if not ref:
+        return error('Сначала привяжите YouTube-канал.', 409)
+    try:
+        snapshot = youtube_channel_snapshot(ref)
+    except (ValueError, RuntimeError) as exc:
+        return error(str(exc), 503)
+    record = save_creator_record(session['uid'], {'youtube': snapshot})
+    return jsonify(ok=True, youtube=record.get('youtube') or {})
+
+
+@app.delete('/api/creator/youtube')
+@login_required
+@creator_required
+def creator_youtube_unlink():
+    save_creator_record(session['uid'], {'youtube': {}})
+    return jsonify(ok=True)
+
+
+@app.get('/api/creator/freebets')
+@login_required
+@creator_required
+def creator_freebets():
+    with connect() as db:
+        rows = db.execute("""SELECT f.*,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
+                             p.reward_json,p.gift_expires_days
+                             FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
+                             WHERE f.author_user_id=? ORDER BY f.created_at DESC""",
+                          (session['uid'],)).fetchall()
+    items=[]
+    for x in rows:
+        options=freebet_options(x)
+        items.append(dict(
+            code=x['code'], link=freebet_link(x['code']), active=bool(x['active']),
+            max_uses=int(x['max_uses'] or 0), uses_count=int(x['uses_count'] or 0),
+            remaining=(None if int(x['max_uses'] or 0) == 0 else max(0, int(x['max_uses'] or 0)-int(x['uses_count'] or 0))),
+            reward_type=x['reward_type'], purpose=promo_purpose(x),
+            wager_multiplier=float(x['wager_multiplier'] or 0),
+            burn_pool_enabled=bool(options.get('burn_pool_enabled')),
+            created_at=x['created_at'], expires_at=x['expires_at']))
+    return jsonify(items=items)
 
 
 @app.post('/api/creator/panel-visibility')

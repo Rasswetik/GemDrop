@@ -3847,10 +3847,6 @@ def open_cell():
             return jsonify(round=demo_mines_open(cell), user=profile())
         except (ValueError, InvalidOperation, TypeError) as exc:
             return error(str(exc), 409)
-    try:
-        cell = int(data.get('cell'))
-    except (TypeError, ValueError):
-        return error('Неверная клетка.')
     if cell not in range(25):
         return error('Неверная клетка.')
     db = connect()
@@ -9467,6 +9463,7 @@ def admin_create_freebet():
                         str(burn_fragment.get('fragment_model') or ''),str(burn_fragment.get('fragment_backdrop') or ''),
                         str(burn_fragment.get('fragment_symbol') or ''),str(burn_fragment.get('price_source') or ''),
                         safe_image(burn_fragment.get('animation_url'))))
+        db.execute('UPDATE promo_codes SET author_user_id=? WHERE code=?', (author_user_id, code))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],session['uid'],'freebet_create',code))
         db.commit()
@@ -10091,8 +10088,9 @@ def creator_freebets():
         rows = db.execute("""SELECT f.*,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
                              p.reward_json,p.gift_expires_days
                              FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
-                             WHERE f.author_user_id=? ORDER BY f.created_at DESC""",
-                          (session['uid'],)).fetchall()
+                             WHERE f.author_user_id=? OR p.author_user_id=?
+                             ORDER BY f.created_at DESC""",
+                          (session['uid'],session['uid'])).fetchall()
     items=[]
     for x in rows:
         options=freebet_options(x)

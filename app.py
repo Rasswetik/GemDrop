@@ -634,7 +634,7 @@ def _initialize_schema():
                                           'promo_wager_progress', 'promo_progress_after'])
         ensure_postgres_bigint('inventory', ['floor_price', 'round_id', 'promo_wager_target', 'promo_wager_progress'])
         ensure_postgres_bigint('promo_codes', ['created_by', 'bonus_fixed', 'min_deposit', 'activation_min_deposit', 'assigned_user_id'])
-        ensure_postgres_bigint('freebets', ['min_turnover', 'min_deposit', 'created_by'])
+        ensure_postgres_bigint('freebets', ['min_turnover', 'min_deposit', 'created_by', 'author_user_id'])
         ensure_postgres_bigint('freebet_redemptions', ['user_id'])
         ensure_postgres_bigint('withdrawals', ['floor_price', 'round_id', 'admin_id'])
         ensure_postgres_bigint('referrals', ['referrer_id'])

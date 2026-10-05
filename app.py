@@ -899,6 +899,25 @@ def increase_turnover(db, user_id, amount):
     return current if current > previous else None
 
 
+PROMO_ORIGIN_SOURCES = ('promo_wager', 'upgrade_wager', 'upgrade_wager_repaired', 'level_wager',
+                        'promo_claimed', 'freebet_burn_claimed', 'freebet_wager')
+
+
+def gift_counts_for_xp(item):
+    """Gifts that came from a wager/promo never add turnover (XP), locked or already unlocked."""
+    try:
+        keys = item.keys()
+    except AttributeError:
+        return True
+    if 'promo_locked' in keys and item['promo_locked']:
+        return False
+    if 'source' in keys and str(item['source'] or '') in PROMO_ORIGIN_SOURCES:
+        return False
+    if 'promo_code' in keys and str(item['promo_code'] or ''):
+        return False
+    return True
+
+
 def active_round(db, uid):
     if DATABASE_URL:
         db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
@@ -1329,6 +1348,29 @@ def repair_legacy_upgrade_wagers():
         db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('repair_upgrade_wagers_build66',))
         db.commit()
     finally:db.close()
+
+
+def repair_zero_price_top_gifts():
+    """Daily-top gifts saved with a 0 TON price get their current catalog price (one time)."""
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if DATABASE_URL:
+            db.execute('SELECT pg_advisory_xact_lock(660106)')
+        if db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('repair_zero_price_top_gifts_v1',)).fetchone():
+            return
+        rows = db.execute("""SELECT id,gift_id FROM inventory
+                             WHERE source IN ('daily_top_catalog','daily_top_fragment') AND COALESCE(floor_price,0)<=0""").fetchall()
+        for row in rows:
+            price = catalog_price_cents(row['gift_id'])
+            if price > 0:
+                db.execute('UPDATE inventory SET floor_price=? WHERE id=?', (price, row['id']))
+        db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('repair_zero_price_top_gifts_v1',))
+        db.commit()
+    except Exception:
+        app.logger.exception('Zero-price top gift repair failed')
+    finally:
+        db.close()
 
 
 def collection_key(name):
@@ -2255,7 +2297,7 @@ def game_net_loss_cents(db, user_id):
 
     cashback = db.execute("""SELECT COALESCE(SUM(amount),0) AS total FROM transactions
                              WHERE user_id=? AND kind='upgrade_cashback'""", (user_id,)).fetchone()
-    loss -= int((cashback or {}).get('total') or 0)
+    loss -= int((cashback['total'] if cashback else 0) or 0)
     return max(0, int(loss))
 
 
@@ -2458,6 +2500,64 @@ def wins_feed_cutoff(db, kind):
     return (row['cleared_at'], int(row['max_round_id'] or 0)) if row else ('', 0)
 
 
+def catalog_price_cents(gift_id):
+    """Current catalog price in cents for a gift id (0 when unknown)."""
+    try:
+        gifts = read_catalog(include_hidden=True).get('gifts', [])
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 0
+    gift = next((x for x in gifts if str(x.get('id')) == str(gift_id)), None)
+    if not gift:
+        return 0
+    try:
+        return max(0, ton_to_cents(gift.get('price_ton') or 0))
+    except (ValueError, TypeError, InvalidOperation):
+        return 0
+
+
+def refresh_top_reward_price(reward):
+    """A top-of-the-day gift must never be awarded for 0 TON: re-price it when the saved price is empty."""
+    if not isinstance(reward, dict) or reward.get('type') not in ('catalog', 'fragment'):
+        return reward
+    try:
+        price = int(reward.get('floor_price') or 0)
+    except (TypeError, ValueError):
+        price = 0
+    if price > 0:
+        return reward
+    fresh = dict(reward)
+    if reward.get('type') == 'catalog':
+        price = catalog_price_cents(reward.get('gift_id'))
+    else:
+        try:
+            gift = fragment_gift_from_url(reward.get('fragment_url'), True, refresh=True, allow_missing_price=True)
+            price = int(gift.get('floor_price') or 0)
+            if price > 0:
+                fresh['price_source'] = gift.get('price_source') or fresh.get('price_source') or ''
+        except Exception:
+            app.logger.warning('Could not refresh daily top fragment price', exc_info=True)
+            price = 0
+        if price <= 0:
+            # Last resort: the collection floor from the catalog, matched by gift name.
+            try:
+                base = re.sub(r'\s*#\s*\d+.*$', '', str(reward.get('gift_name') or '')).strip().lower()
+                gifts = read_catalog(include_hidden=True).get('gifts', [])
+                prices = []
+                for g in gifts:
+                    if str(g.get('name') or '').strip().lower() == base:
+                        try:
+                            prices.append(ton_to_cents(g.get('price_ton') or 0))
+                        except (ValueError, TypeError, InvalidOperation):
+                            pass
+                prices = [x for x in prices if x > 0]
+                price = min(prices) if prices else 0
+            except Exception:
+                price = 0
+    fresh['floor_price'] = max(0, int(price))
+    fresh['price_ton'] = fresh['floor_price'] / 100
+    return fresh
+
+
 def daily_top_rewards():
     try:
         doc = read_document('daily_top_rewards') or {}
@@ -2486,6 +2586,8 @@ def daily_top_rewards():
                 floor_price = max(0,int(reward.get('floor_price') or 0))
             except (TypeError,ValueError):
                 floor_price = 0
+            if floor_price <= 0 and reward_type == 'catalog':
+                floor_price = catalog_price_cents(item.get('gift_id'))
             item['floor_price'] = floor_price
             item['price_ton'] = floor_price/100
         result[mode] = item
@@ -2524,6 +2626,8 @@ def admin_daily_top_rewards_set(mode):
             reward.update(amount=amount,name='GRAM',image_url='/static/img/ton.png')
         elif reward_type=='catalog':
             gift=catalog_giveaway_prize(data.get('gift_id'))
+            if int(gift.get('floor_price') or 0)<=0:
+                return error('У этого подарка нет цены в каталоге — награда за топ не может стоить 0 TON.')
             reward.update(gift)
         elif reward_type=='fragment':
             gift=fragment_gift_from_url(data.get('fragment_url'),True,allow_missing_price=True)
@@ -2629,6 +2733,7 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
                        (period_key,mode,uid,json.dumps(reward,ensure_ascii=False)))
     if not claimed.rowcount:
         return False
+    reward=refresh_top_reward_price(reward)
     reward_type=reward.get('type')
     title='Mines' if mode=='mines' else 'Upgrade'
     if reward_type=='gram':
@@ -2756,8 +2861,8 @@ def upgrade_recent_wins():
             app.logger.warning('Skipping malformed upgrade win row %s', row['id'] if row else '?', exc_info=True)
     if not black_backgrounds_enabled():
         items = [item for item in items if not any(gift_black_background(item[key]) for key in ('source', 'target'))]
-    top_candidates=[item for item in items
-                    if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
+    items=[item for item in items if item.get('reward_type')!='wager_progress']
+    top_candidates=[item for item in items if str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
                                                        str(item.get('created_at') or '')), default=None)
     return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'),top_schedule=daily_top_schedule_view('upgrade'))
@@ -2817,6 +2922,7 @@ def upgrade_spin():
         won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
         awarded=None
         wager=bool(source['promo_locked'])
+        xp_allowed=(not wager) and (True if amount_text else gift_counts_for_xp(source))
         wager_target=int(source['promo_wager_target'] or 0) if wager else 0
         wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)+target['price']) if wager and won else 0
         wager_attempts_total=max(1,int(source['promo_attempts_total'] or 1)) if wager else 1
@@ -2891,7 +2997,7 @@ def upgrade_spin():
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
-        result['new_level']=None if wager else increase_turnover(db,session['uid'],source_price)
+        result['new_level']=increase_turnover(db,session['uid'],source_price) if xp_allowed else None
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
         promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
@@ -3067,6 +3173,7 @@ def start():
             return error('Сначала завершите текущую игру.')
 
         bet_type = 'ton'
+        xp_allowed = True
         snapshot = dict(item_id=None, gift_id='', name='', image='', price=0,
                         multiplier=0.0, target=0, progress=0, code='', expires_at=None,
                         attempts_total=1, attempts_remaining=1, burn_on_loss=True, external_url='')
@@ -3086,6 +3193,7 @@ def start():
             bet_type = 'promo_gift' if item['promo_locked'] else 'gift'
             if bet_type == 'promo_gift' and mines < 3:
                 return error('Промо-отыгрыш доступен только при 3 или более минах.')
+            xp_allowed = gift_counts_for_xp(item)
             snapshot = dict(item_id=item['id'], gift_id=item['gift_id'], name=item['gift_name'],
                             image=item['image_url'], price=bet,
                             multiplier=float(item['promo_wager_multiplier'] or 0),
@@ -3137,7 +3245,7 @@ def start():
                   loss_rtp_boost=round(promo_loss_boost,2) if bet_type=='promo_gift' else None,
                   game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         # Promo-wager gifts do not count toward site turnover or levels.
-        new_level=None if bet_type=='promo_gift' else increase_turnover(db,session['uid'],bet)
+        new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(db,session['uid'],bet)
         db.commit()
         if new_level:
             notify_level_up_async(session['uid'], new_level)
@@ -4837,13 +4945,13 @@ def public_user_profile(user_id):
             return bool(created and created > override_set_at)
 
         mine_rows = db.execute('''SELECT mines,opened,win_multiplier,rtp_snapshot,state,win_gift_name,win_gift_image,
-                                         win_gift_price,win_total,payout,created_at
+                                         win_gift_price,win_total,payout,created_at,bet_type
                                   FROM rounds WHERE user_id=? ORDER BY id DESC''', (user_id,)).fetchall()
         mines_count = len(mine_rows)
         max_mines_x = 0.0
         mines_drop = None
         for row in mine_rows:
-            if row['state'] != 'won':
+            if row['state'] != 'won' or row['bet_type'] == 'promo_gift':
                 continue
             try:
                 opened_count = len(json.loads(row['opened'] or '[]'))
@@ -4870,15 +4978,15 @@ def public_user_profile(user_id):
         for row in upgrade_rows:
             source_price = int(row['source_price'] or 0)
             target_price = int(row['target_price'] or 0)
-            if int(row['won'] or 0) and source_price > 0:
-                max_upgrade_x = max(max_upgrade_x, target_price/source_price)
-            if not int(row['won'] or 0) or target_price <= 0:
-                continue
             try:
                 result = json.loads(row['result_json'] or '{}')
             except (TypeError, ValueError, json.JSONDecodeError):
                 result = {}
             if isinstance(result, dict) and result.get('reward_type') == 'wager_progress':
+                continue
+            if int(row['won'] or 0) and source_price > 0:
+                max_upgrade_x = max(max_upgrade_x, target_price/source_price)
+            if not int(row['won'] or 0) or target_price <= 0:
                 continue
             if (show_black or not gift_black_background({'name': row['target_name']})) and drop_is_after_override(row['created_at']) and (not upgrade_drop or target_price > upgrade_drop['price_cents']):
                 upgrade_drop = dict(price_cents=target_price, name=row['target_name'] or 'Подарок Upgrade',
@@ -6781,17 +6889,21 @@ def admin_section_settings():
 def save_admin_section_settings():
     data = request.get_json(silent=True) or {}
     current = section_settings()
+    has_sections = any(key in data for key in current)
     if 'black_backgrounds_enabled' in data and not isinstance(data['black_backgrounds_enabled'], bool):
         return error('Состояние отображения фонов должно быть true или false.')
-    if any(not isinstance(data[key], bool) for key in current if key in data):
-        return error('Состояние раздела должно быть true или false.')
-    updated = {key: bool(data.get(key, current[key])) for key in current}
-    if not any(updated.values()):
-        return error('Нужно оставить включённым хотя бы один раздел.')
+    updated = current
+    if has_sections:
+        if any(not isinstance(data[key], bool) for key in current if key in data):
+            return error('Состояние раздела должно быть true или false.')
+        updated = {key: bool(data.get(key, current[key])) for key in current}
+        if not any(updated.values()):
+            return error('Нужно оставить включённым хотя бы один раздел.')
+    new_modes = None
     if 'games' in data:
         if not isinstance(data['games'], dict):
             return error('Состояние игр должно быть объектом.')
-        modes = game_modes()
+        new_modes = game_modes()
         for key, value in data['games'].items():
             if key not in GAME_KEYS:
                 continue
@@ -6799,12 +6911,26 @@ def save_admin_section_settings():
                 value = 'on' if value else 'off'
             if value not in ('on', 'off', 'admin'):
                 return error('Режим игры: on, off или admin.')
-            modes[key] = value
-        save_document('game_modes', modes)
-    save_document('section_settings', updated)
+            new_modes[key] = value
+        save_document('game_modes', new_modes)
+        # Read the row back from the database (no request cache) so we only report success when it is really stored.
+        with connect() as db:
+            row = db.execute('SELECT payload FROM app_documents WHERE name=?', ('game_modes',)).fetchone()
+        try:
+            stored = json.loads(row['payload']) if row else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored = {}
+        if any(stored.get(key) != value for key, value in new_modes.items()):
+            app.logger.error('game_modes were not persisted: wanted %s got %s', new_modes, stored)
+            return error('Настройки игр не сохранились. Попробуйте ещё раз.', 500)
+        with connect() as db:
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'game_modes', json.dumps(new_modes, ensure_ascii=False)))
+    if has_sections:
+        save_document('section_settings', updated)
     if 'black_backgrounds_enabled' in data:
         save_document('gift_display_settings', {'black_backgrounds_enabled': data['black_backgrounds_enabled']})
-    return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled(),
+    return jsonify(ok=True, saved=True, sections=section_settings(), black_backgrounds_enabled=black_backgrounds_enabled(),
                    games=effective_games(), game_modes=game_modes())
 
 
@@ -8510,6 +8636,369 @@ def admin_user_level(user_id):
     return jsonify(ok=True,level=level,turnover=row['required_turnover']/100,reset_rewards=reset_levels)
 
 
+def _money(cents):
+    return f'{abs(int(cents or 0))/100:.2f} TON'
+
+
+def _col(row, key, default=None):
+    try:
+        value = row[key]
+    except (KeyError, IndexError):
+        return default
+    return default if value is None else value
+
+
+def _ev(eid, date, kind, title, lines=(), amount=None, tone='neutral', image='', group='other', details=None):
+    return dict(id=eid, date=str(date or ''), kind=kind, title=title, lines=[str(x) for x in lines if x],
+                amount=amount, tone=tone, image=image or '', group=group, details=details or {})
+
+
+def _activity_mines(r):
+    try:
+        opened_list = json.loads(r['opened'] or '[]')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        opened_list = []
+    opened = len(opened_list) if isinstance(opened_list, list) else 0
+    mines = int(r['mines'] or 0)
+    bet_type = _col(r, 'bet_type', 'ton') or 'ton'
+    state = r['state']
+    bet = int(r['bet'] or 0)
+    try:
+        rtp = round_rtp(r)
+    except Exception:
+        rtp = game_rtp()
+    try:
+        mult = (float(r['win_multiplier']) if r['win_multiplier'] is not None
+                else float(multiplier_for(mines, opened, rtp)) if opened else 1.0)
+    except (TypeError, ValueError, ArithmeticError):
+        mult = 1.0
+    gift_name = _col(r, 'bet_gift_name', '') or 'Подарок'
+    gift_price = int(_col(r, 'bet_gift_price', 0) or 0)
+    if bet_type == 'promo_gift':
+        stake = (f'Ставка отыгрышным подарком: {gift_name} ({_money(gift_price)}) · '
+                 f'отыгрыш X{float(_col(r, "promo_wager_multiplier", 0) or 0):g}')
+    elif bet_type == 'gift':
+        stake = f'Ставка подарком: {gift_name} ({_money(gift_price)})'
+    else:
+        stake = f'Ставка: {_money(bet)}'
+    field = f'Мин на поле: {mines} · открыто клеток: {opened}' + (f' · X{mult:.2f}' if opened else '')
+    image = _col(r, 'win_gift_image', '') or _col(r, 'bet_gift_image', '')
+    ton_bet = bet_type == 'ton'
+    base = dict(eid='m' + str(r['id']), date=r['created_at'], kind='mines_round', image=image, group='game',
+                details=dict(game='Mines', state=state, bet_type=bet_type))
+    if state == 'active':
+        potential = payout_for(r, opened, rtp) if opened else 0
+        lines = [stake, field]
+        lines.append(f'Выигрыш НЕ забран — сейчас можно было забрать {_money(potential)}' if opened
+                     else 'Ни одной клетки не открыто, выигрыш не забран')
+        return _ev(title='Mines · раунд не завершён', lines=lines, amount=(-bet / 100 if ton_bet else None),
+                   tone='pending', **base)
+    if state == 'lost':
+        cell = _col(r, 'lost_cell', None)
+        if cell is None:
+            return _ev(title='Mines · раунд закрыт (истёк срок подарка)',
+                       lines=[stake, field, 'Отыгрышный подарок сгорел по сроку' if bet_type == 'promo_gift' else ''],
+                       amount=(-bet / 100 if ton_bet else None), tone='loss', **base)
+        lines = [stake, field + f' · мина в клетке {int(cell) + 1}']
+        if ton_bet:
+            lines.append(f'Проигрыш: {_money(bet)}')
+        elif bet_type == 'gift':
+            lines.append(f'Проигран подарок: {gift_name} ({_money(gift_price)})')
+        else:
+            total = max(1, int(_col(r, 'promo_attempts_total', 1) or 1))
+            before = max(1, int(_col(r, 'promo_attempts_remaining', 1) or 1))
+            after = before - 1 if bool(_col(r, 'promo_burn_on_loss', 1)) else before
+            lines.append(f'Отыгрыш не засчитан · осталось жизней: {after} из {total}' if after > 0
+                         else f'Подарок {gift_name} сгорел (жизни закончились)')
+        return _ev(title='Mines · проигрыш', lines=lines, amount=(-bet / 100 if ton_bet else None),
+                   tone='loss', **base)
+    # won
+    total = int(r['win_total'] if r['win_total'] is not None else (r['payout'] or 0))
+    if bet_type == 'promo_gift':
+        target = int(_col(r, 'promo_wager_target', 0) or 0)
+        progress = int(_col(r, 'promo_progress_after', 0) or 0)
+        lines = [stake, field, f'В отыгрыш засчитано: +{_money(total)}',
+                 f'Прогресс отыгрыша: {progress / 100:.2f} / {target / 100:.2f} TON']
+        if target and progress >= target:
+            lines.append('Отыгрыш выполнен — подарок можно разблокировать в профиле')
+        return _ev(title='Mines · отыгрыш (без выплаты)', lines=lines, tone='win', **base)
+    lines = [stake, field]
+    win_gift = _col(r, 'win_gift_name', '')
+    if win_gift:
+        lines.append(f'Забрал подарок: {win_gift} ({_money(_col(r, "win_gift_price", 0))})')
+        if int(r['payout'] or 0) > 0:
+            lines.append(f'Остаток зачислен на баланс: {_money(r["payout"])}')
+    else:
+        lines.append(f'Забрал: {_money(total)}')
+    net = total - bet if ton_bet else None
+    if ton_bet:
+        lines.append(f'Чистыми: {"+" if net >= 0 else "−"}{_money(net)}')
+    return _ev(title='Mines · выигрыш забран', lines=lines, amount=(net / 100 if net is not None else None),
+               tone='win' if (net is None or net >= 0) else 'loss', **base)
+
+
+def _activity_crash(r):
+    bet = int(r['bet'] or 0)
+    auto = int(r['auto_x100'] or 0)
+    state = r['state']
+    crash_x100 = _col(r, 'crash_x100', None)
+    round_state = _col(r, 'round_state', '')
+    lines = [f'Раунд #{r["round_id"]} · ставка: {_money(bet)}' + (f' · авто-вывод на x{auto / 100:.2f}' if auto else '')]
+    crashed_text = (f'Раунд закончился крашем на x{int(crash_x100) / 100:.2f}'
+                    if crash_x100 is not None and round_state == 'crashed' else '')
+    base = dict(eid='c%s-%s' % (r['round_id'], r['user_id']), date=r['created_at'], kind='crash_bet', group='game',
+                details=dict(game='Crash', state=state))
+    if state == 'won':
+        payout = int(r['payout'] or 0)
+        cash = int(r['cashout_x100'] or 0)
+        lines.append(f'Забрал на x{cash / 100:.2f}' + (' (авто-вывод)' if auto and cash == auto else '') +
+                     f' · выплата {_money(payout)}')
+        if crashed_text:
+            lines.append(crashed_text)
+        lines.append(f'Чистыми: +{_money(payout - bet)}')
+        return _ev(title='Crash · выигрыш', lines=lines, amount=(payout - bet) / 100, tone='win', **base)
+    if state == 'lost':
+        lines.append('Не успел забрать до взрыва' if not auto else 'Авто-вывод не сработал — краш раньше')
+        if crashed_text:
+            lines.append(crashed_text)
+        lines.append(f'Проигрыш: {_money(bet)}')
+        return _ev(title='Crash · проигрыш', lines=lines, amount=-bet / 100, tone='loss', **base)
+    lines.append('Раунд ещё идёт — результат не определён')
+    return _ev(title='Crash · ставка в игре', lines=lines, amount=-bet / 100, tone='pending', **base)
+
+
+def _activity_upgrade(r):
+    try:
+        result = json.loads(r['result_json'] or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        result = {}
+    if not isinstance(result, dict):
+        result = {}
+    src_price = int(r['source_price'] or 0)
+    tgt_price = int(r['target_price'] or 0)
+    won = bool(r['won'])
+    src_name = r['source_name'] or 'Ставка'
+    tgt_name = r['target_name'] or 'Цель'
+    from_ton = (result.get('source_type') or ('ton' if src_name == 'TON' else 'gift')) == 'ton'
+    wager = result.get('reward_type') == 'wager_progress' or (not from_ton and result.get('wager_target'))
+    chance = int(r['chance_bp'] or 0) / 100
+    if from_ton:
+        stake = f'Ставка: {_money(src_price)}'
+    elif wager:
+        stake = f'Ставка отыгрышным подарком: {src_name} ({_money(src_price)})'
+    else:
+        stake = f'Ставка подарком: {src_name} ({_money(src_price)})'
+    goal = f'Цель: {tgt_name} ({_money(tgt_price)}) · шанс {chance:.2f}%'
+    base = dict(eid='u' + str(r['id']), date=r['created_at'], kind='upgrade', group='game',
+                image=(r['target_image'] if won else r['source_image']) or '',
+                details=dict(game='Upgrade', won=won))
+    if wager:
+        lines = [stake, goal]
+        if won:
+            lines.append(f'Засчитано в отыгрыш: +{_money(tgt_price)} · прогресс '
+                         f'{float(result.get("wager_progress") or 0):.2f} / {float(result.get("wager_target") or 0):.2f} TON')
+            if result.get('wager_complete'):
+                lines.append('Отыгрыш выполнен — подарок можно разблокировать в профиле')
+            return _ev(title='Upgrade · отыгрыш (успех)', lines=lines, tone='win', **base)
+        if result.get('wager_burned'):
+            lines.append(f'Проигрыш: подарок {src_name} сгорел (жизни закончились)')
+        else:
+            lines.append(f'Проигрыш: потеряна жизнь, осталось {int(result.get("wager_attempts_remaining") or 0)} '
+                         f'из {int(result.get("wager_attempts_total") or 1)}')
+        return _ev(title='Upgrade · отыгрыш (проигрыш)', lines=lines, tone='loss', **base)
+    if won:
+        lines = [stake, goal, f'Выигран подарок: {tgt_name} ({_money(tgt_price)})']
+        if from_ton:
+            lines.append(f'Списано с баланса за ставку: {_money(src_price)}')
+        return _ev(title='Upgrade · выигрыш', lines=lines, tone='win', **base)
+    lines = [stake, goal,
+             f'Проигрыш: {_money(src_price)}' if from_ton else f'Проигран подарок: {src_name} ({_money(src_price)})']
+    comp = result.get('compensation') if isinstance(result.get('compensation'), dict) else {}
+    reward = comp.get('reward') if isinstance(comp.get('reward'), dict) else None
+    if reward:
+        kind = reward.get('type')
+        if kind == 'balance':
+            lines.append(f'Компенсация: +{float(reward.get("amount") or 0):.2f} TON на баланс')
+        elif kind == 'tickets':
+            lines.append(f'Компенсация: {int(reward.get("tickets") or 0)} билет(ов)')
+        elif kind == 'gift':
+            lines.append(f'Компенсация: подарок {reward.get("name") or ""}')
+        elif kind == 'wager_gift':
+            lines.append(f'Компенсация: отыгрышный подарок {reward.get("name") or ""} · X{float(reward.get("wager_multiplier") or 0):g}')
+        elif kind == 'promo':
+            lines.append(f'Компенсация: промокод на подарок {reward.get("name") or ""} ({reward.get("code") or ""})')
+    return _ev(title='Upgrade · проигрыш', lines=lines, amount=(-src_price / 100 if from_ton else None),
+               tone='loss', **base)
+
+
+# kind -> (title, tone). Kinds duplicated by game rows below are intentionally absent (hidden).
+_TX_TITLES = {
+    'deposit': ('Пополнение баланса администратором', 'win'),
+    'ton_deposit': ('Пополнение через TON', 'win'),
+    'deposit_promo_bonus': ('Бонус за пополнение (промокод)', 'win'),
+    'referral_bonus': ('Реферальный бонус', 'win'),
+    'admin_balance': ('Администратор изменил баланс', 'neutral'),
+    'gift_sale': ('Продажа подарка', 'win'),
+    'withdrawal_request': ('Заявка на вывод подарка', 'pending'),
+    'withdrawal_approved': ('Вывод подарка выполнен', 'neutral'),
+    'withdrawal_rejected': ('Вывод отклонён — подарок возвращён', 'neutral'),
+    'transfer_sent': ('Перевод отправлен', 'loss'),
+    'transfer_received': ('Перевод получен', 'win'),
+    'daily_top_reward': ('Награда за ТОП дня', 'win'),
+    'upgrade_cashback': ('Компенсация проигрыша в Upgrade', 'win'),
+    'upgrade_compensation_gift': ('Компенсация Upgrade: подарок', 'win'),
+    'promo_balance': ('Промокод: TON на баланс', 'win'),
+    'promo_gift': ('Промокод: получен подарок', 'win'),
+    'promo_wager_gift': ('Промокод: получен отыгрышный подарок', 'win'),
+    'freebet_balance': ('Фрибет: TON на баланс', 'win'),
+    'freebet_gift': ('Фрибет: получен подарок', 'win'),
+    'freebet_wager_gift': ('Фрибет: получен отыгрышный подарок', 'win'),
+    'promo_wager_claim': ('Разблокирован отыгрышный подарок', 'win'),
+    'promo_gift_expired': ('Отыгрышный подарок сгорел по сроку', 'loss'),
+    'craft_consume': ('Крафт: подарки потрачены', 'loss'),
+    'craft_reward': ('Крафт: получен подарок', 'win'),
+}
+
+
+def _activity_transaction(r):
+    kind = r['kind']
+    reference = _col(r, 'reference_type', '')
+    if kind == 'promo_wager_burn' and reference == 'freebet':
+        title, tone = 'Фрибет: отыгрышный подарок сгорел', 'loss'
+    elif kind in _TX_TITLES:
+        title, tone = _TX_TITLES[kind]
+    elif kind.startswith('freebet_') or kind.startswith('promo_'):
+        title, tone = 'Бонус: ' + kind.replace('_', ' '), 'neutral'
+    else:
+        return None
+    amount = int(r['amount'] or 0)
+    lines = []
+    detail = str(_col(r, 'details', '') or '')
+    if kind in ('gift_sale',):
+        lines.append(f'Продан подарок: {detail} · получено {_money(amount)}')
+    elif kind in ('deposit', 'ton_deposit'):
+        lines.append(f'Зачислено: {_money(amount)}')
+    elif kind == 'transfer_sent':
+        lines.append(f'Получатель и комиссия: {detail}' if detail else '')
+        lines.append(f'Списано всего: {_money(amount)}')
+    elif kind == 'transfer_received':
+        lines.append(detail)
+        lines.append(f'Зачислено: {_money(amount)}')
+    elif kind == 'daily_top_reward':
+        lines.append(detail)
+    else:
+        lines.append(detail)
+        if amount:
+            lines.append(('Зачислено: ' if amount > 0 else 'Списано: ') + _money(amount))
+    if r['balance_after'] is not None:
+        lines.append(f'Баланс после операции: {_money(r["balance_after"])}')
+    return _ev('t' + str(r['id']), r['created_at'], kind, title, lines, amount=(amount / 100 if amount else None),
+               tone=tone, group='money', details=dict(text=detail))
+
+
+def _level_reward_text(reward):
+    kind = reward.get('type')
+    if kind == 'balance':
+        return f'Забрано за уровень: +{float(reward.get("amount") or 0):.2f} TON на баланс'
+    if kind == 'tickets':
+        return f'Забрано за уровень: {int(reward.get("tickets") or 0)} билет(ов)'
+    gift = reward.get('gift') if isinstance(reward.get('gift'), dict) else {}
+    if kind == 'gift':
+        return f'Забран подарок за уровень: {gift.get("name") or "Подарок"} ({float(gift.get("price_ton") or 0):.2f} TON)'
+    if kind == 'wager_gift':
+        return (f'Забран отыгрышный подарок за уровень: {gift.get("name") or "Подарок"} '
+                f'({float(gift.get("price_ton") or 0):.2f} TON) · X{float(gift.get("wager_multiplier") or 0):g}')
+    if kind == 'transfer_unlock':
+        return 'Забрано за уровень: доступ к переводам TON'
+    if reward.get('code'):
+        return f'Забран промокод за уровень: {reward["code"]}'
+    return 'Забрана награда за уровень'
+
+
+_EVENT_TITLES = {
+    'admin_level': 'Администратор изменил уровень',
+    'withdrawal_access': 'Изменён доступ к выводу',
+    'admin_gift_add': 'Администратор выдал подарок',
+    'admin_gift_remove': 'Администратор забрал подарок',
+    'reward_task_claim': 'Выполнено задание (билеты)',
+    'giveaway_enter': 'Участие в розыгрыше',
+    'giveaway_win': 'Победа в розыгрыше',
+    'promo_issued': 'Выдан промокод',
+    'promo_redeem': 'Активирован промокод',
+    'freebet_redeem': 'Активирован фрибет',
+    'deposit_promo_removed': 'Убран промокод на пополнение',
+    'promo_wager_burn': 'Сгорел отыгрышный подарок',
+    'daily_top_reward': 'Награда за ТОП дня',
+}
+# These are already shown as transactions / rounds / claims, so the raw event would be a duplicate.
+_EVENT_HIDDEN = {'transfer_sent', 'transfer_received', 'deposit_confirmed', 'level_claim', 'login', 'mines_start',
+                 'mines_cell', 'mines_cashout', 'upgrade', 'craft_play', 'roll', 'deposit_created',
+                 'promo_gift_expired', 'upgrade_wager_repaired'}
+
+
+def _activity_event(r):
+    kind = r['kind']
+    if kind in _EVENT_HIDDEN:
+        return None
+    try:
+        d = json.loads(r['payload'] or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+    title = _EVENT_TITLES.get(kind, 'Событие: ' + str(kind))
+    lines, tone = [], 'neutral'
+    if kind == 'admin_level':
+        lines.append(f'Уровень: {d.get("previous_level")} → {d.get("new_level")}')
+        if d.get('reset_rewards'):
+            lines.append('Награды уровней сброшены')
+    elif kind == 'withdrawal_access':
+        lines.append('Вывод включён' if d.get('enabled') else 'Вывод выключен' + (f': {d["reason"]}' if d.get('reason') else ''))
+    elif kind in ('admin_gift_add', 'admin_gift_remove'):
+        lines.append(f'Подарок: {d.get("gift_name") or "—"}')
+    elif kind == 'reward_task_claim':
+        lines.append(f'Получено билетов: {int(d.get("tickets") or 0)}')
+        tone = 'win'
+    elif kind == 'giveaway_enter':
+        lines.append(f'Использовано билетов: {int(d.get("tickets") or 0)}')
+    elif kind == 'giveaway_win':
+        lines.append(f'Место: {d.get("rank", 1)} · подарок: {d.get("gift_name") or "—"}')
+        tone = 'win'
+    elif kind == 'promo_issued':
+        lines.append(f'Код: {d.get("code")} · источник: {d.get("source") or "—"}')
+        tone = 'win'
+    elif kind in ('promo_redeem', 'freebet_redeem'):
+        lines.append(f'Код: {d.get("code")} · тип награды: {d.get("reward_type") or "—"}')
+        tone = 'win'
+    elif kind == 'deposit_promo_removed':
+        lines.append(f'Код: {d.get("code")}')
+    elif kind == 'promo_wager_burn':
+        lines.append(d.get('gift_name') or '')
+        tone = 'loss'
+    else:
+        lines.extend(f'{k}: {v}' for k, v in d.items() if not str(k).endswith('image') and not isinstance(v, (dict, list)))
+    image = d.get('gift_image') or d.get('target_image') or ''
+    return _ev('e' + str(r['id']), r['created_at'], kind, title, lines, tone=tone, image=image,
+               group='event', details=d)
+
+
+_ADMIN_ACTION_TITLES = {'max_drop_override': 'Администратор изменил «макс. дроп» профиля',
+                        'withdrawal_access': 'Администратор изменил доступ к выводу',
+                        'promo_create': 'Администратор создал промокод',
+                        'promo_issue': 'Администратор выдал промокод'}
+_ADMIN_ACTION_HIDDEN = {'balance_set', 'level_set'}
+
+
+def _activity_admin(r):
+    action = str(r['action'])
+    if action in _ADMIN_ACTION_HIDDEN:
+        return None
+    title = _ADMIN_ACTION_TITLES.get(action, 'Действие администратора: ' + action)
+    return _ev('a' + str(r['id']), r['created_at'], 'admin_action', title,
+               [str(r['details'] or '')[:300], f'Админ ID {r["admin_id"]}'], group='admin',
+               details=dict(action=action, admin_id=r['admin_id']))
+
+
 @app.get('/api/admin/users/<int:user_id>/activity')
 @admin_required
 def admin_user_activity(user_id):
@@ -8517,66 +9006,72 @@ def admin_user_activity(user_id):
     except (ValueError,TypeError):offset=0
     limit=offset+101
     events=[]
+    def add(builder, rows):
+        for row in rows:
+            try:
+                item = builder(row)
+            except Exception:
+                app.logger.warning('Skipping malformed activity row', exc_info=True)
+                continue
+            if item:
+                events.append(item)
     with connect() as db:
         if not db.execute('SELECT 1 FROM users WHERE id=?',(user_id,)).fetchone():return error('Пользователь не найден.',404)
-        for r in db.execute('SELECT * FROM user_events WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            payload=json.loads(r['payload'])
-            image=payload.get('gift_image') or payload.get('target_image') or payload.get('source_image') or ''
-            events.append(dict(id='e'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
-                               amount=None,image=image,details=payload))
-        for r in db.execute('SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='t'+str(r['id']),date=str(r['created_at']),kind=r['kind'],
-                               amount=r['amount']/100,image='',details=dict(text=r['details'],
-                               balance_after=r['balance_after']/100 if r['balance_after'] is not None else None,
-                               reference_type=r['reference_type'],reference_id=r['reference_id'])))
-        for r in db.execute('SELECT * FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
+        add(_activity_mines, db.execute('SELECT * FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall())
+        add(_activity_crash, db.execute('''SELECT b.*,r.crash_x100 AS crash_x100,r.state AS round_state
+                                           FROM crash_bets b LEFT JOIN crash_rounds r ON r.id=b.round_id
+                                           WHERE b.user_id=? ORDER BY b.round_id DESC LIMIT ?''',(user_id,limit)).fetchall())
+        add(_activity_upgrade, db.execute('SELECT * FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?',
+                                          (user_id,limit)).fetchall())
+        tx_rows = db.execute('SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall()
+        add(_activity_transaction, tx_rows)
+        event_rows = db.execute('SELECT * FROM user_events WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall()
+        add(_activity_event, event_rows)
+        seen_codes = {str(x['reference_id']) for x in tx_rows if x['reference_type'] in ('promo', 'freebet')}
+        for x in event_rows:
             try:
-                opened_cells = json.loads(r['opened'] or '[]')
+                code = json.loads(x['payload'] or '{}').get('code')
+            except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
+                code = None
+            if code and x['kind'] in ('promo_redeem', 'freebet_redeem'):
+                seen_codes.add(str(code))
+        def promo_row(r):
+            if str(r['code']) in seen_codes:
+                return None
+            return _ev('p' + str(r['code']), r['created_at'], 'promo_activation', 'Активирован промокод',
+                       [f'Код: {r["code"]} · тип награды: {r["reward_type"]}',
+                        f'Сумма: {_money(r["amount"])}' if int(r['amount'] or 0) else ''],
+                       amount=(int(r['amount'] or 0) / 100 or None), tone='win', group='money')
+        add(promo_row, db.execute('SELECT * FROM promo_redemptions WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall())
+        def roll_row(r):
+            gift = r['gift_name'] or ''
+            result = f'Выпал подарок: {gift}' if r['outcome'] == 'gift' else f'Результат: {r["outcome"]}'
+            return _ev('r' + str(r['id']), r['created_at'], 'roll_spin', 'Roll · прокрутка',
+                       [f'Ролл: {r["roll_id"]} · цена: {_money(r["price"])}', result],
+                       amount=-int(r['price'] or 0) / 100, tone='win' if r['outcome'] == 'gift' else 'loss', group='game')
+        add(roll_row, db.execute('SELECT * FROM roll_spins WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall())
+        def deposit_row(r):
+            if r['status'] == 'credited':
+                return None
+            label = {'pending': 'Заявка на пополнение создана, но не оплачена', 'expired': 'Заявка на пополнение истекла (не оплачена)'}.get(r['status'], 'Заявка на пополнение: ' + str(r['status']))
+            return _ev('d' + str(r['id']), r['created_at'], 'deposit_order', 'Пополнение TON · не завершено',
+                       [label, f'Сумма заявки: {_money(r["amount"])}', f'Промокод: {r["promo_code"]}' if r['promo_code'] else ''],
+                       tone='pending', group='money')
+        add(deposit_row, db.execute('SELECT * FROM ton_deposit_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall())
+        add(_activity_admin, db.execute('SELECT * FROM admin_log WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall())
+        def level_row(r):
+            try:
+                reward = json.loads(r['reward_json'] or '{}')
             except (TypeError, ValueError, json.JSONDecodeError):
-                opened_cells = []
-            opened_count = len(opened_cells) if isinstance(opened_cells, list) else 0
-            try:
-                multiplier = (float(r['win_multiplier']) if r['win_multiplier'] is not None
-                              else float(multiplier_for(int(r['mines']), opened_count, r['rtp_snapshot']))
-                              if opened_count else 1.0)
-            except (TypeError, ValueError, InvalidOperation):
-                multiplier = 1.0
-            events.append(dict(id='m'+str(r['id']),date=str(r['created_at']),kind='mines_round',
-                               amount=r['bet']/100,image=r['bet_gift_image'] or r['win_gift_image'],
-                               details=dict(game='Mines',mines=int(r['mines']),bet=r['bet']/100,state=r['state'],
-                                            bet_type=r['bet_type'],gift_name=r['bet_gift_name'] or r['win_gift_name'],
-                                            opened=opened_count,multiplier=round(multiplier,4),
-                                            payout=r['payout']/100)))
-        for r in db.execute('SELECT * FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?',
-                            (user_id,limit)).fetchall():
-            events.append(dict(id='u'+str(r['id']),date=str(r['created_at']),kind='upgrade',
-                               amount=-int(r['source_price'] or 0)/100,
-                               image=(r['target_image'] if r['won'] else r['source_image']) or '',
-                               details=dict(game='Upgrade',source_name=r['source_name'] or 'Ставка',
-                                            target_name=r['target_name'] or 'Цель',
-                                            source_price=int(r['source_price'] or 0)/100,
-                                            target_price=int(r['target_price'] or 0)/100,
-                                            chance=int(r['chance_bp'] or 0)/100,
-                                            won=bool(r['won']))))
-        for r in db.execute('SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='w'+str(r['id']),date=str(r['created_at']),kind='withdrawal',amount=0,
-                               image=r['image_url'],details=dict(gift_name=r['gift_name'],status=r['status'])))
-        for r in db.execute('SELECT * FROM promo_redemptions WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='p'+r['code'],date=str(r['created_at']),kind='promo_activation',amount=r['amount']/100,
-                               image='',details=dict(code=r['code'],reward_type=r['reward_type'],consumed_at=r['consumed_at'])))
-        for r in db.execute('SELECT * FROM roll_spins WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='r'+r['id'],date=str(r['created_at']),kind='roll_spin',amount=-r['price']/100,
-                               image='',details=dict(roll_id=r['roll_id'],outcome=r['outcome'],gift_name=r['gift_name'])))
-        for r in db.execute('SELECT * FROM ton_deposit_orders WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='d'+r['id'],date=str(r['created_at']),kind='deposit_order',amount=r['amount']/100,
-                               image='',details=dict(status=r['status'],promo_code=r['promo_code'],order_id=r['id'])))
-        for r in db.execute('SELECT * FROM admin_log WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall():
-            events.append(dict(id='a'+str(r['id']),date=str(r['created_at']),kind='admin_action',amount=None,
-                               image='',details=dict(action=r['action'],text=r['details'],admin_id=r['admin_id'])))
-        for r in db.execute('SELECT * FROM level_claims WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall():
-            reward=json.loads(r['reward_json'])
-            events.append(dict(id='l'+str(r['level']),date=str(r['created_at']),kind='level_claim',amount=None,
-                               image=(reward.get('gift') or {}).get('image_url',''),details=dict(level=r['level'],reward=reward)))
+                reward = {}
+            if not isinstance(reward, dict):
+                reward = {}
+            amount = float(reward.get('amount') or 0) if reward.get('type') == 'balance' else None
+            gift = reward.get('gift') if isinstance(reward.get('gift'), dict) else {}
+            return _ev('l' + str(r['level']), r['created_at'], 'level_claim', f'Награда за уровень {r["level"]}',
+                       [_level_reward_text(reward)], amount=amount, tone='win', image=gift.get('image_url') or '',
+                       group='money', details=dict(level=r['level'], reward=reward))
+        add(level_row, db.execute('SELECT * FROM level_claims WHERE user_id=? ORDER BY created_at DESC LIMIT ?',(user_id,limit)).fetchall())
     events.sort(key=lambda x:(x['date'],x['id']),reverse=True)
     return jsonify(items=events[offset:offset+100],has_more=len(events)>offset+100)
 
@@ -9903,6 +10398,7 @@ if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
 
 if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
     repair_legacy_upgrade_wagers()
+    repair_zero_price_top_gifts()
 start_background(log_pruner_loop, 660104)
 
 

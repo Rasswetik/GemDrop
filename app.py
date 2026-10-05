@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '74-stars-deposit-withdraw-lock'
+BUILD_ID = '76-stars-ui-promo-delete-polish'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -556,6 +556,7 @@ def _initialize_schema():
         ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('user_notifications', [('giveaway_id', 'INTEGER')])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('inventory', [('source_label', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('giveaways', [('archived', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('user_notifications', [('delivery_state', "TEXT NOT NULL DEFAULT 'none'"),
                        ('delivery_attempts','INTEGER NOT NULL DEFAULT 0'),('delivery_next_at','INTEGER NOT NULL DEFAULT 0')])
@@ -1559,6 +1560,7 @@ def inventory_item(row):
                 fragment_number=optional('fragment_number'), fragment_model=optional('fragment_model'),
                 fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
                 price_source=optional('price_source'), animation_url=optional('animation_url'),
+                source_label=optional('source_label'),
                 promo_locked=locked, promo_code=row['promo_code'] or '',
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                 wager_target=target/100, wager_progress=progress/100,
@@ -2545,6 +2547,7 @@ def daily_top_schedule_view(mode, now_utc=None):
         seconds_left=max(0, int((end-now_utc).total_seconds())),
         reset_at=reset_at.isoformat().replace('+00:00', 'Z') if reset_at else None,
         custom=custom,
+        period_label=_daily_top_period_label(start,end),
     )
 
 
@@ -2809,6 +2812,15 @@ def _daily_top_period_key(start_utc, end_utc):
     return start_utc.strftime('%Y-%m-%dT%H:%M:%SZ')+'_'+end_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
+def _daily_top_period_label(start_utc, end_utc):
+    """Human-readable TOP-DROP range in the configured +03:00 timezone, without time."""
+    start_date=start_utc.astimezone(DAILY_TOP_TZ).date()
+    end_date=end_utc.astimezone(DAILY_TOP_TZ).date()
+    start_text=start_date.strftime('%d.%m.%Y')
+    end_text=end_date.strftime('%d.%m.%Y')
+    return start_text if start_date==end_date else f'{start_text}–{end_text}'
+
+
 def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
     if not reward or reward.get('type')=='none':
         return False
@@ -2844,27 +2856,29 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
     reward=refresh_top_reward_price(reward)
     reward_type=reward.get('type')
     title='Mines' if mode=='mines' else 'Upgrade'
+    period_label=_daily_top_period_label(start_utc,end_utc)
+    top_source_label=f'От ТОП дня ({period_label})'
     if reward_type=='gram':
         cents=max(0,int((Decimal(str(reward.get('amount') or 0))*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)))
         if cents:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cents,uid))
             record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{period_key}:{mode}',
-                               f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
-        detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
+                               f'Награда за ТОП дня {title} ({period_label}): {reward.get("amount")} GRAM')
+        detail=f'🏆 Вы заняли ТОП дня в {title} ({period_label}). Награда: {reward.get("amount")} GRAM.'
     else:
         source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
         cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                         external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
-                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (uid,str(reward.get('gift_id') or ''),str(reward.get('gift_name') or 'Подарок'),
                         safe_image(reward.get('image_url')),int(reward.get('floor_price') or 0),source,
                         str(reward.get('fragment_url') or ''),str(reward.get('fragment_number') or ''),
                         str(reward.get('fragment_model') or ''),str(reward.get('fragment_backdrop') or ''),
                         str(reward.get('fragment_symbol') or ''),str(reward.get('price_source') or ''),
-                        safe_image(reward.get('animation_url'))))
+                        safe_image(reward.get('animation_url')),top_source_label))
         record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
-                           f'Награда за ТОП дня {title}: {reward.get("gift_name") or "Подарок"}')
-        detail=f'🏆 Вы заняли ТОП дня в {title}. Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
+                           f'Награда за ТОП дня {title} ({period_label}): {reward.get("gift_name") or "Подарок"}')
+        detail=f'🏆 Вы заняли ТОП дня в {title} ({period_label}). Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
     add_user_notification(db,uid,'daily_top_reward',detail)
     return True
 
@@ -2885,20 +2899,12 @@ def settle_previous_daily_top_rewards(db):
         end=parse_datetime_utc(raw.get('end_at')) if isinstance(raw,dict) else None
 
         if start and end and end>start:
-            # Закрываем все истёкшие циклы по порядку. Ограничение защищает
-            # от повреждённого документа с очень старой датой.
-            loops=0
-            while end<=now_utc and loops<370:
+            # A configured TOP-DROP timer is one continuous competition. If it runs
+            # from the 8th to the 11th, the leader is kept for that entire range and
+            # exactly one prize is settled at the end; there are no hidden daily resets.
+            if end<=now_utc:
                 _settle_daily_top_period(db,mode,start,end,reward)
-                start=end
-                end=start+DAILY_TOP_CYCLE
-                loops+=1
-            if loops:
-                schedules[mode]={
-                    'start_at':_daily_top_db_string(start),
-                    'end_at':_daily_top_db_string(end),
-                    'cycle_minutes':1440,
-                }
+                schedules.pop(mode,None)
                 schedule_changed=True
             continue
 
@@ -9015,6 +9021,37 @@ def admin_issue_user_promocode(user_id):
         db.close()
 
 
+@app.delete('/api/admin/users/<int:user_id>/promocodes/<code>')
+@admin_required
+def admin_delete_user_promocode(user_id, code):
+    code=str(code or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}',code):
+        return error('Промокод указан неверно.',400)
+    db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        promo=db.execute('SELECT * FROM promo_codes WHERE code=? AND assigned_user_id=?'+
+                         (' FOR UPDATE' if DATABASE_URL else ''),(code,user_id)).fetchone()
+        if not promo:
+            return error('Личный промокод пользователя не найден.',404)
+        used=bool(int(promo['uses_count'] or 0))
+        # Removing a personal promo removes the code from the user's bonus list and
+        # prevents any future activation. Already credited balance/gifts are not
+        # clawed back; their transaction/event history remains intact.
+        db.execute('UPDATE promo_codes SET active=0 WHERE code=? AND assigned_user_id=?',(code,user_id))
+        db.execute('DELETE FROM promo_redemptions WHERE code=? AND user_id=?',(code,user_id))
+        db.execute('DELETE FROM promo_views WHERE code=? AND user_id=?',(code,user_id))
+        db.execute('DELETE FROM promo_codes WHERE code=? AND assigned_user_id=?',(code,user_id))
+        action='deleted_after_use' if used else 'deleted'
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],user_id,'promo_remove',f'{code}:{action}'))
+        log_event(db,user_id,'promo_removed',code=code,admin_id=session['uid'],result=action)
+        db.commit()
+        return jsonify(ok=True,code=code,deleted=True,previously_used=used)
+    finally:
+        db.close()
+
+
 @app.post('/api/admin/users/<int:user_id>/level')
 @admin_required
 def admin_user_level(user_id):
@@ -10050,8 +10087,8 @@ def create_stars_deposit():
         amount = parse_amount(data.get('amount'))
     except (ValueError, InvalidOperation, TypeError):
         return error('Введите сумму с точностью до 0.01 TON.')
-    if not 10 <= amount <= 100000000:
-        return error('Сумма пополнения должна быть от 0.10 до 1 000 000 TON.')
+    if not 1 <= amount <= 100000000:
+        return error('Сумма пополнения должна быть от 0.01 до 1 000 000 TON.')
     stars_amount = max(1, int(math.ceil(amount * int(settings['stars_per_ton']) / 100)))
     order_id = secrets.token_urlsafe(18).replace('-', '').replace('_', '')[:24]
     invoice_payload = f'stars:{order_id}'

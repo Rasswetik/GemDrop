@@ -798,6 +798,56 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual([x['video_id'] for x in snap['videos']],['v1','v2'])
         self.assertEqual([x['views'] for x in snap['videos']],[10,20])
 
+    def test_youtube_public_fallback_without_api_key(self):
+        page = '''
+        <html><head>
+          <meta property="og:title" content="Creator Public">
+          <meta property="og:image" content="https://example.com/avatar.jpg">
+          <link rel="canonical" href="https://www.youtube.com/@creator">
+          <meta itemprop="channelId" content="UC1234567890123456789012">
+        </head>
+        <body>{"subscriberCountText":{"simpleText":"1.2K subscribers"}}</body></html>
+        '''
+        feed = b'''<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom"
+              xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+              xmlns:media="http://search.yahoo.com/mrss/">
+          <entry>
+            <yt:videoId>abcDEF12345</yt:videoId>
+            <title>GemDrop public video</title>
+            <published>2026-01-01T00:00:00+00:00</published>
+            <link rel="alternate" href="https://www.youtube.com/watch?v=abcDEF12345"/>
+            <media:group>
+              <media:description>test</media:description>
+              <media:thumbnail url="https://example.com/v.jpg"/>
+              <media:community><media:statistics views="321"/></media:community>
+            </media:group>
+          </entry>
+          <entry>
+            <yt:videoId>zzzYYY12345</yt:videoId>
+            <title>Other video</title>
+            <published>2026-01-02T00:00:00+00:00</published>
+            <media:group><media:description>nothing</media:description></media:group>
+          </entry>
+        </feed>'''
+
+        class FakeResponse:
+            def __init__(self, text='', content=b''):
+                self.text = text
+                self.content = content
+
+        def fake_public_get(url, params=None):
+            return FakeResponse(content=feed) if 'feeds/videos.xml' in url else FakeResponse(text=page)
+
+        with patch.object(m,'YOUTUBE_API_KEY',''), patch.object(m,'youtube_public_get',side_effect=fake_public_get):
+            snap=m.youtube_channel_snapshot('https://youtube.com/@creator')
+        self.assertEqual(snap['source'],'public')
+        self.assertEqual(snap['title'],'Creator Public')
+        self.assertEqual(snap['subscribers'],1200)
+        self.assertEqual(snap['channel_id'],'UC1234567890123456789012')
+        self.assertEqual(len(snap['videos']),1)
+        self.assertEqual(snap['videos'][0]['views'],321)
+
     def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'

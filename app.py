@@ -7627,8 +7627,8 @@ def effective_games():
 
 
 # ================================== Arena ==================================
-ARENA_BETTING_MS = 15000      # countdown starts together with the very first bet
-ARENA_RESULT_MS = 8000        # how long the finished round (winner animation + result) stays on screen
+ARENA_BETTING_MS = 20000      # first bet starts a 20s round; a lone bet is refunded after it closes
+ARENA_RESULT_MS = 9000        # enough time for the eased winner animation and a short result hold
 ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
 
 

@@ -10334,7 +10334,10 @@ def creator_create_bonus():
             return error(f'Дневной лимит отыгрышных подарков: {cfg["wager_daily_limit"]}.', 409)
         source = 'Freebet' if kind == 'freebet' else 'Creator'
         active = 0 if kind == 'freebet' else 1
-        promo_max_uses = 0 if kind == 'freebet' else max_uses
+        # Keep the real activation cap on the backing promo as well. Besides making
+        # the record self-describing, this prevents a Freebet from under-counting
+        # its potential TON cost in the creator daily budget audit.
+        promo_max_uses = max_uses
         db.execute("""INSERT INTO promo_codes(
                     code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                     max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,

@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '71-final-stability-audit'
+BUILD_ID = '72-topdrop-startup-deadlock-fix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -10733,12 +10733,6 @@ def start_background(target, lock_id):
         Thread(target=singleton_background, args=(target, lock_id), daemon=True).start()
 
 
-start_background(portal_auto_loop, 660101)
-start_background(daily_top_settlement_loop, 660105)
-if BOT_TOKEN:
-    start_background(activity_notification_loop, 660102)
-
-
 def configure_bot():
     global BOT_USERNAME
     if not BOT_TOKEN or not WEBAPP_URL.startswith('https://'):
@@ -10771,13 +10765,21 @@ def configure_bot():
                        type(last_error).__name__ if last_error else 'unknown')
 
 
-if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
-    start_background(configure_bot, 660103)
-
-
+# One-time migrations/repairs must finish before any infinite background leader
+# acquires an advisory lock. Otherwise an overlapping lock id can freeze app import
+# before Flask starts accepting HTTP requests.
 if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
     repair_legacy_upgrade_wagers()
     repair_zero_price_top_gifts()
+
+# Keep perpetual background-leader lock ids in their own range, separate from
+# transaction/migration locks (660105/660106 above).
+start_background(portal_auto_loop, 660101)
+start_background(daily_top_settlement_loop, 661201)
+if BOT_TOKEN:
+    start_background(activity_notification_loop, 660102)
+if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
+    start_background(configure_bot, 660103)
 start_background(log_pruner_loop, 660104)
 
 

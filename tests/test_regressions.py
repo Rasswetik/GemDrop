@@ -696,6 +696,20 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('<tg-emoji emoji-id="12345678901">🔥</tg-emoji>',html)
         self.assertNotIn('🎁 <b>QA gift</b>',html)
 
+    def test_creator_panel_can_hide_and_reveal_with_secret_code(self):
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}',{})
+        me=self.client.get('/api/me').get_json()['user']
+        self.assertTrue(me['creator'])
+        self.assertTrue(me['creator_button_visible'])
+        hidden=self.post('/api/creator/panel-visibility',{'hidden':True})
+        self.assertTrue(hidden['panel_hidden'])
+        self.assertFalse(hidden['user']['creator_button_visible'])
+        self.post('/api/creator/reveal',{'code':'665'},403)
+        shown=self.post('/api/creator/reveal',{'code':'666'})
+        self.assertFalse(shown['panel_hidden'])
+        self.assertTrue(shown['user']['creator_button_visible'])
+
     def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'

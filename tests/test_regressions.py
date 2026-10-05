@@ -848,9 +848,11 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(len(snap['videos']),1)
         self.assertEqual(snap['videos'][0]['views'],321)
 
-    def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
+    def test_creator_demo_is_isolated_and_plays_with_demo_assets(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'
+        },{
+            'id':'qa-demo-target','name':'Demo Target','price_ton':3,'image_url':'https://example.com/target.png'
         }]})
         with patch.object(m,'ADMIN_IDS',{self.uid}):
             self.post(f'/api/admin/creators/{self.uid}',{})
@@ -864,10 +866,33 @@ class RegressionTests(unittest.TestCase):
         inv=self.client.get('/api/inventory').get_json()
         self.assertTrue(inv['demo'])
         self.assertEqual(inv['items'][0]['name'],'Demo Gift')
-        self.assertEqual(self.post('/api/game/start',{'mines':3,'bet':'1.00'},409)['error'],
-                         'Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.')
+        demo_id=inv['items'][0]['id']
+        preview=self.client.get(f'/api/upgrade/preview?inventory_id={demo_id}&gift_id=qa-demo-target')
+        self.assertEqual(preview.status_code,200,preview.get_json())
+        spin=self.post('/api/upgrade/spin',{'request_id':'demo-upgrade-request-01',
+                                           'inventory_id':demo_id,'gift_id':'qa-demo-target'})
+        self.assertTrue(spin['demo'])
+        mines=self.post('/api/game/start',{'mines':3,'bet':'1.00'})
+        self.assertTrue(mines['demo'])
+        self.assertEqual(mines['round']['state'],'active')
         with m.connect() as db:
             self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?',(self.uid,)).fetchone()['balance'],10000)
+            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM rounds WHERE user_id=?',(self.uid,)).fetchone()['n'],0)
+
+    def test_arena_game_mode_is_admin_switchable(self):
+        self.assertIn('arena',m.GAME_KEYS)
+        self.assertFalse(m.game_available('arena',False))
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            saved=self.post('/api/admin/section-settings',{'games':{'arena':'on'}})
+        self.assertEqual(saved['game_modes']['arena'],'on')
+        state=self.client.get('/api/arena/state')
+        self.assertEqual(state.status_code,200,state.get_json())
+        self.assertTrue(state.get_json()['available'])
+
+    def test_arena_weighted_winner_selection(self):
+        bets=[{'user_id':11,'bet':100},{'user_id':22,'bet':200},{'user_id':33,'bet':100}]
+        with patch.object(m.secrets,'randbelow',return_value=250):
+            self.assertEqual(m.arena_pick_winner(bets),22)
 
     def test_level_changes_do_not_send_bot_notifications(self):
         with patch.object(m,'notify_user_async') as send,patch.object(m,'send_user_notification') as direct:

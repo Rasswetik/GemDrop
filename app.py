@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
@@ -9041,7 +9042,7 @@ def youtube_channel_ref(value):
 
 def youtube_api_get(path, params):
     if not YOUTUBE_API_KEY:
-        raise RuntimeError('YouTube API не настроен. Добавьте YOUTUBE_API_KEY в окружение сервера.')
+        raise RuntimeError('YouTube API key не настроен.')
     payload = dict(params or {})
     payload['key'] = YOUTUBE_API_KEY
     try:
@@ -9056,7 +9057,178 @@ def youtube_api_get(path, params):
     return data
 
 
-def youtube_channel_snapshot(value):
+YOUTUBE_PUBLIC_HEADERS = {
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/124.0 Safari/537.36'),
+    'Accept-Language': 'en-US,en;q=0.9',
+}
+
+
+def youtube_public_get(url, params=None):
+    try:
+        response = requests.get(url, params=params or None, headers=YOUTUBE_PUBLIC_HEADERS,
+                                timeout=(4, 14), allow_redirects=True)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as exc:
+        raise RuntimeError('Не удалось получить публичные данные YouTube. Попробуйте позже.') from exc
+
+
+def youtube_meta_content(page, key):
+    escaped = re.escape(str(key))
+    patterns = [
+        rf'<meta[^>]+(?:property|name|itemprop)=["\']{escaped}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name|itemprop)=["\']{escaped}["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, page, re.I)
+        if match:
+            return unescape(match.group(1)).strip()
+    return ''
+
+
+def youtube_human_count(label):
+    value = str(label or '').replace('\\u00a0', ' ').replace('\\u202f', ' ').strip()
+    match = re.search(r'([0-9]+(?:[.,][0-9]+)?)\s*([KMB])\b', value, re.I)
+    if match:
+        number = float(match.group(1).replace(',', '.'))
+        multiplier = {'K': 1000, 'M': 1000000, 'B': 1000000000}[match.group(2).upper()]
+        return int(round(number * multiplier))
+    plain = re.search(r'([0-9][0-9,\s]*)\s+subscribers?\b', value, re.I)
+    if plain:
+        digits = re.sub(r'\D', '', plain.group(1))
+        return int(digits) if digits else None
+    return None
+
+
+def youtube_public_subscribers(page):
+    patterns = [
+        r'"subscriberCountText":\{"simpleText":"([^"]+)"',
+        r'"subscriberCountText":\{"runs":\[\{"text":"([^"]+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, page)
+        if match:
+            count = youtube_human_count(match.group(1))
+            if count is not None:
+                return count
+    return None
+
+
+def youtube_public_channel_id(page):
+    patterns = [
+        r'"externalId":"(UC[A-Za-z0-9_-]{20,})"',
+        r'<meta[^>]+itemprop=["\']channelId["\'][^>]+content=["\'](UC[A-Za-z0-9_-]{20,})["\']',
+        r'<meta[^>]+content=["\'](UC[A-Za-z0-9_-]{20,})["\'][^>]+itemprop=["\']channelId["\']',
+        r'feeds/videos\.xml\?channel_id=(UC[A-Za-z0-9_-]{20,})',
+        r'youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})',
+        r'"channelId":"(UC[A-Za-z0-9_-]{20,})"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, page, re.I)
+        if match:
+            return match.group(1)
+    return ''
+
+
+def youtube_public_handle(page, fallback=''):
+    match = re.search(r'"vanityChannelUrl":"https?://(?:www\.)?youtube\.com/@([^"\\]+)', page, re.I)
+    if match:
+        return '@' + unescape(match.group(1)).strip().lstrip('@')
+    match = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']https?://(?:www\.)?youtube\.com/@([^"\']+)', page, re.I)
+    if match:
+        return '@' + unescape(match.group(1)).strip().lstrip('@')
+    return ('@' + str(fallback).lstrip('@')) if fallback else ''
+
+
+def youtube_public_gemdrop_videos(channel_id):
+    if not re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', str(channel_id or '')):
+        return []
+    response = youtube_public_get('https://www.youtube.com/feeds/videos.xml',
+                                  {'channel_id': channel_id})
+    try:
+        root = ET.fromstring(response.content)
+    except (ET.ParseError, TypeError, ValueError) as exc:
+        raise RuntimeError('YouTube вернул некорректную ленту канала.') from exc
+    ns = {
+        'atom': 'http://www.w3.org/2005/Atom',
+        'yt': 'http://www.youtube.com/xml/schemas/2015',
+        'media': 'http://search.yahoo.com/mrss/',
+    }
+    matches = []
+    for entry in root.findall('atom:entry', ns):
+        title = str(entry.findtext('atom:title', default='', namespaces=ns) or '')
+        group = entry.find('media:group', ns)
+        description = ''
+        thumbnail_url = ''
+        views = 0
+        if group is not None:
+            description = str(group.findtext('media:description', default='', namespaces=ns) or '')
+            thumbnail = group.find('media:thumbnail', ns)
+            if thumbnail is not None:
+                thumbnail_url = str(thumbnail.attrib.get('url') or '')
+            community = group.find('media:community', ns)
+            statistics = community.find('media:statistics', ns) if community is not None else None
+            if statistics is not None:
+                try:
+                    views = max(0, int(statistics.attrib.get('views') or 0))
+                except (TypeError, ValueError):
+                    views = 0
+        if 'gemdrop' not in title.casefold() and '#gemdrop' not in description.casefold():
+            continue
+        video_id = str(entry.findtext('yt:videoId', default='', namespaces=ns) or '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{6,20}', video_id):
+            continue
+        link = entry.find('atom:link[@rel="alternate"]', ns)
+        video_url = str(link.attrib.get('href') or '') if link is not None else ''
+        matches.append(dict(
+            video_id=video_id,
+            title=title or 'Видео',
+            thumbnail_url=safe_image(thumbnail_url),
+            published_at=str(entry.findtext('atom:published', default='', namespaces=ns) or ''),
+            views=views,
+            url=video_url or ('https://www.youtube.com/watch?v=' + video_id),
+        ))
+        if len(matches) >= 20:
+            break
+    return matches
+
+
+def youtube_public_channel_snapshot(value):
+    kind, ref = youtube_channel_ref(value)
+    page_url = ('https://www.youtube.com/channel/' + ref
+                if kind == 'id' else 'https://www.youtube.com/@' + ref)
+    response = youtube_public_get(page_url, {'hl': 'en'})
+    page = response.text or ''
+    channel_id = ref if kind == 'id' else youtube_public_channel_id(page)
+    if not re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', channel_id or ''):
+        raise ValueError('YouTube-канал не найден или YouTube временно не отдал публичные данные.')
+    title = youtube_meta_content(page, 'og:title')
+    if not title:
+        title_match = re.search(r'<title>(.*?)</title>', page, re.I | re.S)
+        title = unescape(title_match.group(1)).strip() if title_match else 'YouTube'
+        title = re.sub(r'\s*-\s*YouTube\s*$', '', title, flags=re.I)
+    avatar = youtube_meta_content(page, 'og:image')
+    handle = youtube_public_handle(page, ref if kind == 'handle' else '')
+    subscribers = youtube_public_subscribers(page)
+    snapshot = dict(
+        channel_id=channel_id,
+        url=('https://www.youtube.com/' + handle) if handle else ('https://www.youtube.com/channel/' + channel_id),
+        title=str(title or 'YouTube'),
+        handle=handle,
+        avatar_url=safe_image(avatar),
+        subscribers=subscribers,
+        subscriber_count_hidden=subscribers is None,
+        uploads_playlist='UU' + channel_id[2:],
+        updated_at=datetime.now(timezone.utc).isoformat(),
+        source='public',
+    )
+    snapshot['videos'] = youtube_public_gemdrop_videos(channel_id)
+    return snapshot
+
+
+def youtube_api_channel_snapshot(value):
     kind, ref = youtube_channel_ref(value)
     params = {'part': 'snippet,statistics,contentDetails'}
     params['id' if kind == 'id' else 'forHandle'] = ref
@@ -9081,12 +9253,24 @@ def youtube_channel_snapshot(value):
         subscriber_count_hidden=bool(stats.get('hiddenSubscriberCount')),
         uploads_playlist=str(uploads),
         updated_at=datetime.now(timezone.utc).isoformat(),
+        source='api',
     )
-    snapshot['videos'] = youtube_gemdrop_videos(snapshot)
+    snapshot['videos'] = youtube_api_gemdrop_videos(snapshot)
     return snapshot
 
 
-def youtube_gemdrop_videos(channel):
+def youtube_channel_snapshot(value):
+    if YOUTUBE_API_KEY:
+        try:
+            return youtube_api_channel_snapshot(value)
+        except (RuntimeError, ValueError):
+            # Quota, invalid/expired key or a temporary Google API problem must not
+            # break the creator program. Public channel data is enough for GemDrop.
+            pass
+    return youtube_public_channel_snapshot(value)
+
+
+def youtube_api_gemdrop_videos(channel):
     playlist_id = str((channel or {}).get('uploads_playlist') or '')
     if not playlist_id:
         return []
@@ -9212,7 +9396,8 @@ def creator_state():
         demo_balance=record['demo_balance_cents']/100,
         demo_inventory=record['demo_inventory'],
         youtube=record.get('youtube') or {},
-        youtube_configured=bool(YOUTUBE_API_KEY),
+        youtube_configured=True,
+        youtube_mode=('api' if YOUTUBE_API_KEY else 'public'),
     )
 
 

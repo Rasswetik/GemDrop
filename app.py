@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '82-creator-chat-promos'
+BUILD_ID = '83-arena-demo-author-fixes'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -923,6 +923,8 @@ def creator_record(user_id):
         demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
         demo_balance_cents=demo_balance,
         demo_inventory=clean_inventory,
+        demo_round=(dict(raw.get('demo_round')) if isinstance(raw.get('demo_round'), dict) else {}),
+        demo_crash=(dict(raw.get('demo_crash')) if isinstance(raw.get('demo_crash'), dict) else {}),
         youtube=dict(youtube),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
@@ -942,6 +944,10 @@ def save_creator_record(user_id, data):
     if not isinstance(current.get('demo_inventory'), list):
         current['demo_inventory'] = []
     current['demo_inventory'] = current['demo_inventory'][:200]
+    if not isinstance(current.get('demo_round'), dict):
+        current['demo_round'] = {}
+    if not isinstance(current.get('demo_crash'), dict):
+        current['demo_crash'] = {}
     if not isinstance(current.get('youtube'), dict):
         current['youtube'] = {}
     current['updated_at'] = datetime.now(timezone.utc).isoformat()
@@ -953,6 +959,117 @@ def save_creator_record(user_id, data):
 
 def creator_demo_active(user_id):
     return bool(user_id and creator_record(user_id).get('demo_enabled'))
+
+
+
+def creator_demo_item(record, item_id):
+    try:
+        item_id = int(item_id)
+    except (TypeError, ValueError):
+        return None
+    return next((dict(x) for x in (record.get('demo_inventory') or [])
+                 if int(x.get('id') or 0) == item_id), None)
+
+
+def creator_demo_price_cents(item):
+    try:
+        return ton_to_cents(item.get('price_ton') or 0)
+    except (ValueError, TypeError, InvalidOperation):
+        return 0
+
+
+def creator_demo_next_id(items):
+    return max([int(x.get('id') or 0) for x in (items or [])] + [0]) + 1
+
+
+def creator_demo_catalog_item(gift, item_id, source='creator_demo_win'):
+    return dict(
+        id=int(item_id), gift_id=str(gift.get('id') or ''), name=str(gift.get('name') or 'Подарок'),
+        image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+        price_ton=float(gift.get('price_ton') or 0), source=source,
+        created_at=datetime.now(timezone.utc).isoformat(), external_url='',
+        fragment_url='', fragment_number='', fragment_model='', fragment_backdrop='',
+        fragment_symbol='', price_source='DEMO', animation_url='',
+        source_label='DEMO', promo_locked=False, promo_code='', wager_multiplier=0,
+        wager_target=0, wager_progress=0, wager_complete=False, wager_percent=0,
+        wager_attempts_total=1, wager_attempts_remaining=1, wager_burn_on_loss=True,
+        unlock_target=None, expires_at=None, expires_in_seconds=None,
+    )
+
+
+def creator_demo_round_view(round_data, reveal=False):
+    if not round_data:
+        return None
+    opened = [int(x) for x in round_data.get('opened', [])]
+    mines = int(round_data.get('mines') or 3)
+    bet = int(round_data.get('bet') or 0)
+    state = str(round_data.get('state') or 'active')
+    factor = multiplier_for(mines, len(opened), game_rtp()) if opened else 1.0
+    amount = int((Decimal(bet) * Decimal(str(factor))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    bet_gift = dict(round_data.get('bet_gift') or {}) or None
+    return dict(
+        id=round_data.get('id'), bet=bet/100, bet_type=round_data.get('bet_type') or 'ton',
+        bet_gift=bet_gift, mines=mines, opened=opened, state=state,
+        multiplier=round(factor, 6), potential=amount/100,
+        positions=list(round_data.get('positions') or []) if reveal or state != 'active' else [],
+        payout=int(round_data.get('payout') or 0)/100, prize=round_data.get('prize'),
+        awarded=round_data.get('awarded'), lost_cell=round_data.get('lost_cell'),
+        promo_progress_after=0, demo=True,
+    )
+
+
+def creator_demo_crash_view(bet):
+    if not bet:
+        return None
+    return dict(
+        bet=int(bet.get('bet') or 0)/100, auto=int(bet.get('auto_x100') or 0)/100,
+        state=str(bet.get('state') or 'active'),
+        cashout=int(bet.get('cashout_x100') or 0)/100,
+        payout=int(bet.get('payout') or 0)/100,
+        bet_type=str(bet.get('bet_type') or 'ton'), promo=False,
+        promo_min=CRASH_PROMO_MIN_X100/100,
+        bet_gift=dict(bet.get('bet_gift') or {}) or None,
+        prize=dict(bet.get('prize') or {}) or None,
+        demo=True,
+    )
+
+
+def creator_demo_crash_payload(db, uid, now):
+    payload = crash_state_payload(db, uid, now)
+    record = creator_record(uid)
+    demo = dict(record.get('demo_crash') or {})
+    current_id = int((payload.get('round') or {}).get('id') or 0)
+    phase = payload.get('phase')
+    changed = False
+    if demo and int(demo.get('round_id') or 0) == current_id and demo.get('state') == 'active' and phase == 'crashed':
+        crash_x100 = int(round(float((payload.get('round') or {}).get('crash') or 1) * 100))
+        auto = int(demo.get('auto_x100') or 0)
+        if auto >= 101 and auto <= crash_x100:
+            payout = int(demo.get('bet') or 0) * auto // 100
+            demo.update(state='won', cashout_x100=auto, payout=payout)
+            record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout
+        else:
+            demo.update(state='lost', cashout_x100=0, payout=0)
+        changed = True
+    if changed:
+        record = save_creator_record(uid, {
+            'demo_balance_cents': record['demo_balance_cents'],
+            'demo_crash': demo,
+        })
+    payload['my_bet'] = creator_demo_crash_view(demo) if demo and int(demo.get('round_id') or 0) == current_id else None
+    payload['balance'] = int(record.get('demo_balance_cents') or 0)/100
+    payload['demo'] = True
+    if payload['my_bet']:
+        user = current_user()
+        payload['bets'] = [x for x in payload.get('bets', []) if int(x.get('user_id') or 0) != int(uid)]
+        payload['bets'].append(dict(
+            user_id=uid, name=user['name'], photo_url=user['photo_url'] or '',
+            bet=payload['my_bet']['bet'], bet_type=payload['my_bet']['bet_type'],
+            promo=False, bet_gift=payload['my_bet']['bet_gift'],
+            state=payload['my_bet']['state'], cashout=payload['my_bet']['cashout'],
+            payout=payload['my_bet']['payout'], prize=payload['my_bet']['prize'], demo=True,
+        ))
+    return payload
 
 
 def profile():
@@ -1167,8 +1284,7 @@ def enforce_available_modes():
     uid = session.get('uid')
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/game/', '/api/upgrade/spin', '/api/crash/', '/api/inventory/',
-            '/api/transfers/send', '/api/deposit', '/api/stars'
+            '/api/inventory/', '/api/transfers/send', '/api/deposit', '/api/stars'
         )
         if any(path.startswith(prefix) for prefix in real_money_prefixes):
             return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
@@ -2525,6 +2641,31 @@ def upgrade_settings():
 def upgrade_preview():
     amount_text=request.args.get('amount')
     item_text=request.args.get('inventory_id')
+    if creator_demo_active(session['uid']):
+        if bool(amount_text)==bool(item_text):
+            return error('Выберите TON или подарок для ставки.')
+        record=creator_record(session['uid'])
+        source=None
+        if amount_text:
+            try: source_price=parse_amount(amount_text)
+            except (ValueError,InvalidOperation,TypeError): return error('Укажите ставку в TON с точностью до 0.01.')
+            if not 10<=source_price<=MAX_UPGRADE_BET_CENTS: return error('Ставка TON: от 0.10 до 1 000.')
+            if int(record.get('demo_balance_cents') or 0)<source_price: return error('Недостаточно DEMO TON для ставки.')
+            source_view=dict(type='ton',id=None,name='TON',image_url='/static/img/ton.png',price_ton=source_price/100,demo=True)
+        else:
+            source=creator_demo_item(record,item_text)
+            if not source: return error('Выберите доступный DEMO-подарок из инвентаря.')
+            source_price=creator_demo_price_cents(source)
+            if source_price>MAX_UPGRADE_BET_CENTS: return error('Максимальная стоимость ставки — 1 000 TON.')
+            source_view=dict(source,type='gift',demo=True)
+        target=upgrade_target(request.args.get('gift_id'))
+        if not target: return error('Целевой подарок не найден в каталоге Portal.')
+        chance=upgrade_chance(source_price,target['price'],upgrade_rtp_basis_points())
+        if not chance: return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
+                       image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
+                       probability=chance/10000,rtp=upgrade_rtp_basis_points()/100,
+                       loss_rtp_boost=0,game_loss_ton=0,demo=True)
     if bool(amount_text)==bool(item_text):return error('Выберите TON или подарок для ставки.')
     if amount_text:
         try:source_price=parse_amount(amount_text)
@@ -3094,6 +3235,41 @@ def upgrade_spin():
         except (ValueError,TypeError):return error('Выберите свой подарок.')
     target=upgrade_target(data.get('gift_id'))
     if not target:return error('Целевой подарок не найден в каталоге Portal.')
+    if creator_demo_active(session['uid']):
+        record=creator_record(session['uid'])
+        items=list(record.get('demo_inventory') or [])
+        if amount_text:
+            source_price=ton_price
+            if int(record.get('demo_balance_cents') or 0)<source_price:
+                return error('Недостаточно DEMO TON для ставки.',409)
+            source=dict(gift_id='ton',name='TON',image_url='/static/img/ton.png',price_ton=source_price/100)
+            new_balance=int(record.get('demo_balance_cents') or 0)-source_price
+        else:
+            source=creator_demo_item(record,source_id)
+            if not source:return error('DEMO-подарок недоступен для апгрейда.',409)
+            source_price=creator_demo_price_cents(source)
+            new_balance=int(record.get('demo_balance_cents') or 0)
+            items=[x for x in items if int(x.get('id') or 0)!=int(source_id)]
+        chance=upgrade_chance(source_price,target['price'],upgrade_rtp_basis_points())
+        if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        won=secrets.randbelow(target['price']*10000)<upgrade_rtp_basis_points()*source_price
+        awarded=None
+        if won:
+            gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==str(target['id'])),None)
+            if gift:
+                awarded=creator_demo_next_id(items)
+                items.insert(0,creator_demo_catalog_item(gift,awarded,'creator_demo_upgrade'))
+        save_creator_record(session['uid'],{'demo_balance_cents':new_balance,'demo_inventory':items[:200]})
+        return jsonify(ok=True,id=request_id,won=won,chance=chance/100,
+                       source_type='ton' if amount_text else 'gift',reward_type='gift',
+                       source=dict(name=(source.get('gift_name') or source.get('name') or 'Подарок'),
+                                   image_url=source.get('image_url') or '/static/img/ton.png',price_ton=source_price/100),
+                       target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
+                                   promo_locked=False),
+                       wager_progress=0,wager_target=0,wager_attempts_total=1,wager_attempts_remaining=1,
+                       wager_burn_on_loss=True,wager_burned=False,wager_complete=False,expires_at=None,
+                       awarded_inventory_id=awarded,compensation=dict(cashback=0,cashback_percent=0,promo=None),
+                       demo=True,user=profile())
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -3382,6 +3558,38 @@ def start():
     except (TypeError, ValueError):
         return error('Некорректный подарок для ставки.')
 
+    if creator_demo_active(session['uid']):
+        record=creator_record(session['uid'])
+        existing=dict(record.get('demo_round') or {})
+        if existing.get('state')=='active':
+            return error('Сначала завершите текущую DEMO-игру.')
+        items=list(record.get('demo_inventory') or [])
+        bet_type='ton'; bet_gift=None
+        if inventory_id is not None:
+            item=creator_demo_item(record,inventory_id)
+            if not item:return error('DEMO-подарок не найден в инвентаре.',404)
+            bet=creator_demo_price_cents(item)
+            if not (MIN_BET_CENTS<=bet<=MAX_BET_CENTS):
+                return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            bet_type='gift'
+            bet_gift=dict(id=item['id'],gift_id=item.get('gift_id'),name=item.get('name') or 'Подарок',
+                          image_url=item.get('image_url') or '',price_ton=bet/100,promo_locked=False)
+            items=[x for x in items if int(x.get('id') or 0)!=inventory_id]
+            balance=int(record.get('demo_balance_cents') or 0)
+        else:
+            try:bet=parse_amount(data.get('bet'))
+            except (ValueError,InvalidOperation,TypeError):return error('Укажите корректную ставку.')
+            if not (MIN_BET_CENTS<=bet<=MAX_BET_CENTS):return error('Ставка от 0.10 до 300 TON.')
+            balance=int(record.get('demo_balance_cents') or 0)
+            if balance<bet:return error('Недостаточно DEMO TON.')
+            balance-=bet
+        demo_round=dict(id=int(time.time()*1000),bet=bet,mines=mines,
+                        positions=sorted(secrets.SystemRandom().sample(range(25),mines)),
+                        opened=[],state='active',bet_type=bet_type,bet_gift=bet_gift,
+                        payout=0,prize=None,awarded=None,lost_cell=None)
+        save_creator_record(session['uid'],{'demo_balance_cents':balance,'demo_inventory':items,'demo_round':demo_round})
+        return jsonify(round=creator_demo_round_view(demo_round),user=profile(),new_level=None,demo=True)
+
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -3484,6 +3692,17 @@ def open_cell():
         return error('Неверная клетка.')
     if cell not in range(25):
         return error('Неверная клетка.')
+    if creator_demo_active(session['uid']):
+        record=creator_record(session['uid']); demo=dict(record.get('demo_round') or {})
+        if not demo or demo.get('state')!='active':return error('Сначала начните DEMO-игру.')
+        opened=[int(x) for x in demo.get('opened',[])]
+        if cell in opened:return error('Клетка уже открыта.')
+        if cell in [int(x) for x in demo.get('positions',[])]:
+            demo.update(state='lost',lost_cell=cell)
+        else:
+            opened.append(cell);demo['opened']=opened
+        save_creator_record(session['uid'],{'demo_round':demo})
+        return jsonify(round=creator_demo_round_view(demo,reveal=demo.get('state')!='active'),user=profile(),demo=True)
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -6999,8 +7218,8 @@ def loader_catalog():
 
 
 # ======================= Game switches (on / off / admins only) =======================
-GAME_KEYS = ('mines', 'upgrade', 'crash')
-GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off'}
+GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off'}
 
 
 def is_admin_session():
@@ -7311,6 +7530,8 @@ def crash_state():
             db.execute('BEGIN IMMEDIATE')
             crash_advance(db, now)
             db.commit()
+        if creator_demo_active(uid):
+            return jsonify(creator_demo_crash_payload(db, uid, crash_ms()))
         return jsonify(crash_state_payload(db, uid, crash_ms()))
     finally:
         db.close()
@@ -7342,6 +7563,36 @@ def crash_bet():
         if not (101 <= auto <= CRASH_MAX_X100):
             return error('Авто-вывод: от 1.01x до 10000x.')
     uid = session['uid']
+    if creator_demo_active(uid):
+        record=creator_record(uid);items=list(record.get('demo_inventory') or [])
+        db=connect()
+        try:
+            now=crash_ms();row=crash_advance(db,now)
+            if crash_phase(row,now)!='betting':return error('Приём ставок закрыт. Дождитесь следующего раунда.',409)
+        finally:db.close()
+        existing=dict(record.get('demo_crash') or {})
+        if int(existing.get('round_id') or 0)==int(row['id']) and existing.get('state')=='active':
+            return error('DEMO-ставка на этот раунд уже сделана.',409)
+        bet_gift=None;bet_type='ton'
+        if inventory_id is not None:
+            item=creator_demo_item(record,inventory_id)
+            if not item:return error('DEMO-подарок не найден в инвентаре.',404)
+            bet=creator_demo_price_cents(item)
+            if not (MIN_BET_CENTS<=bet<=MAX_BET_CENTS):return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            items=[x for x in items if int(x.get('id') or 0)!=inventory_id]
+            bet_type='gift';bet_gift=dict(id=item['id'],gift_id=item.get('gift_id'),name=item.get('name') or 'Подарок',
+                                          image_url=item.get('image_url') or '',price_ton=bet/100)
+            balance=int(record.get('demo_balance_cents') or 0)
+        else:
+            balance=int(record.get('demo_balance_cents') or 0)
+            if balance<bet:return error('Недостаточно DEMO TON.',409)
+            balance-=bet
+        demo=dict(round_id=int(row['id']),bet=bet,auto_x100=auto,state='active',
+                  cashout_x100=0,payout=0,bet_type=bet_type,bet_gift=bet_gift,prize=None)
+        save_creator_record(uid,{'demo_balance_cents':balance,'demo_inventory':items,'demo_crash':demo})
+        db=connect()
+        try:return jsonify(ok=True,state=creator_demo_crash_payload(db,uid,crash_ms()),user=profile(),new_level=None,demo=True)
+        finally:db.close()
     db = connect()
     new_level = None
     try:
@@ -7441,6 +7692,35 @@ def crash_cashout():
     uid = session['uid']
     data = request.get_json(silent=True) or {}
     want_gift = bool(data.get('gift'))
+    if creator_demo_active(uid):
+        record=creator_record(uid);demo=dict(record.get('demo_crash') or {})
+        db=connect()
+        try:
+            now=crash_ms();row=crash_advance(db,now)
+            if not demo or int(demo.get('round_id') or 0)!=int(row['id']) or demo.get('state')!='active':
+                return error('Нет активной DEMO-ставки.',409)
+            if crash_phase(row,now)!='flying':return error('Раунд ещё не в полёте.',409)
+            mult=crash_mult_x100(row,now)
+            if mult>=int(row['crash_x100']):return error('Ракета уже взорвалась.',409)
+            payout=int(demo.get('bet') or 0)*mult//100
+            items=list(record.get('demo_inventory') or []);prize=None;remainder=0
+            if want_gift:
+                info=crash_prize_preview(payout)
+                if not info:return error('Сумма ещё ниже самого дешёвого подарка — заберите DEMO TON.',409)
+                gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==str(info['id'])),None)
+                if gift:
+                    item_id=creator_demo_next_id(items);item=creator_demo_catalog_item(gift,item_id,'creator_demo_crash')
+                    items.insert(0,item);prize=dict(name=item['name'],image_url=item['image_url'],price_ton=item['price_ton'])
+                    remainder=max(0,payout-creator_demo_price_cents(item))
+            else:
+                remainder=payout
+            balance=int(record.get('demo_balance_cents') or 0)+remainder
+            demo.update(state='won',cashout_x100=mult,payout=payout,prize=prize)
+            save_creator_record(uid,{'demo_balance_cents':balance,'demo_inventory':items[:200],'demo_crash':demo})
+            state=creator_demo_crash_payload(db,uid,crash_ms())
+            return jsonify(ok=True,multiplier=mult/100,payout=payout/100,prize=prize,remainder=remainder/100,
+                           promo=None,state=state,user=profile(),demo=True)
+        finally:db.close()
     prize = None
     remainder = 0
     db = connect()
@@ -8804,10 +9084,10 @@ def admin_create_freebet():
             return error('Такой код уже существует.',409)
         db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                     max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,
-                    source_label,description,expires_at,gift_expires_days)
-                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?)""",
+                    source_label,description,expires_at,gift_expires_days,author_user_id)
+                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?,?)""",
                    (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,session['uid'],
-                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days))
+                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days,author_user_id))
         db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,min_level,min_telegram_level,
                     min_turnover,min_deposit,expires_at,created_by,author_user_id) VALUES(?,?,?,1,?,?,?,?,?,?,?,?)""",
                    (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,activation_min_deposit,
@@ -9597,7 +9877,7 @@ def creator_demo_mode():
     enabled = data.get('enabled')
     if not isinstance(enabled, bool):
         return error('Передайте enabled=true/false.')
-    record = save_creator_record(session['uid'], {'demo_enabled': enabled})
+    record = save_creator_record(session['uid'], {'demo_enabled': enabled, 'demo_round': {}, 'demo_crash': {}})
     return jsonify(ok=True, demo_enabled=record['demo_enabled'], user=profile())
 
 

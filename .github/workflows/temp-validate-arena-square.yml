@@ -1,0 +1,14 @@
+name: Temp validate arena square creator reset
+on:
+  push:
+    branches:
+      - fix/arena-square-creator-reset-v4
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m py_compile app.py

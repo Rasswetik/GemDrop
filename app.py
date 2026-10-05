@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '84-arena-demo-games'
+BUILD_ID = '85-arena-real-only'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -947,7 +947,6 @@ def creator_record(user_id):
         demo_mines=dict(raw.get('demo_mines') or {}) if isinstance(raw.get('demo_mines'), dict) else {},
         demo_upgrade=dict(raw.get('demo_upgrade') or {}) if isinstance(raw.get('demo_upgrade'), dict) else {},
         demo_crash=dict(raw.get('demo_crash') or {}) if isinstance(raw.get('demo_crash'), dict) else {},
-        demo_arena=dict(raw.get('demo_arena') or {}) if isinstance(raw.get('demo_arena'), dict) else {},
         youtube=dict(youtube),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
@@ -967,7 +966,7 @@ def save_creator_record(user_id, data):
     if not isinstance(current.get('demo_inventory'), list):
         current['demo_inventory'] = []
     current['demo_inventory'] = current['demo_inventory'][:200]
-    for state_key in ('demo_mines', 'demo_upgrade', 'demo_crash', 'demo_arena'):
+    for state_key in ('demo_mines', 'demo_upgrade', 'demo_crash'):
         if not isinstance(current.get(state_key), dict):
             current[state_key] = {}
     if not isinstance(current.get('youtube'), dict):
@@ -984,13 +983,37 @@ def creator_demo_active(user_id):
 
 
 
+def demo_clean_item(item):
+    """Demo gifts must look and be valued like real ones: no DEMO label, a real catalog price."""
+    item = dict(item)
+    if str(item.get('source_label') or '').strip().upper() == 'DEMO':
+        item['source_label'] = ''
+    if str(item.get('price_source') or '').strip().upper() == 'DEMO':
+        item['price_source'] = 'Portal'
+    try:
+        price = float(item.get('price_ton') or 0)
+    except (TypeError, ValueError):
+        price = 0
+    if price <= 0:
+        # Legacy demo gifts were stored with a 0 price: restore it from the catalog.
+        catalog_gift = next((g for g in read_catalog(include_hidden=True).get('gifts', [])
+                             if str(g.get('id') or '') == str(item.get('gift_id') or '')), None)
+        if catalog_gift:
+            try:
+                item['price_ton'] = float(catalog_gift.get('price_ton') or 0)
+            except (TypeError, ValueError):
+                pass
+    return item
+
+
 def demo_find_item(record, item_id):
     try:
         item_id = int(item_id)
     except (TypeError, ValueError):
         return None
-    return next((dict(x) for x in record.get('demo_inventory', [])
-                 if int(x.get('id') or 0) == item_id), None)
+    found = next((x for x in record.get('demo_inventory', [])
+                  if int(x.get('id') or 0) == item_id), None)
+    return demo_clean_item(found) if found else None
 
 
 def demo_remove_item(record, item_id):
@@ -1005,7 +1028,9 @@ def demo_remove_item(record, item_id):
 def demo_add_catalog_gift(record, gift, source='creator_demo_game'):
     items = list(record.get('demo_inventory') or [])
     next_id = max([int(x.get('id') or 0) for x in items] + [0]) + 1
-    price = int(gift.get('price_cents') or 0)
+    # upgrade_target() returns the price in cents under the key 'price'; the old code
+    # looked for price_cents / price_ton only and so stored every won gift at 0 TON.
+    price = int(gift.get('price_cents') or gift.get('price') or 0)
     if not price:
         try:
             price = parse_amount(gift.get('price_ton') or 0)
@@ -1018,8 +1043,8 @@ def demo_add_catalog_gift(record, gift, source='creator_demo_game'):
         price_ton=price / 100, source=source,
         created_at=datetime.now(timezone.utc).isoformat(), external_url='',
         fragment_url='', fragment_number='', fragment_model='', fragment_backdrop='',
-        fragment_symbol='', price_source='DEMO', animation_url='',
-        source_label='DEMO', promo_locked=False, promo_code='', wager_multiplier=0,
+        fragment_symbol='', price_source='Portal', animation_url='',
+        source_label='', promo_locked=False, promo_code='', wager_multiplier=0,
         wager_target=0, wager_progress=0, wager_complete=False, wager_percent=0,
         wager_attempts_total=1, wager_attempts_remaining=1, wager_burn_on_loss=True,
         unlock_target=None, expires_at=None, expires_in_seconds=None,
@@ -1515,6 +1540,8 @@ def enforce_available_modes():
         if not isinstance(payload, dict):
             return error('Ожидается JSON-объект с параметрами запроса.', 400)
     uid = session.get('uid')
+    if uid and path.startswith('/api/arena/') and creator_demo_active(uid):
+        return error('Арена доступна только в реальном режиме. Отключите демо-режим в панели автора.', 409)
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
             '/api/inventory/', '/api/transfers/send', '/api/deposit', '/api/stars'
@@ -5712,7 +5739,7 @@ def admin_status():
 def inventory():
     creator = creator_record(session['uid'])
     if creator.get('demo_enabled'):
-        return jsonify(items=visible_gifts(creator.get('demo_inventory') or []), demo=True)
+        return jsonify(items=visible_gifts([demo_clean_item(x) for x in creator.get('demo_inventory') or []]), demo=True)
     with connect() as db:
         purge_expired_inventory(db, session['uid'])
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
@@ -7413,9 +7440,13 @@ def effective_games():
 
 
 # ================================== Arena ==================================
-ARENA_BETTING_MS = 15000
-ARENA_WAIT_MS = 5000
-ARENA_RESULT_MS = 6500
+ARENA_BETTING_MS = 15000      # countdown starts together with the very first bet
+ARENA_RESULT_MS = 8000        # how long the finished round (winner animation + result) stays on screen
+ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
+
+
+def arena_fee_cents(total):
+    return int(total) * ARENA_FEE_PERCENT // 100
 
 
 def arena_latest(db):
@@ -7423,17 +7454,33 @@ def arena_latest(db):
 
 
 def arena_create_round(db, now=None):
+    """A new round waits for the first real bet: close_at=0 means "timer not started"."""
     now = int(now if now is not None else time.time() * 1000)
-    db.execute("INSERT INTO arena_rounds(state,open_at,close_at) VALUES('open',?,?)",
-               (now, now + ARENA_BETTING_MS))
+    db.execute("INSERT INTO arena_rounds(state,open_at,close_at) VALUES('open',?,0)", (now,))
     return arena_latest(db)
 
 
 def arena_players(db, round_id):
     return db.execute("""SELECT b.user_id,b.amount,u.name,u.username,u.photo_url
                          FROM arena_bets b JOIN users u ON u.id=b.user_id
-                         WHERE b.round_id=? ORDER BY b.amount DESC,b.created_at ASC,b.user_id ASC""",
+                         WHERE b.round_id=? ORDER BY b.created_at ASC,b.user_id ASC""",
                       (round_id,)).fetchall()
+
+
+def arena_refund_round(db, row, players):
+    """Timer ended but there is nobody to play against: give every bet back and wait again."""
+    for player in players:
+        amount = max(0, int(player['amount'] or 0))
+        if not amount:
+            continue
+        uid = int(player['user_id'])
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, uid))
+        db.execute('UPDATE users SET turnover_cents=CASE WHEN turnover_cents>? THEN turnover_cents-? ELSE 0 END WHERE id=?',
+                   (amount, amount, uid))
+        record_transaction(db, uid, 'arena_refund', amount, 'arena_round', row['id'],
+                           f'Arena #{row["id"]}: возврат ставки, не набралось игроков')
+    db.execute('DELETE FROM arena_bets WHERE round_id=?', (row['id'],))
+    db.execute("UPDATE arena_rounds SET close_at=0 WHERE id=? AND state='open'", (row['id'],))
 
 
 def arena_advance(db, now=None):
@@ -7445,17 +7492,13 @@ def arena_advance(db, now=None):
         if now >= int(row['settled_at'] or 0) + ARENA_RESULT_MS:
             return arena_create_round(db, now)
         return row
-    if now < int(row['close_at'] or 0):
+    close_at = int(row['close_at'] or 0)
+    if close_at <= 0 or now < close_at:
         return row
     players = arena_players(db, row['id'])
-    if len(players) < 2:
-        db.execute('UPDATE arena_rounds SET close_at=? WHERE id=? AND state=?',
-                   (now + ARENA_WAIT_MS, row['id'], 'open'))
-        return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()
     total = sum(max(0, int(x['amount'] or 0)) for x in players)
-    if total <= 0:
-        db.execute('UPDATE arena_rounds SET close_at=? WHERE id=? AND state=?',
-                   (now + ARENA_WAIT_MS, row['id'], 'open'))
+    if len(players) < 2 or total <= 0:
+        arena_refund_round(db, row, players)
         return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()
     ticket = secrets.randbelow(total)
     cursor = 0
@@ -7465,13 +7508,16 @@ def arena_advance(db, now=None):
         if ticket < cursor:
             winner = player
             break
+    fee = arena_fee_cents(total)
+    payout = total - fee
     changed = db.execute("""UPDATE arena_rounds SET state='settled',settled_at=?,winner_user_id=?,total_pool=?
                             WHERE id=? AND state='open'""",
                          (now, int(winner['user_id']), total, row['id']))
     if changed.rowcount:
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (total, int(winner['user_id'])))
-        record_transaction(db, int(winner['user_id']), 'arena_win', total, 'arena_round', row['id'],
-                           f'Arena #{row["id"]}: выигрыш {total/100:.2f} TON')
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, int(winner['user_id'])))
+        record_transaction(db, int(winner['user_id']), 'arena_win', payout, 'arena_round', row['id'],
+                           f'Arena #{row["id"]}: выигрыш {payout/100:.2f} TON '
+                           f'(банк {total/100:.2f}, комиссия {ARENA_FEE_PERCENT}% = {fee/100:.2f})')
         for player in players:
             if int(player['user_id']) != int(winner['user_id']):
                 record_transaction(db, int(player['user_id']), 'arena_loss', 0, 'arena_round', row['id'],
@@ -7500,11 +7546,14 @@ def arena_state_payload(db, uid, now=None):
     winner_id = int(row['winner_user_id'] or 0)
     winner = next((x for x in result if x['user_id'] == winner_id), None) if winner_id else None
     mine = next((x for x in result if x['user_id'] == int(uid)), None)
+    pool_cents = int(row['total_pool'] or 0) if row['state'] == 'settled' else total
+    fee_cents = arena_fee_cents(pool_cents)
     return dict(
         available=game_available('arena'),
         now=now,
         betting_ms=ARENA_BETTING_MS,
         result_ms=ARENA_RESULT_MS,
+        fee_percent=ARENA_FEE_PERCENT,
         min_bet=MIN_BET_CENTS / 100,
         max_bet=MAX_BET_CENTS / 100,
         round=dict(
@@ -7513,7 +7562,9 @@ def arena_state_payload(db, uid, now=None):
             open_at=int(row['open_at'] or 0),
             close_at=int(row['close_at'] or 0),
             settled_at=int(row['settled_at'] or 0),
-            total_pool=(int(row['total_pool'] or 0) if row['state'] == 'settled' else total) / 100,
+            total_pool=pool_cents / 100,
+            fee=fee_cents / 100,
+            payout=(pool_cents - fee_cents) / 100,
             winner_user_id=winner_id,
         ),
         players=result,
@@ -7524,74 +7575,13 @@ def arena_state_payload(db, uid, now=None):
     )
 
 
-def demo_arena_state(now=None):
-    uid = session['uid']
-    now = int(now if now is not None else time.time() * 1000)
-    record = creator_record(uid)
-    state = record.get('demo_arena')
-    if not isinstance(state, dict):
-        state = {}
-    if not state or now >= int(state.get('reset_at') or 0):
-        state = dict(id=max(1, now), state='open', open_at=now,
-                     close_at=now + ARENA_BETTING_MS, settled_at=0,
-                     total_pool=0, winner_user_id=0, players=[], paid=False,
-                     reset_at=now + ARENA_BETTING_MS + ARENA_RESULT_MS + 60000)
-        record = save_creator_record(uid, {'demo_arena': state})
-        state = record.get('demo_arena') or state
-    if state.get('players') and state.get('state') == 'open' and now >= int(state.get('close_at') or 0):
-        state['state'] = 'settled'
-        state['settled_at'] = now
-        state['reset_at'] = now + ARENA_RESULT_MS
-        if not state.get('winner_user_id'):
-            total_cents = sum(max(0, int(round(float(x.get('bet') or 0) * 100))) for x in state['players'])
-            ticket = secrets.randbelow(total_cents) if total_cents > 0 else 0
-            cursor = 0
-            chosen = state['players'][-1]
-            for player in state['players']:
-                cursor += max(0, int(round(float(player.get('bet') or 0) * 100)))
-                if ticket < cursor:
-                    chosen = player
-                    break
-            state['winner_user_id'] = int(chosen.get('user_id') or 0)
-            state['total_pool'] = total_cents / 100
-        if not state.get('paid') and int(state.get('winner_user_id') or 0) == int(uid):
-            record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + int(round(float(state.get('total_pool') or 0) * 100))
-            state['paid'] = True
-        record = save_creator_record(uid, {'demo_arena': state,
-                                           'demo_balance_cents': int(record.get('demo_balance_cents') or 0)})
-        state = record.get('demo_arena') or state
-    players = list(state.get('players') or [])
-    total = sum(float(x.get('bet') or 0) for x in players)
-    for i, player in enumerate(players):
-        player['index'] = i
-        player['chance'] = (float(player.get('bet') or 0) * 100 / total) if total else 0
-        player['mine'] = int(player.get('user_id') or 0) == int(uid)
-    winner_id = int(state.get('winner_user_id') or 0)
-    winner = next((x for x in players if int(x.get('user_id') or 0) == winner_id), None)
-    mine = next((x for x in players if int(x.get('user_id') or 0) == int(uid)), None)
-    return dict(
-        available=game_available('arena'), demo=True, now=now,
-        betting_ms=ARENA_BETTING_MS, result_ms=ARENA_RESULT_MS,
-        min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
-        round=dict(id=state.get('id'), state=state.get('state','open'),
-                   open_at=state.get('open_at',now), close_at=state.get('close_at',now),
-                   settled_at=state.get('settled_at',0), total_pool=float(state.get('total_pool') or total),
-                   winner_user_id=winner_id),
-        players=players, winner=winner, my_bet=mine,
-        mine_result=('won' if winner_id == int(uid) else 'lost') if winner_id and mine else None,
-        balance=profile()['balance'],
-    )
-
-
 @app.get('/api/arena/state')
 @login_required
 def arena_state():
-    if creator_demo_active(session['uid']):
-        return jsonify(demo_arena_state())
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        row = arena_advance(db, int(time.time() * 1000))
+        arena_advance(db, int(time.time() * 1000))
         db.commit()
         return jsonify(arena_state_payload(db, session['uid'], int(time.time() * 1000)))
     finally:
@@ -7610,38 +7600,12 @@ def arena_bet():
         return error('Ставка от 0.10 до 300 TON.')
     uid = session['uid']
     now = int(time.time() * 1000)
-    if creator_demo_active(uid):
-        record = creator_record(uid)
-        if int(record.get('demo_balance_cents') or 0) < amount:
-            return error('Недостаточно DEMO TON.', 409)
-        current = record.get('demo_arena')
-        if isinstance(current, dict) and current.get('players') and now < int(current.get('reset_at') or 0):
-            return error('Дождитесь окончания текущей DEMO-арены.', 409)
-        user_row = current_user()
-        bot_defs = [
-            ('Arena Fox', 0.75, 'A'),
-            ('Mira', 1.35, 'M'),
-            ('Nova', 0.9, 'N'),
-        ]
-        bots = []
-        for i, (name, multiplier, initial) in enumerate(bot_defs[:2]):
-            bot_bet = max(MIN_BET_CENTS, int(round(amount * multiplier)))
-            bots.append(dict(user_id=-(i + 1), name=name, username='', photo_url='',
-                             bet=bot_bet / 100, initial=initial, mine=False))
-        players = [dict(user_id=uid, name=user_row['name'] or 'Вы', username=user_row['username'] or '',
-                        photo_url=user_row['photo_url'] or '', bet=amount / 100, mine=True)] + bots
-        state = dict(id=now, state='open', open_at=now, close_at=now + ARENA_BETTING_MS,
-                     settled_at=0, total_pool=sum(float(x['bet']) for x in players),
-                     winner_user_id=0, players=players, paid=False,
-                     reset_at=now + ARENA_BETTING_MS + ARENA_RESULT_MS)
-        save_creator_record(uid, {'demo_balance_cents': int(record.get('demo_balance_cents') or 0) - amount,
-                                  'demo_arena': state})
-        return jsonify(ok=True, state=demo_arena_state(now), user=profile())
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
         row = arena_advance(db, now)
-        if row['state'] != 'open' or now >= int(row['close_at'] or 0):
+        close_at = int(row['close_at'] or 0)
+        if row['state'] != 'open' or (close_at > 0 and now >= close_at):
             db.rollback()
             return error('Приём ставок закрыт. Дождитесь следующей арены.', 409)
         if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?',
@@ -7656,6 +7620,10 @@ def arena_bet():
             return error('Недостаточно TON.', 409)
         db.execute('INSERT INTO arena_bets(round_id,user_id,amount) VALUES(?,?,?)',
                    (row['id'], uid, amount))
+        if close_at <= 0:
+            # The very first bet starts the round: only now the countdown begins.
+            db.execute("UPDATE arena_rounds SET open_at=?,close_at=? WHERE id=? AND state='open'",
+                       (now, now + ARENA_BETTING_MS, row['id']))
         record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'],
                            f'Arena #{row["id"]}')
         increase_turnover(db, uid, amount)
@@ -10280,8 +10248,8 @@ def creator_demo_inventory_add():
         price_ton=float(gift.get('price_ton') or 0), source='creator_demo',
         created_at=datetime.now(timezone.utc).isoformat(), external_url='',
         fragment_url='', fragment_number='', fragment_model='', fragment_backdrop='',
-        fragment_symbol='', price_source='DEMO', animation_url='',
-        source_label='DEMO', promo_locked=False, promo_code='', wager_multiplier=0,
+        fragment_symbol='', price_source='Portal', animation_url='',
+        source_label='', promo_locked=False, promo_code='', wager_multiplier=0,
         wager_target=0, wager_progress=0, wager_complete=False, wager_percent=0,
         wager_attempts_total=1, wager_attempts_remaining=1, wager_burn_on_loss=True,
         unlock_target=None, expires_at=None, expires_in_seconds=None,

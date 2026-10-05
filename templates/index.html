@@ -4365,7 +4365,27 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkPendi
 document.querySelectorAll('[data-utp]').forEach(b=>b.onclick=()=>{let v=b.dataset.utp==='max'?Math.floor(Math.max(0,Number(user?.balance||0))*100)/100:Number(b.dataset.utp);$('upgradeTonAmount').value=money(Math.max(.1,v));$('upgradeTonAmount').dispatchEvent(new Event('input',{bubbles:true}))});
 new MutationObserver(ms=>{for(let m of ms)for(let n of m.addedNodes){if(n.nodeType!==1)continue;let imgs=n.tagName==='IMG'?[n]:n.querySelectorAll?n.querySelectorAll('img'):[];for(let i of imgs){if(!i.closest('header,.studio-header')){i.loading='lazy'}i.decoding='async'}}}).observe(document.body,{childList:true,subtree:true});
 setTimeout(()=>{try{loadTonSdk()}catch(e){}},250);
-$('retry').onclick=boot;boot();
+$('retry').onclick=boot;
+// Startup watchdog: never leave the user behind the full-screen loader forever.
+// API calls already have their own abort timers; this is a final UI safety net for
+// deployment/startup failures or an unexpected exception before login completes.
+const __bootWatchdog=setTimeout(()=>{
+  const loader=$('loader');
+  if(!loader||loader.classList.contains('hidden'))return;
+  loader.classList.add('hidden');
+  $('content')?.classList.add('hidden');
+  $('auth')?.classList.remove('hidden');
+  $('webAuthPanel')?.classList.add('hidden');
+  $('retry')?.classList.remove('hidden');
+  if($('authText'))$('authText').textContent='Сервер отвечает слишком долго. Нажмите «Повторить».';
+},15000);
+boot().catch(e=>{
+  clearTimeout(__bootWatchdog);
+  $('loader')?.classList.add('hidden');
+  $('auth')?.classList.remove('hidden');
+  $('retry')?.classList.remove('hidden');
+  if($('authText'))$('authText').textContent=e?.message||'Не удалось запустить приложение.';
+});
 
 /* ===== Crash ===== */
 var CR={st:null,off:0,pollT:0,tick:0,raf:0,active:false,polling:false,busy:false,phase:'',lossShown:0,gift:null,prize:null,prizeAt:0,prizeBusy:false,winShown:0,sel:null,round:0,autoRound:0};

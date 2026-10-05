@@ -9031,7 +9031,16 @@ def admin_creator_add(user_id):
         user = db.execute('SELECT id,name,username,photo_url FROM users WHERE id=?', (user_id,)).fetchone()
     if not user:
         return error('Пользователь не найден.', 404)
+    previous = creator_record(user_id)
     record = save_creator_record(user_id, {'active': True, 'panel_hidden': False})
+    if not previous.get('active'):
+        notify_user_async(
+            user_id,
+            '🎬 <b>Вы подключены к программе авторов GemDrop.</b>\n\n'
+            'В профиле появилась отдельная «Панель автора». Через неё можно включать demo-режим '
+            'и управлять демонстрационным балансом и подарками.',
+            miniapp_markup('Открыть программу', 'creator'),
+            'HTML')
     return jsonify(ok=True, creator=dict(id=user_id, name=user['name'], username=user['username'] or '',
                                          demo_enabled=record['demo_enabled'],
                                          demo_balance=record['demo_balance_cents']/100))
@@ -9040,7 +9049,14 @@ def admin_creator_add(user_id):
 @app.delete('/api/admin/creators/<int:user_id>')
 @admin_required
 def admin_creator_remove(user_id):
+    previous = creator_record(user_id)
     save_creator_record(user_id, {'active': False, 'demo_enabled': False, 'panel_hidden': False})
+    if previous.get('active'):
+        notify_user_async(
+            user_id,
+            'К сожалению, вы были отключены от программы авторов GemDrop.',
+            None,
+            'HTML')
     return jsonify(ok=True)
 
 
@@ -10599,8 +10615,8 @@ def process_stars_successful_payment(message, payment):
         until_text = lock_until.strftime('%d.%m.%Y') if lock_until else ''
         notify_user_async(
             uid,
-            f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\\n\\n'
-            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} день до <b>{until_text}</b>.',
+            f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\n\n'
+            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} дней — до <b>{until_text}</b>.',
             miniapp_markup('Открыть', 'profile'), 'HTML')
     return credited
 

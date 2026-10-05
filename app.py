@@ -2374,9 +2374,61 @@ def upgrade_preview():
                    loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
-def wins_day_start_utc():
-    return datetime.now(timezone(timedelta(hours=3))).replace(
-        hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+DAILY_TOP_TZ = timezone(timedelta(hours=3))
+DAILY_TOP_CYCLE = timedelta(days=1)
+
+
+def _daily_top_db_string(value):
+    return value.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _daily_top_default_window(now_utc=None):
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    now_local = now_utc.astimezone(DAILY_TOP_TZ)
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + DAILY_TOP_CYCLE
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def _daily_top_schedule_map():
+    try:
+        doc = read_document('daily_top_rewards') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    schedules = doc.get('_schedule')
+    return schedules if isinstance(schedules, dict) else {}
+
+
+def daily_top_window(mode, now_utc=None):
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    default_start, default_end = _daily_top_default_window(now_utc)
+    raw = _daily_top_schedule_map().get(mode)
+    if not isinstance(raw, dict):
+        return default_start, default_end, False
+    start = parse_datetime_utc(raw.get('start_at'))
+    end = parse_datetime_utc(raw.get('end_at'))
+    if not start or not end or end <= start:
+        return default_start, default_end, False
+    return start, end, True
+
+
+def daily_top_schedule_view(mode, now_utc=None):
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    start, end, custom = daily_top_window(mode, now_utc)
+    return dict(
+        start_at=start.isoformat().replace('+00:00', 'Z'),
+        end_at=end.isoformat().replace('+00:00', 'Z'),
+        server_now=now_utc.isoformat().replace('+00:00', 'Z'),
+        seconds_left=max(0, int((end-now_utc).total_seconds())),
+        custom=custom,
+    )
+
+
+def wins_day_start_utc(mode='mines'):
+    start, _, _ = daily_top_window(mode)
+    return _daily_top_db_string(start)
 
 
 def wins_feed_cutoff(db, kind):
@@ -2425,7 +2477,11 @@ def daily_top_reward(mode):
 @app.get('/api/admin/daily-top-rewards')
 @admin_required
 def admin_daily_top_rewards_get():
-    return jsonify(rewards=daily_top_rewards())
+    now_utc=datetime.now(timezone.utc)
+    return jsonify(
+        rewards=daily_top_rewards(),
+        schedules={mode:daily_top_schedule_view(mode,now_utc) for mode in ('mines','upgrade')}
+    )
 
 
 @app.post('/api/admin/daily-top-rewards/<mode>')
@@ -2462,64 +2518,169 @@ def admin_daily_top_rewards_set(mode):
     return jsonify(ok=True,reward=daily_top_reward(mode))
 
 
+@app.post('/api/admin/daily-top-schedule/<mode>')
+@admin_required
+def admin_daily_top_schedule_set(mode):
+    if mode not in ('mines','upgrade'):
+        return error('Неизвестный топ.',404)
+    data=request.get_json(silent=True) or {}
+    try:
+        hours=max(0,int(data.get('hours') or 0))
+        minutes=max(0,int(data.get('minutes') or 0))
+    except (TypeError,ValueError):
+        return error('Укажите время до завершения ТОП дня.')
+    total_minutes=hours*60+minutes
+    if total_minutes<1:
+        return error('Минимальное время до завершения — 1 минута.')
+    if total_minutes>43200:
+        return error('Максимальное время до завершения — 30 дней.')
+
+    # Сначала закрываем уже истёкший период, чтобы смена таймера не могла
+    # отменить выдачу награды его победителю.
+    with connect() as db:
+        try:
+            settle_previous_daily_top_rewards(db)
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('Daily top reward settlement failed before schedule update')
+            return error('Не удалось закрыть предыдущий ТОП дня. Повторите попытку.',500)
+
+    now_utc=datetime.now(timezone.utc)
+    start, current_end, _=daily_top_window(mode,now_utc)
+    if current_end<=now_utc or start>now_utc:
+        start=now_utc
+    end=now_utc+timedelta(minutes=total_minutes)
+
+    doc=read_document('daily_top_rewards') or {}
+    if not isinstance(doc,dict): doc={}
+    schedules=doc.get('_schedule')
+    if not isinstance(schedules,dict): schedules={}
+    schedules[mode]={
+        'start_at':_daily_top_db_string(start),
+        'end_at':_daily_top_db_string(end),
+        # После ручного завершения снова идёт обычный 24-часовой цикл
+        # с тем же временем окончания.
+        'cycle_minutes':1440,
+    }
+    doc['_schedule']=schedules
+    save_document('daily_top_rewards',doc)
+    with connect() as db:
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'],session['uid'],'daily_top_schedule',
+                    json.dumps({'mode':mode,'hours':hours,'minutes':minutes,
+                                'end_at':_daily_top_db_string(end)},ensure_ascii=False)))
+    return jsonify(ok=True,schedule=daily_top_schedule_view(mode))
+
+
+def _daily_top_period_key(start_utc, end_utc):
+    start_local=start_utc.astimezone(DAILY_TOP_TZ)
+    if (start_local.hour,start_local.minute,start_local.second)==(0,0,0) and end_utc-start_utc==DAILY_TOP_CYCLE:
+        return start_local.date().isoformat()
+    return start_utc.strftime('%Y-%m-%dT%H:%M:%SZ')+'_'+end_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
+    if not reward or reward.get('type')=='none':
+        return False
+    period_key=_daily_top_period_key(start_utc,end_utc)
+    if db.execute('SELECT 1 FROM daily_top_awards WHERE day=? AND mode=?',(period_key,mode)).fetchone():
+        return False
+    start_db=_daily_top_db_string(start_utc)
+    end_db=_daily_top_db_string(end_utc)
+    if mode=='mines':
+        winner=db.execute("""SELECT r.user_id FROM rounds r
+                             WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                               AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
+                             ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
+                             LIMIT 1""",(start_db,end_db)).fetchone()
+    else:
+        winner=db.execute("""SELECT user_id FROM upgrade_spins
+                             WHERE won=1 AND created_at>=? AND created_at<?
+                               AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
+                             ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_db,end_db)).fetchone()
+    if not winner:
+        return False
+    uid=int(winner['user_id'])
+    claimed=db.execute("""INSERT INTO daily_top_awards(day,mode,user_id,reward_json)
+                          VALUES(?,?,?,?) ON CONFLICT(day,mode) DO NOTHING""",
+                       (period_key,mode,uid,json.dumps(reward,ensure_ascii=False)))
+    if not claimed.rowcount:
+        return False
+    reward_type=reward.get('type')
+    title='Mines' if mode=='mines' else 'Upgrade'
+    if reward_type=='gram':
+        cents=max(0,int((Decimal(str(reward.get('amount') or 0))*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)))
+        if cents:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cents,uid))
+            record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{period_key}:{mode}',
+                               f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
+        detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
+    else:
+        source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
+        cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                         external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       (uid,str(reward.get('gift_id') or ''),str(reward.get('gift_name') or 'Подарок'),
+                        safe_image(reward.get('image_url')),int(reward.get('floor_price') or 0),source,
+                        str(reward.get('fragment_url') or ''),str(reward.get('fragment_number') or ''),
+                        str(reward.get('fragment_model') or ''),str(reward.get('fragment_backdrop') or ''),
+                        str(reward.get('fragment_symbol') or ''),str(reward.get('price_source') or ''),
+                        safe_image(reward.get('animation_url'))))
+        record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
+                           f'Награда за ТОП дня {title}: {reward.get("gift_name") or "Подарок"}')
+        detail=f'🏆 Вы заняли ТОП дня в {title}. Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
+    add_user_notification(db,uid,'daily_top_reward',detail)
+    return True
+
+
 def settle_previous_daily_top_rewards(db):
-    local_tz=timezone(timedelta(hours=3))
-    now_local=datetime.now(local_tz)
-    end_local=now_local.replace(hour=0,minute=0,second=0,microsecond=0)
-    start_local=end_local-timedelta(days=1)
-    day_key=start_local.date().isoformat()
-    start_utc=start_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    end_utc=end_local.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    now_utc=datetime.now(timezone.utc)
     settings=daily_top_rewards()
+    doc=read_document('daily_top_rewards') or {}
+    if not isinstance(doc,dict): doc={}
+    schedules=doc.get('_schedule')
+    if not isinstance(schedules,dict): schedules={}
+    schedule_changed=False
+
     for mode in ('mines','upgrade'):
         reward=settings.get(mode) or {'type':'none'}
-        if reward.get('type')=='none':
+        raw=schedules.get(mode)
+        start=parse_datetime_utc(raw.get('start_at')) if isinstance(raw,dict) else None
+        end=parse_datetime_utc(raw.get('end_at')) if isinstance(raw,dict) else None
+
+        if start and end and end>start:
+            # Закрываем все истёкшие циклы по порядку. Ограничение защищает
+            # от повреждённого документа с очень старой датой.
+            loops=0
+            while end<=now_utc and loops<370:
+                _settle_daily_top_period(db,mode,start,end,reward)
+                start=end
+                end=start+DAILY_TOP_CYCLE
+                loops+=1
+            if loops:
+                schedules[mode]={
+                    'start_at':_daily_top_db_string(start),
+                    'end_at':_daily_top_db_string(end),
+                    'cycle_minutes':1440,
+                }
+                schedule_changed=True
             continue
-        if db.execute('SELECT 1 FROM daily_top_awards WHERE day=? AND mode=?',(day_key,mode)).fetchone():
-            continue
-        if mode=='mines':
-            winner=db.execute("""SELECT r.user_id FROM rounds r
-                                 WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
-                                   AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
-                                 ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
-                                 LIMIT 1""",(start_utc,end_utc)).fetchone()
-        else:
-            winner=db.execute("""SELECT user_id FROM upgrade_spins
-                                 WHERE won=1 AND created_at>=? AND created_at<?
-                                   AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
-                                 ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_utc,end_utc)).fetchone()
-        if not winner:
-            continue
-        uid=int(winner['user_id'])
-        claimed=db.execute("""INSERT INTO daily_top_awards(day,mode,user_id,reward_json)
-                              VALUES(?,?,?,?) ON CONFLICT(day,mode) DO NOTHING""",
-                           (day_key,mode,uid,json.dumps(reward,ensure_ascii=False)))
-        if not claimed.rowcount:
-            continue
-        reward_type=reward.get('type')
-        title='Mines' if mode=='mines' else 'Upgrade'
-        if reward_type=='gram':
-            cents=max(0,int((Decimal(str(reward.get('amount') or 0))*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP)))
-            if cents:
-                db.execute('UPDATE users SET balance=balance+? WHERE id=?',(cents,uid))
-                record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{day_key}:{mode}',
-                                   f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
-            detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
-        else:
-            source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
-            cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                             external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
-                             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                           (uid,str(reward.get('gift_id') or ''),str(reward.get('gift_name') or 'Подарок'),
-                            safe_image(reward.get('image_url')),int(reward.get('floor_price') or 0),source,
-                            str(reward.get('fragment_url') or ''),str(reward.get('fragment_number') or ''),
-                            str(reward.get('fragment_model') or ''),str(reward.get('fragment_backdrop') or ''),
-                            str(reward.get('fragment_symbol') or ''),str(reward.get('price_source') or ''),
-                            safe_image(reward.get('animation_url'))))
-            record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
-                               f'Награда за ТОП дня {title}: {reward.get("gift_name") or "Подарок"}')
-            detail=f'🏆 Вы заняли ТОП дня в {title}. Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
-        add_user_notification(db,uid,'daily_top_reward',detail)
+
+        # Обратная совместимость: пока администратор не задавал таймер,
+        # ТОП закрывается в 00:00 по старой логике.
+        now_local=now_utc.astimezone(DAILY_TOP_TZ)
+        end_local=now_local.replace(hour=0,minute=0,second=0,microsecond=0)
+        start_local=end_local-DAILY_TOP_CYCLE
+        _settle_daily_top_period(
+            db,mode,start_local.astimezone(timezone.utc),end_local.astimezone(timezone.utc),reward)
+
+    if schedule_changed:
+        doc['_schedule']=schedules
+        db.execute('INSERT INTO app_documents(name,payload) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload',
+                   ('daily_top_rewards',json.dumps(doc,ensure_ascii=False)))
+        if has_request_context():
+            g.get('documents',{}).pop('daily_top_rewards',None)
 
 
 @app.get('/api/upgrade/recent-wins')
@@ -2539,7 +2700,7 @@ def upgrade_recent_wins():
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                             WHERE s.won=1 AND s.created_at>?
                             ORDER BY s.created_at DESC,s.id DESC''', (cutoff,)).fetchall()
-        day_start = wins_day_start_utc()
+        day_start = wins_day_start_utc('upgrade')
     def upgrade_win_item(row, result=None):
         if not row:return None
         if result is None:
@@ -2577,7 +2738,7 @@ def upgrade_recent_wins():
                     if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
                                                        str(item.get('created_at') or '')), default=None)
-    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'))
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'),top_schedule=daily_top_schedule_view('upgrade'))
 
 
 @app.post('/api/upgrade/spin')
@@ -3086,7 +3247,7 @@ def recent_wins():
                           (max_round_id,cutoff)).fetchall()
         top = db.execute(selection+''' AND COALESCE(r.settled_at,r.created_at)>=?
                            ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC LIMIT 1''',
-                         (max_round_id,cutoff,wins_day_start_utc())).fetchone()
+                         (max_round_id,cutoff,wins_day_start_utc('mines'))).fetchone()
     def mines_win_item(row):
         try:
             opened_count = len(json.loads(row['opened'] or '[]'))
@@ -3118,7 +3279,7 @@ def recent_wins():
         if top_drop and gift_black_background(top_drop.get('gift') or {}):
             top_drop = max((item for item in items if str(item['created_at']) >= wins_day_start_utc()),
                            key=lambda item: item['amount'], default=None)
-    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('mines'))
+    return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('mines'),top_schedule=daily_top_schedule_view('mines'))
 
 
 FRAGMENT_GIFT_RE = re.compile(r'^https?://(?:(?:www\.)?fragment\.com/gift/|t\.me/nft/)([a-z0-9-]+?)(?:[/?#].*)?$', re.I)

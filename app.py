@@ -229,7 +229,7 @@ def _initialize_schema():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (round_id, user_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_crash_bets_user ON crash_bets(user_id, round_id)
+        CREATE INDEX IF NOT EXISTS idx_crash_bets_user ON crash_bets(user_id, round_id);
         CREATE TABLE IF NOT EXISTS arena_rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT NOT NULL DEFAULT 'open',

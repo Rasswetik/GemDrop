@@ -9261,6 +9261,11 @@ def creator_freebets():
             reward_type=x['reward_type'], purpose=promo_purpose(x),
             wager_multiplier=float(x['wager_multiplier'] or 0),
             burn_pool_enabled=bool(options.get('burn_pool_enabled')),
+            require_subscription=bool(x['require_subscription']),
+            min_level=int(x['min_level'] or 0),
+            min_telegram_level=int(x['min_telegram_level'] or 0),
+            min_turnover=int(x['min_turnover'] or 0)/100,
+            min_deposit=int(x['min_deposit'] or 0)/100,
             created_at=x['created_at'], expires_at=x['expires_at']))
     return jsonify(items=items)
 

@@ -925,7 +925,7 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("creator-demo-delete", page)
         self.assertNotIn("show('promoAdminPage')", page)
 
-    def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
+    def test_creator_demo_is_isolated_from_real_game_mutations(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'
         }]})
@@ -941,8 +941,9 @@ class RegressionTests(unittest.TestCase):
         inv=self.client.get('/api/inventory').get_json()
         self.assertTrue(inv['demo'])
         self.assertEqual(inv['items'][0]['name'],'Demo Gift')
-        self.assertEqual(self.post('/api/game/start',{'mines':3,'bet':'1.00'},409)['error'],
-                         'Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.')
+        demo_round=self.post('/api/game/start',{'mines':3,'bet':'1.00'})
+        self.assertEqual(demo_round['round']['bet_type'],'ton')
+        self.assertEqual(demo_round['user']['balance'],122.45)
         with m.connect() as db:
             self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?',(self.uid,)).fetchone()['balance'],10000)
 

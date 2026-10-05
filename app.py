@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '72-daily-top-demo-balance'
+BUILD_ID = '71-final-stability-audit'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -212,6 +212,21 @@ def _initialize_schema():
         # of executing journal_mode on every API request/connection.
         if not DATABASE_URL:
             db.execute('PRAGMA journal_mode=WAL')
+        db.executescript('''
+        CREATE TABLE IF NOT EXISTS crash_rounds (
+            id INTEGER PRIMARY KEY, crash_x100 INTEGER NOT NULL, rtp_snapshot REAL NOT NULL DEFAULT 0.97,
+            open_at INTEGER NOT NULL, launch_at INTEGER NOT NULL, crash_at INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'open'
+        );
+        CREATE TABLE IF NOT EXISTS crash_bets (
+            round_id INTEGER NOT NULL, user_id INTEGER NOT NULL, bet INTEGER NOT NULL,
+            auto_x100 INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'active',
+            cashout_x100 INTEGER NOT NULL DEFAULT 0, payout INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (round_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_crash_bets_user ON crash_bets(user_id, round_id)
+        ''')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
             name TEXT PRIMARY KEY, payload TEXT NOT NULL
@@ -471,9 +486,6 @@ def _initialize_schema():
             ('username', "TEXT NOT NULL DEFAULT ''"),
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
-            ('demo_balance', 'INTEGER NOT NULL DEFAULT 0'),
-            ('demo_restore_withdrawal_enabled', 'INTEGER NOT NULL DEFAULT 1'),
-            ('demo_restore_withdrawal_reason', "TEXT NOT NULL DEFAULT ''"),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
             ('turnover_cents', 'INTEGER NOT NULL DEFAULT 0'),
@@ -498,7 +510,6 @@ def _initialize_schema():
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'), ('bet_expires_at', 'TEXT'),
             ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
-            ('is_demo', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -589,13 +600,12 @@ def _initialize_schema():
             ('source_price', 'INTEGER NOT NULL DEFAULT 0'), ('target_name', "TEXT NOT NULL DEFAULT ''"),
             ('target_image', "TEXT NOT NULL DEFAULT ''"), ('target_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('chance_bp', 'INTEGER NOT NULL DEFAULT 0'), ('won', 'INTEGER NOT NULL DEFAULT 0'),
-            ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''"),
-            ('is_demo', 'INTEGER NOT NULL DEFAULT 0')
+            ('result_json', "TEXT NOT NULL DEFAULT '{}'") , ('created_at', "TEXT NOT NULL DEFAULT ''")
         ])
         # Columns added by older releases used plain INTEGER on PostgreSQL.
         # Upgrade the late-added ID/money fields in place. Avoid touching FK-bound
         # primary keys here; base tables created by this app already use BIGINT.
-        ensure_postgres_bigint('users', ['turnover_cents', 'max_drop_override_price', 'demo_balance'])
+        ensure_postgres_bigint('users', ['turnover_cents', 'max_drop_override_price'])
         ensure_postgres_bigint('rounds', ['prize_inventory_id', 'win_total', 'win_gift_price',
                                           'bet_inventory_id', 'bet_gift_price', 'promo_wager_target',
                                           'promo_wager_progress', 'promo_progress_after'])
@@ -855,12 +865,8 @@ def admin_required(fn):
 
 def profile():
     user = current_user()
-    demo_balance = max(0, int(user['demo_balance'] or 0))
-    real_balance = max(0, int(user['balance'] or 0))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
-                balance=(demo_balance if demo_balance > 0 else real_balance) / 100,
-                real_balance=real_balance / 100, demo_balance=demo_balance / 100, demo_mode=demo_balance > 0,
-                tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
+                balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
                 withdrawal_enabled=bool(user['withdrawal_enabled']),
                 admin=user['id'] in ADMIN_IDS,
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
@@ -879,24 +885,6 @@ def admin_display():
 def level_number(db, turnover):
     row = db.execute('SELECT MAX(level) AS n FROM levels WHERE required_turnover<=?', (turnover,)).fetchone()
     return int(row['n'] or 1)
-
-
-def demo_balance_cents(db, user_id, lock=False):
-    suffix = ' FOR UPDATE' if lock and DATABASE_URL else ''
-    row = db.execute('SELECT demo_balance FROM users WHERE id=?' + suffix, (user_id,)).fetchone()
-    return max(0, int(row['demo_balance'] or 0)) if row else 0
-
-
-def finish_demo_if_empty(db, user_id):
-    row=db.execute('''SELECT demo_balance,demo_restore_withdrawal_enabled,demo_restore_withdrawal_reason
-                      FROM users WHERE id=?''',(user_id,)).fetchone()
-    if not row or int(row['demo_balance'] or 0)>0:
-        return False
-    db.execute('''UPDATE users SET demo_balance=0,withdrawal_enabled=?,withdrawal_block_reason=?,
-                  demo_restore_withdrawal_enabled=1,demo_restore_withdrawal_reason='' WHERE id=?''',
-               (1 if bool(row['demo_restore_withdrawal_enabled']) else 0,
-                str(row['demo_restore_withdrawal_reason'] or ''),user_id))
-    return True
 
 
 def increase_turnover(db, user_id, amount):
@@ -1060,6 +1048,13 @@ def enforce_available_modes():
             'mines' if path.startswith('/api/game/') else None)
     if mode and path not in ('/api/game/open', '/api/game/cashout') and not section_settings().get(mode, False):
         return error('Данный режим временно недоступен.', 403)
+    # Per-game switch from "Управление играми": on / off / admins only.
+    # Finishing an already started round (open/cashout) always stays possible.
+    game_key = ('crash' if path == '/api/crash/bet' else
+                'upgrade' if path.startswith('/api/upgrade/') else
+                'mines' if path.startswith('/api/game/') else None)
+    if game_key and path not in ('/api/game/open', '/api/game/cashout') and not game_available(game_key):
+        return error('Игра временно недоступна.', 403)
 
 
 def game_rtp():
@@ -1565,15 +1560,6 @@ def award_round(db, row, opened_count):
                   if completed else
                   f'Отыгрыш {row["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'], detail)
-        return
-
-    if bool(row['is_demo']):
-        db.execute("""UPDATE rounds SET state='won',payout=?,win_total=?,win_multiplier=?,
-                      win_gift_name='',win_gift_image='',win_gift_price=NULL,settled_at=? WHERE id=?""",
-                   (amount, amount, factor, settled_at, row['id']))
-        db.execute('UPDATE users SET demo_balance=demo_balance+? WHERE id=?', (amount, row['user_id']))
-        record_transaction(db, row['user_id'], 'demo_game_win', 0, 'round', row['id'],
-                           f'DEMO · выигрыш Mines {amount/100:.2f} TON')
         return
 
     prize = prize_for(amount)
@@ -2540,9 +2526,7 @@ def admin_daily_top_rewards_set(mode):
             gift=catalog_giveaway_prize(data.get('gift_id'))
             reward.update(gift)
         elif reward_type=='fragment':
-            gift=fragment_gift_from_url(data.get('fragment_url'),True,refresh=True,allow_missing_price=True)
-            if int(gift.get('floor_price') or 0) <= 0:
-                raise ValueError('Не удалось определить цену Fragment-подарка. Обновите Portal Market и попробуйте ещё раз.')
+            gift=fragment_gift_from_url(data.get('fragment_url'),True,allow_missing_price=True)
             reward.update(gift)
     except (ValueError,TypeError,InvalidOperation) as exc:
         return error(str(exc) or 'Проверьте награду.')
@@ -2629,13 +2613,12 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
     if mode=='mines':
         winner=db.execute("""SELECT r.user_id FROM rounds r
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
-                               AND COALESCE(r.is_demo,0)=0
                                AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
                              ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
                              LIMIT 1""",(start_db,end_db)).fetchone()
     else:
         winner=db.execute("""SELECT user_id FROM upgrade_spins
-                             WHERE won=1 AND COALESCE(is_demo,0)=0 AND created_at>=? AND created_at<?
+                             WHERE won=1 AND created_at>=? AND created_at<?
                                AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
                              ORDER BY target_price DESC,created_at DESC,id DESC LIMIT 1""",(start_db,end_db)).fetchone()
     if not winner:
@@ -2656,13 +2639,6 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
                                f'Награда за ТОП дня {title}: {reward.get("amount")} GRAM')
         detail=f'🏆 Вы заняли ТОП дня в {title}. Награда: {reward.get("amount")} GRAM.'
     else:
-        if reward_type=='fragment' and int(reward.get('floor_price') or 0) <= 0 and reward.get('fragment_url'):
-            try:
-                refreshed=fragment_gift_from_url(reward.get('fragment_url'),True,refresh=True,allow_missing_price=True)
-                if int(refreshed.get('floor_price') or 0) > 0:
-                    reward={**reward,**refreshed}
-            except Exception:
-                app.logger.warning('Could not refresh daily top Fragment price', exc_info=True)
         source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
         cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                          external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
@@ -2741,7 +2717,7 @@ def upgrade_recent_wins():
             app.logger.exception('Daily top reward settlement failed while loading Upgrade wins')
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
-                                   s.target_name,s.target_image,s.target_price,s.chance_bp,s.is_demo,
+                                   s.target_name,s.target_image,s.target_price,s.chance_bp,
                                    s.result_json,s.created_at,u.name,u.username,u.photo_url
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                             WHERE s.won=1 AND s.created_at>?
@@ -2769,7 +2745,7 @@ def upgrade_recent_wins():
                     target=dict(name=str(row['target_name'] or 'Подарок'),image_url=str(row['target_image'] or ''),
                                 price_ton=target_price),
                     chance=max(0,min(100,chance)),
-                    reward_type=str(result.get('reward_type') or 'gift'), is_demo=bool(row['is_demo']),
+                    reward_type=str(result.get('reward_type') or 'gift'),
                     created_at=row['created_at'])
     items=[]
     for row in rows:
@@ -2781,8 +2757,7 @@ def upgrade_recent_wins():
     if not black_backgrounds_enabled():
         items = [item for item in items if not any(gift_black_background(item[key]) for key in ('source', 'target'))]
     top_candidates=[item for item in items
-                    if not item.get('is_demo') and item.get('reward_type')!='wager_progress'
-                    and str(item.get('created_at') or '')>=day_start]
+                    if item.get('reward_type')!='wager_progress' and str(item.get('created_at') or '')>=day_start]
     top_drop=max(top_candidates, key=lambda item:(float(item['target'].get('price_ton') or 0),
                                                        str(item.get('created_at') or '')), default=None)
     return jsonify(items=items,top_drop=top_drop,top_reward=daily_top_reward('upgrade'),top_schedule=daily_top_schedule_view('upgrade'))
@@ -2815,10 +2790,6 @@ def upgrade_spin():
             if previous['user_id']!=session['uid']:return error('Некорректная операция.',409)
             db.commit()
             return jsonify(**json.loads(previous['result_json']),user=profile())
-        demo_balance=demo_balance_cents(db,session['uid'],lock=True)
-        demo_mode=demo_balance>0
-        if demo_mode and item_text:
-            return error('В демо-режиме доступны только ставки с демо-баланса.',409)
         if amount_text:
             source_price=ton_price
             source=dict(gift_name='TON',image_url='/static/img/ton.png',floor_price=ton_price,promo_locked=0)
@@ -2836,12 +2807,8 @@ def upgrade_spin():
         chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
         if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
         if amount_text:
-            if demo_mode:
-                if not db.execute('UPDATE users SET demo_balance=demo_balance-? WHERE id=? AND demo_balance>=?',
-                                  (source_price,session['uid'],source_price)).rowcount:
-                    return error('Недостаточно средств на демо-балансе.',409)
-            elif not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                                (source_price,session['uid'],source_price)).rowcount:
+            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                              (source_price,session['uid'],source_price)).rowcount:
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
@@ -2876,12 +2843,8 @@ def upgrade_spin():
                                 int(wager_burn_on_loss),source['external_url'] or '',
                                 json.dumps(unlock_payload,ensure_ascii=False)))
             else:
-                if demo_mode:
-                    db.execute('UPDATE users SET demo_balance=demo_balance+? WHERE id=?',
-                               (target['price'],session['uid']))
-                else:
-                    cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
-                                   (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
+                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
+                               (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
             if cur is not None:
                 awarded=cur.lastrowid
         elif wager:
@@ -2903,9 +2866,8 @@ def upgrade_spin():
                 record_transaction(db,session['uid'],'promo_wager_burn',0,'upgrade',request_id,
                                    f'Сгорел промо-подарок: {source["gift_name"]}')
         else:
-            if not demo_mode:
-                compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'])
-        result=dict(ok=True,id=request_id,won=won,chance=chance/100,demo_mode=demo_mode,
+            compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'])
+        result=dict(ok=True,id=request_id,won=won,chance=chance/100,
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
@@ -2916,23 +2878,20 @@ def upgrade_spin():
                     wager_complete=bool(wager and wager_target and wager_progress>=wager_target),
                     expires_at=(None if wager and wager_target and wager_progress>=wager_target else source['expires_at']) if wager else None,
                     awarded_inventory_id=awarded,compensation=compensation)
-        db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at,is_demo)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
                     target['name'],target['image_url'],target['price'],round(chance),int(won),json.dumps(result,ensure_ascii=False),
-                    datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f'),int(demo_mode)))
-        record_transaction(db,session['uid'],'demo_upgrade_bet' if demo_mode else 'upgrade_bet',
-                           0 if demo_mode else (-source_price if amount_text else 0),'upgrade',request_id,
-                           f'{"DEMO · " if demo_mode else ""}{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
+                    datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
+        record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
+                           f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
-                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,demo=demo_mode,
+                  target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
-        result['new_level']=None if wager or demo_mode else increase_turnover(db,session['uid'],source_price)
-        if demo_mode and not won:
-            finish_demo_if_empty(db,session['uid'])
+        result['new_level']=None if wager else increase_turnover(db,session['uid'],source_price)
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
         promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
@@ -3107,11 +3066,6 @@ def start():
         if existing_round:
             return error('Сначала завершите текущую игру.')
 
-        demo_balance=demo_balance_cents(db,session['uid'],lock=True)
-        demo_mode=demo_balance>0
-        if demo_mode and inventory_id is not None:
-            return error('В демо-режиме доступны только ставки с демо-баланса.',409)
-
         bet_type = 'ton'
         snapshot = dict(item_id=None, gift_id='', name='', image='', price=0,
                         multiplier=0.0, target=0, progress=0, code='', expires_at=None,
@@ -3150,16 +3104,10 @@ def start():
                 return error('Укажите корректную ставку.')
             if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
                 return error('Ставка от 0.10 до 300 TON.')
-            if demo_mode:
-                updated = db.execute('UPDATE users SET demo_balance=demo_balance-? WHERE id=? AND demo_balance>=?',
-                                     (bet, session['uid'], bet))
-                if not updated.rowcount:
-                    return error('Недостаточно средств на демо-балансе.')
-            else:
-                updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                                     (bet, session['uid'], bet))
-                if not updated.rowcount:
-                    return error('Недостаточно средств.')
+            updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                                 (bet, session['uid'], bet))
+            if not updated.rowcount:
+                return error('Недостаточно средств.')
 
         positions = sorted(secrets.SystemRandom().sample(range(25), mines))
         if bet_type == 'promo_gift':
@@ -3169,30 +3117,27 @@ def start():
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
                        promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot,bet_expires_at,
-                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url,is_demo)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
                     snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
                     snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at'],
-                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'],
-                    int(demo_mode)))
+                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url']))
         row = active_round(db, session['uid'])
         if bet_type == 'ton':
-            record_transaction(db, session['uid'], 'demo_game_bet' if demo_mode else 'game_bet',
-                               0 if demo_mode else -bet, 'round', row['id'],
-                               f'{"DEMO · " if demo_mode else ""}Mines: {mines}')
+            record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
         elif bet_type == 'promo_gift':
             record_transaction(db, session['uid'], 'promo_wager_bet', 0, 'round', row['id'],
                                f'{snapshot["name"]} · X{snapshot["multiplier"]:g}')
         else:
             record_transaction(db, session['uid'], 'gift_bet', 0, 'round', row['id'], snapshot['name'])
         log_event(db,session['uid'],'mines_start',round_id=row['id'],mines=mines,bet=bet/100,
-                  bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'],demo=demo_mode,
+                  bet_type=bet_type,gift_name=snapshot['name'],gift_image=snapshot['image'],
                   promo_rtp=round(rtp_snapshot*100,2) if bet_type=='promo_gift' else None,
                   loss_rtp_boost=round(promo_loss_boost,2) if bet_type=='promo_gift' else None,
                   game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         # Promo-wager gifts do not count toward site turnover or levels.
-        new_level=None if bet_type=='promo_gift' or demo_mode else increase_turnover(db,session['uid'],bet)
+        new_level=None if bet_type=='promo_gift' else increase_turnover(db,session['uid'],bet)
         db.commit()
         if new_level:
             notify_level_up_async(session['uid'], new_level)
@@ -3226,8 +3171,6 @@ def open_cell():
         positions = json.loads(row['positions'])
         if cell in positions:
             db.execute("UPDATE rounds SET state='lost',lost_cell=? WHERE id=?", (cell, row['id']))
-            if bool(row['is_demo']):
-                finish_demo_if_empty(db,row['user_id'])
             if row['bet_type'] == 'promo_gift':
                 attempts_total = max(1, int(row['promo_attempts_total'] or 1))
                 attempts_before = max(1, int(row['promo_attempts_remaining'] or 1))
@@ -3920,17 +3863,17 @@ def giveaway_view(db, row, user_id=None, include_top=False):
 
 
 TASK_METRICS = {
-    'upgrade_play': ('upgrade_spins', 'COALESCE(is_demo,0)=0'),
-    'upgrade_gift': ('upgrade_spins', '''COALESCE(is_demo,0)=0 AND won=1 AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%' '''),
-    'upgrade_low': ('upgrade_spins', 'COALESCE(is_demo,0)=0 AND won=1 AND chance_bp<2500'),
-    'upgrade_win': ('upgrade_spins', 'COALESCE(is_demo,0)=0 AND won=1'),
+    'upgrade_play': ('upgrade_spins', '1=1'),
+    'upgrade_gift': ('upgrade_spins', '''won=1 AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%' '''),
+    'upgrade_low': ('upgrade_spins', 'won=1 AND chance_bp<2500'),
+    'upgrade_win': ('upgrade_spins', 'won=1'),
     'craft': ('craft_spins', '1=1'),
     'deposit_5': ('deposits', 'amount>=500'),
     'deposit': ('deposits', 'amount>0'),
     'referral': ('referrals', '1=1'),
     'roll': ('roll_spins', '1=1'),
-    'mines_play': ('rounds', "COALESCE(is_demo,0)=0 AND state IN ('won','lost')"),
-    'mines_win': ('rounds', "COALESCE(is_demo,0)=0 AND state='won'"),
+    'mines_play': ('rounds', "state IN ('won','lost')"),
+    'mines_win': ('rounds', "state='won'"),
     'promo': ('promo_redemptions', '1=1'),
 }
 TASK_SPECIAL = ('level', 'link', 'subscribe')
@@ -4817,6 +4760,8 @@ def craft_recent_wins():
 
 PUBLIC_BALANCE_KINDS = {
     'game_bet': 'Ставка Mines',
+    'crash_bet': 'Ставка Crash',
+    'crash_win': 'Выигрыш Crash',
     'game_win_ton': 'Выигрыш Mines',
     'gift_win': 'Подарок из Mines',
     'gift_bet': 'Ставка подарком',
@@ -6535,17 +6480,300 @@ def loader_catalog():
     return items
 
 
+
+# ======================= Game switches (on / off / admins only) =======================
+GAME_KEYS = ('mines', 'upgrade', 'crash')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off'}
+
+
+def is_admin_session():
+    try:
+        return int(session.get('uid') or 0) in ADMIN_IDS
+    except (TypeError, ValueError):
+        return False
+
+
+def game_modes():
+    try:
+        stored = read_document('game_modes') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {key: (stored.get(key) if stored.get(key) in ('on', 'off', 'admin') else default)
+            for key, default in GAME_MODE_DEFAULTS.items()}
+
+
+def game_available(key, admin=None):
+    mode = game_modes().get(key, 'on')
+    if mode == 'on':
+        return True
+    if mode == 'admin':
+        return is_admin_session() if admin is None else bool(admin)
+    return False
+
+
+def effective_games():
+    admin = is_admin_session()
+    return {key: game_available(key, admin) for key in GAME_KEYS}
+
+
+# ================================== Crash ==================================
+CRASH_BETTING_MS = 5000      # countdown 5..1, bets are accepted
+CRASH_BOOM_MS = 3000         # boom.gif is shown after the crash
+CRASH_GROWTH = 0.08          # multiplier = e^(0.08 * seconds)
+CRASH_MIN_FLIGHT_MS = 700
+CRASH_MAX_X100 = 1000000     # 10000x ceiling
+CRASH_RTP_DEFAULT = 0.97
+
+
+def crash_rtp():
+    """One general RTP for Crash: EV of any cash-out target equals this value."""
+    try:
+        doc = read_document('game_settings') or {}
+        value = float(doc.get('crash_rtp', CRASH_RTP_DEFAULT))
+    except (TypeError, ValueError, OSError, json.JSONDecodeError):
+        value = CRASH_RTP_DEFAULT
+    return min(0.999, max(0.80, value))
+
+
+def crash_ms():
+    return int(time.time() * 1000)
+
+
+def crash_roll_x100(rtp):
+    """P(crash >= x) = rtp / x for x >= 1, so every fixed target returns exactly rtp on average."""
+    u = secrets.randbelow(10 ** 9) / 10 ** 9
+    x = rtp / (1.0 - u)
+    return int(max(100, min(CRASH_MAX_X100, math.floor(x * 100))))
+
+
+def crash_flight_ms(crash_x100):
+    if crash_x100 <= 100:
+        return CRASH_MIN_FLIGHT_MS
+    return max(CRASH_MIN_FLIGHT_MS, int(math.log(crash_x100 / 100.0) / CRASH_GROWTH * 1000))
+
+
+def crash_mult_x100(row, now):
+    if now < row['launch_at']:
+        return 100
+    value = int(math.floor(100 * math.exp(CRASH_GROWTH * (now - row['launch_at']) / 1000.0)))
+    return min(max(100, value), int(row['crash_x100']))
+
+
+def crash_new_round(db, round_id, open_at):
+    crash_x100 = crash_roll_x100(crash_rtp())
+    launch_at = open_at + CRASH_BETTING_MS
+    db.execute('INSERT OR IGNORE INTO crash_rounds(id,crash_x100,rtp_snapshot,open_at,launch_at,crash_at,state) VALUES(?,?,?,?,?,?,?)',
+               (round_id, crash_x100, crash_rtp(), open_at, launch_at,
+                launch_at + crash_flight_ms(crash_x100), 'open'))
+
+
+def crash_settle_round(db, row):
+    """Close a finished round exactly once and pay auto cash-outs."""
+    claimed = db.execute("UPDATE crash_rounds SET state='crashed' WHERE id=? AND state='open'", (row['id'],))
+    if not claimed.rowcount:
+        return
+    bets = db.execute("SELECT * FROM crash_bets WHERE round_id=? AND state='active'", (row['id'],)).fetchall()
+    for bet in bets:
+        auto = int(bet['auto_x100'] or 0)
+        if auto >= 101 and auto <= int(row['crash_x100']):
+            payout = int(bet['bet']) * auto // 100
+            moved = db.execute("UPDATE crash_bets SET state='won',cashout_x100=?,payout=? WHERE round_id=? AND user_id=? AND state='active'",
+                               (auto, payout, row['id'], bet['user_id']))
+            if moved.rowcount:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, bet['user_id']))
+                record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
+                                   f'Crash x{auto/100:.2f} (авто)')
+        else:
+            db.execute("UPDATE crash_bets SET state='lost' WHERE round_id=? AND user_id=? AND state='active'",
+                       (row['id'], bet['user_id']))
+
+
+def crash_latest(db):
+    return db.execute('SELECT * FROM crash_rounds ORDER BY id DESC LIMIT 1').fetchone()
+
+
+def crash_needs_advance(row, now):
+    if not row:
+        return True
+    if row['state'] == 'open' and now >= row['crash_at']:
+        return True
+    return row['state'] == 'crashed' and now >= row['crash_at'] + CRASH_BOOM_MS
+
+
+def crash_advance(db, now=None):
+    """Caller owns the transaction (BEGIN IMMEDIATE). Settles the finished round and opens the next one."""
+    now = crash_ms() if now is None else now
+    row = crash_latest(db)
+    if row and row['state'] == 'open' and now >= row['crash_at']:
+        crash_settle_round(db, row)
+        row = crash_latest(db)
+    if not row:
+        crash_new_round(db, 1, now)
+    elif row['state'] == 'crashed' and now >= row['crash_at'] + CRASH_BOOM_MS:
+        opened = row['crash_at'] + CRASH_BOOM_MS
+        if now - opened > 20000:      # server was idle: do not replay missed time
+            opened = now
+        crash_new_round(db, int(row['id']) + 1, opened)
+    return crash_latest(db)
+
+
+def crash_phase(row, now):
+    if row['state'] == 'crashed' or now >= row['crash_at']:
+        return 'crashed'
+    return 'betting' if now < row['launch_at'] else 'flying'
+
+
+def crash_user_view(row):
+    if not row:
+        return None
+    return dict(bet=row['bet'] / 100, auto=(row['auto_x100'] or 0) / 100, state=row['state'],
+                cashout=(row['cashout_x100'] or 0) / 100, payout=(row['payout'] or 0) / 100)
+
+
+def crash_state_payload(db, uid, now):
+    row = crash_latest(db)
+    phase = crash_phase(row, now)
+    payload = dict(now=now, phase=phase, round=dict(id=row['id'], open_at=row['open_at'], launch_at=row['launch_at']),
+                   growth=CRASH_GROWTH, boom_ms=CRASH_BOOM_MS, betting_ms=CRASH_BETTING_MS,
+                   min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
+                   rtp=round(crash_rtp() * 100, 2), available=game_available('crash'))
+    if phase == 'crashed':
+        payload['round']['crash'] = row['crash_x100'] / 100
+        payload['round']['crash_at'] = row['crash_at']
+    mine = db.execute('SELECT * FROM crash_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone()
+    payload['my_bet'] = crash_user_view(mine)
+    rows = db.execute('SELECT b.user_id,b.bet,b.state,b.cashout_x100,b.payout,u.name,u.photo_url '
+                      'FROM crash_bets b JOIN users u ON u.id=b.user_id '
+                      'WHERE b.round_id=? ORDER BY b.bet DESC LIMIT 40', (row['id'],)).fetchall()
+    payload['bets'] = [dict(user_id=r['user_id'], name=r['name'], photo_url=r['photo_url'], bet=r['bet'] / 100,
+                            state=('active' if phase != 'crashed' and r['state'] == 'active' else r['state']),
+                            cashout=(r['cashout_x100'] or 0) / 100, payout=(r['payout'] or 0) / 100) for r in rows]
+    hist = db.execute("SELECT crash_x100 FROM crash_rounds WHERE state='crashed' ORDER BY id DESC LIMIT 24").fetchall()
+    payload['history'] = [h['crash_x100'] / 100 for h in hist]
+    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+    payload['balance'] = (me['balance'] / 100) if me else 0
+    return payload
+
+
+@app.get('/api/crash/state')
+@login_required
+def crash_state():
+    uid = session['uid']
+    db = connect()
+    try:
+        now = crash_ms()
+        if crash_needs_advance(crash_latest(db), now):
+            db.execute('BEGIN IMMEDIATE')
+            crash_advance(db, now)
+            db.commit()
+        return jsonify(crash_state_payload(db, uid, crash_ms()))
+    finally:
+        db.close()
+
+
+@app.post('/api/crash/bet')
+@login_required
+def crash_bet():
+    data = request.get_json(silent=True) or {}
+    try:
+        bet = parse_amount(data.get('bet'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Укажите корректную ставку.')
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON.')
+    auto = 0
+    if data.get('auto') not in (None, '', 0, '0'):
+        try:
+            auto = int(round(float(data.get('auto')) * 100))
+        except (TypeError, ValueError):
+            return error('Некорректный авто-вывод.')
+        if not (101 <= auto <= CRASH_MAX_X100):
+            return error('Авто-вывод: от 1.01x до 10000x.')
+    uid = session['uid']
+    db = connect()
+    new_level = None
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        now = crash_ms()
+        row = crash_advance(db, now)
+        if crash_phase(row, now) != 'betting':
+            return error('Приём ставок закрыт. Дождитесь следующего раунда.', 409)
+        if db.execute('SELECT 1 FROM crash_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():
+            return error('Ставка на этот раунд уже сделана.', 409)
+        if DATABASE_URL:
+            db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
+        updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet))
+        if not updated.rowcount:
+            return error('Недостаточно средств.')
+        db.execute('INSERT INTO crash_bets(round_id,user_id,bet,auto_x100) VALUES(?,?,?,?)', (row['id'], uid, bet, auto))
+        record_transaction(db, uid, 'crash_bet', -bet, 'crash_round', row['id'], 'Crash')
+        new_level = increase_turnover(db, uid, bet)
+        db.commit()
+    finally:
+        db.close()
+    if new_level:
+        notify_level_up_async(uid, new_level)
+    db = connect()
+    try:
+        return jsonify(ok=True, state=crash_state_payload(db, uid, crash_ms()), user=profile(), new_level=new_level)
+    finally:
+        db.close()
+
+
+@app.post('/api/crash/cashout')
+@login_required
+def crash_cashout():
+    uid = session['uid']
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        now = crash_ms()
+        row = crash_advance(db, now)
+        mine = db.execute('SELECT * FROM crash_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone()
+        if not mine or mine['state'] != 'active':
+            db.rollback()
+            return error('Нет активной ставки.', 409)
+        if crash_phase(row, now) != 'flying':
+            db.rollback()
+            return error('Ракета уже взорвалась.' if crash_phase(row, now) == 'crashed' else 'Раунд ещё не стартовал.', 409)
+        mult = crash_mult_x100(row, now)
+        if mult >= int(row['crash_x100']):
+            db.rollback()
+            return error('Ракета уже взорвалась.', 409)
+        payout = int(mine['bet']) * mult // 100
+        moved = db.execute("UPDATE crash_bets SET state='won',cashout_x100=?,payout=? WHERE round_id=? AND user_id=? AND state='active'",
+                           (mult, payout, row['id'], uid))
+        if not moved.rowcount:
+            db.rollback()
+            return error('Ставка уже закрыта.', 409)
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+        record_transaction(db, uid, 'crash_win', payout, 'crash_round', row['id'], f'Crash x{mult/100:.2f}')
+        db.commit()
+    finally:
+        db.close()
+    db = connect()
+    try:
+        return jsonify(ok=True, multiplier=mult / 100, payout=payout / 100,
+                       state=crash_state_payload(db, uid, crash_ms()), user=profile())
+    finally:
+        db.close()
+
+
 @app.get('/api/ui/settings')
 def public_ui_settings():
     # Intentionally public: loader and visible navigation are needed before auth finishes.
     return jsonify(loader_gif=loader_settings()['path'], sections=section_settings(),
-                   black_backgrounds_enabled=black_backgrounds_enabled())
+                   black_backgrounds_enabled=black_backgrounds_enabled(),
+                   games=effective_games(), game_modes=game_modes() if is_admin_session() else None)
 
 
 @app.get('/api/admin/section-settings')
 @admin_required
 def admin_section_settings():
-    return jsonify(sections=section_settings(), black_backgrounds_enabled=black_backgrounds_enabled())
+    return jsonify(sections=section_settings(), black_backgrounds_enabled=black_backgrounds_enabled(),
+                   games=effective_games(), game_modes=game_modes())
 
 
 @app.post('/api/admin/section-settings')
@@ -6560,10 +6788,24 @@ def save_admin_section_settings():
     updated = {key: bool(data.get(key, current[key])) for key in current}
     if not any(updated.values()):
         return error('Нужно оставить включённым хотя бы один раздел.')
+    if 'games' in data:
+        if not isinstance(data['games'], dict):
+            return error('Состояние игр должно быть объектом.')
+        modes = game_modes()
+        for key, value in data['games'].items():
+            if key not in GAME_KEYS:
+                continue
+            if isinstance(value, bool):
+                value = 'on' if value else 'off'
+            if value not in ('on', 'off', 'admin'):
+                return error('Режим игры: on, off или admin.')
+            modes[key] = value
+        save_document('game_modes', modes)
     save_document('section_settings', updated)
     if 'black_backgrounds_enabled' in data:
         save_document('gift_display_settings', {'black_backgrounds_enabled': data['black_backgrounds_enabled']})
-    return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled())
+    return jsonify(ok=True, sections=updated, black_backgrounds_enabled=black_backgrounds_enabled(),
+                   games=effective_games(), game_modes=game_modes())
 
 
 @app.get('/api/admin/loader-settings')
@@ -8535,7 +8777,7 @@ def admin_transactions():
 @admin_required
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100,
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
 
 
@@ -8548,6 +8790,7 @@ def admin_rtp_set():
         promo_percent = float(data.get('promo_rtp', promo_game_rtp()*100))
         upgrade_percent = float(data.get('upgrade_rtp',upgrade_rtp_basis_points()/100))
         loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
+        crash_percent = float(data.get('crash_rtp', crash_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
     if not math.isfinite(percent) or not 97 <= percent <= 99.9:
@@ -8558,15 +8801,18 @@ def admin_rtp_set():
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
         return error('RTP апгрейда должен быть от 1 до 100%.')
+    if not math.isfinite(crash_percent) or not 80 <= crash_percent <= 99.9:
+        return error('RTP Crash должен быть от 80 до 99.9%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка RTP от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
                                     'upgrade_rtp_bp':round(upgrade_percent*100),
                                     'loss_rtp_max_boost':round(loss_boost,2),
+                                    'crash_rtp': crash_percent/100,
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100,
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
 
 

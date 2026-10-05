@@ -472,6 +472,8 @@ def _initialize_schema():
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('demo_balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('demo_restore_withdrawal_enabled', 'INTEGER NOT NULL DEFAULT 1'),
+            ('demo_restore_withdrawal_reason', "TEXT NOT NULL DEFAULT ''"),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
             ('turnover_cents', 'INTEGER NOT NULL DEFAULT 0'),
@@ -883,6 +885,18 @@ def demo_balance_cents(db, user_id, lock=False):
     suffix = ' FOR UPDATE' if lock and DATABASE_URL else ''
     row = db.execute('SELECT demo_balance FROM users WHERE id=?' + suffix, (user_id,)).fetchone()
     return max(0, int(row['demo_balance'] or 0)) if row else 0
+
+
+def finish_demo_if_empty(db, user_id):
+    row=db.execute('''SELECT demo_balance,demo_restore_withdrawal_enabled,demo_restore_withdrawal_reason
+                      FROM users WHERE id=?''',(user_id,)).fetchone()
+    if not row or int(row['demo_balance'] or 0)>0:
+        return False
+    db.execute('''UPDATE users SET demo_balance=0,withdrawal_enabled=?,withdrawal_block_reason=?,
+                  demo_restore_withdrawal_enabled=1,demo_restore_withdrawal_reason='' WHERE id=?''',
+               (1 if bool(row['demo_restore_withdrawal_enabled']) else 0,
+                str(row['demo_restore_withdrawal_reason'] or ''),user_id))
+    return True
 
 
 def increase_turnover(db, user_id, amount):
@@ -2917,6 +2931,8 @@ def upgrade_spin():
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
         result['new_level']=None if wager or demo_mode else increase_turnover(db,session['uid'],source_price)
+        if demo_mode and not won:
+            finish_demo_if_empty(db,session['uid'])
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
         promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
@@ -3210,6 +3226,8 @@ def open_cell():
         positions = json.loads(row['positions'])
         if cell in positions:
             db.execute("UPDATE rounds SET state='lost',lost_cell=? WHERE id=?", (cell, row['id']))
+            if bool(row['is_demo']):
+                finish_demo_if_empty(db,row['user_id'])
             if row['bet_type'] == 'promo_gift':
                 attempts_total = max(1, int(row['promo_attempts_total'] or 1))
                 attempts_before = max(1, int(row['promo_attempts_remaining'] or 1))
@@ -3902,17 +3920,17 @@ def giveaway_view(db, row, user_id=None, include_top=False):
 
 
 TASK_METRICS = {
-    'upgrade_play': ('upgrade_spins', '1=1'),
-    'upgrade_gift': ('upgrade_spins', '''won=1 AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%' '''),
-    'upgrade_low': ('upgrade_spins', 'won=1 AND chance_bp<2500'),
-    'upgrade_win': ('upgrade_spins', 'won=1'),
+    'upgrade_play': ('upgrade_spins', 'COALESCE(is_demo,0)=0'),
+    'upgrade_gift': ('upgrade_spins', '''COALESCE(is_demo,0)=0 AND won=1 AND REPLACE(result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%' '''),
+    'upgrade_low': ('upgrade_spins', 'COALESCE(is_demo,0)=0 AND won=1 AND chance_bp<2500'),
+    'upgrade_win': ('upgrade_spins', 'COALESCE(is_demo,0)=0 AND won=1'),
     'craft': ('craft_spins', '1=1'),
     'deposit_5': ('deposits', 'amount>=500'),
     'deposit': ('deposits', 'amount>0'),
     'referral': ('referrals', '1=1'),
     'roll': ('roll_spins', '1=1'),
-    'mines_play': ('rounds', "state IN ('won','lost')"),
-    'mines_win': ('rounds', "state='won'"),
+    'mines_play': ('rounds', "COALESCE(is_demo,0)=0 AND state IN ('won','lost')"),
+    'mines_win': ('rounds', "COALESCE(is_demo,0)=0 AND state='won'"),
     'promo': ('promo_redemptions', '1=1'),
 }
 TASK_SPECIAL = ('level', 'link', 'subscribe')

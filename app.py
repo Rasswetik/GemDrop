@@ -904,6 +904,7 @@ def creator_record(user_id):
         demo_balance = 0
     return dict(
         active=bool(raw.get('active')),
+        panel_hidden=bool(raw.get('active') and raw.get('panel_hidden')),
         demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
         demo_balance_cents=demo_balance,
         demo_inventory=clean_inventory,

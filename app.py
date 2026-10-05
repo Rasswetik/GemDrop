@@ -9843,6 +9843,9 @@ def admin_creators():
             hay = f"{user['id']} {user['name']} {user['username']}".casefold()
             if term and term.casefold() not in hay:
                 continue
+            freebet_count = db.execute('SELECT COUNT(*) AS n FROM freebets WHERE author_user_id=?', (uid,)).fetchone()
+            promo_count = db.execute("""SELECT COUNT(*) AS n FROM promo_codes
+                                        WHERE author_user_id=? AND source_label<>'Freebet'""", (uid,)).fetchone()
             result.append(dict(
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
                 photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
@@ -9850,6 +9853,8 @@ def admin_creators():
                 youtube_title=str((record.get('youtube') or {}).get('title') or ''),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
                 demo_gifts=len(record.get('demo_inventory') or []),
+                freebet_count=int((freebet_count or {}).get('n') or 0),
+                promo_count=int((promo_count or {}).get('n') or 0),
             ))
     return jsonify(items=result)
 

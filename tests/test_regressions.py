@@ -673,23 +673,49 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM admin_log WHERE user_id=? AND action=\'gift_remove\'',(self.uid,)).fetchone()['n'],2)
         self.assertEqual(self.client.get('/api/notifications').get_json()['items'],[])
 
-    def test_premium_notification_uses_saved_emoji_and_falls_back_on_rejection(self):
+    def test_premium_notification_never_guesses_custom_emoji_from_unicode(self):
         m.remember_emojis([{'id':'12345678901','emoji':'🎉'}])
-        payloads=[]
         response=Mock()
         response.raise_for_status.return_value=None
         response.json.return_value={'ok':True}
-        def post(*args,**kwargs):
-            payloads.append(dict(kwargs['json']))
-            if len(payloads)==1: raise m.requests.RequestException('Emoji unavailable')
-            return response
         try:
-            with patch.object(m,'BOT_TOKEN','qa-token'),patch.object(m.requests,'post',side_effect=post):
+            with patch.object(m,'BOT_TOKEN','qa-token'),patch.object(m.requests,'post',return_value=response) as post:
                 self.assertTrue(m.send_user_notification(self.uid,'🎉 <b>Новый розыгрыш</b>',parse_mode='HTML'))
-            self.assertIn('<tg-emoji emoji-id="12345678901">🎉</tg-emoji>',payloads[0]['text'])
-            self.assertEqual(payloads[1]['text'],'🎉 <b>Новый розыгрыш</b>')
+            self.assertEqual(post.call_args.kwargs['json']['text'],'🎉 <b>Новый розыгрыш</b>')
         finally:
-            with m.connect() as db: db.execute("DELETE FROM app_documents WHERE name='saved_emoji:12345678901'")
+            with m.connect() as db:
+                db.execute("DELETE FROM app_documents WHERE name='saved_emoji:12345678901'")
+
+    def test_freebet_gift_uses_exact_gift_custom_emoji_mapping(self):
+        m.save_document('gift_emoji:qa-gift', {
+            'gift_id':'qa-gift','gift_name':'QA gift',
+            'emoji_id':'12345678901','emoji':'🔥'
+        })
+        reward={'type':'gift','gift':{'gift_id':'qa-gift','name':'QA gift','price_ton':2}}
+        html=m.freebet_reward_html(reward)
+        self.assertIn('<tg-emoji emoji-id="12345678901">🔥</tg-emoji>',html)
+        self.assertNotIn('🎁 <b>QA gift</b>',html)
+
+    def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
+        m.save_document('portal_catalog', {'gifts':[{
+            'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'
+        }]})
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}',{})
+        state=self.post('/api/creator/demo-balance',{'amount':'123.45'})
+        self.assertEqual(state['demo_balance'],123.45)
+        added=self.post('/api/creator/demo-inventory',{'gift_id':'qa-demo-gift'})
+        self.assertEqual(len(added['items']),1)
+        enabled=self.post('/api/creator/demo-mode',{'enabled':True})
+        self.assertTrue(enabled['user']['creator_demo'])
+        self.assertEqual(enabled['user']['balance'],123.45)
+        inv=self.client.get('/api/inventory').get_json()
+        self.assertTrue(inv['demo'])
+        self.assertEqual(inv['items'][0]['name'],'Demo Gift')
+        self.assertEqual(self.post('/api/game/start',{'mines':3,'bet':'1.00'},409)['error'],
+                         'Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.')
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?',(self.uid,)).fetchone()['balance'],10000)
 
     def test_level_changes_do_not_send_bot_notifications(self):
         with patch.object(m,'notify_user_async') as send,patch.object(m,'send_user_notification') as direct:

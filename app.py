@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '77-stars-layout-header-fix'
+BUILD_ID = '78-emoji-broadcast-creators-mines-fix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -884,16 +884,74 @@ def admin_required(fn):
     return decorated
 
 
+def creator_record(user_id):
+    """Creator/author sandbox settings stored independently from real account data."""
+    try:
+        raw = read_document(f'creator:{int(user_id)}') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    inventory = raw.get('demo_inventory') if isinstance(raw.get('demo_inventory'), list) else []
+    clean_inventory = []
+    for item in inventory[:200]:
+        if not isinstance(item, dict):
+            continue
+        clean_inventory.append(dict(item))
+    try:
+        demo_balance = max(0, min(100000000000, int(raw.get('demo_balance_cents') or 0)))
+    except (TypeError, ValueError):
+        demo_balance = 0
+    return dict(
+        active=bool(raw.get('active')),
+        demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
+        demo_balance_cents=demo_balance,
+        demo_inventory=clean_inventory,
+        created_at=raw.get('created_at'),
+        updated_at=raw.get('updated_at'),
+    )
+
+
+def save_creator_record(user_id, data):
+    current = creator_record(user_id)
+    current.update(data if isinstance(data, dict) else {})
+    current['active'] = bool(current.get('active'))
+    current['demo_enabled'] = bool(current['active'] and current.get('demo_enabled'))
+    try:
+        current['demo_balance_cents'] = max(0, min(100000000000, int(current.get('demo_balance_cents') or 0)))
+    except (TypeError, ValueError):
+        current['demo_balance_cents'] = 0
+    if not isinstance(current.get('demo_inventory'), list):
+        current['demo_inventory'] = []
+    current['demo_inventory'] = current['demo_inventory'][:200]
+    current['updated_at'] = datetime.now(timezone.utc).isoformat()
+    if not current.get('created_at'):
+        current['created_at'] = current['updated_at']
+    save_document(f'creator:{int(user_id)}', current)
+    return creator_record(user_id)
+
+
+def creator_demo_active(user_id):
+    return bool(user_id and creator_record(user_id).get('demo_enabled'))
+
+
 def profile():
     user = current_user()
+    creator = creator_record(user['id'])
+    demo = bool(creator.get('demo_enabled'))
     stars_until = parse_datetime_utc(user['stars_withdrawal_until'])
     stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
-                balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
-                withdrawal_enabled=bool(user['withdrawal_enabled']),
-                withdrawal_block_reason=user['withdrawal_block_reason'] or '',
-                stars_withdrawal_locked=stars_locked,
-                stars_withdrawal_until=(stars_until.isoformat() if stars_locked else None),
+                balance=(creator['demo_balance_cents'] if demo else user['balance']) / 100,
+                tickets=(0 if demo else int(user['tickets'] or 0)),
+                turnover=(0 if demo else user['turnover_cents']/100),
+                withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
+                withdrawal_block_reason=('Демо-режим: реальные выводы отключены.' if demo else (user['withdrawal_block_reason'] or '')),
+                stars_withdrawal_locked=(False if demo else stars_locked),
+                stars_withdrawal_until=(None if demo else (stars_until.isoformat() if stars_locked else None)),
+                creator=bool(creator.get('active')),
+                creator_demo=demo,
+                creator_demo_balance=creator['demo_balance_cents']/100 if creator.get('active') else 0,
                 admin=user['id'] in ADMIN_IDS,
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
 
@@ -1084,6 +1142,14 @@ def enforce_available_modes():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return error('Ожидается JSON-объект с параметрами запроса.', 400)
+    uid = session.get('uid')
+    if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        real_money_prefixes = (
+            '/api/game/', '/api/upgrade/spin', '/api/crash/', '/api/inventory/',
+            '/api/transfers/send', '/api/deposit', '/api/stars'
+        )
+        if any(path.startswith(prefix) for prefix in real_money_prefixes):
+            return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
     # Craft is retired from the product. Keep its old data/code for safe migration,
     # but make the API inaccessible so stale clients cannot start new crafts.
     if path.startswith('/api/craft/'):
@@ -4045,7 +4111,7 @@ def finalize_giveaway(db, giveaway_id):
         log_event(db, winner['user_id'], 'giveaway_win', giveaway_id=giveaway_id, rank=rank,
                   gift_name=prize['gift_name'], tickets=winner['tickets'], giveaway_title=giveaway['title'])
         notifications.setdefault(winner['user_id'], []).append(dict(
-            rank=rank, name=prize['gift_name'], fragment_url=prize['fragment_url'] or '',
+            rank=rank, gift_id=prize['gift_id'], name=prize['gift_name'], fragment_url=prize['fragment_url'] or '',
             fragment_number=prize['fragment_number'] or '', price_cents=int(prize['floor_price'] or 0)))
     db.execute("UPDATE giveaways SET status='completed',completed_at=CURRENT_TIMESTAMP WHERE id=?", (giveaway_id,))
     # Deliver one compact message per winner even if the same person won several places.
@@ -5246,11 +5312,14 @@ def admin_status():
 @app.get('/api/inventory')
 @login_required
 def inventory():
+    creator = creator_record(session['uid'])
+    if creator.get('demo_enabled'):
+        return jsonify(items=visible_gifts(creator.get('demo_inventory') or []), demo=True)
     with connect() as db:
         purge_expired_inventory(db, session['uid'])
         items = db.execute('SELECT * FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 200',
                            (session['uid'],)).fetchall()
-    return jsonify(items=visible_gifts([inventory_item(item) for item in items]))
+    return jsonify(items=visible_gifts([inventory_item(item) for item in items]), demo=False)
 
 
 @app.post('/api/inventory/<int:item_id>/sell')
@@ -5643,6 +5712,7 @@ def describe_reward_items(reward):
         gift = reward.get('gift') or {}
         items.append(dict(kind='gift', title=str(gift.get('name') or 'Подарок'),
                           detail=f"Подарок в инвентаре · {float(gift.get('price_ton') or 0):.2f} TON",
+                          gift_id=str(gift.get('gift_id') or gift.get('id') or ''),
                           image_url=gift.get('image_url') or '', amount=float(gift.get('price_ton') or 0)))
     elif kind == 'wager_gift':
         gift = reward.get('gift') or {}
@@ -5657,6 +5727,7 @@ def describe_reward_items(reward):
         elif attempts:
             detail += f' · жизней: {attempts}'
         items.append(dict(kind='wager_gift', title=str(gift.get('name') or 'Подарок'), detail=detail,
+                          gift_id=str(gift.get('gift_id') or gift.get('id') or ''),
                           image_url=gift.get('image_url') or '', amount=float(gift.get('price_ton') or 0),
                           expires_at=gift.get('expires_at') or ''))
     elif kind == 'deposit_bonus':
@@ -5681,7 +5752,10 @@ def freebet_reward_html(reward, fallback=''):
     lines = []
     icons = dict(balance='💰', gift='🎁', wager_gift='🔒', deposit_bonus='📈', tickets='🎟')
     for it in items:
-        lines.append(f"{icons.get(it['kind'], '•')} <b>{escape(it['title'])}</b> — {escape(it['detail'])}")
+        icon = icons.get(it['kind'], '•')
+        if it.get('kind') in ('gift', 'wager_gift'):
+            icon = gift_custom_emoji_html(it.get('gift_id'), it.get('title'), icon)
+        lines.append(f"{icon} <b>{escape(it['title'])}</b> — {escape(it['detail'])}")
     return '\n'.join(lines)
 
 
@@ -6135,6 +6209,181 @@ def admin_add_emoji():
         return error(str(exc), 409)
 
 
+
+def gift_emoji_record(gift_id):
+    gift_id = str(gift_id or '').strip()
+    if not gift_id:
+        return {}
+    try:
+        item = read_document('gift_emoji:' + gift_id) or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        item = {}
+    return item if isinstance(item, dict) else {}
+
+
+def gift_custom_emoji_html(gift_id, gift_name='', default='🎁'):
+    item = gift_emoji_record(gift_id)
+    eid = str(item.get('emoji_id') or '').strip()
+    fallback = str(item.get('emoji') or '').strip()
+    if re.fullmatch(r'[0-9]{5,30}', eid) and fallback:
+        return f'<tg-emoji emoji-id="{eid}">{escape(fallback)}</tg-emoji>'
+    return default
+
+
+@app.get('/api/admin/gift-emojis')
+@admin_required
+def admin_gift_emojis():
+    term = str(request.args.get('q') or '').strip().casefold()[:80]
+    gifts = []
+    for gift in read_catalog().get('gifts', []):
+        gid = str(gift.get('id') or '')
+        name = str(gift.get('name') or 'Подарок')
+        if term and term not in name.casefold() and term not in gid.casefold():
+            continue
+        mapping = gift_emoji_record(gid)
+        gifts.append(dict(
+            gift_id=gid, name=name,
+            image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+            price_ton=gift.get('price_ton'),
+            emoji_id=str(mapping.get('emoji_id') or ''),
+            emoji=str(mapping.get('emoji') or ''),
+        ))
+    return jsonify(items=gifts[:500])
+
+
+@app.post('/api/admin/gift-emojis')
+@admin_required
+def admin_save_gift_emoji():
+    data = request.get_json(silent=True) or {}
+    gift_id = str(data.get('gift_id') or '').strip()
+    emoji_id = str(data.get('emoji_id') or '').strip()
+    gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id') or '') == gift_id), None)
+    if not gift:
+        return error('Подарок не найден в каталоге Portal.', 404)
+    if not emoji_id:
+        save_document('gift_emoji:' + gift_id, dict(
+            gift_id=gift_id, gift_name=str(gift.get('name') or 'Подарок'),
+            emoji_id='', emoji='', updated_at=datetime.now(timezone.utc).isoformat()))
+        return jsonify(ok=True, item=dict(gift_id=gift_id, emoji_id='', emoji=''))
+    if not re.fullmatch(r'[0-9]{5,30}', emoji_id):
+        return error('Введите корректный Telegram custom emoji ID.')
+    try:
+        resolved = fetch_custom_emoji_map([emoji_id])
+    except RuntimeError as exc:
+        return error(str(exc), 409)
+    emoji = resolved.get(emoji_id)
+    if not emoji:
+        return error('Telegram не нашёл premium emoji с таким ID.', 404)
+    remember_emojis([emoji])
+    record = dict(
+        gift_id=gift_id, gift_name=str(gift.get('name') or 'Подарок'),
+        emoji_id=emoji_id, emoji=str(emoji.get('emoji') or ''),
+        image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    save_document('gift_emoji:' + gift_id, record)
+    return jsonify(ok=True, item=record)
+
+
+def _broadcast_filter_values(data):
+    filters = data if isinstance(data, dict) else {}
+    def money(name):
+        raw = filters.get(name)
+        if raw in (None, ''):
+            return 0
+        try:
+            value = parse_amount(raw)
+        except (ValueError, TypeError, InvalidOperation):
+            raise ValueError('Проверьте денежные фильтры рассылки.')
+        if value < 0:
+            raise ValueError('Фильтры не могут быть отрицательными.')
+        return value
+    try:
+        age_days = int(filters.get('min_account_days') or 0)
+    except (TypeError, ValueError):
+        raise ValueError('Возраст аккаунта должен быть указан в днях.')
+    if not 0 <= age_days <= 3650:
+        raise ValueError('Возраст аккаунта: от 0 до 3650 дней.')
+    try:
+        user_id = int(filters.get('user_id') or 0)
+    except (TypeError, ValueError):
+        raise ValueError('Некорректный пользователь.')
+    return dict(
+        min_balance=money('min_balance'),
+        min_turnover=money('min_turnover'),
+        min_deposit=money('min_deposit'),
+        min_account_days=age_days,
+        user_id=max(0, user_id),
+    )
+
+
+def broadcast_recipients(db, raw_filters):
+    filters = _broadcast_filter_values(raw_filters)
+    where, params = ['1=1'], []
+    if filters['user_id']:
+        where.append('u.id=?'); params.append(filters['user_id'])
+    if filters['min_balance']:
+        where.append('u.balance>=?'); params.append(filters['min_balance'])
+    if filters['min_turnover']:
+        where.append('u.turnover_cents>=?'); params.append(filters['min_turnover'])
+    if filters['min_deposit']:
+        where.append('(SELECT COALESCE(SUM(d.amount),0) FROM deposits d WHERE d.user_id=u.id)>=?')
+        params.append(filters['min_deposit'])
+    if filters['min_account_days']:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=filters['min_account_days'])
+        where.append("u.created_at<>'' AND u.created_at<=?")
+        params.append(cutoff.strftime('%Y-%m-%d %H:%M:%S'))
+    query = f"""SELECT u.id,u.name,u.username,u.photo_url,u.balance,u.turnover_cents,
+                       (SELECT COALESCE(SUM(d.amount),0) FROM deposits d WHERE d.user_id=u.id) AS deposit_total
+                FROM users u WHERE {' AND '.join(where)}
+                ORDER BY u.id DESC LIMIT 20000"""
+    return db.execute(query, tuple(params)).fetchall(), filters
+
+
+@app.post('/api/admin/broadcast/preview')
+@admin_required
+def admin_broadcast_preview():
+    data = request.get_json(silent=True) or {}
+    try:
+        with connect() as db:
+            rows, filters = broadcast_recipients(db, data.get('filters') or {})
+    except ValueError as exc:
+        return error(str(exc))
+    users = [dict(id=int(x['id']), name=x['name'], username=x['username'] or '',
+                  photo_url=x['photo_url'] or '', balance=int(x['balance'] or 0)/100,
+                  turnover=int(x['turnover_cents'] or 0)/100,
+                  deposit_total=int(x['deposit_total'] or 0)/100) for x in rows[:50]]
+    return jsonify(count=len(rows), users=users, filters=filters)
+
+
+@app.post('/api/admin/broadcast/send')
+@admin_required
+def admin_broadcast_send():
+    data = request.get_json(silent=True) or {}
+    raw_text = str(data.get('text') or '').strip()
+    if not raw_text:
+        return error('Введите текст рассылки.')
+    if len(raw_text) > 4096:
+        return error('Текст рассылки должен быть не длиннее 4096 символов.')
+    try:
+        buttons = normalize_post_buttons(data.get('buttons') or [])
+        text, _ = resolve_post_custom_emojis(raw_text, buttons)
+        with connect() as db:
+            rows, filters = broadcast_recipients(db, data.get('filters') or {})
+            if not rows:
+                return error('По этим фильтрам нет получателей.', 409)
+            markup = {'inline_keyboard': buttons} if buttons else None
+            for row in rows:
+                notify_user_async(int(row['id']), text, markup, 'HTML', db=db)
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'broadcast',
+                        json.dumps(dict(count=len(rows), filters=filters), ensure_ascii=False)[:1000]))
+            db.commit()
+    except (ValueError, RuntimeError) as exc:
+        return error(str(exc), 409)
+    return jsonify(ok=True, queued=len(rows))
+
+
 @app.route('/api/admin/post/draft', methods=['GET', 'POST'])
 @admin_required
 def admin_post_draft():
@@ -6249,27 +6498,13 @@ def normalize_post_buttons(raw):
 
 
 def notification_premium_html(text):
-    """Use the saved Telegram emoji catalogue; keep a normal emoji fallback."""
-    text = str(text)
-    if '<tg-emoji' in text: return text
-    with connect() as db:
-        rows = db.execute("SELECT payload FROM app_documents WHERE name LIKE 'saved_emoji:%' ORDER BY name").fetchall()
-    emojis = {}
-    for row in rows:
-        try:
-            item = json.loads(row['payload'])
-            eid, emoji = str(item.get('id') or ''), str(item.get('emoji') or '')
-            if re.fullmatch(r'[0-9]{5,30}', eid) and emoji and len(emoji) <= 16 and any(ord(c) >= 0x2000 for c in emoji):
-                emojis.setdefault(escape(emoji), eid)
-        except (ValueError, TypeError, AttributeError):
-            continue
-    if not emojis: return text
-    pattern = re.compile('|'.join(re.escape(x) for x in sorted(emojis, key=len, reverse=True)))
-    parts = re.split(r'(<[^>]+>)', text)
-    for index in range(0, len(parts), 2):
-        parts[index] = pattern.sub(lambda m: f'<tg-emoji emoji-id="{emojis[m.group(0)]}">{m.group(0)}</tg-emoji>', parts[index])
-    decorated = ''.join(parts)
-    return decorated if len(decorated) <= 4096 else text
+    """Only expand explicitly requested custom emoji tokens.
+
+    Never replace a normal Unicode emoji by fallback value: several Telegram gifts
+    can share the same fallback glyph, which previously caused a random saved
+    custom emoji to appear in Freebet/giveaway notifications.
+    """
+    return custom_emoji_html(str(text))
 
 
 def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
@@ -6414,7 +6649,8 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     for win in winnings[:20]:
         price = int(win.get('price_cents') or 0)
         price_text = f' · {format_ton_cents(price)} TON' if price else ''
-        lines.append(f'#{int(win.get("rank") or 0)} — <b>{escape(str(win.get("name") or "Подарок"))}</b>{price_text}')
+        icon = gift_custom_emoji_html(win.get('gift_id'), win.get('name'), '🎁')
+        lines.append(f'#{int(win.get("rank") or 0)} — {icon} <b>{escape(str(win.get("name") or "Подарок"))}</b>{price_text}')
     if len(winnings) > 20:
         lines.append(f'…и ещё {len(winnings)-20} приз(ов).')
     lines.extend(['', 'Награда уже добавлена в ваш инвентарь GemDrop.'])
@@ -8750,6 +8986,145 @@ def admin_toggle_promocode(code):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'promo_toggle', f'{code}:{active}'))
     return jsonify(ok=True, active=bool(active))
+
+
+
+@app.get('/api/admin/creators')
+@admin_required
+def admin_creators():
+    term = str(request.args.get('q') or '').strip()[:80]
+    with connect() as db:
+        rows = db.execute("SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%' ORDER BY name").fetchall()
+        result = []
+        for row in rows:
+            try:
+                uid = int(str(row['name']).split(':', 1)[1])
+                record = json.loads(row['payload'] or '{}')
+            except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+                continue
+            if not isinstance(record, dict) or not record.get('active'):
+                continue
+            user = db.execute('SELECT id,name,username,photo_url FROM users WHERE id=?', (uid,)).fetchone()
+            if not user:
+                continue
+            hay = f"{user['id']} {user['name']} {user['username']}".casefold()
+            if term and term.casefold() not in hay:
+                continue
+            result.append(dict(
+                id=int(user['id']), name=user['name'], username=user['username'] or '',
+                photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
+                demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
+                demo_gifts=len(record.get('demo_inventory') or []),
+            ))
+    return jsonify(items=result)
+
+
+@app.post('/api/admin/creators/<int:user_id>')
+@admin_required
+def admin_creator_add(user_id):
+    with connect() as db:
+        user = db.execute('SELECT id,name,username,photo_url FROM users WHERE id=?', (user_id,)).fetchone()
+    if not user:
+        return error('Пользователь не найден.', 404)
+    record = save_creator_record(user_id, {'active': True})
+    return jsonify(ok=True, creator=dict(id=user_id, name=user['name'], username=user['username'] or '',
+                                         demo_enabled=record['demo_enabled'],
+                                         demo_balance=record['demo_balance_cents']/100))
+
+
+@app.delete('/api/admin/creators/<int:user_id>')
+@admin_required
+def admin_creator_remove(user_id):
+    save_creator_record(user_id, {'active': False, 'demo_enabled': False})
+    return jsonify(ok=True)
+
+
+def creator_required(fn):
+    @wraps(fn)
+    def decorated(*args, **kwargs):
+        uid = session.get('uid')
+        if not uid or not creator_record(uid).get('active'):
+            return error('Панель автора недоступна.', 403)
+        return fn(*args, **kwargs)
+    return decorated
+
+
+@app.get('/api/creator/state')
+@login_required
+@creator_required
+def creator_state():
+    record = creator_record(session['uid'])
+    return jsonify(
+        demo_enabled=record['demo_enabled'],
+        demo_balance=record['demo_balance_cents']/100,
+        demo_inventory=record['demo_inventory'],
+    )
+
+
+@app.post('/api/creator/demo-mode')
+@login_required
+@creator_required
+def creator_demo_mode():
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    if not isinstance(enabled, bool):
+        return error('Передайте enabled=true/false.')
+    record = save_creator_record(session['uid'], {'demo_enabled': enabled})
+    return jsonify(ok=True, demo_enabled=record['demo_enabled'], user=profile())
+
+
+@app.post('/api/creator/demo-balance')
+@login_required
+@creator_required
+def creator_demo_balance():
+    data = request.get_json(silent=True) or {}
+    try:
+        cents = parse_amount(data.get('amount'))
+    except (ValueError, TypeError, InvalidOperation):
+        return error('Введите demo-баланс с точностью до 0.01 TON.')
+    if not 0 <= cents <= 100000000000:
+        return error('Demo-баланс: от 0 до 1 000 000 000 TON.')
+    record = save_creator_record(session['uid'], {'demo_balance_cents': cents})
+    return jsonify(ok=True, demo_balance=record['demo_balance_cents']/100, user=profile())
+
+
+@app.post('/api/creator/demo-inventory')
+@login_required
+@creator_required
+def creator_demo_inventory_add():
+    data = request.get_json(silent=True) or {}
+    gift_id = str(data.get('gift_id') or '').strip()
+    gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id') or '') == gift_id), None)
+    if not gift:
+        return error('Подарок не найден в каталоге Portal.', 404)
+    record = creator_record(session['uid'])
+    items = list(record.get('demo_inventory') or [])
+    next_id = max([int(x.get('id') or 0) for x in items] + [0]) + 1
+    item = dict(
+        id=next_id, gift_id=gift_id, name=str(gift.get('name') or 'Подарок'),
+        image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+        price_ton=float(gift.get('price_ton') or 0), source='creator_demo',
+        created_at=datetime.now(timezone.utc).isoformat(), external_url='',
+        fragment_url='', fragment_number='', fragment_model='', fragment_backdrop='',
+        fragment_symbol='', price_source='DEMO', animation_url='',
+        source_label='DEMO', promo_locked=False, promo_code='', wager_multiplier=0,
+        wager_target=0, wager_progress=0, wager_complete=False, wager_percent=0,
+        wager_attempts_total=1, wager_attempts_remaining=1, wager_burn_on_loss=True,
+        unlock_target=None, expires_at=None, expires_in_seconds=None,
+    )
+    items.insert(0, item)
+    record = save_creator_record(session['uid'], {'demo_inventory': items[:200]})
+    return jsonify(ok=True, item=item, items=record['demo_inventory'])
+
+
+@app.delete('/api/creator/demo-inventory/<int:item_id>')
+@login_required
+@creator_required
+def creator_demo_inventory_remove(item_id):
+    record = creator_record(session['uid'])
+    items = [x for x in record.get('demo_inventory') or [] if int(x.get('id') or 0) != item_id]
+    save_creator_record(session['uid'], {'demo_inventory': items})
+    return jsonify(ok=True, items=items)
 
 
 @app.get('/api/admin/users')

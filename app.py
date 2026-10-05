@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '72-topdrop-startup-deadlock-fix'
+BUILD_ID = '73-upgrade-spin-keyerror-hotfix'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2998,7 +2998,16 @@ def upgrade_spin():
             return jsonify(**json.loads(previous['result_json']),user=profile())
         if amount_text:
             source_price=ton_price
-            source=dict(gift_name='TON',image_url='/static/img/ton.png',floor_price=ton_price,promo_locked=0)
+            # Keep TON bets shape-compatible with inventory rows.  Upgrade result
+            # serialization must never assume promo-only columns exist on a synthetic
+            # TON source.
+            source=dict(
+                gift_id='ton', gift_name='TON', image_url='/static/img/ton.png',
+                floor_price=ton_price, promo_locked=0, promo_wager_multiplier=0,
+                promo_wager_target=0, promo_wager_progress=0, promo_code='',
+                expires_at=None, promo_attempts_total=1, promo_attempts_remaining=1,
+                promo_burn_on_loss=1, external_url=''
+            )
         else:
             source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
                               (source_id,session['uid'])).fetchone()
@@ -3024,8 +3033,11 @@ def upgrade_spin():
         awarded=None
         wager=bool(source['promo_locked'])
         xp_allowed=(not wager) and (True if amount_text else gift_counts_for_xp(source))
+        # Promo progress is meaningful only for a promo-wager gift. For ordinary TON
+        # and ordinary gifts it is always zero and must not be read as a required key.
+        previous_wager_progress=int(source['promo_wager_progress'] or 0) if wager else 0
         wager_target=int(source['promo_wager_target'] or 0) if wager else 0
-        wager_progress=min(wager_target,int(source['promo_wager_progress'] or 0)+target['price']) if wager and won else 0
+        wager_progress=min(wager_target,previous_wager_progress+target['price']) if wager and won else previous_wager_progress
         wager_attempts_total=max(1,int(source['promo_attempts_total'] or 1)) if wager else 1
         wager_attempts_before=max(1,int(source['promo_attempts_remaining'] or 1)) if wager else 1
         wager_burn_on_loss=bool(source['promo_burn_on_loss']) if wager else True
@@ -3079,7 +3091,7 @@ def upgrade_spin():
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
                                 promo_locked=False),
-                    wager_progress=(wager_progress if won else int(source['promo_wager_progress'] or 0))/100,wager_target=wager_target/100,
+                    wager_progress=(wager_progress if wager else 0)/100,wager_target=wager_target/100,
                     wager_attempts_total=wager_attempts_total,wager_attempts_remaining=wager_attempts_after,
                     wager_burn_on_loss=wager_burn_on_loss,wager_burned=wager_burned,
                     wager_complete=bool(wager and wager_target and wager_progress>=wager_target),

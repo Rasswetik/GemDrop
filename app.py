@@ -919,6 +919,41 @@ def admin_required(fn):
     return decorated
 
 
+CREATOR_LEVELS = {
+    'base': dict(
+        key='base', name='Base', daily_budget_cents=30, daily_code_limit=1,
+        activation_min_deposit_cents=100, wager_daily_limit=0, wager_min_x=0,
+        wager_gift_min_cents=0, wager_gift_max_cents=0, wager_max_uses=0,
+        description='Базовый уровень автора: до 0.30 TON промо-наград в день.',
+    ),
+    'creator': dict(
+        key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0,
+        activation_min_deposit_cents=50, wager_daily_limit=1, wager_min_x=30,
+        wager_gift_min_cents=300, wager_gift_max_cents=500, wager_max_uses=10,
+        description='До 1.50 TON в день и 1 отыгрышный подарок стоимостью 3–5 TON.',
+    ),
+    'super_creator': dict(
+        key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0,
+        activation_min_deposit_cents=50, wager_daily_limit=3, wager_min_x=20,
+        wager_gift_min_cents=300, wager_gift_max_cents=1000, wager_max_uses=15,
+        description='До 5 TON в день и до 3 отыгрышных подарков стоимостью 3–10 TON.',
+    ),
+}
+
+
+def creator_level_key(value):
+    value = str(value or 'base').strip().lower()
+    return value if value in CREATOR_LEVELS else 'base'
+
+
+def creator_level_public(value):
+    cfg = dict(CREATOR_LEVELS[creator_level_key(value)])
+    for key in ('daily_budget_cents', 'activation_min_deposit_cents',
+                'wager_gift_min_cents', 'wager_gift_max_cents'):
+        cfg[key.replace('_cents', '_ton')] = cfg.pop(key) / 100
+    return cfg
+
+
 def creator_record(user_id):
     """Creator/author sandbox settings stored independently from real account data."""
     try:
@@ -937,12 +972,25 @@ def creator_record(user_id):
         demo_balance = max(0, min(100000000000, int(raw.get('demo_balance_cents') or 0)))
     except (TypeError, ValueError):
         demo_balance = 0
+    try:
+        demo_turnover = max(0, min(100000000000000, int(raw.get('demo_turnover_cents') or 0)))
+    except (TypeError, ValueError):
+        demo_turnover = 0
+    try:
+        demo_tickets = max(0, min(1000000000, int(raw.get('demo_tickets') or 0)))
+    except (TypeError, ValueError):
+        demo_tickets = 0
+    demo_claims = raw.get('demo_level_claims') if isinstance(raw.get('demo_level_claims'), dict) else {}
     youtube = raw.get('youtube') if isinstance(raw.get('youtube'), dict) else {}
     return dict(
         active=bool(raw.get('active')),
+        creator_level=creator_level_key(raw.get('creator_level')),
         panel_hidden=bool(raw.get('active') and raw.get('panel_hidden')),
         demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
         demo_balance_cents=demo_balance,
+        demo_turnover_cents=demo_turnover,
+        demo_tickets=demo_tickets,
+        demo_level_claims=dict(demo_claims),
         demo_inventory=clean_inventory,
         demo_mines=dict(raw.get('demo_mines') or {}) if isinstance(raw.get('demo_mines'), dict) else {},
         demo_upgrade=dict(raw.get('demo_upgrade') or {}) if isinstance(raw.get('demo_upgrade'), dict) else {},
@@ -957,12 +1005,18 @@ def save_creator_record(user_id, data):
     current = creator_record(user_id)
     current.update(data if isinstance(data, dict) else {})
     current['active'] = bool(current.get('active'))
+    current['creator_level'] = creator_level_key(current.get('creator_level'))
     current['panel_hidden'] = bool(current['active'] and current.get('panel_hidden'))
     current['demo_enabled'] = bool(current['active'] and current.get('demo_enabled'))
-    try:
-        current['demo_balance_cents'] = max(0, min(100000000000, int(current.get('demo_balance_cents') or 0)))
-    except (TypeError, ValueError):
-        current['demo_balance_cents'] = 0
+    for key, upper in (('demo_balance_cents', 100000000000),
+                       ('demo_turnover_cents', 100000000000000),
+                       ('demo_tickets', 1000000000)):
+        try:
+            current[key] = max(0, min(upper, int(current.get(key) or 0)))
+        except (TypeError, ValueError):
+            current[key] = 0
+    if not isinstance(current.get('demo_level_claims'), dict):
+        current['demo_level_claims'] = {}
     if not isinstance(current.get('demo_inventory'), list):
         current['demo_inventory'] = []
     current['demo_inventory'] = current['demo_inventory'][:200]
@@ -976,6 +1030,13 @@ def save_creator_record(user_id, data):
         current['created_at'] = current['updated_at']
     save_document(f'creator:{int(user_id)}', current)
     return creator_record(user_id)
+
+
+def increase_demo_turnover(record, amount):
+    amount = max(0, int(amount or 0))
+    before = int(record.get('demo_turnover_cents') or 0)
+    record['demo_turnover_cents'] = min(100000000000000, before + amount)
+    return record['demo_turnover_cents']
 
 
 def creator_demo_active(user_id):
@@ -1099,12 +1160,14 @@ def demo_mines_start(data):
         record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) - bet_cents
         bet_type = 'ton'
     positions = sorted(secrets.SystemRandom().sample(range(25), mines))
+    increase_demo_turnover(record, bet_cents)
     state = dict(
         id=int(time.time() * 1000), bet=bet_cents / 100, bet_type=bet_type, bet_gift=bet_gift,
         mines=mines, positions=positions, opened=[], state='active', payout=0,
         multiplier=1, potential=bet_cents / 100, prize=None, awarded=None, lost_cell=None,
     )
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_turnover_cents': record['demo_turnover_cents'],
                               'demo_inventory': record['demo_inventory'], 'demo_mines': state})
     return demo_round_view(state)
 
@@ -1143,9 +1206,24 @@ def demo_mines_cashout_state(record, state):
         raise ValueError('Для вывода откройте хотя бы одну безопасную клетку.')
     payout_cents = parse_amount(state.get('potential') or state.get('bet') or 0)
     state['state'] = 'won'
-    state['payout'] = payout_cents / 100
     state['positions'] = list(state.get('positions') or [])
-    record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout_cents
+    prize = prize_for(payout_cents)
+    if prize:
+        price_cents = ton_to_cents(prize.get('price_ton') or 0)
+        remainder = max(0, payout_cents - price_cents)
+        awarded = demo_add_catalog_gift(record, dict(
+            id=prize.get('id'), name=prize.get('name'), image_url=prize.get('image_url'),
+            price_cents=price_cents), 'creator_demo_mines')
+        state['payout'] = remainder / 100
+        state['prize'] = dict(id=prize.get('id'), name=prize.get('name'),
+                              image_url=safe_image(prize.get('image_url')), price_ton=price_cents / 100)
+        state['awarded'] = awarded
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + remainder
+    else:
+        state['payout'] = payout_cents / 100
+        state['prize'] = None
+        state['awarded'] = None
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout_cents
     return state
 
 
@@ -1156,7 +1234,8 @@ def demo_mines_cashout():
     if state.get('state') != 'active':
         raise ValueError('Нет активной DEMO-игры.')
     state = demo_mines_cashout_state(record, state)
-    save_creator_record(uid, {'demo_mines': state, 'demo_balance_cents': record['demo_balance_cents']})
+    save_creator_record(uid, {'demo_mines': state, 'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_inventory': record.get('demo_inventory', [])})
     return demo_round_view(state)
 
 
@@ -1202,6 +1281,7 @@ def demo_upgrade_spin(data):
         removed = demo_remove_item(record, source.get('id'))
         if not removed:
             raise ValueError('DEMO-подарок уже использован.')
+    increase_demo_turnover(record, source_price)
     target = upgrade_target(data.get('gift_id'))
     won = secrets.randbelow(max(1, target['price'] * 10000)) < upgrade_rtp_basis_points() * source_price
     awarded = None
@@ -1220,6 +1300,7 @@ def demo_upgrade_spin(data):
         new_level=None,
     )
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_turnover_cents': record['demo_turnover_cents'],
                               'demo_inventory': record['demo_inventory'], 'demo_upgrade': result})
     return result
 
@@ -1298,16 +1379,18 @@ def demo_crash_bet(data):
         raise ValueError('Ставка от 0.10 до 300 TON.')
     crash_x100 = crash_roll_x100(crash_rtp())
     state['crash'] = crash_x100 / 100
+    increase_demo_turnover(record, bet_cents)
     state['crash_at'] = int(state['launch_at']) + crash_flight_ms(crash_x100)
     state['my_bet'] = dict(bet=bet_cents / 100, auto=float(data.get('auto') or 0),
                             state='active', cashout=0, payout=0, bet_type=bet_type,
                             promo=False, promo_min=1.2, bet_gift=bet_gift, prize=None)
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_turnover_cents': record['demo_turnover_cents'],
                               'demo_inventory': record['demo_inventory'], 'demo_crash': state})
     return demo_crash_state_payload(creator_record(uid), now)
 
 
-def demo_crash_cashout():
+def demo_crash_cashout(data=None):
     uid = session['uid']
     now = int(time.time() * 1000)
     demo_crash_state_payload(creator_record(uid), now)
@@ -1320,13 +1403,30 @@ def demo_crash_cashout():
     if now >= int(state.get('crash_at') or 0):
         raise ValueError('Ракета уже взорвалась.')
     payout_cents = int(round(float(state['my_bet']['bet']) * 100 * mult))
+    want_gift = bool((data or {}).get('gift'))
+    prize_info = crash_prize_preview(payout_cents) if want_gift else None
+    if want_gift and not prize_info:
+        raise ValueError('Сумма ещё ниже самого дешёвого подарка — заберите TON.')
+    prize = None
+    remainder = 0
+    if prize_info:
+        remainder = max(0, payout_cents - int(prize_info['price_cents']))
+        awarded = demo_add_catalog_gift(record, dict(
+            id=prize_info.get('id'), name=prize_info.get('name'),
+            image_url=prize_info.get('image_url'), price_cents=int(prize_info['price_cents'])),
+            'creator_demo_crash')
+        prize = dict(name=awarded['name'], image_url=awarded['image_url'], price_ton=awarded['price_ton'])
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + remainder
+    else:
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout_cents
     state['my_bet']['state'] = 'won'
     state['my_bet']['cashout'] = round(mult, 2)
     state['my_bet']['payout'] = payout_cents / 100
-    record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout_cents
-    save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'], 'demo_crash': state})
+    state['my_bet']['prize'] = prize
+    save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_inventory': record.get('demo_inventory', []), 'demo_crash': state})
     return dict(ok=True, multiplier=round(mult, 2), payout=payout_cents / 100,
-                prize=None, remainder=0, promo=None,
+                prize=prize, remainder=remainder / 100, promo=None,
                 state=demo_crash_state_payload(creator_record(uid), now), user=profile())
 
 
@@ -1338,13 +1438,15 @@ def profile():
     stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=(creator['demo_balance_cents'] if demo else user['balance']) / 100,
-                tickets=(0 if demo else int(user['tickets'] or 0)),
-                turnover=(0 if demo else user['turnover_cents']/100),
+                tickets=(creator['demo_tickets'] if demo else int(user['tickets'] or 0)),
+                turnover=(creator['demo_turnover_cents']/100 if demo else user['turnover_cents']/100),
                 withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
-                withdrawal_block_reason=('Демо-режим: реальные выводы отключены.' if demo else (user['withdrawal_block_reason'] or '')),
+                withdrawal_block_reason=('' if demo else (user['withdrawal_block_reason'] or '')),
                 stars_withdrawal_locked=(False if demo else stars_locked),
                 stars_withdrawal_until=(None if demo else (stars_until.isoformat() if stars_locked else None)),
                 creator=bool(creator.get('active')),
+                creator_level=creator.get('creator_level') or 'base',
+                creator_level_info=creator_level_public(creator.get('creator_level')),
                 creator_panel_hidden=bool(creator.get('panel_hidden')),
                 creator_button_visible=bool(creator.get('active') and not creator.get('panel_hidden')),
                 creator_demo=demo,
@@ -1541,10 +1643,10 @@ def enforce_available_modes():
             return error('Ожидается JSON-объект с параметрами запроса.', 400)
     uid = session.get('uid')
     if uid and path.startswith('/api/arena/') and creator_demo_active(uid):
-        return error('Арена доступна только в реальном режиме. Отключите демо-режим в панели автора.', 409)
+        return error('Арена пока доступна только в реальном режиме. Demo-средства никогда не смешиваются с реальным банком.', 409)
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/inventory/', '/api/transfers/send', '/api/deposit', '/api/stars'
+            '/api/transfers/send', '/api/deposit', '/api/stars'
         )
         if any(path.startswith(prefix) for prefix in real_money_prefixes):
             return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
@@ -2362,15 +2464,27 @@ def public_level_reward(reward, include_hidden=True, black_enabled=None):
 @login_required
 def user_levels():
     black_enabled = black_backgrounds_enabled()
+    creator = creator_record(session['uid'])
+    demo = bool(creator.get('demo_enabled'))
     with connect() as db:
-        turnover=int(db.execute('SELECT turnover_cents FROM users WHERE id=?',(session['uid'],)).fetchone()['turnover_cents'] or 0)
+        if demo:
+            turnover = int(creator.get('demo_turnover_cents') or 0)
+            raw_claims = creator.get('demo_level_claims') or {}
+            claims = {}
+            for key, value in raw_claims.items():
+                try:
+                    claims[int(key)] = value
+                except (TypeError, ValueError):
+                    continue
+        else:
+            turnover=int(db.execute('SELECT turnover_cents FROM users WHERE id=?',(session['uid'],)).fetchone()['turnover_cents'] or 0)
+            claims={r['level']:json.loads(r['reward_json']) for r in db.execute('SELECT level,reward_json FROM level_claims WHERE user_id=?',(session['uid'],)).fetchall()}
         rows=db.execute('SELECT * FROM levels ORDER BY level').fetchall()
-        claims={r['level']:json.loads(r['reward_json']) for r in db.execute('SELECT level,reward_json FROM level_claims WHERE user_id=?',(session['uid'],)).fetchall()}
     level=max((int(r['level']) for r in rows if turnover>=r['required_turnover']),default=1)
     current=next(r for r in rows if r['level']==level)
     nxt=next((r for r in rows if r['level']>level),None)
     progress=100 if not nxt else max(0,min(100,(turnover-current['required_turnover'])*100/(nxt['required_turnover']-current['required_turnover'])))
-    return jsonify(level=level,max_level=len(rows),turnover=turnover/100,
+    return jsonify(level=level,max_level=len(rows),turnover=turnover/100,demo=demo,
                    next_turnover=nxt['required_turnover']/100 if nxt else None,progress=round(progress,1),
                    pending=sum(1 for r in rows if r['required_turnover']<=turnover and r['level'] not in claims and json.loads(r['reward_json']).get('type','none')!='none'),
                    levels=[dict(level=r['level'],required_turnover=r['required_turnover']/100,
@@ -2554,9 +2668,62 @@ def sync_unlocked_level_promos(db, user_id, turnover=None):
     return issued
 
 
+def claim_demo_level(level):
+    uid = session['uid']
+    record = creator_record(uid)
+    claims = dict(record.get('demo_level_claims') or {})
+    with connect() as db:
+        row = db.execute('SELECT * FROM levels WHERE level=?', (level,)).fetchone()
+    if not row:
+        return error('Уровень не найден.', 404)
+    if int(record.get('demo_turnover_cents') or 0) < int(row['required_turnover'] or 0):
+        return error('Достигните уровня, чтобы получить награду.', 403)
+    if str(level) in claims:
+        return error('Награда уже получена.', 409)
+    reward = json.loads(row['reward_json'] or '{}')
+    kind = reward.get('type', 'none')
+    if kind == 'none':
+        return error('На этом уровне награда не назначена.')
+    result = {}
+    if kind == 'balance':
+        amount = max(0, int(reward.get('amount') or 0))
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + amount
+        result = dict(type='balance', amount=amount / 100)
+    elif kind == 'tickets':
+        tickets = max(0, int(reward.get('tickets') or 0))
+        record['demo_tickets'] = int(record.get('demo_tickets') or 0) + tickets
+        result = dict(type='tickets', tickets=tickets)
+    elif kind in ('gift', 'wager_gift'):
+        gift_price = max(0, int(reward.get('gift_price') or 0))
+        item = demo_add_catalog_gift(record, dict(
+            id=reward.get('gift_id'), name=reward.get('gift_name') or 'Подарок',
+            image_url=reward.get('image_url'), price_cents=gift_price), 'creator_demo_level')
+        if kind == 'wager_gift':
+            multiplier = float(reward.get('wager_multiplier') or 0)
+            item['promo_locked'] = True
+            item['wager_multiplier'] = multiplier
+            item['wager_target'] = gift_price * multiplier / 100
+            item['wager_progress'] = 0
+            item['wager_complete'] = False
+            item['wager_percent'] = 0
+            days = max(0, int(reward.get('gift_expires_days') or 0))
+            item['expires_at'] = ((datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None)
+        result = dict(type=kind, gift=dict(item))
+    else:
+        code = f'DEMO-L{level}-{secrets.token_hex(2).upper()}'
+        result = dict(type='demo_promo', code=code, description='Демо-награда уровня')
+    claims[str(level)] = result
+    record['demo_level_claims'] = claims
+    save_creator_record(uid, record)
+    return jsonify(ok=True, reward=result, user=profile(),
+                   message='Награда уровня получена в demo-режиме.')
+
+
 @app.post('/api/levels/<int:level>/claim')
 @login_required
 def claim_level(level):
+    if creator_demo_active(session['uid']):
+        return claim_demo_level(level)
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -5750,6 +5917,20 @@ def inventory():
 @app.post('/api/inventory/<int:item_id>/sell')
 @login_required
 def sell_inventory(item_id):
+    if creator_demo_active(session['uid']):
+        record = creator_record(session['uid'])
+        item = demo_find_item(record, item_id)
+        if not item:
+            return error('Подарок не найден.', 404)
+        if item.get('promo_locked'):
+            return error('Промо-подарок нельзя продать до завершения отыгрыша.', 409)
+        amount = parse_amount(item.get('price_ton') or 0)
+        if not demo_remove_item(record, item_id):
+            return error('Подарок уже обработан.', 409)
+        record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + amount
+        save_creator_record(session['uid'], {'demo_balance_cents': record['demo_balance_cents'],
+                                             'demo_inventory': record['demo_inventory']})
+        return jsonify(ok=True, sold_for=amount/100, demo=True, user=profile())
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -6192,6 +6373,8 @@ def try_activate_freebet(user_id, code):
         fb = db.execute('SELECT * FROM freebets WHERE code=?', (code,)).fetchone()
         if not fb or not fb['active']:
             return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+        if int(fb['author_user_id'] or 0) == int(user_id):
+            return {'status': 'condition', 'text': 'Автор не может активировать собственный фрибет.'}
         if fb['expires_at']:
             expires = parse_datetime_utc(fb['expires_at'])
             if expires and expires <= datetime.now(timezone.utc):
@@ -6230,6 +6413,8 @@ def try_activate_freebet(user_id, code):
         fb = db.execute('SELECT * FROM freebets WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not fb or not fb['active']:
             return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+        if int(fb['author_user_id'] or 0) == int(user_id):
+            return {'status': 'condition', 'text': 'Автор не может активировать собственный фрибет.'}
         if db.execute('SELECT 1 FROM freebet_redemptions WHERE code=? AND user_id=?', (code, user_id)).fetchone():
             return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
         if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
@@ -7200,6 +7385,8 @@ def withdrawal_contact_notice():
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
+    if creator_demo_active(session['uid']):
+        return error('Demo-подарки нельзя отправить на реальный вывод.', 409)
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -8049,7 +8236,7 @@ def crash_cashout():
     data = request.get_json(silent=True) or {}
     if creator_demo_active(uid):
         try:
-            return jsonify(**demo_crash_cashout())
+            return jsonify(**demo_crash_cashout(data))
         except (ValueError, InvalidOperation, TypeError) as exc:
             return error(str(exc), 409)
     want_gift = bool(data.get('gift'))
@@ -8839,6 +9026,8 @@ def redeem_promocode():
         promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not promo or not promo['active']:
             return error('Промокод не найден или отключён.', 404)
+        if int(promo['author_user_id'] or 0) == int(session['uid']):
+            return error('Автор не может активировать собственный промокод.', 403)
         if (int(promo['assigned_user_id'] or 0) not in (0, int(session['uid']))
                 or (str(promo['source_label'] or '') == 'Компенсация Upgrade'
                     and int(promo['assigned_user_id'] or 0) != int(session['uid']))):
@@ -9944,6 +10133,8 @@ def admin_creators():
             result.append(dict(
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
                 photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
+                creator_level=creator_level_key(record.get('creator_level')),
+                creator_level_info=creator_level_public(record.get('creator_level')),
                 panel_hidden=bool(record.get('panel_hidden')),
                 youtube_title=str((record.get('youtube') or {}).get('title') or ''),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
@@ -9960,7 +10151,8 @@ def admin_creator_add(user_id):
     if not user:
         return error('Пользователь не найден.', 404)
     previous = creator_record(user_id)
-    record = save_creator_record(user_id, {'active': True, 'panel_hidden': False})
+    record = save_creator_record(user_id, {'active': True, 'panel_hidden': False,
+                                            'creator_level': previous.get('creator_level') or 'base'})
     if not previous.get('active'):
         notify_user_async(
             user_id,
@@ -9971,7 +10163,32 @@ def admin_creator_add(user_id):
             'HTML')
     return jsonify(ok=True, creator=dict(id=user_id, name=user['name'], username=user['username'] or '',
                                          demo_enabled=record['demo_enabled'],
+                                         creator_level=record.get('creator_level') or 'base',
                                          demo_balance=record['demo_balance_cents']/100))
+
+
+@app.post('/api/admin/creators/<int:user_id>/level')
+@admin_required
+def admin_creator_level(user_id):
+    data = request.get_json(silent=True) or {}
+    raw_level = str(data.get('level') or '').strip().lower()
+    if raw_level not in CREATOR_LEVELS:
+        return error('Выберите Base, Creator или Super Creator.')
+    previous = creator_record(user_id)
+    if not previous.get('active'):
+        return error('Пользователь не является активным автором.', 404)
+    old = creator_level_key(previous.get('creator_level'))
+    record = save_creator_record(user_id, {'creator_level': raw_level})
+    if old != raw_level:
+        notify_user_async(
+            user_id,
+            f'✨ <b>Уровень автора изменён</b>\n\n'
+            f'{escape(CREATOR_LEVELS[old]["name"])} → <b>{escape(CREATOR_LEVELS[raw_level]["name"])}</b>\n'
+            f'{escape(CREATOR_LEVELS[raw_level]["description"])}',
+            miniapp_markup('Открыть панель автора', 'creator'),
+            'HTML')
+    return jsonify(ok=True, creator_level=record['creator_level'],
+                   creator_level_info=creator_level_public(record['creator_level']))
 
 
 @app.delete('/api/admin/creators/<int:user_id>')
@@ -9998,15 +10215,173 @@ def creator_required(fn):
     return decorated
 
 
+
+def creator_bonus_usage(db, user_id):
+    day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    rows = db.execute("""SELECT reward_type,amount,max_uses,source_label,created_at
+                         FROM promo_codes
+                         WHERE author_user_id=? AND SUBSTR(created_at,1,10)=?""",
+                      (int(user_id), day)).fetchall()
+    budget = 0
+    wager_count = 0
+    for row in rows:
+        if row['reward_type'] == 'balance':
+            budget += max(0, int(row['amount'] or 0)) * max(1, int(row['max_uses'] or 1))
+        elif row['reward_type'] == 'wager_gift':
+            wager_count += 1
+    return dict(day=day, budget_used=budget/100, code_count=len(rows), wager_count=wager_count)
+
+
+def creator_bonus_builder_state(user_id):
+    record = creator_record(user_id)
+    level = creator_level_key(record.get('creator_level'))
+    cfg = CREATOR_LEVELS[level]
+    with connect() as db:
+        usage = creator_bonus_usage(db, user_id)
+    gifts = []
+    if cfg['wager_daily_limit']:
+        for gift in read_catalog().get('gifts', []):
+            try:
+                cents = ton_to_cents(gift.get('price_ton') or 0)
+            except (ValueError, TypeError, InvalidOperation):
+                continue
+            if cfg['wager_gift_min_cents'] <= cents <= cfg['wager_gift_max_cents']:
+                gifts.append(dict(id=str(gift.get('id') or ''), name=str(gift.get('name') or 'Подарок'),
+                                  image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+                                  price_ton=cents/100))
+    return dict(level=level, level_info=creator_level_public(level), usage=usage, gifts=gifts)
+
+
+@app.get('/api/creator/bonus-builder')
+@login_required
+@creator_required
+def creator_bonus_builder():
+    return jsonify(**creator_bonus_builder_state(session['uid']))
+
+
+@app.post('/api/creator/bonus-builder')
+@login_required
+@creator_required
+def creator_create_bonus():
+    uid = int(session['uid'])
+    data = request.get_json(silent=True) or {}
+    kind = str(data.get('kind') or '').strip().lower()
+    reward_type = str(data.get('reward_type') or 'balance').strip().lower()
+    if kind not in ('freebet', 'promocode'):
+        return error('Выберите Freebet или промокод.')
+    if reward_type not in ('balance', 'wager_gift'):
+        return error('Авторам доступны TON или отыгрышный подарок.')
+    code = str(data.get('code') or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
+    try:
+        max_uses = int(data.get('max_uses') or 1)
+    except (TypeError, ValueError):
+        return error('Проверьте количество активаций.')
+    if not 1 <= max_uses <= 1000:
+        return error('Количество активаций: от 1 до 1000.')
+    record = creator_record(uid)
+    level = creator_level_key(record.get('creator_level'))
+    cfg = CREATOR_LEVELS[level]
+    activation_min_deposit = int(cfg['activation_min_deposit_cents'])
+    amount = 0
+    gift_id = gift_name = gift_image = ''
+    gift_price = 0
+    wager_multiplier = 0.0
+    if reward_type == 'balance':
+        try:
+            amount = parse_amount(data.get('amount'))
+        except (ValueError, TypeError, InvalidOperation):
+            return error('Укажите сумму TON с точностью до 0.01.')
+        if amount < 1:
+            return error('Минимальная награда — 0.01 TON.')
+    else:
+        if cfg['wager_daily_limit'] <= 0:
+            return error('Отыгрышные подарки доступны с уровня Creator.', 403)
+        if max_uses > int(cfg['wager_max_uses']):
+            return error(f'Для вашего уровня максимум {cfg["wager_max_uses"]} активаций.')
+        gift_id = str(data.get('gift_id') or '')
+        gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id') or '') == gift_id), None)
+        if not gift:
+            return error('Подарок не найден в каталоге Portal.')
+        try:
+            gift_price = ton_to_cents(gift.get('price_ton') or 0)
+            wager_multiplier = float(str(data.get('wager_multiplier') or 0).replace(',', '.'))
+        except (ValueError, TypeError, InvalidOperation):
+            return error('Проверьте подарок и X отыгрыша.')
+        if not cfg['wager_gift_min_cents'] <= gift_price <= cfg['wager_gift_max_cents']:
+            return error(f'Для уровня {cfg["name"]} подарок должен стоить '
+                         f'{cfg["wager_gift_min_cents"]/100:.0f}–{cfg["wager_gift_max_cents"]/100:.0f} TON.')
+        if not math.isfinite(wager_multiplier) or not cfg['wager_min_x'] <= wager_multiplier <= 1000:
+            return error(f'Для уровня {cfg["name"]} X отыгрыша — от {cfg["wager_min_x"]}.')
+        gift_name = str(gift.get('name') or 'Подарок')[:140]
+        gift_image = safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        usage = creator_bonus_usage(db, uid)
+        if db.execute('SELECT 1 FROM promo_codes WHERE code=?', (code,)).fetchone() or db.execute(
+                'SELECT 1 FROM freebets WHERE code=?', (code,)).fetchone():
+            return error('Такой код уже существует.', 409)
+        if cfg['daily_code_limit'] and int(usage['code_count']) >= int(cfg['daily_code_limit']):
+            return error(f'На уровне {cfg["name"]} можно создать только 1 код в день.', 409)
+        if reward_type == 'balance':
+            cost = amount * max_uses
+            remaining = max(0, int(cfg['daily_budget_cents']) - int(round(float(usage['budget_used']) * 100)))
+            if cost > remaining:
+                return error(f'Превышен дневной лимит. Осталось {remaining/100:.2f} TON.', 409)
+        elif int(usage['wager_count']) >= int(cfg['wager_daily_limit']):
+            return error(f'Дневной лимит отыгрышных подарков: {cfg["wager_daily_limit"]}.', 409)
+        source = 'Freebet' if kind == 'freebet' else 'Creator'
+        active = 0 if kind == 'freebet' else 1
+        promo_max_uses = 0 if kind == 'freebet' else max_uses
+        db.execute("""INSERT INTO promo_codes(
+                    code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
+                    max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
+                    assigned_user_id,source_label,description,expires_at,gift_expires_days,
+                    activation_min_deposit,author_user_id)
+                    VALUES(?,?,?,?,?,?,?,?,?,0,?,?,0,0,0,'{}',0,?,'',NULL,0,?,?)""",
+                   (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
+                    promo_max_uses,active,uid,source,activation_min_deposit,uid))
+        if kind == 'freebet':
+            db.execute("""INSERT INTO freebets(
+                        code,promo_code,max_uses,uses_count,active,require_subscription,min_level,min_telegram_level,
+                        min_turnover,min_deposit,expires_at,created_by,author_user_id)
+                        VALUES(?,?,?,0,1,0,0,0,0,?,NULL,?,?)""",
+                       (code,code,max_uses,activation_min_deposit,uid,uid))
+        db.commit()
+    except Exception as exc:
+        try:
+            db.connection.rollback() if DATABASE_URL else db.execute('ROLLBACK')
+        except Exception:
+            pass
+        if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
+            return error('Такой код уже существует.', 409)
+        raise
+    finally:
+        db.close()
+    state = creator_bonus_builder_state(uid)
+    return jsonify(ok=True, code=code, kind=kind,
+                   link=(freebet_link(code) if kind == 'freebet' else ''),
+                   condition_min_deposit=activation_min_deposit/100, **state)
+
+
 @app.get('/api/creator/state')
 @login_required
 @creator_required
 def creator_state():
     record = creator_record(session['uid'])
+    with connect() as db:
+        creator_usage = creator_bonus_usage(db, session['uid'])
     return jsonify(
+        creator_level=record.get('creator_level') or 'base',
+        creator_level_info=creator_level_public(record.get('creator_level')),
+        creator_bonus_usage=creator_usage,
         demo_enabled=record['demo_enabled'],
         panel_hidden=record['panel_hidden'],
         demo_balance=record['demo_balance_cents']/100,
+        demo_turnover=record['demo_turnover_cents']/100,
+        demo_tickets=record['demo_tickets'],
         demo_inventory=record['demo_inventory'],
         youtube=record.get('youtube') or {},
         youtube_configured=True,

@@ -1318,7 +1318,10 @@ def repair_legacy_upgrade_wagers():
     try:
         db.execute('BEGIN IMMEDIATE')
         if DATABASE_URL:
-            db.execute('SELECT pg_advisory_xact_lock(660105)')
+            lock_row = db.execute('SELECT pg_try_advisory_xact_lock(660105) AS locked').fetchone()
+            if not lock_row or not bool(lock_row['locked']):
+                app.logger.info('Skipping legacy Upgrade wager repair: advisory lock 660105 is busy')
+                return False
         if db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('repair_upgrade_wagers_build66',)).fetchone():
             return
         items=db.execute("""SELECT * FROM inventory WHERE promo_locked=1
@@ -1359,6 +1362,7 @@ def repair_legacy_upgrade_wagers():
             log_event(db,item['user_id'],'upgrade_wager_repaired',inventory_id=item['id'],gift_name=original[1])
         db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('repair_upgrade_wagers_build66',))
         db.commit()
+        return True
     finally:db.close()
 
 
@@ -1368,7 +1372,10 @@ def repair_zero_price_top_gifts():
     try:
         db.execute('BEGIN IMMEDIATE')
         if DATABASE_URL:
-            db.execute('SELECT pg_advisory_xact_lock(660106)')
+            lock_row = db.execute('SELECT pg_try_advisory_xact_lock(660106) AS locked').fetchone()
+            if not lock_row or not bool(lock_row['locked']):
+                app.logger.info('Skipping zero-price top gift repair: advisory lock 660106 is busy')
+                return False
         if db.execute('SELECT 1 FROM schema_migrations WHERE name=?', ('repair_zero_price_top_gifts_v1',)).fetchone():
             return
         rows = db.execute("""SELECT id,gift_id FROM inventory
@@ -1379,8 +1386,10 @@ def repair_zero_price_top_gifts():
                 db.execute('UPDATE inventory SET floor_price=? WHERE id=?', (price, row['id']))
         db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('repair_zero_price_top_gifts_v1',))
         db.commit()
+        return True
     except Exception:
         app.logger.exception('Zero-price top gift repair failed')
+        return False
     finally:
         db.close()
 
@@ -10765,12 +10774,21 @@ def configure_bot():
                        type(last_error).__name__ if last_error else 'unknown')
 
 
-# One-time migrations/repairs must finish before any infinite background leader
-# acquires an advisory lock. Otherwise an overlapping lock id can freeze app import
-# before Flask starts accepting HTTP requests.
+# Legacy data repairs must never make the web process unavailable during a rolling
+# deploy. Another Render instance can still own an advisory lock for a few seconds.
+# The repair functions use pg_try_advisory_xact_lock(), and this wrapper also keeps
+# any non-schema legacy repair failure from aborting Gunicorn import.
+def run_startup_repair(fn):
+    try:
+        return fn()
+    except Exception:
+        app.logger.exception('Non-fatal startup repair skipped: %s', fn.__name__)
+        return False
+
+
 if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
-    repair_legacy_upgrade_wagers()
-    repair_zero_price_top_gifts()
+    run_startup_repair(repair_legacy_upgrade_wagers)
+    run_startup_repair(repair_zero_price_top_gifts)
 
 # Keep perpetual background-leader lock ids in their own range, separate from
 # transaction/migration locks (660105/660106 above).

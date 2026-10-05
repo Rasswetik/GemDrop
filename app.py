@@ -47,7 +47,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '73-upgrade-spin-keyerror-hotfix'
+BUILD_ID = '74-stars-deposit-withdraw-lock'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -366,6 +366,13 @@ def _initialize_schema():
             created_unix INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
             tx_hash TEXT UNIQUE, credited_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS stars_deposit_orders (
+            id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, amount INTEGER NOT NULL,
+            stars_amount INTEGER NOT NULL, promo_code TEXT NOT NULL DEFAULT '',
+            invoice_payload TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending',
+            telegram_payment_charge_id TEXT UNIQUE, credited_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS roll_spins (
             id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, roll_id TEXT NOT NULL,
             price INTEGER NOT NULL, outcome TEXT NOT NULL, gift_name TEXT NOT NULL DEFAULT '',
@@ -496,6 +503,7 @@ def _initialize_schema():
             ('max_drop_override_price', 'INTEGER NOT NULL DEFAULT 0'),
             ('max_drop_override_set_at', 'TEXT'),
             ('tickets', 'INTEGER NOT NULL DEFAULT 0'),
+            ('stars_withdrawal_until', 'TEXT'),
         ])
         ensure_columns('rounds', [
             ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
@@ -877,9 +885,14 @@ def admin_required(fn):
 
 def profile():
     user = current_user()
+    stars_until = parse_datetime_utc(user['stars_withdrawal_until'])
+    stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=user['balance'] / 100, tickets=int(user['tickets'] or 0), turnover=user['turnover_cents']/100,
                 withdrawal_enabled=bool(user['withdrawal_enabled']),
+                withdrawal_block_reason=user['withdrawal_block_reason'] or '',
+                stars_withdrawal_locked=stars_locked,
+                stars_withdrawal_until=(stars_until.isoformat() if stars_locked else None),
                 admin=user['id'] in ADMIN_IDS,
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
 
@@ -1139,14 +1152,14 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
                (user_id, str(kind)[:60], int(amount or 0), balance_after,
                 str(reference_type)[:60], str(reference_id)[:120], str(details)[:500]))
     labels = {'gift_sale':'Подарок продан', 'admin_balance':'Баланс изменён',
-              'deposit':'Пополнение', 'ton_deposit':'Пополнение TON', 'referral_bonus':'Реферальный бонус',
+              'deposit':'Пополнение', 'ton_deposit':'Пополнение TON', 'stars_deposit':'Пополнение Stars', 'referral_bonus':'Реферальный бонус',
               'deposit_promo_bonus':'Бонус пополнения', 'withdrawal_request':'Заявка на вывод',
               'withdrawal_approved':'Вывод выполнен', 'withdrawal_rejected':'Подарок возвращён',
               'game_win_ton':'Выигрыш Mines', 'gift_win':'Выигран подарок',
               'promo_wager_claim':'Подарок отыгран', 'upgrade_cashback':'Компенсация апгрейда',
               'upgrade_compensation_gift':'Компенсационный подарок'}
     if kind in labels:
-        if kind in ('deposit', 'ton_deposit'):
+        if kind in ('deposit', 'ton_deposit', 'stars_deposit'):
             text = deposit_notification_text(amount, balance_after or 0)
         elif kind == 'admin_balance':
             text = (f'💳 Баланс изменён на {int(amount)/100:+.2f} TON.\n\n'
@@ -5017,6 +5030,7 @@ PUBLIC_BALANCE_KINDS = {
     'freebet_gift': 'Подарок Freebet',
     'freebet_wager_gift': 'Отыгрышный подарок Freebet',
     'ton_deposit': 'Пополнение TON',
+    'stars_deposit': 'Пополнение Stars',
     'referral_bonus': 'Реферальный бонус',
     'transfer_sent': 'Перевод отправлен',
     'transfer_received': 'Перевод получен',
@@ -6449,14 +6463,22 @@ def ton_connect_deposit_total(db, user_id):
     return int(row['total'] or 0) if row else 0
 
 
+def stars_withdrawal_message(until):
+    local_date = until.strftime('%d.%m.%Y')
+    return f'Ваш вывод ограничен до {local_date} после пополнения через Telegram Stars.'
+
+
 def withdrawal_access_error(db, user_id):
-    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason FROM users WHERE id=?',
+    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason,stars_withdrawal_until FROM users WHERE id=?',
                          (user_id,)).fetchone()
     if not account:
         return 'Пользователь не найден.'
     if not bool(account['withdrawal_enabled']):
         reason = str(account['withdrawal_block_reason'] or '').strip()
         return reason or 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.'
+    stars_until = parse_datetime_utc(account['stars_withdrawal_until'])
+    if stars_until and stars_until > datetime.now(timezone.utc):
+        return stars_withdrawal_message(stars_until)
     required = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
     deposited = ton_connect_deposit_total(db, user_id)
     if deposited < required:
@@ -8762,6 +8784,9 @@ def admin_user(user_id):
                              turnover=user['turnover_cents']/100,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or '',
+                             stars_withdrawal_until=(parse_datetime_utc(user['stars_withdrawal_until']).isoformat()
+                                                     if parse_datetime_utc(user['stars_withdrawal_until']) and
+                                                     parse_datetime_utc(user['stars_withdrawal_until']) > datetime.now(timezone.utc) else None),
                              max_drop_override=(dict(name=user['max_drop_override_name'],image_url=user['max_drop_override_image'],
                                                      price_ton=int(user['max_drop_override_price'] or 0)/100,
                                                      set_at=user['max_drop_override_set_at'])
@@ -8838,6 +8863,25 @@ def admin_user_withdrawal_access(user_id):
     else:
         notify_user_async(user_id, f'⚠️ <b>Вывод временно недоступен</b>\n\n{escape(reason)}', miniapp_markup('Открыть', 'profile'), 'HTML')
     return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason)
+
+
+@app.post('/api/admin/users/<int:user_id>/stars-withdrawal-unlock')
+@admin_required
+def admin_user_stars_withdrawal_unlock(user_id):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT stars_withdrawal_until FROM users WHERE id=?', (user_id,)).fetchone()
+        if not row:
+            return error('Пользователь не найден.', 404)
+        db.execute('UPDATE users SET stars_withdrawal_until=NULL WHERE id=?', (user_id,))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, 'stars_withdrawal_unlock', str(row['stars_withdrawal_until'] or '')))
+        log_event(db, user_id, 'withdrawal_access', enabled=True, reason='Ограничение Stars снято',
+                  admin_id=session['uid'])
+        db.commit()
+    notify_user_async(user_id, '✅ <b>Ограничение вывода после оплаты Stars снято администратором.</b>',
+                      miniapp_markup('Открыть', 'profile'), 'HTML')
+    return jsonify(ok=True)
 
 
 @app.post('/api/admin/users/<int:user_id>/promocodes/new')
@@ -9700,6 +9744,11 @@ def ton_settings():
         ref_percent = min(50.0, max(0.0, float(doc.get('referral_percent', 10) or 0)))
     except (TypeError, ValueError):
         ref_percent = 10.0
+    try:
+        stars_per_ton = int(doc.get('stars_per_ton', 100) or 100)
+    except (TypeError, ValueError):
+        stars_per_ton = 100
+    stars_per_ton = max(1, min(100000, stars_per_ton))
     return dict(
         enabled=bool(doc.get('enabled', True)),
         recipient_wallet=str(doc.get('recipient_wallet') or '').strip()[:180],
@@ -9707,6 +9756,9 @@ def ton_settings():
         site_url=str(doc.get('site_url') or WEBAPP_URL or '').strip()[:500],
         icon_url=str(doc.get('icon_url') or '').strip()[:500],
         referral_percent=ref_percent,
+        stars_enabled=bool(doc.get('stars_enabled', True)),
+        stars_per_ton=stars_per_ton,
+        stars_withdraw_days=21,
     )
 
 
@@ -9715,7 +9767,9 @@ def ton_settings():
 def ton_settings_public():
     settings = ton_settings()
     return jsonify(enabled=settings['enabled'], recipient_wallet=settings['recipient_wallet'],
-                   site_name=settings['site_name'], referral_percent=settings['referral_percent'])
+                   site_name=settings['site_name'], referral_percent=settings['referral_percent'],
+                   stars_enabled=settings['stars_enabled'], stars_per_ton=settings['stars_per_ton'],
+                   stars_withdraw_days=settings['stars_withdraw_days'])
 
 
 @app.get('/api/admin/ton-settings')
@@ -9733,12 +9787,16 @@ def admin_ton_settings_set():
     site_url = str(data.get('site_url') or '').strip()
     icon_url = str(data.get('icon_url') or '').strip()
     enabled = bool(data.get('enabled', True))
+    stars_enabled = bool(data.get('stars_enabled', True))
     try:
         referral_pct = float(data.get('referral_percent', 10))
+        stars_per_ton = int(data.get('stars_per_ton', 100))
     except (TypeError, ValueError):
-        return error('Реферальный процент указан неверно.')
+        return error('Проверьте реферальный процент и курс Stars.')
     if not 0 <= referral_pct <= 50:
         return error('Реферальный процент должен быть от 0 до 50%.')
+    if not 1 <= stars_per_ton <= 100000:
+        return error('Курс Stars должен быть от 1 до 100 000 Stars за 1 TON.')
     if recipient and not (20 <= len(recipient) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', recipient)):
         return error('Проверьте адрес TON-кошелька получателя.')
     if not (1 <= len(site_name) <= 48):
@@ -9749,12 +9807,15 @@ def admin_ton_settings_set():
         return error('URL иконки должен начинаться с https://')
     save_document('ton_settings', dict(enabled=enabled, recipient_wallet=recipient, site_name=site_name,
                                        site_url=site_url, icon_url=icon_url, referral_percent=referral_pct,
+                                       stars_enabled=stars_enabled, stars_per_ton=stars_per_ton,
                                        updated_at=datetime.now(timezone.utc).isoformat(),
                                        admin_id=session['uid']))
     with connect() as db:
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'ton_settings',
-                    json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient, 'referral_percent': referral_pct}, ensure_ascii=False)))
+                    json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient,
+                                'referral_percent': referral_pct, 'stars_enabled': stars_enabled,
+                                'stars_per_ton': stars_per_ton}, ensure_ascii=False)))
     return jsonify(ok=True, **ton_settings())
 
 
@@ -9913,6 +9974,193 @@ def verify_ton_deposit(order_id):
     except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
         app.logger.exception('TON deposit verification failed')
         return error('Сеть TON пока не подтвердила пополнение. Повторите проверку через несколько секунд.', 502)
+
+
+STARS_WITHDRAWAL_DAYS = 21
+
+
+def _active_deposit_promo(db, user_id, promo_code):
+    if not promo_code:
+        return None
+    return db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit
+                         FROM promo_redemptions r
+                         JOIN promo_codes p ON p.code=r.code
+                         WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                         AND r.code=? AND r.consumed_at IS NULL AND r.deactivated_at IS NULL"""
+                      + (' FOR UPDATE OF r' if DATABASE_URL else ''),
+                      (user_id, promo_code)).fetchone()
+
+
+def _consume_deposit_bonus(db, user_id, amount, promo_code):
+    active = _active_deposit_promo(db, user_id, promo_code)
+    if not active or amount < int(active['min_deposit'] or 0):
+        return 0, active
+    bonus = round(amount * float(active['bonus_percent'] or 0) / 100) + int(active['bonus_fixed'] or 0)
+    consumed = db.execute("""UPDATE promo_redemptions SET consumed_at=CURRENT_TIMESTAMP
+                             WHERE code=? AND user_id=? AND consumed_at IS NULL""",
+                          (active['code'], user_id))
+    return (bonus if consumed.rowcount else 0), active
+
+
+def _apply_stars_withdrawal_lock(db, user_id):
+    now = datetime.now(timezone.utc)
+    candidate = now + timedelta(days=STARS_WITHDRAWAL_DAYS)
+    row = db.execute('SELECT stars_withdrawal_until FROM users WHERE id=?', (user_id,)).fetchone()
+    current = parse_datetime_utc(row['stars_withdrawal_until']) if row else None
+    until = max(candidate, current) if current and current > now else candidate
+    stored = until.strftime('%Y-%m-%d %H:%M:%S')
+    db.execute('UPDATE users SET stars_withdrawal_until=? WHERE id=?', (stored, user_id))
+    return until
+
+
+def credit_verified_stars_deposit(db, order, payment_charge_id):
+    """Credit one confirmed Telegram Stars invoice exactly once."""
+    user_id = int(order['user_id'])
+    amount = int(order['amount'])
+    deposit_bonus, promo = _consume_deposit_bonus(db, user_id, amount, order['promo_code'] or '')
+    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount + deposit_bonus, user_id))
+    db.execute("""INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
+                  VALUES(?,?,NULL,0,0,?)""",
+               (user_id, amount, 'stars:' + str(order['id'])))
+    db.execute("""UPDATE stars_deposit_orders
+                  SET status='credited',telegram_payment_charge_id=?,credited_at=CURRENT_TIMESTAMP
+                  WHERE id=?""", (payment_charge_id, order['id']))
+    lock_until = _apply_stars_withdrawal_lock(db, user_id)
+    record_transaction(db, user_id, 'stars_deposit', amount, 'telegram_stars', payment_charge_id,
+                       f'Пополнение через Telegram Stars · {int(order["stars_amount"])} Stars')
+    if deposit_bonus:
+        record_transaction(db, user_id, 'deposit_promo_bonus', deposit_bonus, 'telegram_stars',
+                           payment_charge_id, f'Бонус промокода {promo["code"]}')
+    log_event(db, user_id, 'deposit_confirmed', amount=amount/100, bonus=deposit_bonus/100,
+              promo_code=promo['code'] if deposit_bonus and promo else '',
+              payment='stars', stars=int(order['stars_amount']), order_id=order['id'])
+    return deposit_bonus, lock_until
+
+
+@app.post('/api/stars/deposit/create')
+@login_required
+def create_stars_deposit():
+    settings = ton_settings()
+    if not settings['stars_enabled']:
+        return error('Пополнение Stars временно отключено.', 503)
+    if not BOT_TOKEN:
+        return error('Telegram-бот не настроен для оплаты Stars.', 503)
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Введите сумму с точностью до 0.01 TON.')
+    if not 10 <= amount <= 100000000:
+        return error('Сумма пополнения должна быть от 0.10 до 1 000 000 TON.')
+    stars_amount = max(1, int(math.ceil(amount * int(settings['stars_per_ton']) / 100)))
+    order_id = secrets.token_urlsafe(18).replace('-', '').replace('_', '')[:24]
+    invoice_payload = f'stars:{order_id}'
+    with connect() as db:
+        db.execute("UPDATE stars_deposit_orders SET status='expired' WHERE user_id=? AND status='pending'",
+                   (session['uid'],))
+        promo = db.execute("""SELECT r.code,p.bonus_percent,p.bonus_fixed,p.min_deposit
+                              FROM promo_redemptions r JOIN promo_codes p ON p.code=r.code
+                              WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                              AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                              ORDER BY r.created_at DESC LIMIT 1""", (session['uid'],)).fetchone()
+        promo_code = promo['code'] if promo else ''
+        db.execute("""INSERT INTO stars_deposit_orders
+                      (id,user_id,amount,stars_amount,promo_code,invoice_payload,status)
+                      VALUES(?,?,?,?,?,?,'pending')""",
+                   (order_id, session['uid'], amount, stars_amount, promo_code, invoice_payload))
+        log_event(db, session['uid'], 'deposit_created', amount=amount/100, promo_code=promo_code,
+                  order_id=order_id, payment='stars', stars=stars_amount)
+    try:
+        invoice_url = telegram_api('createInvoiceLink', {
+            'title': 'Пополнение GemDrop',
+            'description': f'Пополнение игрового баланса на {amount / 100:.2f} TON',
+            'payload': invoice_payload,
+            'currency': 'XTR',
+            'prices': [{'label': f'{amount / 100:.2f} TON', 'amount': stars_amount}],
+        }, timeout=(3, 12))
+    except RuntimeError as exc:
+        with connect() as db:
+            db.execute("UPDATE stars_deposit_orders SET status='failed' WHERE id=? AND status='pending'",
+                       (order_id,))
+        return error(f'Не удалось создать счёт Stars: {exc}', 502)
+    return jsonify(ok=True, order_id=order_id, invoice_url=invoice_url, stars=stars_amount,
+                   amount=amount/100, stars_per_ton=settings['stars_per_ton'],
+                   withdraw_days=STARS_WITHDRAWAL_DAYS,
+                   deposit_bonus=(round(amount*float(promo['bonus_percent'] or 0)/100)
+                                  + int(promo['bonus_fixed'] or 0))/100
+                   if promo and amount >= int(promo['min_deposit'] or 0) else 0)
+
+
+@app.get('/api/stars/deposit/<order_id>/status')
+@login_required
+def stars_deposit_status(order_id):
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return error('Некорректная операция.')
+    with connect() as db:
+        order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
+                           (order_id, session['uid'])).fetchone()
+        account = db.execute('SELECT stars_withdrawal_until FROM users WHERE id=?', (session['uid'],)).fetchone()
+    if not order:
+        return error('Операция пополнения не найдена.', 404)
+    until = parse_datetime_utc(account['stars_withdrawal_until']) if account else None
+    return jsonify(ok=True, status=order['status'], user=profile() if order['status'] == 'credited' else None,
+                   withdrawal_block_until=(until.isoformat() if until and until > datetime.now(timezone.utc) else None),
+                   withdraw_days=STARS_WITHDRAWAL_DAYS)
+
+
+def process_stars_successful_payment(message, payment):
+    sender = message.get('from') or {}
+    uid = sender.get('id')
+    payload = str(payment.get('invoice_payload') or '')
+    if not isinstance(uid, int) or not payload.startswith('stars:'):
+        return False
+    order_id = payload.split(':', 1)[1].strip()
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return False
+    charge_id = str(payment.get('telegram_payment_charge_id') or '').strip()[:180]
+    try:
+        total_amount = int(payment.get('total_amount'))
+    except (TypeError, ValueError):
+        return False
+    if payment.get('currency') != 'XTR' or not charge_id:
+        return False
+    credited = False
+    bonus = 0
+    lock_until = None
+    balance_now = 0
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=?'
+                           + (' FOR UPDATE' if DATABASE_URL else ''), (order_id,)).fetchone()
+        if not order or int(order['user_id']) != uid or order['invoice_payload'] != payload:
+            db.commit()
+            return False
+        if int(order['stars_amount']) != total_amount:
+            db.commit()
+            return False
+        if order['status'] == 'credited':
+            db.commit()
+            return True
+        used = db.execute("""SELECT id FROM stars_deposit_orders
+                             WHERE telegram_payment_charge_id=? AND id<>?""",
+                          (charge_id, order_id)).fetchone()
+        if used:
+            db.commit()
+            return False
+        bonus, lock_until = credit_verified_stars_deposit(db, order, charge_id)
+        row = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+        balance_now = int(row['balance'] or 0) if row else 0
+        db.commit()
+        credited = True
+    if credited:
+        notify_deposit_async(uid, int(order['amount']), balance_now, bonus)
+        until_text = lock_until.strftime('%d.%m.%Y') if lock_until else ''
+        notify_user_async(
+            uid,
+            f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\\n\\n'
+            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} день до <b>{until_text}</b>.',
+            miniapp_markup('Открыть', 'profile'), 'HTML')
+    return credited
 
 
 
@@ -10538,6 +10786,42 @@ def telegram_webhook():
     chat = message.get('chat') or {}
     command = str(message.get('text') or '').split(maxsplit=1)
     callback = update.get('callback_query') or {}
+    pre_checkout = update.get('pre_checkout_query') or {}
+    if pre_checkout:
+        query_id = str(pre_checkout.get('id') or '')
+        uid = (pre_checkout.get('from') or {}).get('id')
+        payload = str(pre_checkout.get('invoice_payload') or '')
+        ok = False
+        reason = 'Счёт больше недействителен. Создайте новое пополнение.'
+        if query_id and isinstance(uid, int) and payload.startswith('stars:') and pre_checkout.get('currency') == 'XTR':
+            order_id = payload.split(':', 1)[1].strip()
+            try:
+                total_amount = int(pre_checkout.get('total_amount'))
+            except (TypeError, ValueError):
+                total_amount = -1
+            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+                with connect() as db:
+                    order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
+                                       (order_id, uid)).fetchone()
+                if order and order['status'] == 'pending' and order['invoice_payload'] == payload and int(order['stars_amount']) == total_amount:
+                    ok = True
+        try:
+            answer = {'pre_checkout_query_id': query_id, 'ok': ok}
+            if not ok:
+                answer['error_message'] = reason
+            telegram_api('answerPreCheckoutQuery', answer)
+        except RuntimeError:
+            app.logger.exception('Failed to answer Stars pre-checkout query')
+        return jsonify(ok=True)
+    successful_payment = message.get('successful_payment') or {}
+    if successful_payment:
+        try:
+            if not process_stars_successful_payment(message, successful_payment):
+                app.logger.warning('Rejected or unmatched Stars successful_payment for user %s', sender.get('id'))
+        except Exception:
+            app.logger.exception('Stars successful_payment processing failed')
+            return error('Не удалось зачислить оплату Stars.', 500)
+        return jsonify(ok=True)
     if callback and isinstance((callback.get('from') or {}).get('id'), int):
         callback_id = str(callback.get('id') or '')
         callback_data = str(callback.get('data') or '')
@@ -10613,6 +10897,10 @@ def telegram_webhook():
         return jsonify(method='sendMessage',chat_id=chat['id'],
                        text=('✅ Вход подтверждён. Вернитесь на страницу GemDrop.' if success else
                              'Код неверный или срок его действия истёк. Получите новый код на сайте.'))
+    if (chat.get('type') == 'private' and command and
+            command[0].split('@')[0].lower() == '/paysupport' and isinstance(sender.get('id'), int)):
+        return jsonify(method='sendMessage', chat_id=chat['id'],
+                       text='По вопросам оплаты Telegram Stars обратитесь в поддержку GemDrop через приложение.')
     if (chat.get('type') != 'private' or not command or
             command[0].split('@')[0] != '/start' or not isinstance(sender.get('id'), int)):
         return jsonify(ok=True)
@@ -10771,7 +11059,7 @@ def configure_bot():
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                      json={'url': WEBAPP_URL + '/telegram/webhook',
                                            'secret_token': WEBHOOK_SECRET,
-                                           'allowed_updates': ['message', 'callback_query'],
+                                           'allowed_updates': ['message', 'callback_query', 'pre_checkout_query'],
                                            'max_connections': 40,
                                            'drop_pending_updates': False}, timeout=(3, 6))
             response.raise_for_status()
@@ -10815,5 +11103,3 @@ start_background(log_pruner_loop, 660104)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
-
-                           

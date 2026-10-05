@@ -1023,8 +1023,12 @@ def creator_demo_round_view(round_data, reveal=False):
     mines = int(round_data.get('mines') or 3)
     bet = int(round_data.get('bet') or 0)
     state = str(round_data.get('state') or 'active')
-    factor = multiplier_for(mines, len(opened), game_rtp()) if opened else 1.0
-    amount = int((Decimal(bet) * Decimal(str(factor))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    if state == 'won' and round_data.get('win_multiplier') is not None:
+        factor = float(round_data.get('win_multiplier') or 1)
+        amount = int(round_data.get('win_total') or round_data.get('payout') or bet)
+    else:
+        factor = multiplier_for(mines, len(opened), game_rtp()) if opened else 1.0
+        amount = int((Decimal(bet) * Decimal(str(factor))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
     bet_gift = dict(round_data.get('bet_gift') or {}) or None
     return dict(
         id=round_data.get('id'), bet=bet/100, bet_type=round_data.get('bet_type') or 'ton',
@@ -1035,6 +1039,40 @@ def creator_demo_round_view(round_data, reveal=False):
         awarded=round_data.get('awarded'), lost_cell=round_data.get('lost_cell'),
         promo_progress_after=0, demo=True,
     )
+
+
+def creator_demo_settle_mines(record, demo):
+    opened = list(demo.get('opened') or [])
+    if not opened:
+        raise ValueError('Для вывода откройте хотя бы одну безопасную клетку.')
+    bet = int(demo.get('bet') or 0)
+    mines = int(demo.get('mines') or 3)
+    factor = multiplier_for(mines, len(opened), game_rtp())
+    amount = int((Decimal(bet) * Decimal(str(factor))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    items = list(record.get('demo_inventory') or [])
+    prize = prize_for(amount)
+    awarded = None
+    payout = amount
+    if prize:
+        cents = ton_to_cents(prize['price_ton'])
+        payout = max(0, amount - cents)
+        item_id = creator_demo_next_id(items)
+        gift_item = creator_demo_catalog_item(prize, item_id, 'creator_demo_mines')
+        items.insert(0, gift_item)
+        awarded = gift_item
+        demo['prize'] = dict(id=str(prize['id']), name=str(prize['name']),
+                             image_url=safe_image(prize.get('image_url')), price_ton=cents/100)
+    else:
+        demo['prize'] = None
+    demo.update(state='won', payout=payout, awarded=awarded, win_total=amount,
+                win_multiplier=float(factor))
+    balance = int(record.get('demo_balance_cents') or 0) + payout
+    saved = save_creator_record(session['uid'], {
+        'demo_balance_cents': balance,
+        'demo_inventory': items[:200],
+        'demo_round': demo,
+    })
+    return saved, demo
 
 
 def creator_demo_crash_view(bet):
@@ -3721,6 +3759,9 @@ def open_cell():
             demo.update(state='lost',lost_cell=cell)
         else:
             opened.append(cell);demo['opened']=opened
+            if len(opened) >= 25-int(demo.get('mines') or 3):
+                record,demo=creator_demo_settle_mines(record,demo)
+                return jsonify(round=creator_demo_round_view(demo,reveal=True),user=profile(),demo=True)
         save_creator_record(session['uid'],{'demo_round':demo})
         return jsonify(round=creator_demo_round_view(demo,reveal=demo.get('state')!='active'),user=profile(),demo=True)
     db = connect()
@@ -3794,6 +3835,15 @@ def open_cell():
 @app.post('/api/game/cashout')
 @login_required
 def cashout():
+    if creator_demo_active(session['uid']):
+        record=creator_record(session['uid']);demo=dict(record.get('demo_round') or {})
+        if not demo or demo.get('state')!='active':
+            return error('Нет активной DEMO-игры.',409)
+        try:
+            record,demo=creator_demo_settle_mines(record,demo)
+        except ValueError as exc:
+            return error(str(exc))
+        return jsonify(round=creator_demo_round_view(demo,reveal=True),user=profile(),demo=True)
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')

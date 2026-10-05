@@ -10616,7 +10616,7 @@ def process_stars_successful_payment(message, payment):
         notify_user_async(
             uid,
             f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\n\n'
-            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} день до <b>{until_text}</b>.',
+            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} дней — до <b>{until_text}</b>.',
             miniapp_markup('Открыть', 'profile'), 'HTML')
     return credited
 

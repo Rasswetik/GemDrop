@@ -922,9 +922,9 @@ def admin_required(fn):
 CREATOR_LEVELS = {
     'base': dict(
         key='base', name='Base', daily_budget_cents=30, daily_code_limit=1,
-        activation_min_deposit_cents=100, wager_daily_limit=0, wager_min_x=0,
-        wager_gift_min_cents=0, wager_gift_max_cents=0, wager_max_uses=0,
-        description='Базовый уровень автора: до 0.30 TON промо-наград в день.',
+        activation_min_deposit_cents=100, wager_daily_limit=1, wager_min_x=40,
+        wager_gift_min_cents=300, wager_gift_max_cents=400, wager_max_uses=1,
+        description='Базовый уровень автора: до 0.30 TON в день или 1 отыгрышный подарок 3–4 TON с X от 40.',
     ),
     'creator': dict(
         key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0,
@@ -10420,8 +10420,8 @@ def creator_create_bonus():
     if reward_type not in ('balance', 'wager_gift'):
         return error('Авторам доступны TON или отыгрышный подарок.')
     code = str(data.get('code') or '').strip().upper()
-    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
-        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
+    if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -. Можно оставить поле пустым — код сгенерируется автоматически.')
     try:
         max_uses = int(data.get('max_uses') or 1)
     except (TypeError, ValueError):
@@ -10468,6 +10468,17 @@ def creator_create_bonus():
     try:
         db.execute('BEGIN IMMEDIATE')
         usage = creator_bonus_usage(db, uid)
+        if not code:
+            prefix = 'FB' if kind == 'freebet' else 'CR'
+            for _ in range(12):
+                candidate = f'{prefix}_{secrets.token_hex(4).upper()}'
+                exists = db.execute('SELECT 1 FROM promo_codes WHERE code=?', (candidate,)).fetchone() or db.execute(
+                    'SELECT 1 FROM freebets WHERE code=?', (candidate,)).fetchone()
+                if not exists:
+                    code = candidate
+                    break
+            if not code:
+                return error('Не удалось автоматически создать уникальный код. Попробуйте ещё раз.', 503)
         if db.execute('SELECT 1 FROM promo_codes WHERE code=?', (code,)).fetchone() or db.execute(
                 'SELECT 1 FROM freebets WHERE code=?', (code,)).fetchone():
             return error('Такой код уже существует.', 409)

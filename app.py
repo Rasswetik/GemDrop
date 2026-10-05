@@ -917,6 +917,7 @@ def save_creator_record(user_id, data):
     current = creator_record(user_id)
     current.update(data if isinstance(data, dict) else {})
     current['active'] = bool(current.get('active'))
+    current['panel_hidden'] = bool(current['active'] and current.get('panel_hidden'))
     current['demo_enabled'] = bool(current['active'] and current.get('demo_enabled'))
     try:
         current['demo_balance_cents'] = max(0, min(100000000000, int(current.get('demo_balance_cents') or 0)))
@@ -951,6 +952,8 @@ def profile():
                 stars_withdrawal_locked=(False if demo else stars_locked),
                 stars_withdrawal_until=(None if demo else (stars_until.isoformat() if stars_locked else None)),
                 creator=bool(creator.get('active')),
+                creator_panel_hidden=bool(creator.get('panel_hidden')),
+                creator_button_visible=bool(creator.get('active') and not creator.get('panel_hidden')),
                 creator_demo=demo,
                 creator_demo_balance=creator['demo_balance_cents']/100 if creator.get('active') else 0,
                 admin=user['id'] in ADMIN_IDS,
@@ -9014,6 +9017,7 @@ def admin_creators():
             result.append(dict(
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
                 photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
+                panel_hidden=bool(record.get('panel_hidden')),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,
                 demo_gifts=len(record.get('demo_inventory') or []),
             ))
@@ -9027,7 +9031,7 @@ def admin_creator_add(user_id):
         user = db.execute('SELECT id,name,username,photo_url FROM users WHERE id=?', (user_id,)).fetchone()
     if not user:
         return error('Пользователь не найден.', 404)
-    record = save_creator_record(user_id, {'active': True})
+    record = save_creator_record(user_id, {'active': True, 'panel_hidden': False})
     return jsonify(ok=True, creator=dict(id=user_id, name=user['name'], username=user['username'] or '',
                                          demo_enabled=record['demo_enabled'],
                                          demo_balance=record['demo_balance_cents']/100))
@@ -9036,7 +9040,7 @@ def admin_creator_add(user_id):
 @app.delete('/api/admin/creators/<int:user_id>')
 @admin_required
 def admin_creator_remove(user_id):
-    save_creator_record(user_id, {'active': False, 'demo_enabled': False})
+    save_creator_record(user_id, {'active': False, 'demo_enabled': False, 'panel_hidden': False})
     return jsonify(ok=True)
 
 
@@ -9057,9 +9061,34 @@ def creator_state():
     record = creator_record(session['uid'])
     return jsonify(
         demo_enabled=record['demo_enabled'],
+        panel_hidden=record['panel_hidden'],
         demo_balance=record['demo_balance_cents']/100,
         demo_inventory=record['demo_inventory'],
     )
+
+
+@app.post('/api/creator/panel-visibility')
+@login_required
+@creator_required
+def creator_panel_visibility():
+    data = request.get_json(silent=True) or {}
+    hidden = data.get('hidden')
+    if not isinstance(hidden, bool):
+        return error('Передайте hidden=true/false.')
+    record = save_creator_record(session['uid'], {'panel_hidden': hidden})
+    return jsonify(ok=True, panel_hidden=record['panel_hidden'], user=profile())
+
+
+@app.post('/api/creator/reveal')
+@login_required
+@creator_required
+def creator_reveal_panel():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code') or '').strip()
+    if code != '666':
+        return error('Неверный код.', 403)
+    record = save_creator_record(session['uid'], {'panel_hidden': False})
+    return jsonify(ok=True, panel_hidden=record['panel_hidden'], user=profile())
 
 
 @app.post('/api/creator/demo-mode')

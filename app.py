@@ -517,6 +517,11 @@ def _initialize_schema():
             ('bet_gift_image', "TEXT NOT NULL DEFAULT ''"),
             ('prize_inventory_id', 'INTEGER'), ('prize_name', "TEXT NOT NULL DEFAULT ''"),
             ('prize_image', "TEXT NOT NULL DEFAULT ''"), ('prize_price', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'), ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'), ('promo_progress_after', 'INTEGER NOT NULL DEFAULT 0'),
+            ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('bet_expires_at', 'TEXT'),
+            ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
+            ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -6642,6 +6647,7 @@ CRASH_BOOM_MS = 3000         # boom.gif is shown after the crash
 CRASH_GROWTH = 0.08          # multiplier = e^(0.08 * seconds)
 CRASH_MIN_FLIGHT_MS = 700
 CRASH_MAX_X100 = 1000000     # 10000x ceiling
+CRASH_PROMO_MIN_X100 = 120   # wager gifts count only when cashed out at >= 1.20x (no free 1.00x grinding)
 CRASH_RTP_DEFAULT = 0.97
 
 
@@ -6687,6 +6693,56 @@ def crash_new_round(db, round_id, open_at):
                 launch_at + crash_flight_ms(crash_x100), 'open'))
 
 
+def crash_promo_reinsert(db, bet, round_id, progress, attempts_remaining, completed):
+    """Put a wager gift back into the inventory with its updated progress / lives."""
+    cursor = db.execute("""INSERT INTO inventory(
+                            user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                            promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                            promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload)
+                          VALUES(?,?,?,?,?,'promo_wager',?,1,?,?,?,?,?,?,?,?,?,?)""",
+                        (bet['user_id'], bet['bet_gift_id'], bet['bet_gift_name'], bet['bet_gift_image'], bet['bet'],
+                         round_id, float(bet['promo_wager_multiplier'] or 0), int(bet['promo_wager_target'] or 0),
+                         progress, bet['promo_code'] or '', None if completed else bet['bet_expires_at'],
+                         max(1, int(bet['promo_attempts_total'] or 1)), attempts_remaining,
+                         int(bool(bet['promo_burn_on_loss'])), bet['bet_external_url'] or '', '{}'))
+    return cursor.lastrowid
+
+
+def crash_promo_win(db, bet, round_id, mult_x100):
+    """A wager gift was cashed out: the payout is added to the wager progress instead of the balance."""
+    amount = int(bet['bet']) * int(mult_x100) // 100
+    target = max(0, int(bet['promo_wager_target'] or 0))
+    previous = max(0, int(bet['promo_wager_progress'] or 0))
+    progress = min(target, previous + amount) if target else previous + amount
+    completed = bool(target and progress >= target)
+    inv_id = crash_promo_reinsert(db, bet, round_id, progress,
+                                  max(0, int(bet['promo_attempts_remaining'] or 1)), completed)
+    db.execute('UPDATE crash_bets SET prize_inventory_id=?,promo_progress_after=? WHERE round_id=? AND user_id=?',
+               (inv_id, progress, round_id, bet['user_id']))
+    detail = (f'Отыгрыш набран — разблокируйте подарок в профиле: {progress/100:.2f}/{target/100:.2f} TON'
+              if completed else
+              f'Отыгрыш {bet["bet_gift_name"]}: {progress/100:.2f}/{target/100:.2f} TON')
+    record_transaction(db, bet['user_id'], 'promo_wager_progress', amount, 'crash_round', round_id, detail)
+    return amount, progress, completed
+
+
+def crash_promo_loss(db, bet, round_id):
+    """A wager gift lost its round: one life is spent, the gift burns when lives run out."""
+    attempts_before = max(1, int(bet['promo_attempts_remaining'] or 1))
+    burns = bool(bet['promo_burn_on_loss'])
+    attempts_after = attempts_before - 1 if burns else attempts_before
+    if attempts_after > 0:
+        inv_id = crash_promo_reinsert(db, bet, round_id, max(0, int(bet['promo_wager_progress'] or 0)),
+                                      attempts_after, False)
+        db.execute('UPDATE crash_bets SET prize_inventory_id=?,promo_progress_after=? WHERE round_id=? AND user_id=?',
+                   (inv_id, int(bet['promo_wager_progress'] or 0), round_id, bet['user_id']))
+        record_transaction(db, bet['user_id'], 'promo_wager_attempt_lost', 0, 'crash_round', round_id,
+                           f'{bet["bet_gift_name"]}: осталось жизней {attempts_after}')
+    else:
+        record_transaction(db, bet['user_id'], 'promo_wager_burn', 0, 'crash_round', round_id,
+                           f'Сгорел промо-подарок: {bet["bet_gift_name"]}')
+
+
 def crash_settle_round(db, row):
     """Close a finished round exactly once and pay auto cash-outs (always in TON)."""
     claimed = db.execute("UPDATE crash_rounds SET state='crashed' WHERE id=? AND state='open'", (row['id'],))
@@ -6695,20 +6751,26 @@ def crash_settle_round(db, row):
     bets = db.execute("SELECT * FROM crash_bets WHERE round_id=? AND state='active'", (row['id'],)).fetchall()
     for bet in bets:
         auto = int(bet['auto_x100'] or 0)
+        is_promo = (bet['bet_type'] or 'ton') == 'promo_gift'
         if auto >= 101 and auto <= int(row['crash_x100']):
             payout = int(bet['bet']) * auto // 100
             moved = db.execute("UPDATE crash_bets SET state='won',cashout_x100=?,payout=? WHERE round_id=? AND user_id=? AND state='active'",
-                               (auto, payout, row['id'], bet['user_id']))
+                               (auto, 0 if is_promo else payout, row['id'], bet['user_id']))
             if moved.rowcount:
-                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, bet['user_id']))
-                record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
-                                   f'Crash x{auto/100:.2f} (авто)')
+                if is_promo:
+                    crash_promo_win(db, bet, row['id'], auto)
+                else:
+                    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, bet['user_id']))
+                    record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
+                                       f'Crash x{auto/100:.2f} (авто)')
         else:
             lost = db.execute("UPDATE crash_bets SET state='lost' WHERE round_id=? AND user_id=? AND state='active'",
                               (row['id'], bet['user_id']))
             if lost.rowcount and (bet['bet_type'] or 'ton') == 'gift':
                 record_transaction(db, bet['user_id'], 'crash_gift_lost', 0, 'crash_round', row['id'],
                                    f'Проигран подарок: {bet["bet_gift_name"]}')
+            elif lost.rowcount and is_promo:
+                crash_promo_loss(db, bet, row['id'])
 
 
 def crash_latest(db):
@@ -6753,17 +6815,31 @@ def crash_gift_view(name, image, price_cents):
     return dict(name=name or '', image_url=image, price_ton=(price_cents or 0) / 100)
 
 
+def crash_bet_gift_view(row):
+    """Gift used as the stake (plain or wager gift) with the wager details the UI needs."""
+    view = crash_gift_view(row['bet_gift_name'], row['bet_gift_image'], row['bet'])
+    if (row['bet_type'] or 'ton') == 'promo_gift':
+        view.update(promo_locked=True, wager_multiplier=float(row['promo_wager_multiplier'] or 0),
+                    wager_target=int(row['promo_wager_target'] or 0) / 100,
+                    wager_progress=int(row['promo_wager_progress'] or 0) / 100,
+                    wager_progress_after=int(row['promo_progress_after'] or 0) / 100,
+                    wager_attempts_remaining=max(0, int(row['promo_attempts_remaining'] or 1)),
+                    wager_burn_on_loss=bool(row['promo_burn_on_loss']))
+    return view
+
+
 def crash_user_view(row):
     if not row:
         return None
-    is_gift = (row['bet_type'] or 'ton') == 'gift'
+    is_gift = (row['bet_type'] or 'ton') in ('gift', 'promo_gift')
+    is_promo = (row['bet_type'] or 'ton') == 'promo_gift'
     prize = None
     if row['prize_name']:
         prize = crash_gift_view(row['prize_name'], row['prize_image'], row['prize_price'])
     return dict(bet=row['bet'] / 100, auto=(row['auto_x100'] or 0) / 100, state=row['state'],
                 cashout=(row['cashout_x100'] or 0) / 100, payout=(row['payout'] or 0) / 100,
-                bet_type='gift' if is_gift else 'ton',
-                bet_gift=crash_gift_view(row['bet_gift_name'], row['bet_gift_image'], row['bet']) if is_gift else None,
+                bet_type=(row['bet_type'] if is_gift else 'ton'), promo=is_promo, promo_min=CRASH_PROMO_MIN_X100 / 100,
+                bet_gift=crash_bet_gift_view(row) if is_gift else None,
                 prize=prize)
 
 
@@ -6814,9 +6890,9 @@ def crash_state_payload(db, uid, now):
                       'WHERE b.round_id=? ORDER BY b.bet DESC LIMIT 40', (row['id'],)).fetchall()
     bets = []
     for r in rows:
-        is_gift = (r['bet_type'] or 'ton') == 'gift'
+        is_gift = (r['bet_type'] or 'ton') in ('gift', 'promo_gift')
         bets.append(dict(user_id=r['user_id'], name=r['name'], photo_url=r['photo_url'], bet=r['bet'] / 100,
-                         bet_type='gift' if is_gift else 'ton',
+                         bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',
                          bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
                          state=('active' if phase != 'crashed' and r['state'] == 'active' else r['state']),
                          cashout=(r['cashout_x100'] or 0) / 100, payout=(r['payout'] or 0) / 100,
@@ -6893,24 +6969,46 @@ def crash_bet():
             if not item:
                 db.rollback()
                 return error('Подарок не найден в инвентаре.', 404)
-            if item['promo_locked']:
-                db.rollback()
-                return error('Отыгрышные подарки можно ставить только в Mines и Upgrade.')
             bet = int(item['floor_price'] or 0)
             if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
                 db.rollback()
                 return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            is_promo = bool(item['promo_locked'])
+            target = int(item['promo_wager_target'] or 0)
+            progress = int(item['promo_wager_progress'] or 0)
+            if is_promo and target > 0 and progress >= target:
+                db.rollback()
+                return error('Отыгрыш уже завершён. Сначала разблокируйте подарок в профиле.')
+            if is_promo and auto and auto < CRASH_PROMO_MIN_X100:
+                db.rollback()
+                return error('Для отыгрышного подарка авто-вывод — от %.2fx.' % (CRASH_PROMO_MIN_X100 / 100))
             xp_allowed = gift_counts_for_xp(item)
             if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
                 db.rollback()
                 return error('Подарок уже используется.', 409)
-            db.execute("""INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bet_type,bet_inventory_id,
-                          bet_gift_id,bet_gift_name,bet_gift_image) VALUES(?,?,?,?,'gift',?,?,?,?)""",
-                       (row['id'], uid, bet, auto, inventory_id, str(item['gift_id'] or ''),
-                        str(item['gift_name'] or '')[:140], str(item['image_url'] or '')))
-            record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
-            if xp_allowed:
-                new_level = increase_turnover(db, uid, bet)
+            if is_promo:
+                db.execute("""INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bet_type,bet_inventory_id,
+                              bet_gift_id,bet_gift_name,bet_gift_image,promo_wager_multiplier,promo_wager_target,
+                              promo_wager_progress,promo_code,bet_expires_at,promo_attempts_total,
+                              promo_attempts_remaining,promo_burn_on_loss,bet_external_url)
+                              VALUES(?,?,?,?,'promo_gift',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (row['id'], uid, bet, auto, inventory_id, str(item['gift_id'] or ''),
+                            str(item['gift_name'] or '')[:140], str(item['image_url'] or ''),
+                            float(item['promo_wager_multiplier'] or 0), target, progress, item['promo_code'] or '',
+                            item['expires_at'], max(1, int(item['promo_attempts_total'] or 1)),
+                            max(0, int(item['promo_attempts_remaining'] or 1)),
+                            int(bool(item['promo_burn_on_loss'])), item['external_url'] or ''))
+                record_transaction(db, uid, 'promo_wager_bet', 0, 'crash_round', row['id'],
+                                   f'{item["gift_name"]} · X{float(item["promo_wager_multiplier"] or 0):g}')
+                # Wager gifts do not count toward turnover / levels (same as Mines).
+            else:
+                db.execute("""INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bet_type,bet_inventory_id,
+                              bet_gift_id,bet_gift_name,bet_gift_image) VALUES(?,?,?,?,'gift',?,?,?,?)""",
+                           (row['id'], uid, bet, auto, inventory_id, str(item['gift_id'] or ''),
+                            str(item['gift_name'] or '')[:140], str(item['image_url'] or '')))
+                record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
+                if xp_allowed:
+                    new_level = increase_turnover(db, uid, bet)
         else:
             updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet))
             if not updated.rowcount:
@@ -6968,6 +7066,22 @@ def crash_cashout():
             db.rollback()
             return error('Ракета уже взорвалась.', 409)
         payout = int(mine['bet']) * mult // 100
+        is_promo = (mine['bet_type'] or 'ton') == 'promo_gift'
+        if is_promo and mult < CRASH_PROMO_MIN_X100:
+            db.rollback()
+            return error('Отыгрышный подарок можно забрать от x%.2f.' % (CRASH_PROMO_MIN_X100 / 100), 409)
+        if is_promo:
+            moved = db.execute("UPDATE crash_bets SET state='won',cashout_x100=?,payout=0 WHERE round_id=? AND user_id=? AND state='active'",
+                               (mult, row['id'], uid))
+            if not moved.rowcount:
+                db.rollback()
+                return error('Ставка уже закрыта.', 409)
+            amount, progress, completed = crash_promo_win(db, mine, row['id'], mult)
+            db.commit()
+            promo = dict(amount=amount / 100, progress=progress / 100, target=int(mine['promo_wager_target'] or 0) / 100,
+                         completed=completed, gift=dict(name=mine['bet_gift_name'], image_url=mine['bet_gift_image']))
+            return jsonify(ok=True, multiplier=mult / 100, payout=0, prize=None, remainder=0, promo=promo,
+                           state=crash_state_payload(db, uid, crash_ms()), user=profile())
         prize_info = None
         if want_gift:
             prize_info = crash_prize_preview(payout)
@@ -8888,13 +9002,22 @@ def _activity_crash(r):
     state = r['state']
     crash_x100 = _col(r, 'crash_x100', None)
     round_state = _col(r, 'round_state', '')
-    gift_bet = (_col(r, 'bet_type', 'ton') or 'ton') == 'gift'
+    promo_bet = (_col(r, 'bet_type', 'ton') or 'ton') == 'promo_gift'
+    gift_bet = promo_bet or (_col(r, 'bet_type', 'ton') or 'ton') == 'gift'
     stake = (f'{_col(r, "bet_gift_name", "") or "Подарок"} ({_money(bet)})' if gift_bet else _money(bet))
-    lines = [f'Раунд #{r["round_id"]} · ставка{" подарком" if gift_bet else ""}: {stake}' + (f' · авто-вывод на x{auto / 100:.2f}' if auto else '')]
+    lines = [f'Раунд #{r["round_id"]} · ставка{" отыгрышным подарком" if promo_bet else " подарком" if gift_bet else ""}: {stake}' + (f' · авто-вывод на x{auto / 100:.2f}' if auto else '')]
     crashed_text = (f'Раунд закончился крашем на x{int(crash_x100) / 100:.2f}'
                     if crash_x100 is not None and round_state == 'crashed' else '')
     base = dict(eid='c%s-%s' % (r['round_id'], r['user_id']), date=r['created_at'], kind='crash_bet', group='game',
                 details=dict(game='Crash', state=state))
+    if state == 'won' and promo_bet:
+        cash = int(r['cashout_x100'] or 0)
+        added = bet * cash // 100
+        lines.append(f'Забрал на x{cash / 100:.2f}' + (' (авто-вывод)' if auto and cash == auto else '') +
+                     f' · в отыгрыш +{_money(added)}')
+        if crashed_text:
+            lines.append(crashed_text)
+        return _ev(title='Crash · отыгрыш', lines=lines, amount=0, tone='win', **base)
     if state == 'won':
         payout = int(r['payout'] or 0)
         cash = int(r['cashout_x100'] or 0)
@@ -8910,6 +9033,9 @@ def _activity_crash(r):
         lines.append('Не успел забрать до взрыва' if not auto else 'Авто-вывод не сработал — краш раньше')
         if crashed_text:
             lines.append(crashed_text)
+        if promo_bet:
+            lines.append('Потрачена жизнь отыгрышного подарка')
+            return _ev(title='Crash · проигрыш (отыгрыш)', lines=lines, amount=0, tone='loss', **base)
         lines.append(f'Проигрыш: {_money(bet)}')
         return _ev(title='Crash · проигрыш', lines=lines, amount=-bet / 100, tone='loss', **base)
     lines.append('Раунд ещё идёт — результат не определён')

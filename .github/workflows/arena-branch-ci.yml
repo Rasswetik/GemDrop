@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - feature/arena-and-demo-games
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:

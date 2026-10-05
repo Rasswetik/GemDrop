@@ -7628,7 +7628,7 @@ def effective_games():
 
 # ================================== Arena ==================================
 ARENA_BETTING_MS = 20000      # first bet starts a 20s round; a lone bet is refunded after it closes
-ARENA_SPIN_MS = 15000          # must match ARENA_SPIN_MS in the frontend
+ARENA_SPIN_MS = 11000          # must match ARENA_SPIN_MS in the frontend
 ARENA_RESULT_MS = ARENA_SPIN_MS + 7000  # full spin + landing + ~6s result screen before the next round
 ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
 

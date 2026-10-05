@@ -1209,8 +1209,10 @@ def demo_crash_state_payload(record=None, now=None):
                      crash_at=0, crash=0, reset_at=0, my_bet=None)
         record = save_creator_record(uid, {'demo_crash': state})
         state = dict(record.get('demo_crash') or state)
+    phase_changed = False
     if state.get('phase') == 'betting' and now >= int(state.get('launch_at') or 0):
         state['phase'] = 'flying'
+        phase_changed = True
     if state.get('phase') == 'flying' and int(state.get('crash_at') or 0) and now >= int(state.get('crash_at') or 0):
         state['phase'] = 'crashed'
         state['reset_at'] = now + CRASH_BOOM_MS
@@ -1218,6 +1220,9 @@ def demo_crash_state_payload(record=None, now=None):
         if isinstance(mb, dict) and mb.get('state') == 'active':
             mb['state'] = 'lost'
         save_creator_record(uid, {'demo_crash': state})
+        phase_changed = False
+    elif phase_changed:
+        record = save_creator_record(uid, {'demo_crash': state})
     payload = dict(
         now=now, phase=state.get('phase') or 'betting',
         round=dict(id=state.get('id'), open_at=state.get('open_at'), launch_at=state.get('launch_at')),
@@ -1279,8 +1284,9 @@ def demo_crash_bet(data):
 
 def demo_crash_cashout():
     uid = session['uid']
-    record = creator_record(uid)
     now = int(time.time() * 1000)
+    demo_crash_state_payload(creator_record(uid), now)
+    record = creator_record(uid)
     state = dict(record.get('demo_crash') or {})
     if state.get('phase') != 'flying' or not isinstance(state.get('my_bet'), dict) or state['my_bet'].get('state') != 'active':
         raise ValueError('Нет активной DEMO-ставки.')

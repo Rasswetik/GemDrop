@@ -31,7 +31,7 @@ class RegressionTests(unittest.TestCase):
         with m.connect() as db:
             db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)',
                        (self.uid, 'Test', f'qa{self.uid}', 10000))
-            db.execute("DELETE FROM app_documents WHERE name IN ('section_settings','portal_catalog')")
+            db.execute("DELETE FROM app_documents WHERE name IN ('section_settings','portal_catalog','game_modes')")
         with self.client.session_transaction() as session:
             session['uid'] = self.uid
         m.save_document('gift_display_settings', {'black_backgrounds_enabled': True})
@@ -742,6 +742,9 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(data['items'][0]['code'],'CREATOR_FB')
         self.assertEqual(data['items'][0]['max_uses'],5)
         self.assertEqual(data['items'][0]['uses_count'],0)
+        with m.connect() as db:
+            promo = db.execute('SELECT author_user_id FROM promo_codes WHERE code=?',('CREATOR_FB',)).fetchone()
+        self.assertEqual(int(promo['author_user_id']), self.uid)
 
     def test_creator_personal_promocode_and_chat(self):
         with patch.object(m,'ADMIN_IDS',{self.uid}):
@@ -848,7 +851,81 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(len(snap['videos']),1)
         self.assertEqual(snap['videos'][0]['views'],321)
 
-    def test_creator_demo_is_isolated_and_blocks_real_game_mutations(self):
+    def test_arena_weighted_round_settles_and_conserves_pool(self):
+        other = self.uid + 1000000
+        with m.connect() as db:
+            db.execute('DELETE FROM arena_bets')
+            db.execute('DELETE FROM arena_rounds')
+            db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)',
+                       (other, 'Other', f'qa{other}', 10000))
+        m.save_document('game_modes', {'mines':'on','upgrade':'on','crash':'off','arena':'on'})
+        first = self.post('/api/arena/bet', {'bet':'1.00'})
+        self.assertEqual(first['state']['my_bet']['bet'], 1.0)
+        other_client = m.app.test_client()
+        with other_client.session_transaction() as session:
+            session['uid'] = other
+        response = other_client.post('/api/arena/bet', json={'bet':'3.00'})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        with m.connect() as db:
+            round_id = db.execute('SELECT id FROM arena_rounds ORDER BY id DESC LIMIT 1').fetchone()['id']
+            db.execute('UPDATE arena_rounds SET close_at=0 WHERE id=?', (round_id,))
+        state = self.client.get('/api/arena/state').get_json()
+        self.assertEqual(state['round']['state'], 'settled')
+        self.assertEqual(state['round']['total_pool'], 4.0)
+        self.assertIn(state['round']['winner_user_id'], [self.uid, other])
+        chances = {x['user_id']: round(x['chance'], 2) for x in state['players']}
+        self.assertEqual(chances[self.uid], 25.0)
+        self.assertEqual(chances[other], 75.0)
+        with m.connect() as db:
+            total = sum(int(db.execute('SELECT balance FROM users WHERE id=?',(uid,)).fetchone()['balance'])
+                        for uid in (self.uid, other))
+        self.assertEqual(total, 20000)
+
+    def test_demo_gifts_are_usable_in_mines_upgrade_and_crash(self):
+        gifts = [
+            {'id':'demo-a','name':'Demo A','price_ton':2,'image_url':'https://example.com/a.png'},
+            {'id':'demo-b','name':'Demo B','price_ton':2,'image_url':'https://example.com/b.png'},
+            {'id':'demo-c','name':'Demo C','price_ton':2,'image_url':'https://example.com/c.png'},
+            {'id':'demo-target','name':'Demo Target','price_ton':4,'image_url':'https://example.com/t.png'},
+        ]
+        m.save_document('portal_catalog', {'gifts':gifts})
+        m.save_document('game_modes', {'mines':'on','upgrade':'on','crash':'on','arena':'off'})
+        with patch.object(m,'ADMIN_IDS',{self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}',{})
+        self.post('/api/creator/demo-balance', {'amount':'50'})
+        added = []
+        for gift_id in ('demo-a','demo-b','demo-c'):
+            added.append(self.post('/api/creator/demo-inventory', {'gift_id':gift_id})['items'][0]['id'])
+        self.post('/api/creator/demo-mode', {'enabled':True})
+        inv = self.client.get('/api/inventory').get_json()
+        self.assertTrue(inv['demo'])
+        self.assertGreaterEqual(len(inv['items']), 3)
+
+        mines = self.post('/api/game/start', {'mines':3,'inventory_id':added[0]})
+        self.assertEqual(mines['round']['bet_type'], 'gift')
+
+        preview = self.client.get(f'/api/upgrade/preview?inventory_id={added[1]}&gift_id=demo-target')
+        self.assertEqual(preview.status_code, 200, preview.get_json())
+        spin = self.post('/api/upgrade/spin', {
+            'inventory_id':added[1], 'gift_id':'demo-target',
+            'request_id':'demo_upgrade_1234567890'
+        })
+        self.assertIn('won', spin)
+
+        crash = self.post('/api/crash/bet', {'inventory_id':added[2]})
+        self.assertEqual(crash['state']['my_bet']['bet_type'], 'gift')
+        self.assertTrue(crash['state']['demo'])
+
+    def test_arena_ui_and_author_shortcuts_are_wired(self):
+        page = self.client.get('/').get_data(as_text=True)
+        self.assertIn('id="gameCardArena"', page)
+        self.assertIn('id="arenaPage"', page)
+        self.assertIn('data-game-key="arena"', page)
+        self.assertIn("show('promocodesPage')", page)
+        self.assertIn("creator-demo-delete", page)
+        self.assertNotIn("show('promoAdminPage')", page)
+
+    def test_creator_demo_is_isolated_from_real_game_mutations(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-demo-gift','name':'Demo Gift','price_ton':2,'image_url':'https://example.com/gift.png'
         }]})
@@ -864,8 +941,9 @@ class RegressionTests(unittest.TestCase):
         inv=self.client.get('/api/inventory').get_json()
         self.assertTrue(inv['demo'])
         self.assertEqual(inv['items'][0]['name'],'Demo Gift')
-        self.assertEqual(self.post('/api/game/start',{'mines':3,'bet':'1.00'},409)['error'],
-                         'Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.')
+        demo_round=self.post('/api/game/start',{'mines':3,'bet':'1.00'})
+        self.assertEqual(demo_round['round']['bet_type'],'ton')
+        self.assertEqual(demo_round['user']['balance'],122.45)
         with m.connect() as db:
             self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?',(self.uid,)).fetchone()['balance'],10000)
 

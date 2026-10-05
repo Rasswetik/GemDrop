@@ -697,7 +697,7 @@ class RegressionTests(unittest.TestCase):
         self.assertNotIn('🎁 <b>QA gift</b>',html)
 
     def test_creator_program_add_and_remove_send_user_notifications(self):
-        with patch.object(m,'ADMIN_IDS',{self.uid}), patch.object(m,'notify_user_async') as send:
+        with patch.object(m,'ADMIN_IDS',{self.uid}), patch.object(m,'WEBAPP_URL','https://gemdrop.example'), patch.object(m,'notify_user_async') as send:
             self.post(f'/api/admin/creators/{self.uid}',{})
             self.assertEqual(send.call_count,1)
             add_args=send.call_args.args

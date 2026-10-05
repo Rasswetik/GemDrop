@@ -125,7 +125,7 @@ class PostgreSQL:
             sql = sql.replace('%', '%%').replace('?', '%s')
             if 'INSERT OR IGNORE INTO' in sql:
                 sql = sql.replace('INSERT OR IGNORE INTO', 'INSERT INTO') + ' ON CONFLICT DO NOTHING'
-        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks)\b', sql))
+        returning = bool(re.match(r'INSERT INTO (?:inventory|reward_tasks|arena_rounds)\b', sql))
         if returning:
             sql += ' RETURNING id'
         cursor = self.connection.execute(sql, params)

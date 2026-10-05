@@ -16,6 +16,7 @@ Environment variables:
 - `WEBAPP_URL` — public HTTPS URL of the Mini App. On Render `RENDER_EXTERNAL_URL` is also supported.
 - `BOT_USERNAME` — optional fallback username without `@`. The app also resolves the current bot username automatically with Telegram `getMe`.
 - `TONCENTER_API_KEY` — recommended for reliable server-side confirmation of TON deposits through TON Center API v3. The code can work without it, but public API rate limits may be stricter.
+- `YOUTUBE_API_KEY` — YouTube Data API v3 key for creator-program channel linking, subscriber counts and matching video statistics.
 - `DATABASE_URL` — recommended if PostgreSQL is used.
 - Or `DATA_DIR` — persistent directory for SQLite, e.g. a mounted Render Disk.
 

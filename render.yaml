@@ -13,6 +13,8 @@ services:
         sync: false
       - key: TONCENTER_API_KEY
         sync: false
+      - key: PORTAL_PARTNER_TOKEN
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_IDS

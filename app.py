@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '94-promo-polls-relayer-balance'
+BUILD_ID = '95-portal-market-payout-fallback'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -16140,8 +16140,17 @@ def portal_job_status():
 @app.get('/api/admin/portal/logs')
 @admin_required
 def portal_logs():
-    logs = read_document('portal_logs') or []
-    return jsonify(logs=logs[-200:] if isinstance(logs, list) else [])
+    logs=read_document('portal_logs') or []
+    logs=logs[-199:] if isinstance(logs,list) else []
+    if portal_partner_token():
+        try:
+            wallet=_portal_wallet_info();balance=wallet['balance'];spend=max(Decimal('0'),balance-PORTAL_WITHDRAW_RESERVE)
+            logs=logs+[{'ts':datetime.now(timezone.utc).isoformat(),'level':'info',
+                        'message':f'Portal Partner · баланс {_portal_decimal_text(balance)} TON · доступно с резервом 0.30: {_portal_decimal_text(spend)} TON'}]
+        except Exception as exc:
+            logs=logs+[{'ts':datetime.now(timezone.utc).isoformat(),'level':'error',
+                        'message':'Portal Partner · не удалось получить баланс: '+str(exc)[:300]}]
+    return jsonify(logs=logs[-200:])
 
 
 @app.post('/api/admin/portal/images/refresh')

@@ -7823,36 +7823,35 @@ def withdrawal_contact_notice():
 @app.post('/api/inventory/<int:item_id>/withdraw')
 @login_required
 def request_withdrawal(item_id):
-    if creator_demo_active(session['uid']):
-        return error('Demo-подарки нельзя отправить на реальный вывод.', 409)
-    db = connect()
+    if creator_demo_active(session['uid']): return error('Demo-подарки нельзя отправить на реальный вывод.',409)
+    db=connect(); withdrawal_id=None
     try:
-        db.execute('BEGIN IMMEDIATE')
-        purge_expired_inventory(db, session['uid'])
-        access_error = withdrawal_access_error(db, session['uid'])
-        if access_error:
-            status = 404 if access_error == 'Пользователь не найден.' else 403
-            return error(access_error, status)
-        item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',
-                          (item_id, session['uid'])).fetchone()
-        if not item:
-            return error('Подарок не найден или уже отправлен на вывод.', 404)
-        if item['promo_locked']:
-            return error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
-        if int(item['deposit_mirror'] or 0):
-            return error('Этот NFT уже учтён как пополнение TON и хранится в инвентаре как подтверждение.', 409)
-        db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,external_url)
-                      VALUES(?,?,?,?,?,?,?,?,'pending',?)''',
-                   (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
-                    item['floor_price'], item['source'], item['round_id'], item['external_url'] or ''))
-        deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid']))
-        if not deleted.rowcount:
-            return error('Не удалось зарезервировать подарок.', 409)
-        record_transaction(db, session['uid'], 'withdrawal_request', 0, 'inventory', item_id, item['gift_name'])
-        db.commit()
-        return jsonify(ok=True)
-    finally:
-        db.close()
+        db.execute('BEGIN IMMEDIATE'); purge_expired_inventory(db,session['uid'])
+        access_error=withdrawal_access_error(db,session['uid'])
+        if access_error:return error(access_error,404 if access_error=='Пользователь не найден.' else 403)
+        item=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid'])).fetchone()
+        if not item:return error('Подарок не найден или уже отправлен на вывод.',404)
+        if item['promo_locked']:return error('Промо-подарок нельзя вывести до завершения отыгрыша.',409)
+        if int(item['deposit_mirror'] or 0):return error('Этот NFT уже учтён как пополнение TON и хранится в инвентаре как подтверждение.',409)
+        cur=db.execute("""INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,
+                         external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                         VALUES(?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?)""",
+                       (session['uid'],item['id'],item['gift_id'],item['gift_name'],item['image_url'],item['floor_price'],
+                        item['source'],item['round_id'],item['external_url'] or '',item['fragment_number'] or '',
+                        item['fragment_model'] or '',item['fragment_backdrop'] or '',item['fragment_symbol'] or '',
+                        item['price_source'] or '',item['animation_url'] or ''))
+        withdrawal_id=int(cur.lastrowid)
+        if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid'])).rowcount:
+            return error('Не удалось зарезервировать подарок.',409)
+        record_transaction(db,session['uid'],'withdrawal_request',0,'inventory',item_id,item['gift_name']); db.commit()
+    finally: db.close()
+    auto=dict(status='queued')
+    if withdrawal_id and relayer_public_ready() and relayer_settings().get('auto_withdraw_enabled'):
+        try:auto=_relayer_run(_relayer_auto_withdraw_one_async(withdrawal_id))
+        except Exception as exc: app.logger.exception('Immediate NFT auto withdrawal failed'); auto=dict(status='error',error=str(exc)[:300])
+    done=auto.get('status')=='completed'
+    return jsonify(ok=True,withdrawal_id=withdrawal_id,auto_withdrawn=done,auto_status=auto.get('status') or 'queued',
+                   message='Ваш подарок успешно выведен.' if done else 'Заявка добавлена в очередь вывода.')
 
 
 @app.post('/api/inventory/<int:item_id>/claim-promo')
@@ -14010,9 +14009,25 @@ def _relayer_entry_info(entry):
     saved_id=str(getattr(entry,'saved_id','') or getattr(entry,'msg_id','') or getattr(entry,'id','') or '')
     sender=_relayer_peer_user_id(getattr(entry,'from_id',None) or getattr(entry,'sender_id',None))
     date=getattr(entry,'date',None)
+    model=backdrop=symbol=''
+    for attr in (getattr(gift,'attributes',None) or []):
+        kind=type(attr).__name__.casefold()
+        value=str(getattr(attr,'name','') or getattr(attr,'value','') or '').strip()
+        if not value: continue
+        if 'model' in kind: model=value
+        elif 'backdrop' in kind or 'background' in kind: backdrop=value
+        elif 'pattern' in kind or 'symbol' in kind: symbol=value
     telegram_url=('https://t.me/nft/'+slug) if slug else ''
     key=saved_id or slug or f'{gift_id}:{sender}:{date}'
-    return dict(external_key='tg:'+str(key),sender_user_id=sender,gift_id=gift_id,gift_name=title,slug=slug,fragment_number=number,external_url=telegram_url,telegram_url=telegram_url,raw_json=_relayer_json(entry))
+    return dict(
+        external_key='tg:'+str(key),sender_user_id=sender,gift_id=gift_id,gift_name=title,
+        slug=slug,fragment_number=number,fragment_model=model,fragment_backdrop=backdrop,
+        fragment_symbol=symbol,external_url=telegram_url,telegram_url=telegram_url,
+        saved_id=str(getattr(entry,'saved_id','') or ''),
+        transfer_stars=int(getattr(entry,'transfer_stars',0) or getattr(gift,'transfer_stars',0) or 0),
+        can_transfer_at=int(getattr(entry,'can_transfer_at',0) or getattr(gift,'can_transfer_at',0) or 0),
+        raw_json=_relayer_json(entry)
+    )
 
 def _relayer_norm(value): return re.sub(r'[^a-z0-9]+','',str(value or '').casefold())
 
@@ -14135,7 +14150,54 @@ async def _relayer_saved_gifts(client):
     result=await client(cls(**kwargs)); return list(getattr(result,'gifts',None) or getattr(result,'saved_gifts',None) or [])
 
 
-async def _relayer_scan_async(force=False):
+async def _relayer_stars_balance(client):
+    _,functions,_,_,_,_=_relayer_imports()
+    peer=await client.get_input_entity('me')
+    result=await client(functions.payments.GetStarsStatusRequest(peer=peer))
+    value=getattr(result,'balance',0)
+    return max(0,int(getattr(value,'amount',value) or 0))
+
+
+def _relayer_slug_from_url(value):
+    match=re.search(r'https?://t\.me/nft/([A-Za-z0-9_-]+)',str(value or ''),re.I)
+    return match.group(1) if match else ''
+
+
+def _relayer_withdrawal_target(withdrawal_id):
+    with connect() as db:
+        return db.execute("""SELECT w.*,u.name AS user_name,u.username,
+                                    e.external_key AS deposit_external_key,e.external_url AS deposit_external_url
+                             FROM withdrawals w JOIN users u ON u.id=w.user_id
+                             LEFT JOIN relayer_gift_events e ON e.inventory_id=w.inventory_id
+                             WHERE w.id=?""",(withdrawal_id,)).fetchone()
+
+
+def _relayer_match_withdrawal(row,gifts):
+    target_slug=_relayer_slug_from_url(row.get('deposit_external_url') or row.get('external_url'))
+    target_number=str(row.get('fragment_number') or '').strip()
+    target_model=_relayer_norm(row.get('fragment_model'))
+    target_name=_relayer_norm(row.get('gift_name'))
+    infos=[]
+    for entry in gifts:
+        info=_relayer_entry_info(entry)
+        if not info.get('slug'): continue
+        infos.append((entry,info))
+        if target_slug and str(info.get('slug') or '').casefold()==target_slug.casefold():
+            return entry,info
+    if target_number:
+        for entry,info in infos:
+            if str(info.get('fragment_number') or '')==target_number:
+                return entry,info
+        return None,None
+    if row.get('deposit_external_key') or str(row.get('source') or '')=='gift_deposit':
+        return None,None
+    if target_model:
+        for entry,info in infos:
+            if _relayer_norm(info.get('fragment_model'))==target_model:
+                return entry,info
+    for entry,info in infos:
+        live=_relayer_norm(info.get('gift_name'))
+        base=_relayer_norm(re.sub(r'-\d+
     cfg=relayer_settings()
     if not cfg['enabled'] and not force:return dict(ok=False,status='disabled',processed=0)
     client=_relayer_client()
@@ -14147,6 +14209,1506 @@ async def _relayer_scan_async(force=False):
             info=_relayer_resolve_gift(_relayer_entry_info(entry)); result=_relayer_credit(info,baseline=baseline); processed+=0 if result=='duplicate' else 1; credited+=1 if result=='credited' else 0
         _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),last_processed=processed,last_credited=credited,error=''); return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline)
     finally: await client.disconnect()
+
+@app.post('/api/admin/relayer/scan')
+@admin_required
+def admin_relayer_scan():
+    try:return jsonify(**_relayer_run(_relayer_scan_async(force=True)))
+    except Exception as exc: app.logger.exception('Manual relayer scan failed'); _relayer_state(status='error',error=str(exc)[:180]); return error(str(exc),409)
+
+
+def relayer_auto_loop():
+    time.sleep(5)
+    while True:
+        try:
+            cfg=relayer_settings()
+            if cfg['enabled'] and cfg['api_id'] and cfg['api_hash']:_relayer_run(_relayer_scan_async())
+        except Exception as exc: app.logger.exception('Relayer scan failed'); _relayer_state(status='error',error=str(exc)[:180])
+        time.sleep(RELAYER_SCAN_SECONDS)
+
+
+def toncenter_headers():
+    headers = {'Accept': 'application/json'}
+    if TONCENTER_API_KEY:
+        headers['X-API-Key'] = TONCENTER_API_KEY
+    return headers
+
+
+def credit_verified_ton_deposit(db, order, tx_hash):
+    """Credit an on-chain TON deposit exactly once; referral rewards are paid only here."""
+    user_id = int(order['user_id'])
+    amount = int(order['amount'])
+    referral = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (user_id,)).fetchone()
+    referrer = referral['referrer_id'] if referral else None
+    bonus = int(amount * referral_percent() / 100) if referrer else 0
+    active=db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
+                         JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                         AND r.code=? AND r.consumed_at IS NULL""" + (' FOR UPDATE OF r' if DATABASE_URL else ''),
+                      (user_id,order['promo_code'] or '')).fetchone()
+    deposit_bonus=0
+    if active and amount>=int(active['min_deposit'] or 0):
+        deposit_bonus=round(amount*float(active['bonus_percent'] or 0)/100)+int(active['bonus_fixed'] or 0)
+        consumed=db.execute('UPDATE promo_redemptions SET consumed_at=CURRENT_TIMESTAMP WHERE code=? AND user_id=? AND consumed_at IS NULL',
+                            (active['code'],user_id))
+        if not consumed.rowcount:deposit_bonus=0
+    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount+deposit_bonus, user_id))
+    if referrer and bonus:
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
+    request_key = 'ton:' + str(order['id'])
+    db.execute('INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key) VALUES(?,?,?,?,0,?)',
+               (user_id, amount, referrer, bonus, request_key))
+    db.execute("UPDATE ton_deposit_orders SET status='credited',tx_hash=?,credited_at=CURRENT_TIMESTAMP WHERE id=?",
+               (tx_hash, order['id']))
+    record_transaction(db, user_id, 'ton_deposit', amount, 'ton_tx', tx_hash, 'Подтверждённое пополнение TON')
+    if deposit_bonus:
+        record_transaction(db,user_id,'deposit_promo_bonus',deposit_bonus,'ton_tx',tx_hash,
+                           f'Бонус промокода {active["code"]}')
+    log_event(db,user_id,'deposit_confirmed',amount=amount/100,bonus=deposit_bonus/100,
+              promo_code=active['code'] if deposit_bonus else '',transaction=tx_hash)
+    if referrer and bonus:
+        record_transaction(db, referrer, 'referral_bonus', bonus, 'ton_tx', tx_hash,
+                           f'Реферальный бонус {referral_percent():g}% от TON-пополнения пользователя {user_id}')
+    return bonus
+
+
+@app.post('/api/ton/deposit/create')
+@login_required
+def create_ton_deposit():
+    settings = ton_settings()
+    if not settings['enabled']:
+        return error('Пополнение TON временно отключено.', 503)
+    if not settings['recipient_wallet']:
+        return error('Администратор ещё не настроил кошелёк получателя.', 503)
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Введите сумму с точностью до 0.01 TON.')
+    if not 10 <= amount <= 100000000:
+        return error('Сумма пополнения должна быть от 0.10 до 1 000 000 TON.')
+    wallet_address = str(data.get('wallet_address') or '').strip()
+    if not (20 <= len(wallet_address) <= 180 and re.fullmatch(r'[A-Za-z0-9_:\-+/=]+', wallet_address)):
+        return error('Сначала подключите TON-кошелёк.')
+    order_id = secrets.token_urlsafe(18).replace('-', '').replace('_', '')[:24]
+    created = int(time.time())
+    amount_nano = amount * 10_000_000
+    with connect() as db:
+        db.execute("UPDATE ton_deposit_orders SET status='expired' WHERE user_id=? AND status='pending'", (session['uid'],))
+        promo=db.execute("""SELECT r.code,p.bonus_percent,p.bonus_fixed,p.min_deposit FROM promo_redemptions r
+                            JOIN promo_codes p ON p.code=r.code WHERE r.user_id=? AND r.reward_type='deposit_bonus'                            AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                            ORDER BY r.created_at DESC LIMIT 1""",(session['uid'],)).fetchone()
+        promo_code=promo['code'] if promo else ''
+        db.execute('INSERT INTO ton_deposit_orders(id,user_id,wallet_address,recipient_wallet,amount,amount_nano,created_unix,promo_code) VALUES(?,?,?,?,?,?,?,?)',
+                   (order_id, session['uid'], wallet_address, settings['recipient_wallet'], amount, amount_nano, created,promo_code))
+        db.execute('INSERT INTO user_wallets(user_id,address,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
+                   (session['uid'], wallet_address))
+        log_event(db,session['uid'],'deposit_created',amount=amount/100,promo_code=promo_code,order_id=order_id)
+    return jsonify(ok=True, order_id=order_id, amount=amount/100,
+                   deposit_bonus=(round(amount*float(promo['bonus_percent'] or 0)/100)+int(promo['bonus_fixed'] or 0))/100
+                   if promo and amount>=int(promo['min_deposit'] or 0) else 0,
+                   transaction=dict(validUntil=created + 300,
+                                    messages=[dict(address=settings['recipient_wallet'], amount=str(amount_nano))]))
+
+
+@app.post('/api/ton/deposit/<order_id>/verify')
+@login_required
+def verify_ton_deposit(order_id):
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return error('Некорректная операция.')
+    with connect() as db:
+        order = db.execute('SELECT * FROM ton_deposit_orders WHERE id=? AND user_id=?',
+                           (order_id, session['uid'])).fetchone()
+    if not order:
+        return error('Операция пополнения не найдена.', 404)
+    if order['status'] == 'credited':
+        return jsonify(ok=True, status='credited', user=profile())
+    if order['status'] == 'expired':
+        return error('Эта операция уже устарела. Создайте новое пополнение.', 409)
+    if int(time.time()) - int(order['created_unix']) > 900:
+        with connect() as db:
+            db.execute("UPDATE ton_deposit_orders SET status='expired' WHERE id=? AND status='pending'", (order_id,))
+        return error('Транзакция не найдена вовремя. Если TON уже отправлены — обратитесь к администратору.', 409)
+    try:
+        response = requests.get('https://toncenter.com/api/v3/messages', params={
+            'source': order['wallet_address'], 'destination': order['recipient_wallet'],
+            'start_utime': max(0, int(order['created_unix']) - 8), 'limit': 50, 'sort': 'desc'
+        }, headers=toncenter_headers(), timeout=(5, 12))
+        response.raise_for_status()
+        messages = response.json().get('messages') or []
+        match = None
+        for msg in messages:
+            try:
+                if int(msg.get('value') or 0) != int(order['amount_nano']):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            if msg.get('bounced') is True or not msg.get('hash'):
+                continue
+            check = requests.get('https://toncenter.com/api/v3/transactionsByMessage',
+                                 params={'msg_hash': msg['hash'], 'direction': 'in', 'limit': 5},
+                                 headers=toncenter_headers(), timeout=(5, 12))
+            check.raise_for_status()
+            txs = check.json().get('transactions') or []
+            good = next((tx for tx in txs if not (tx.get('description') or {}).get('aborted', False)), None)
+            if good:
+                match = (msg, good)
+                break
+        if not match:
+            return jsonify(ok=True, status='pending')
+        msg, tx = match
+        tx_hash = str(tx.get('hash') or msg.get('in_msg_tx_hash') or msg['hash'])[:180]
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            fresh = db.execute('SELECT * FROM ton_deposit_orders WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),
+                               (order_id,)).fetchone()
+            if fresh['status'] == 'credited':
+                db.commit()
+                return jsonify(ok=True, status='credited', user=profile())
+            used = db.execute("SELECT id FROM ton_deposit_orders WHERE tx_hash=? AND status='credited'", (tx_hash,)).fetchone()
+            if used:
+                return error('Эта блокчейн-транзакция уже была зачислена.', 409)
+            bonus = credit_verified_ton_deposit(db, fresh, tx_hash)
+            credited_amount=int(fresh['amount'])
+            credited_bonus_row=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()
+            balance_now=int(credited_bonus_row['balance']) if credited_bonus_row else 0
+            promo_bonus_row=db.execute("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id=? AND kind='deposit_promo_bonus' AND reference_type='ton_tx' AND reference_id=?",(session['uid'],tx_hash)).fetchone()
+            promo_bonus=int(promo_bonus_row['total'] or 0) if promo_bonus_row else 0
+            db.commit()
+        finally:
+            db.close()
+        notify_deposit_async(session['uid'], credited_amount, balance_now, promo_bonus)
+        return jsonify(ok=True, status='credited', referral_bonus=bonus/100, user=profile())
+    except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
+        app.logger.exception('TON deposit verification failed')
+        return error('Сеть TON пока не подтвердила пополнение. Повторите проверку через несколько секунд.', 502)
+
+
+STARS_WITHDRAWAL_DAYS = 21
+
+
+def _active_deposit_promo(db, user_id, promo_code):
+    if not promo_code:
+        return None
+    return db.execute("""SELECT p.code,p.bonus_percent,p.bonus_fixed,p.min_deposit
+                         FROM promo_redemptions r
+                         JOIN promo_codes p ON p.code=r.code
+                         WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                         AND r.code=? AND r.consumed_at IS NULL AND r.deactivated_at IS NULL"""
+                      + (' FOR UPDATE OF r' if DATABASE_URL else ''),
+                      (user_id, promo_code)).fetchone()
+
+
+def _consume_deposit_bonus(db, user_id, amount, promo_code):
+    active = _active_deposit_promo(db, user_id, promo_code)
+    if not active or amount < int(active['min_deposit'] or 0):
+        return 0, active
+    bonus = round(amount * float(active['bonus_percent'] or 0) / 100) + int(active['bonus_fixed'] or 0)
+    consumed = db.execute("""UPDATE promo_redemptions SET consumed_at=CURRENT_TIMESTAMP
+                             WHERE code=? AND user_id=? AND consumed_at IS NULL""",
+                          (active['code'], user_id))
+    return (bonus if consumed.rowcount else 0), active
+
+
+def _apply_stars_withdrawal_lock(db, user_id):
+    now = datetime.now(timezone.utc)
+    candidate = now + timedelta(days=STARS_WITHDRAWAL_DAYS)
+    row = db.execute('SELECT stars_withdrawal_until FROM users WHERE id=?', (user_id,)).fetchone()
+    current = parse_datetime_utc(row['stars_withdrawal_until']) if row else None
+    until = max(candidate, current) if current and current > now else candidate
+    stored = until.strftime('%Y-%m-%d %H:%M:%S')
+    db.execute('UPDATE users SET stars_withdrawal_until=? WHERE id=?', (stored, user_id))
+    return until
+
+
+def credit_verified_stars_deposit(db, order, payment_charge_id):
+    """Credit one confirmed Telegram Stars invoice exactly once."""
+    user_id = int(order['user_id'])
+    amount = int(order['amount'])
+    deposit_bonus, promo = _consume_deposit_bonus(db, user_id, amount, order['promo_code'] or '')
+    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount + deposit_bonus, user_id))
+    db.execute("""INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
+                  VALUES(?,?,NULL,0,0,?)""",
+               (user_id, amount, 'stars:' + str(order['id'])))
+    db.execute("""UPDATE stars_deposit_orders
+                  SET status='credited',telegram_payment_charge_id=?,credited_at=CURRENT_TIMESTAMP
+                  WHERE id=?""", (payment_charge_id, order['id']))
+    lock_until = _apply_stars_withdrawal_lock(db, user_id)
+    record_transaction(db, user_id, 'stars_deposit', amount, 'telegram_stars', payment_charge_id,
+                       f'Пополнение через Telegram Stars · {int(order["stars_amount"])} Stars')
+    if deposit_bonus:
+        record_transaction(db, user_id, 'deposit_promo_bonus', deposit_bonus, 'telegram_stars',
+                           payment_charge_id, f'Бонус промокода {promo["code"]}')
+    log_event(db, user_id, 'deposit_confirmed', amount=amount/100, bonus=deposit_bonus/100,
+              promo_code=promo['code'] if deposit_bonus and promo else '',
+              payment='stars', stars=int(order['stars_amount']), order_id=order['id'])
+    return deposit_bonus, lock_until
+
+
+@app.post('/api/stars/deposit/create')
+@login_required
+def create_stars_deposit():
+    settings = ton_settings()
+    if not settings['stars_enabled']:
+        return error('Пополнение Stars временно отключено.', 503)
+    if not BOT_TOKEN:
+        return error('Telegram-бот не настроен для оплаты Stars.', 503)
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = parse_amount(data.get('amount'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Введите сумму с точностью до 0.01 TON.')
+    if not 1 <= amount <= 100000000:
+        return error('Сумма пополнения должна быть от 0.01 до 1 000 000 TON.')
+    stars_amount = max(1, int(math.ceil(amount * int(settings['stars_per_ton']) / 100)))
+    order_id = secrets.token_urlsafe(18).replace('-', '').replace('_', '')[:24]
+    invoice_payload = f'stars:{order_id}'
+    with connect() as db:
+        db.execute("UPDATE stars_deposit_orders SET status='expired' WHERE user_id=? AND status='pending'",
+                   (session['uid'],))
+        promo = db.execute("""SELECT r.code,p.bonus_percent,p.bonus_fixed,p.min_deposit
+                              FROM promo_redemptions r JOIN promo_codes p ON p.code=r.code
+                              WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                              AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                              ORDER BY r.created_at DESC LIMIT 1""", (session['uid'],)).fetchone()
+        promo_code = promo['code'] if promo else ''
+        db.execute("""INSERT INTO stars_deposit_orders
+                      (id,user_id,amount,stars_amount,promo_code,invoice_payload,status)
+                      VALUES(?,?,?,?,?,?,'pending')""",
+                   (order_id, session['uid'], amount, stars_amount, promo_code, invoice_payload))
+        log_event(db, session['uid'], 'deposit_created', amount=amount/100, promo_code=promo_code,
+                  order_id=order_id, payment='stars', stars=stars_amount)
+    try:
+        invoice_url = telegram_api('createInvoiceLink', {
+            'title': 'Пополнение GemDrop',
+            'description': f'Пополнение игрового баланса на {amount / 100:.2f} TON',
+            'payload': invoice_payload,
+            'currency': 'XTR',
+            'prices': [{'label': f'{amount / 100:.2f} TON', 'amount': stars_amount}],
+        }, timeout=(3, 12))
+    except RuntimeError as exc:
+        with connect() as db:
+            db.execute("UPDATE stars_deposit_orders SET status='failed' WHERE id=? AND status='pending'",
+                       (order_id,))
+        return error(f'Не удалось создать счёт Stars: {exc}', 502)
+    return jsonify(ok=True, order_id=order_id, invoice_url=invoice_url, stars=stars_amount,
+                   amount=amount/100, stars_per_ton=settings['stars_per_ton'],
+                   withdraw_days=STARS_WITHDRAWAL_DAYS,
+                   deposit_bonus=(round(amount*float(promo['bonus_percent'] or 0)/100)
+                                  + int(promo['bonus_fixed'] or 0))/100
+                   if promo and amount >= int(promo['min_deposit'] or 0) else 0)
+
+
+@app.get('/api/stars/deposit/<order_id>/status')
+@login_required
+def stars_deposit_status(order_id):
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return error('Некорректная операция.')
+    with connect() as db:
+        order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
+                           (order_id, session['uid'])).fetchone()
+        account = db.execute('SELECT stars_withdrawal_until FROM users WHERE id=?', (session['uid'],)).fetchone()
+    if not order:
+        return error('Операция пополнения не найдена.', 404)
+    until = parse_datetime_utc(account['stars_withdrawal_until']) if account else None
+    return jsonify(ok=True, status=order['status'], user=profile() if order['status'] == 'credited' else None,
+                   withdrawal_block_until=(until.isoformat() if until and until > datetime.now(timezone.utc) else None),
+                   withdraw_days=STARS_WITHDRAWAL_DAYS)
+
+
+def process_stars_successful_payment(message, payment):
+    sender = message.get('from') or {}
+    uid = sender.get('id')
+    payload = str(payment.get('invoice_payload') or '')
+    if not isinstance(uid, int) or not payload.startswith('stars:'):
+        return False
+    order_id = payload.split(':', 1)[1].strip()
+    if not re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+        return False
+    charge_id = str(payment.get('telegram_payment_charge_id') or '').strip()[:180]
+    try:
+        total_amount = int(payment.get('total_amount'))
+    except (TypeError, ValueError):
+        return False
+    if payment.get('currency') != 'XTR' or not charge_id:
+        return False
+    credited = False
+    bonus = 0
+    lock_until = None
+    balance_now = 0
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=?'
+                           + (' FOR UPDATE' if DATABASE_URL else ''), (order_id,)).fetchone()
+        if not order or int(order['user_id']) != uid or order['invoice_payload'] != payload:
+            db.commit()
+            return False
+        if int(order['stars_amount']) != total_amount:
+            db.commit()
+            return False
+        if order['status'] == 'credited':
+            db.commit()
+            return True
+        used = db.execute("""SELECT id FROM stars_deposit_orders
+                             WHERE telegram_payment_charge_id=? AND id<>?""",
+                          (charge_id, order_id)).fetchone()
+        if used:
+            db.commit()
+            return False
+        bonus, lock_until = credit_verified_stars_deposit(db, order, charge_id)
+        row = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+        balance_now = int(row['balance'] or 0) if row else 0
+        db.commit()
+        credited = True
+    if credited:
+        notify_deposit_async(uid, int(order['amount']), balance_now, bonus)
+        until_text = lock_until.strftime('%d.%m.%Y') if lock_until else ''
+        notify_user_async(
+            uid,
+            f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\n\n'
+            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} дней — до <b>{until_text}</b>.',
+            miniapp_markup('Открыть', 'profile'), 'HTML')
+    return credited
+
+
+
+def safe_image(value):
+    if isinstance(value, str) and value.startswith('https://') and len(value) < 1000:
+        return value
+    return ''
+
+
+def portal_headers(key):
+    key = key.strip()
+    headers = {'Accept': 'application/json', 'User-Agent': 'GemDrop/1.0'}
+    if key:
+        if not key.startswith(('tma ', 'Bearer ')):
+            key = ('tma ' if 'hash=' in key and 'auth_date=' in key else 'Bearer ') + key
+        headers['Authorization'] = key
+    return headers
+
+
+def saved_portal_key():
+    """Return the last admin-supplied Portal Authorization without exposing it to the client."""
+    try:
+        doc = read_document('portal_auth') or {}
+        value = str(doc.get('authorization') or '').strip()
+        return value if len(value) <= 8000 and '\n' not in value and '\r' not in value else ''
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ''
+
+
+def store_portal_key(key):
+    key = str(key or '').strip()
+    if not key:
+        return
+    save_document('portal_auth', {
+        'authorization': key,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    })
+
+
+
+PORTAL_BACKGROUND_LABELS = {
+    'black': 'Black',
+    'onyx': 'Onyx Black',
+    'onyxblack': 'Onyx Black',
+}
+
+
+def normalize_portal_background(value):
+    text = str(value or '').strip()
+    if not text:
+        return None
+    key = re.sub(r'[\W_]+', '', text.casefold(), flags=re.UNICODE)
+    return PORTAL_BACKGROUND_LABELS.get(key)
+
+
+def portal_background_key(label):
+    if label == 'Black':
+        return 'black'
+    if label == 'Onyx Black':
+        return 'onyx-black'
+    return re.sub(r'[^a-z0-9]+', '-', str(label).casefold()).strip('-')
+
+
+def portal_short_name(name):
+    return str(name or '').replace(' ', '').replace("'", '').replace('’', '').replace('-', '').lower()
+
+
+def portal_price_string(value):
+    if isinstance(value, dict):
+        for key in ('floor_price', 'floorPrice', 'min_price', 'minPrice', 'price', 'amount', 'value', 'floor'):
+            if value.get(key) is not None:
+                price = portal_price_string(value.get(key))
+                if price is not None:
+                    return price
+        for key in ('stats', 'market_stats', 'pricing'):
+            if isinstance(value.get(key), dict):
+                price = portal_price_string(value[key])
+                if price is not None:
+                    return price
+        return None
+    try:
+        price = Decimal(str(value))
+        if price.is_finite() and price >= 0:
+            return format(price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP), 'f')
+    except (InvalidOperation, TypeError, ValueError):
+        pass
+    return None
+
+
+def portal_variant_name(obj):
+    if isinstance(obj, str):
+        return normalize_portal_background(obj)
+    if not isinstance(obj, dict):
+        return None
+    for key in ('background', 'background_name', 'backgroundName', 'backdrop', 'backdrop_name',
+                'backdropName', 'name', 'title', 'label', 'value'):
+        value = obj.get(key)
+        if isinstance(value, dict):
+            found = portal_variant_name(value)
+        else:
+            found = normalize_portal_background(value)
+        if found:
+            return found
+    return None
+
+
+def portal_background_variants(item, filters=None):
+    """Return supported background price variants embedded in a Portal collection row.
+
+    Portal may expose background/backdrop floors in several shapes depending on
+    endpoint/version, for example:
+    {"backgrounds": [{"name": "Black", "floor_price": 20000}]},
+    {"backdrop_prices": {"Onyx Black": 10000}}, or attribute-style arrays.
+    We keep the parser deliberately permissive but only accept the two supported
+    labels, so ordinary fields cannot accidentally create extra gifts.
+    """
+    variants = {}
+
+    def remember(label, raw_price):
+        label = normalize_portal_background(label) or label
+        if label not in ('Black', 'Onyx Black'):
+            return
+        price = portal_price_string(raw_price)
+        if price is not None and Decimal(price) > 0:
+            variants[label] = price
+
+    def scan_container(container):
+        if isinstance(container, list):
+            for entry in container:
+                scan_container(entry)
+            return
+        if not isinstance(container, dict):
+            return
+
+        trait = str(container.get('trait_type') or container.get('type') or container.get('key') or '').casefold()
+        if any(word in trait for word in ('model', 'symbol', 'pattern')):
+            return
+
+        # Mapping shape: {"Black": 20000, "Onyx Black": {"floor_price": 10000}}
+        for key, value in container.items():
+            label = normalize_portal_background(key)
+            if label:
+                remember(label, value)
+
+        # Object shape: {"name": "Black", "floor_price": 20000}
+        label = portal_variant_name(container)
+        if label:
+            remember(label, container)
+
+        # Attribute/trait shape: {"trait_type":"Backdrop", "value":"Black", "floor_price":...}
+        trait = str(container.get('trait_type') or container.get('type') or container.get('key') or '').casefold()
+        if any(word in trait for word in ('background', 'backdrop', 'фон')):
+            label = normalize_portal_background(container.get('value') or container.get('name') or container.get('label'))
+            if label:
+                remember(label, container)
+
+        for key, child in container.items():
+            if key not in ('models', 'symbols', 'patterns') and isinstance(child, (dict, list)):
+                scan_container(child)
+
+    direct_keys = (
+        'backgrounds', 'background', 'background_prices', 'backgroundPrices', 'prices_by_background',
+        'floor_prices_by_background', 'floors_by_background', 'backdrops', 'backdrop', 'backdrop_prices',
+        'backdropPrices', 'prices_by_backdrop', 'floor_prices_by_backdrop', 'floors_by_backdrop',
+        'attributes', 'traits', 'filters', 'variants', 'prices', 'floors', 'stats', 'market_stats',
+        'data', 'result', 'floor_prices', 'floorPrices',
+    )
+    for key in direct_keys:
+        if isinstance(item, dict) and item.get(key) is not None:
+            scan_container(item.get(key))
+    if filters is not None:
+        scan_container(filters)
+    return variants
+
+
+def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None):
+    entries = [base_gift]
+    base_id = str(base_gift['id'])
+    base_name = str(base_gift['name'])
+    discovered = portal_background_variants(portal_item, filters)
+    # A backdrop name or collection floor is not a quote for this variant.
+    for label in ('Black', 'Onyx Black'):
+        price = discovered.get(label)
+        if not price or Decimal(price) <= 0:
+            continue
+        bg_key = portal_background_key(label)
+        variant_id = f'{base_id}:background:{bg_key}'
+        old = previous_by_id.get(variant_id, {})
+        variant = dict(base_gift)
+        variant.update(
+            id=variant_id,
+            base_id=base_id,
+            base_name=base_name,
+            name=f'{base_name} ({label})',
+            price_ton=price,
+            background_label=label,
+            background_key=bg_key,
+            background_tone='black' if label == 'Black' else 'onyx-black',
+            price_source='Portal · фон',
+            image_url=old.get('image_url') or base_gift.get('image_url') or base_gift.get('portal_image_url', ''),
+            image_match=bool(old.get('image_match', base_gift.get('image_match'))),
+            telegram_gift_id=old.get('telegram_gift_id', base_gift.get('telegram_gift_id', '')),
+        )
+        entries.append(variant)
+    return entries
+
+
+def portal_get_collections(session_http, key, params):
+    """Fetch one collections page with bounded retries and stale-auth fallback.
+
+    Portals TMA auth can expire. If an old saved token is rejected, retry the
+    public collections endpoint before failing, while never deleting the last
+    successfully cached catalog.
+    """
+    auth_candidates = [str(key or '').strip()]
+    if auth_candidates[0]:
+        auth_candidates.append('')
+    last_error = None
+    for auth_index, auth_key in enumerate(auth_candidates):
+        for attempt in range(3):
+            try:
+                response = session_http.get(
+                    'https://portal-market.com/api/collections',
+                    params=params,
+                    headers=portal_headers(auth_key),
+                    timeout=(3, 6),
+                )
+                if response.status_code == 429 and attempt < 2:
+                    retry_after = response.headers.get('Retry-After', '1')
+                    try:
+                        delay = min(3.0, max(0.5, float(retry_after)))
+                    except ValueError:
+                        delay = 1.0
+                    time.sleep(delay)
+                    continue
+                if response.status_code in (401, 403) and auth_key and auth_index == 0:
+                    append_portal_log('Сохранённый Authorization Portal отклонён; пробуем публичный каталог без него.', 'error')
+                    break
+                response.raise_for_status()
+                return response
+            except requests.RequestException as exc:
+                last_error = exc
+                status = exc.response.status_code if exc.response is not None else None
+                if status in (400, 401, 403, 404) or attempt >= 2:
+                    break
+                time.sleep(0.7 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise requests.RequestException('Portal did not return a response')
+
+
+def portal_get_collection_filters(session_http, key, names, deadline=None):
+    """Best-effort background floors. Never let this optional request freeze Portal import."""
+    short_names = []
+    seen_names = set()
+    for name in names:
+        short = portal_short_name(name)
+        if short and short not in seen_names:
+            seen_names.add(short)
+            short_names.append(short)
+        if len(short_names) >= 40:
+            # Keep the URL short and the Portal filters endpoint responsive. The
+            # main collection page is still imported fully even if backgrounds are
+            # only discovered for part of the page.
+            break
+    if not short_names:
+        return {}
+    if deadline is not None and time.monotonic() > deadline - 4:
+        return {}
+    params = {'short_names': ','.join(short_names)}
+    url = 'https://portal-market.com/api/collections/filters'
+    auth_candidates = [str(key or '').strip()]
+    if auth_candidates[0]:
+        auth_candidates.append('')
+    for auth_key in auth_candidates:
+        if deadline is not None and time.monotonic() > deadline - 3:
+            return {}
+        try:
+            response = session_http.get(url, params=params, headers=portal_headers(auth_key), timeout=(1.5, 2.5))
+            if response.status_code in (401, 403, 404):
+                continue
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            # Filters are optional: if Portal does not answer, continue with the
+            # ordinary gifts and any background data embedded into collections.
+            return {}
+        if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
+            payload = payload['data']
+        floors = payload.get('collections', payload.get('floor_prices', payload.get('floorPrices', payload))) if isinstance(payload, dict) else {}
+        if not isinstance(floors, dict):
+            return {}
+        result = {}
+        for key_name, value in floors.items():
+            result[portal_short_name(key_name)] = value
+        return result
+    return {}
+
+
+def fetch_portal_catalog(key, progress=None):
+    """Fetch Portal collections without blocking the admin UI for the whole import."""
+    previous = read_catalog(include_hidden=True)['gifts']
+    previous_by_id = {str(gift.get('id')): gift for gift in previous}
+    gifts, seen = [], set()
+    offset = 0
+    session_http = requests.Session()
+    page_signatures = set()
+    request_limit = 80
+    deadline = time.monotonic() + 42
+
+    # The public collections endpoint is also used by the Portals web app. Some
+    # deployments cap a page below the requested limit, so advance by the real
+    # number of rows instead of assuming a fixed page size.
+    for page in range(30):
+        if time.monotonic() >= deadline:
+            append_portal_log('Импорт остановлен по защитному лимиту времени; уже полученные коллекции сохранены.', 'error')
+            break
+        response = portal_get_collections(
+            session_http, key, {
+                'limit': request_limit, 'offset': offset,
+                # Unsupported params are ignored by Portal, but newer responses can
+                # include background/backdrop floor prices without extra requests.
+                'include': 'backgrounds,backdrops', 'with': 'backgrounds,backdrops',
+            }
+        )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError('Portal вернул некорректный JSON.') from exc
+        items = payload.get('collections', payload.get('data', payload)) if isinstance(payload, dict) else payload
+        if isinstance(items, dict):
+            items = items.get('collections', items.get('items'))
+        if not isinstance(items, list):
+            raise ValueError('Portal вернул неожиданный формат коллекций.')
+        if not items:
+            break
+
+        page_filters = portal_get_collection_filters(
+            session_http, key,
+            [item.get('name') or item.get('title') or item.get('gift_name') for item in items if isinstance(item, dict)],
+            deadline=deadline,
+        )
+
+        page_ids = tuple(str(item.get('id') or item.get('slug') or item.get('name') or '')
+                         for item in items if isinstance(item, dict))
+        signature = hashlib.sha1(json.dumps(page_ids, ensure_ascii=False).encode()).hexdigest()
+        if signature in page_signatures:
+            append_portal_log('Portal повторил уже полученную страницу; импорт завершён без зацикливания.')
+            break
+        page_signatures.add(signature)
+
+        added = 0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get('name') or item.get('title') or item.get('gift_name')
+            gift_id = str(item.get('id') or item.get('slug') or name or '')
+            if not name or not gift_id or gift_id in seen:
+                continue
+            seen.add(gift_id)
+            added += 1
+            raw = next((item[k] for k in ('floor_price', 'floorPrice', 'price') if item.get(k) is not None), None)
+            price = portal_price_string(raw)
+            img = next((safe_image(item.get(k)) for k in
+                        ('image_url', 'photo_url', 'preview_url', 'image', 'icon_url', 'png_url')
+                        if safe_image(item.get(k))), '')
+            gift = dict(id=gift_id, name=str(name)[:140], price_ton=price, portal_image_url=img)
+            old = previous_by_id.get(gift_id, {})
+            if price is None or Decimal(price) <= 0:
+                saved_price = portal_price_string(old.get('price_ton'))
+                if saved_price and Decimal(saved_price) > 0:
+                    gift['price_ton'] = saved_price
+            gift.update(image_url=old.get('image_url') or img,
+                        image_match=bool(old.get('image_match')),
+                        telegram_gift_id=old.get('telegram_gift_id', ''))
+            entries = portal_catalog_entries(gift, item, previous_by_id, page_filters.get(portal_short_name(name)))
+            for entry in entries:
+                entry_id = str(entry.get('id'))
+                if entry_id in seen and entry_id != gift_id:
+                    continue
+                seen.add(entry_id)
+                gifts.append(entry)
+
+        if not added:
+            break
+        offset += len(items)
+
+        # Publish a partial catalog after every page. The admin panel can show
+        # gifts immediately instead of appearing frozen until PNG matching ends.
+        partial = gifts + [g for g in previous if str(g.get('id')) not in seen
+                           and not (g.get('background_label') and str(g.get('base_id')) in seen)]
+        save_document('portal_catalog', dict(
+            source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(),
+            partial=True, gifts=partial))
+        if progress:
+            progress(len(gifts), 'collections')
+        if page == 0 or (page + 1) % 5 == 0:
+            append_portal_log(f'Portal: получено {len(gifts)} коллекций (страница {page + 1}).')
+
+        total = None
+        if isinstance(payload, dict):
+            for key_name in ('total', 'count', 'total_count'):
+                try:
+                    value = int(payload.get(key_name))
+                    if value >= 0:
+                        total = value
+                        break
+                except (TypeError, ValueError):
+                    pass
+        if total is not None and offset >= total:
+            break
+    else:
+        append_portal_log('Достигнут защитный лимит страниц Portal; полученные коллекции сохранены.', 'error')
+
+    if not gifts:
+        raise ValueError('Portal вернул пустой каталог. Прежний каталог сохранён.')
+
+    retained = [g for g in previous if str(g.get('id')) not in seen
+                and not (g.get('background_label') and str(g.get('base_id')) in seen)]
+    gifts.extend(retained)
+    # Save usable Portal data before optional external PNG matching.
+    document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
+    save_catalog(document)
+    if progress:
+        progress(len(gifts), 'images')
+
+    try:
+        mapping = gift_id_map()
+    except (requests.RequestException, ValueError, OSError, json.JSONDecodeError):
+        mapping = {}
+        append_portal_log('Каталог Portal загружен; CDN сопоставления PNG временно недоступен.')
+    if mapping:
+        names = {collection_key(v): k for k, v in mapping.items()}
+        gifts = [match_collection_image(g, mapping, names) for g in gifts]
+        document = dict(source='Portal Market', updated_at=datetime.now(timezone.utc).isoformat(), gifts=gifts)
+        save_catalog(document)
+        refresh_inventory_images(mapping)
+
+    return dict(count=len(gifts), matched=sum(bool(g.get('image_match')) for g in gifts), retained=len(retained))
+
+
+def append_portal_log(message, level='info'):
+    try:
+        logs = read_document('portal_logs') or []
+        if not isinstance(logs, list):
+            logs = []
+        logs.append({'ts': datetime.now(timezone.utc).isoformat(), 'level': level, 'message': str(message)[:500]})
+        save_document('portal_logs', logs[-100:])
+    except Exception:
+        app.logger.exception('Could not persist Portal log')
+
+
+portal_job_lock = __import__('threading').Lock()
+
+
+def portal_job(key):
+    try:
+        append_portal_log('Начата загрузка каталога Portal Market.')
+        def progress(count, stage='collections'):
+            save_document('portal_job', dict(state='running', count=count, stage=stage, updated=time.time()))
+        result = fetch_portal_catalog(key, progress)
+        save_document('portal_job', dict(state='done', updated=time.time(), **result))
+        append_portal_log(f"Каталог сохранён: {result.get('count', 0)} коллекций, PNG: {result.get('matched', 0)}.")
+    except requests.HTTPError as exc:
+        status = exc.response.status_code
+        message = ('Ключ Portal истёк или отклонён. Обновите Authorization из Portal либо очистите поле для публичного каталога.'
+                   if status in (401, 403) else f'Portal вернул HTTP {status}. Каталог сохранён; повторите позже.')
+        save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+        append_portal_log(message, 'error')
+    except (requests.RequestException, ValueError, OSError) as exc:
+        message = str(exc) if isinstance(exc, ValueError) else 'Portal не ответил вовремя. Старые подарки сохранены. Повторите загрузку.'
+        save_document('portal_job', dict(state='error', error=message, updated=time.time()))
+        append_portal_log(message, 'error')
+    finally:
+        try:
+            auto = portal_auto_settings()
+            if auto.get('enabled'):
+                auto['last_run_at'] = time.time()
+                save_portal_auto_settings(auto)
+        except Exception:
+            app.logger.exception('Could not update Portal auto-refresh timestamp')
+        portal_job_lock.release()
+
+
+def portal_auto_settings():
+    doc = read_document('portal_auto_refresh') or {}
+    try:
+        interval = int(doc.get('interval_minutes', 60))
+    except (TypeError, ValueError):
+        interval = 60
+    interval = min(1440, max(15, interval))
+    try:
+        next_run_at = float(doc.get('next_run_at') or 0)
+    except (TypeError, ValueError):
+        next_run_at = 0
+    try:
+        last_run_at = float(doc.get('last_run_at') or 0)
+    except (TypeError, ValueError):
+        last_run_at = 0
+    return dict(enabled=bool(doc.get('enabled', False)), interval_minutes=interval,
+                next_run_at=next_run_at, last_run_at=last_run_at)
+
+
+def save_portal_auto_settings(settings):
+    save_document('portal_auto_refresh', settings)
+
+
+@app.get('/api/admin/portal/auto')
+@admin_required
+def portal_auto_get():
+    return jsonify(**portal_auto_settings())
+
+
+@app.post('/api/admin/portal/auto')
+@admin_required
+def portal_auto_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        interval = int(data.get('interval_minutes', 60))
+    except (TypeError, ValueError):
+        return error('Интервал автообновления указан неверно.')
+    if not 15 <= interval <= 1440:
+        return error('Интервал автообновления: от 15 до 1440 минут.')
+    enabled = bool(data.get('enabled', False))
+    now = time.time()
+    previous = portal_auto_settings()
+    settings = dict(enabled=enabled, interval_minutes=interval,
+                    next_run_at=(now + interval * 60 if enabled else 0),
+                    last_run_at=previous.get('last_run_at', 0),
+                    updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid'])
+    save_portal_auto_settings(settings)
+    append_portal_log(f'Автообновление цен: {"включено" if enabled else "выключено"}; интервал {interval} мин.')
+    return jsonify(ok=True, **portal_auto_settings())
+
+
+@app.post('/api/admin/portal/import')
+@admin_required
+def portal_import():
+    entered_key = str((request.get_json(silent=True) or {}).get('key', '')).strip()
+    if len(entered_key) > 8000 or '\n' in entered_key or '\r' in entered_key:
+        return error('Некорректный ключ Portal.')
+    if entered_key:
+        store_portal_key(entered_key)
+    key = entered_key or saved_portal_key()
+    if not portal_job_lock.acquire(blocking=False):
+        return jsonify(ok=True, state='running'), 202
+    save_document('portal_job', dict(state='running', count=0, stage='collections', updated=time.time()))
+    append_portal_log('Используется сохранённый Authorization Portal.' if key and not entered_key else
+                      ('Authorization Portal сохранён для следующих обновлений.' if entered_key else
+                       'Authorization не задан; пробуем публичный каталог Portal.'))
+    Thread(target=portal_job, args=(key,), daemon=True).start()
+    return jsonify(ok=True, state='running'), 202
+
+
+@app.get('/api/admin/portal/job')
+@admin_required
+def portal_job_status():
+    job = read_document('portal_job') or dict(state='idle')
+    if job.get('state') == 'running' and time.time() - job.get('updated', 0) > 120:
+        job = dict(state='error', error='Загрузка прервалась при перезапуске сервера. Повторите импорт.')
+    return jsonify(job)
+
+
+@app.get('/api/admin/portal/logs')
+@admin_required
+def portal_logs():
+    logs = read_document('portal_logs') or []
+    return jsonify(logs=logs[-100:] if isinstance(logs, list) else [])
+
+
+@app.post('/api/admin/portal/images/refresh')
+@admin_required
+def refresh_portal_images():
+    try:
+        document = read_catalog(include_hidden=True)
+        if not document['gifts']:
+            return error('Сначала загрузите каталог Portal.')
+        mapping = gift_id_map()
+        document['gifts'] = [match_collection_image(gift, mapping) for gift in document['gifts']]
+        document['images_updated_at'] = datetime.now(timezone.utc).isoformat()
+        save_catalog(document)
+        refresh_inventory_images(mapping)
+        return jsonify(ok=True, count=len(document['gifts']),
+                       matched=sum(g['image_match'] for g in document['gifts']))
+    except (requests.RequestException, ValueError, OSError) as exc:
+        app.logger.warning('Gift image refresh failed: %s', type(exc).__name__)
+        return error('Не удалось сопоставить изображения. Старый каталог сохранён.', 502)
+
+
+@app.get('/tonconnect-manifest.json')
+def tonconnect_manifest():
+    base = WEBAPP_URL or request.url_root.rstrip('/')
+    settings = ton_settings()
+    site_url = settings['site_url'] if settings['site_url'].startswith('https://') else base
+    icon_url = settings['icon_url'] if settings['icon_url'].startswith('https://') else base + '/static/img/ton.png'
+    return jsonify(url=site_url, name=settings['site_name'], iconUrl=icon_url)
+
+
+def welcome_text():
+    pct = referral_percent()
+    pct_text = f'{pct:.1f}'.rstrip('0').rstrip('.')
+    configured = str((read_document('bot_settings') or {}).get('welcome_text') or '')
+    if configured:
+        return custom_emoji_html(configured.replace('{referral_percent}', pct_text))
+    return (
+        '🎉 <b>Привет, добро пожаловать в GemDrop! 💎</b>\n\n'
+        'Открывай Mines и собирай подарки.\n\n'
+        f'💰 Делись своей реферальной ссылкой: {pct_text}% начисляется только с подтверждённых TON-пополнений приглашённых друзей.'
+    )
+
+
+@app.post('/telegram/webhook')
+def telegram_webhook():
+    received = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+    if not BOT_TOKEN or not hmac.compare_digest(received, WEBHOOK_SECRET):
+        return error('Нет доступа.', 403)
+    if not WEBAPP_URL.startswith('https://'):
+        return error('Укажите HTTPS URL приложения.', 503)
+    update = request.get_json(silent=True) or {}
+    message = update.get('message') or {}
+    sender = message.get('from') or {}
+    chat = message.get('chat') or {}
+    command = str(message.get('text') or '').split(maxsplit=1)
+    callback = update.get('callback_query') or {}
+    pre_checkout = update.get('pre_checkout_query') or {}
+    if pre_checkout:
+        query_id = str(pre_checkout.get('id') or '')
+        uid = (pre_checkout.get('from') or {}).get('id')
+        payload = str(pre_checkout.get('invoice_payload') or '')
+        ok = False
+        reason = 'Счёт больше недействителен. Создайте новое пополнение.'
+        if query_id and isinstance(uid, int) and payload.startswith('stars:') and pre_checkout.get('currency') == 'XTR':
+            order_id = payload.split(':', 1)[1].strip()
+            try:
+                total_amount = int(pre_checkout.get('total_amount'))
+            except (TypeError, ValueError):
+                total_amount = -1
+            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+                with connect() as db:
+                    order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
+                                       (order_id, uid)).fetchone()
+                if order and order['status'] == 'pending' and order['invoice_payload'] == payload and int(order['stars_amount']) == total_amount:
+                    ok = True
+        try:
+            answer = {'pre_checkout_query_id': query_id, 'ok': ok}
+            if not ok:
+                answer['error_message'] = reason
+            telegram_api('answerPreCheckoutQuery', answer)
+        except RuntimeError:
+            app.logger.exception('Failed to answer Stars pre-checkout query')
+        return jsonify(ok=True)
+    successful_payment = message.get('successful_payment') or {}
+    if successful_payment:
+        try:
+            if not process_stars_successful_payment(message, successful_payment):
+                app.logger.warning('Rejected or unmatched Stars successful_payment for user %s', sender.get('id'))
+        except Exception:
+            app.logger.exception('Stars successful_payment processing failed')
+            return error('Не удалось зачислить оплату Stars.', 500)
+        return jsonify(ok=True)
+    if callback and isinstance((callback.get('from') or {}).get('id'), int):
+        callback_id = str(callback.get('id') or '')
+        callback_data = str(callback.get('data') or '')
+        uid = int(callback['from']['id'])
+        if callback_data in ('admin:emoji', 'admin:post'):
+            if uid not in ADMIN_IDS or ((callback.get('message') or {}).get('chat') or {}).get('type') != 'private':
+                return jsonify(method='answerCallbackQuery', callback_query_id=callback_id, text='Нет доступа.')
+            try:
+                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id})
+            except RuntimeError:
+                pass
+            command_message = {'from': {'id': uid}, 'chat': {'type': 'private'},
+                               'text': '/emoji' if callback_data == 'admin:emoji' else '/post'}
+            return jsonify(**handle_admin_emoji_message(command_message))
+        if callback_data.startswith('start:'):
+            try:
+                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id, 'text': 'Готово'})
+            except RuntimeError:
+                pass
+            return jsonify(ok=True)
+        if callback_data.startswith('freebet_check:'):
+            code = callback_data.split(':',1)[1].strip().upper()
+            try:
+                result = try_activate_freebet(uid, code)
+                try:
+                    telegram_api('answerCallbackQuery', {'callback_query_id': callback_id,
+                                                         'text': 'Проверено' if result['status']=='ok' else result['text'][:180],
+                                                         'show_alert': result['status'] not in ('ok','subscription')})
+                except RuntimeError:
+                    pass
+                msg = callback.get('message') or {}
+                target_chat = (msg.get('chat') or {}).get('id') or uid
+                payload={'chat_id':target_chat,'text':result['text']}
+                if result.get('parse_mode'):payload['parse_mode']=result['parse_mode']
+                if result.get('reply_markup'):payload['reply_markup']=result['reply_markup']
+                telegram_api('sendMessage', payload)
+                return jsonify(ok=True)
+            except Exception:
+                app.logger.exception('Freebet callback failed')
+                try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Не удалось проверить фрибет. Повторите попытку.','show_alert':True})
+                except RuntimeError:pass
+                return jsonify(ok=True)
+        if callback_data.startswith('post:'):
+            try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Готово'})
+            except RuntimeError:pass
+            return jsonify(ok=True)
+        return jsonify(ok=True)
+    emoji_reply = handle_admin_emoji_message(message)
+    if emoji_reply is not None:
+        return jsonify(**emoji_reply)
+    if (chat.get('type') == 'private' and command and
+            command[0].split('@')[0].lower() in ('/auf','auf') and isinstance(sender.get('id'), int)):
+        code = command[1].strip().upper() if len(command) == 2 else ''
+        uid = sender['id']
+        success = False
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)',
+                              (int(update['update_id']),)).rowcount:
+                db.commit()
+                return jsonify(ok=True)
+            if re.fullmatch(r'[A-HJ-NP-Z2-9]{12}', code):
+                db.execute('''INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)''',
+                           (uid,str(sender.get('first_name') or 'Игрок')[:80],
+                            str(sender.get('username') or '')[:80]))
+                db.execute('UPDATE users SET name=?,username=? WHERE id=?',
+                           (str(sender.get('first_name') or 'Игрок')[:80],
+                            str(sender.get('username') or '')[:80],uid))
+                success = bool(db.execute('''UPDATE web_login_challenges SET user_id=?
+                    WHERE code_hash=? AND user_id=0 AND used_at=0 AND expires_at>?''',
+                    (uid,web_login_hash(code),int(time.time()))).rowcount)
+            db.commit()
+        return jsonify(method='sendMessage',chat_id=chat['id'],
+                       text=('✅ Вход подтверждён. Вернитесь на страницу GemDrop.' if success else
+                             'Код неверный или срок его действия истёк. Получите новый код на сайте.'))
+    if (chat.get('type') == 'private' and command and
+            command[0].split('@')[0].lower() == '/paysupport' and isinstance(sender.get('id'), int)):
+        return jsonify(method='sendMessage', chat_id=chat['id'],
+                       text='По вопросам оплаты Telegram Stars обратитесь в поддержку GemDrop через приложение.')
+    if (chat.get('type') != 'private' or not command or
+            command[0].split('@')[0] != '/start' or not isinstance(sender.get('id'), int)):
+        return jsonify(ok=True)
+    try:
+        update_id = int(update['update_id'])
+        uid = sender['id']
+        referrer = None
+        freebet_code = None
+        if len(command) == 2 and re.fullmatch(r'ref_[0-9]{1,20}', command[1]):
+            referrer = int(command[1][4:])
+        elif len(command) == 2 and re.fullmatch(r'freebet_[A-Za-z0-9_-]{3,32}', command[1], re.I):
+            freebet_code = command[1][8:].upper()
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('INSERT OR IGNORE INTO bot_updates(update_id) VALUES(?)', (update_id,)).rowcount:
+                db.commit()
+                return jsonify(ok=True)
+            db.execute("""INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)""",
+                       (uid, str(sender.get('first_name') or 'Игрок')[:80], str(sender.get('username') or '')[:80]))
+            db.execute('UPDATE users SET name=?,username=? WHERE id=?',
+                       (str(sender.get('first_name') or 'Игрок')[:80], str(sender.get('username') or '')[:80], uid))
+            if referrer and uid != referrer:
+                if db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
+                    db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid, referrer))
+            db.commit()
+        finally:
+            db.close()
+        if freebet_code:
+            try:
+                result = try_activate_freebet(uid, freebet_code)
+                payload = dict(method='sendMessage', chat_id=chat['id'], text=result['text'])
+                if result.get('reply_markup'): payload['reply_markup'] = result['reply_markup']
+                if result.get('parse_mode'): payload['parse_mode'] = result['parse_mode']
+                return jsonify(**payload)
+            except Exception:
+                app.logger.exception('Freebet activation failed for %s', uid)
+                return jsonify(method='sendMessage', chat_id=chat['id'],
+                               text='Не удалось активировать фрибет. Попробуйте ещё раз через несколько секунд.')
+        button = build_start_keyboard(uid, referrer)
+        save_document('bot_input:' + str(uid), {'mode': ''})
+        # /start intentionally uses the same sendMessage + HTML path that is
+        # now also used by ordinary publications with premium emoji.
+        return jsonify(method='sendMessage', chat_id=chat['id'], text=welcome_text(),
+                       reply_markup=button, parse_mode='HTML')
+    except (ValueError, KeyError, sqlite3.Error) as exc:
+        app.logger.warning('Telegram update failed: %s', type(exc).__name__)
+        if isinstance(update.get('update_id'), int):
+            with connect() as db:
+                db.execute('DELETE FROM bot_updates WHERE update_id=?', (update['update_id'],))
+        return error('Не удалось обработать команду.', 500)
+
+
+def database_busy(exc):
+    app.logger.warning('Database temporarily unavailable: %s', type(exc).__name__)
+    response = jsonify(error='Сервер занят. Повторите запрос через несколько секунд.')
+    response.status_code = 503
+    response.headers['Retry-After'] = '2'
+    return response
+
+
+@app.errorhandler(sqlite3.OperationalError)
+def sqlite_error(exc):
+    if 'locked' in str(exc).lower() or 'busy' in str(exc).lower():
+        return database_busy(exc)
+    return internal_error_handler(exc)
+
+
+if DATABASE_URL:
+    import psycopg
+    from psycopg_pool import PoolTimeout, TooManyRequests
+    for transient_error in (PoolTimeout, TooManyRequests, psycopg.OperationalError):
+        app.register_error_handler(transient_error, database_busy)
+
+
+@app.errorhandler(500)
+def internal_error_handler(exc):
+    app.logger.exception('Unhandled server error: %s', exc)
+    if request.path.startswith('/api/') or request.path.startswith('/telegram/'):
+        return error('Внутренняя ошибка сервера. Ошибка записана в лог.', 500)
+    return 'Internal Server Error', 500
+
+
+
+def portal_auto_loop():
+    # Best-effort scheduler for a continuously running Render web service.
+    # The schedule itself lives in the persistent DB, so deploys do not erase it.
+    time.sleep(8)
+    while True:
+        try:
+            settings = portal_auto_settings()
+            now = time.time()
+            if settings.get('enabled') and (not settings.get('next_run_at') or now >= settings['next_run_at']):
+                settings['next_run_at'] = now + settings['interval_minutes'] * 60
+                save_portal_auto_settings(settings)
+                if portal_job_lock.acquire(blocking=False):
+                    append_portal_log('Автообновление: запускаем обновление цен Portal.')
+                    Thread(target=portal_job, args=(saved_portal_key(),), daemon=True).start()
+        except Exception:
+            app.logger.exception('Portal auto-refresh loop failed')
+        time.sleep(30)
+
+
+
+def daily_top_settlement_loop():
+    # Finalize expired TOP periods even when nobody currently has the game page open.
+    time.sleep(3)
+    while True:
+        try:
+            with connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                settle_previous_daily_top_rewards(db)
+                db.commit()
+        except Exception:
+            app.logger.exception('Daily top settlement loop failed')
+        time.sleep(10)
+
+
+
+
+def creator_limit_refill_text(level):
+    cfg = CREATOR_LEVELS[creator_level_key(level)]
+    parts = [
+        '♻️ <b>Дневной лимит автора восстановлен</b>',
+        '',
+        f'Уровень: <b>{escape(cfg["name"])}</b>',
+        f'Шкала: <b>0 / {cfg["daily_budget_cents"]/100:.2f} TON</b>',
+    ]
+    if int(cfg.get('wager_daily_limit') or 0):
+        parts.append(
+            f'Отыгрышные подарки: <b>0 / {int(cfg["wager_daily_limit"])}</b> · '
+            f'{cfg["wager_gift_min_cents"]/100:.0f}–{cfg["wager_gift_max_cents"]/100:.0f} TON · '
+            f'X от {int(cfg["wager_min_x"])}'
+        )
+    parts.extend(['', 'Новый дневной лимит уже доступен в панели автора.'])
+    return '\n'.join(parts)
+
+
+def creator_daily_limit_refill_loop():
+    # Creator quotas follow the same UTC+3 midnight used by TOP-day windows.
+    # State is persistent so restarts around midnight do not create duplicate messages.
+    time.sleep(7)
+    while True:
+        try:
+            local_now = datetime.now(timezone.utc).astimezone(DAILY_TOP_TZ)
+            today = local_now.strftime('%Y-%m-%d')
+            state = read_document('creator_limit_refill_state') or {}
+            if not isinstance(state, dict):
+                state = {}
+            stored_day = str(state.get('day') or '')
+            if not stored_day:
+                # First deployment should not send a surprise midday broadcast.
+                save_document('creator_limit_refill_state', {'day': today, 'sent': []})
+            elif stored_day != today:
+                state = {'day': today, 'sent': []}
+                save_document('creator_limit_refill_state', state)
+                with connect() as db:
+                    rows = db.execute(
+                        "SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%' ORDER BY name"
+                    ).fetchall()
+                active = []
+                for row in rows:
+                    try:
+                        uid = int(str(row['name']).split(':', 1)[1])
+                        payload = json.loads(row['payload'] or '{}')
+                    except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+                        continue
+                    if isinstance(payload, dict) and payload.get('active'):
+                        active.append((uid, creator_level_key(payload.get('creator_level'))))
+                sent = set()
+                for uid, level in active:
+                    notify_user_async(
+                        uid,
+                        creator_limit_refill_text(level),
+                        miniapp_markup('Открыть панель автора', 'creator'),
+                        'HTML')
+                    sent.add(uid)
+                    save_document('creator_limit_refill_state', {
+                        'day': today, 'sent': sorted(sent),
+                        'updated_at': datetime.now(timezone.utc).isoformat(),
+                    })
+        except Exception:
+            app.logger.exception('Creator daily limit refill loop failed')
+        time.sleep(20)
+
+
+def singleton_background(target, lock_id):
+    if not DATABASE_URL:
+        target()
+        return
+    import psycopg
+    while True:
+        try:
+            # A dedicated connection owns the lock without occupying the HTTP pool.
+            with psycopg.connect(DATABASE_URL, autocommit=True, connect_timeout=5) as guard:
+                if guard.execute('SELECT pg_try_advisory_lock(%s)', (lock_id,)).fetchone()[0]:
+                    target()
+                    return
+        except Exception:
+            app.logger.exception('Background leader failed: %s', target.__name__)
+        time.sleep(15)
+
+
+def start_background(target, lock_id):
+    if os.environ.get('ENABLE_BACKGROUND_JOBS', '1') == '1':
+        Thread(target=singleton_background, args=(target, lock_id), daemon=True).start()
+
+
+def configure_bot():
+    global BOT_USERNAME
+    if not BOT_TOKEN or not WEBAPP_URL.startswith('https://'):
+        return
+    last_error = None
+    for attempt in range(5):
+        try:
+            info = requests.get(f'https://api.telegram.org/bot{BOT_TOKEN}/getMe', timeout=(2, 4))
+            info.raise_for_status()
+            if info.json().get('ok'):
+                BOT_USERNAME = info.json()['result'].get('username') or BOT_USERNAME
+                save_document('bot_identity', {'username': BOT_USERNAME,
+                                                'token_fingerprint': BOT_TOKEN_FINGERPRINT,
+                                                'updated_at': datetime.now(timezone.utc).isoformat()})
+            response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
+                                     json={'url': WEBAPP_URL + '/telegram/webhook',
+                                           'secret_token': WEBHOOK_SECRET,
+                                           'allowed_updates': ['message', 'callback_query', 'pre_checkout_query'],
+                                           'max_connections': 40,
+                                           'drop_pending_updates': False}, timeout=(3, 6))
+            response.raise_for_status()
+            if not response.json().get('ok'):
+                raise ValueError('setWebhook rejected')
+            app.logger.info('Telegram webhook configured for %s', WEBAPP_URL)
+            return
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            last_error = exc
+            time.sleep(min(8, 1.5 ** attempt))
+    app.logger.warning('Telegram webhook setup failed after retries: %s',
+                       type(last_error).__name__ if last_error else 'unknown')
+
+
+# Legacy data repairs must never make the web process unavailable during a rolling
+# deploy. Another Render instance can still own an advisory lock for a few seconds.
+# The repair functions use pg_try_advisory_xact_lock(), and this wrapper also keeps
+# any non-schema legacy repair failure from aborting Gunicorn import.
+def run_startup_repair(fn):
+    try:
+        return fn()
+    except Exception:
+        app.logger.exception('Non-fatal startup repair skipped: %s', fn.__name__)
+        return False
+
+
+if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
+    run_startup_repair(repair_legacy_upgrade_wagers)
+    run_startup_repair(repair_zero_price_top_gifts)
+
+# Keep perpetual background-leader lock ids in their own range, separate from
+# transaction/migration locks (660105/660106 above).
+start_background(portal_auto_loop, 660101)
+start_background(daily_top_settlement_loop, 661201)
+start_background(broadcast_worker_loop, 661203)
+start_background(relayer_auto_loop, 661204)
+if BOT_TOKEN:
+    start_background(creator_daily_limit_refill_loop, 661202)
+    start_background(activity_notification_loop, 660102)
+if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
+    start_background(configure_bot, 660103)
+start_background(log_pruner_loop, 660104)
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
+,'',str(info.get('slug') or ''),flags=re.I))
+        if target_name and (target_name==live or target_name in live or live in target_name or target_name==base):
+            return entry,info
+    return None,None
+
+
+def _relayer_auto_log(withdrawal_id,row,status,info=None,transfer_stars=0,error_text=''):
+    info=info or {}
+    with connect() as db:
+        db.execute("""INSERT INTO relayer_withdrawal_logs(
+                        withdrawal_id,user_id,inventory_id,external_key,gift_slug,gift_name,fragment_number,
+                        status,transfer_stars,attempts,error,updated_at,completed_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,1,?,CURRENT_TIMESTAMP,CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                      ON CONFLICT(withdrawal_id) DO UPDATE SET
+                        external_key=excluded.external_key,gift_slug=excluded.gift_slug,status=excluded.status,
+                        transfer_stars=excluded.transfer_stars,attempts=relayer_withdrawal_logs.attempts+1,
+                        error=excluded.error,updated_at=CURRENT_TIMESTAMP,
+                        completed_at=CASE WHEN excluded.status='completed' THEN CURRENT_TIMESTAMP ELSE relayer_withdrawal_logs.completed_at END""",
+                   (withdrawal_id,int(row['user_id']),int(row['inventory_id'] or 0),
+                    str(info.get('external_key') or row.get('deposit_external_key') or ''),
+                    str(info.get('slug') or _relayer_slug_from_url(row.get('external_url')) or ''),
+                    str(row.get('gift_name') or ''),str(row.get('fragment_number') or ''),status,
+                    max(0,int(transfer_stars or 0)),str(error_text or '')[:500],status))
+
+
+async def _relayer_transfer_saved_gift(client,row,info):
+    from telethon import types
+    _,functions,_,_,_,_=_relayer_imports()
+    can_at=int(info.get('can_transfer_at') or 0)
+    if can_at and can_at>int(time.time()):
+        raise RuntimeError('NFT пока нельзя передать: действует Telegram transfer lock.')
+    slug=str(info.get('slug') or '')
+    if not slug: raise RuntimeError('У NFT отсутствует Telegram slug.')
+    stargift=types.InputSavedStarGiftSlug(slug=slug)
+    username=str(row.get('username') or '').strip().lstrip('@')
+    peer=await client.get_input_entity('@'+username if username else int(row['user_id']))
+    transfer_stars=max(0,int(info.get('transfer_stars') or 0))
+    if transfer_stars:
+        balance=await _relayer_stars_balance(client)
+        if balance<transfer_stars:
+            raise RuntimeError(f'Недостаточно Stars на Relayer: нужно {transfer_stars}, доступно {balance}.')
+        invoice=types.InputInvoiceStarGiftTransfer(stargift=stargift,to_id=peer)
+        form=await client(functions.payments.GetPaymentFormRequest(invoice=invoice))
+        await client(functions.payments.SendStarsFormRequest(form_id=form.form_id,invoice=invoice))
+    else:
+        await client(functions.payments.TransferStarGiftRequest(stargift=stargift,to_id=peer))
+    return transfer_stars
+
+
+async def _relayer_auto_withdraw_one_async(withdrawal_id,client=None,gifts=None):
+    row=_relayer_withdrawal_target(withdrawal_id)
+    if not row or str(row.get('status') or '')!='pending': return dict(ok=False,status='not_pending')
+    if not relayer_settings().get('auto_withdraw_enabled'): return dict(ok=False,status='disabled')
+    own=client is None
+    if own:
+        client=_relayer_client(); await client.connect()
+    try:
+        if not await client.is_user_authorized():
+            _relayer_auto_log(withdrawal_id,row,'login_required',error_text='Relayer не авторизован.')
+            return dict(ok=False,status='login_required')
+        gifts=gifts if gifts is not None else await _relayer_saved_gifts(client)
+        _,info=_relayer_match_withdrawal(row,gifts)
+        if not info:
+            _relayer_auto_log(withdrawal_id,row,'not_found',error_text='Подходящий NFT отсутствует на Relayer.')
+            return dict(ok=False,status='not_found')
+        _relayer_auto_log(withdrawal_id,row,'sending',info,info.get('transfer_stars') or 0)
+        try:
+            paid=await _relayer_transfer_saved_gift(client,row,info)
+        except Exception as exc:
+            msg=str(exc)[:500]
+            status='insufficient_stars' if 'Недостаточно Stars' in msg else ('blocked' if 'transfer lock' in msg else 'error')
+            _relayer_auto_log(withdrawal_id,row,status,info,info.get('transfer_stars') or 0,msg)
+            return dict(ok=False,status=status,error=msg)
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            current=db.execute("SELECT id FROM withdrawals WHERE id=? AND status='pending'",(withdrawal_id,)).fetchone()
+            if not current: db.rollback(); return dict(ok=False,status='race')
+            db.execute("UPDATE withdrawals SET status='approved',admin_id=0,processed_at=CURRENT_TIMESTAMP WHERE id=?",(withdrawal_id,))
+            db.execute("UPDATE relayer_gift_events SET status='withdrawn' WHERE inventory_id=?",(int(row['inventory_id'] or 0),))
+            record_transaction(db,int(row['user_id']),'withdrawal_auto',0,'withdrawal',withdrawal_id,str(row.get('gift_name') or 'NFT'))
+            log_event(db,int(row['user_id']),'withdrawal_auto_completed',withdrawal_id=withdrawal_id,gift_name=row.get('gift_name') or '',slug=info.get('slug') or '',transfer_stars=paid)
+            db.commit()
+        _relayer_auto_log(withdrawal_id,row,'completed',info,paid)
+        notify_user_async(int(row['user_id']),f'✅ <b>Ваш подарок успешно выведен</b>\n\n🎁 {escape(str(row.get("gift_name") or "NFT"))}',miniapp_markup('Открыть GemDrop','profile'),'HTML')
+        return dict(ok=True,status='completed',transfer_stars=paid)
+    finally:
+        if own:
+            _relayer_save_session(client); await client.disconnect()
+
+
+async def _relayer_process_pending_with_client(client,gifts,limit=6):
+    if not relayer_settings().get('auto_withdraw_enabled'): return dict(processed=0,completed=0)
+    with connect() as db:
+        rows=db.execute("""SELECT w.id FROM withdrawals w
+                           LEFT JOIN relayer_withdrawal_logs l ON l.withdrawal_id=w.id
+                           WHERE w.status='pending' AND (l.id IS NULL OR l.status IN ('error','login_required'))
+                           ORDER BY w.id LIMIT ?""",(max(1,min(20,int(limit))),)).fetchall()
+    processed=completed=0
+    for row in rows:
+        result=await _relayer_auto_withdraw_one_async(int(row['id']),client=client,gifts=gifts)
+        processed+=1; completed+=1 if result.get('status')=='completed' else 0
+    return dict(processed=processed,completed=completed)
+
+
+async def _relayer_scan_async(force=False):
+    cfg=relayer_settings()
+    if not cfg['enabled'] and not force:return dict(ok=False,status='disabled',processed=0)
+    client=_relayer_client()
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            _relayer_state(authorized=False,status='login_required'); return dict(ok=False,status='login_required',processed=0)
+        me=await client.get_me(); gifts=await _relayer_saved_gifts(client)
+        try: stars_balance=await _relayer_stars_balance(client)
+        except Exception: stars_balance=int((read_document('relayer_state') or {}).get('stars_balance') or 0)
+        state=read_document('relayer_state') or {}; baseline=not bool(state.get('baseline_ready')); processed=credited=0
+        for entry in gifts:
+            info=_relayer_resolve_gift(_relayer_entry_info(entry)); result=_relayer_credit(info,baseline=baseline)
+            processed+=0 if result=='duplicate' else 1; credited+=1 if result=='credited' else 0
+        auto=await _relayer_process_pending_with_client(client,gifts)
+        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,
+                       last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),stars_balance=stars_balance,
+                       last_processed=processed,last_credited=credited,last_auto_processed=auto['processed'],
+                       last_auto_completed=auto['completed'],error='')
+        return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline,
+                    stars_balance=stars_balance,auto_processed=auto['processed'],auto_completed=auto['completed'])
+    finally:
+        _relayer_save_session(client); await client.disconnect()
 
 @app.post('/api/admin/relayer/scan')
 @admin_required

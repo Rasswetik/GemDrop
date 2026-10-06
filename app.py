@@ -5947,6 +5947,7 @@ def public_user_profile(user_id):
                                    WHERE b.user_id=? AND r.state='settled'""", (user_id,)).fetchall()
         arena_count = len(arena_rows)
         max_arena_x = 0.0
+        max_arena_win = 0
         arena_wins = 0
         for row in arena_rows:
             stake = int(row['amount'] or 0)
@@ -5955,6 +5956,7 @@ def public_user_profile(user_id):
                 arena_wins += 1
                 ton_pool = max(0, min(pool, int(row['ton_pool'] or 0)))
                 max_arena_x = max(max_arena_x, (pool - arena_fee_cents(ton_pool)) / stake)
+                max_arena_win = max(max_arena_win, pool - arena_fee_cents(ton_pool))
 
         hilo_rows = db.execute("SELECT round_no,direction,payout,won,prize_name,prize_image,prize_price,created_at FROM hilo_room_bets WHERE user_id=? AND settled=1", (user_id,)).fetchall()
         hilo_count, hilo_wins, max_hilo_x, hilo_drop = len(hilo_rows), 0, 0.0, None
@@ -5970,6 +5972,14 @@ def public_user_profile(user_id):
             if (row['prize_name'] and prize > (hilo_drop['price_cents'] if hilo_drop else 0) and drop_is_after_override(row['created_at'])
                     and (show_black or not gift_black_background({'name': row['prize_name']}))):
                 hilo_drop = dict(price_cents=prize, name=row['prize_name'], image_url=row['prize_image'] or '', source='Hi-Lo')
+
+        crash_rows = db.execute("SELECT bet,payout,cashout_x100 FROM crash_bets WHERE user_id=?", (user_id,)).fetchall()
+        crash_count, crash_wins, max_crash_x, max_crash_win = len(crash_rows), 0, 0.0, 0
+        for row in crash_rows:
+            if int(row['payout'] or 0) > 0 and int(row['cashout_x100'] or 0) > 0:
+                crash_wins += 1
+                max_crash_x = max(max_crash_x, int(row['cashout_x100']) / 100)
+                max_crash_win = max(max_crash_win, int(row['payout']))
 
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
@@ -5989,10 +5999,13 @@ def public_user_profile(user_id):
                               max_mines_x=round(max_mines_x, 4), max_upgrade_x=round(max_upgrade_x, 4),
                               arena_count=arena_count, max_arena_x=round(max_arena_x, 4),
                               mines_wins=mines_wins, upgrade_wins=upgrade_wins, arena_wins=arena_wins,
-                              hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4)),
+                              hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4),
+                              crash_count=crash_count, crash_wins=crash_wins, max_crash_x=round(max_crash_x, 4)),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
-                              hilo=(hilo_drop['price_cents']/100 if hilo_drop else None)),
+                              hilo=(hilo_drop['price_cents']/100 if hilo_drop else None),
+                              arena=(max_arena_win/100 if max_arena_win else None),
+                              crash=(max_crash_win/100 if max_crash_win else None)),
                    max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 

@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '91-hilo-gift-win'
+BUILD_ID = '92-hilo-top-drop-profile'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -3339,7 +3339,7 @@ def daily_top_rewards():
         app.logger.exception('Invalid daily top reward settings; falling back to no rewards')
         doc = {}
     result = {}
-    for mode in ('mines','upgrade'):
+    for mode in ('mines','upgrade','hilo'):
         raw = doc.get(mode) if isinstance(doc,dict) else None
         reward = raw if isinstance(raw,dict) else {}
         reward_type = str(reward.get('type') or 'none')
@@ -3378,14 +3378,14 @@ def admin_daily_top_rewards_get():
     now_utc=datetime.now(timezone.utc)
     return jsonify(
         rewards=daily_top_rewards(),
-        schedules={mode:daily_top_schedule_view(mode,now_utc) for mode in ('mines','upgrade')}
+        schedules={mode:daily_top_schedule_view(mode,now_utc) for mode in ('mines','upgrade','hilo')}
     )
 
 
 @app.post('/api/admin/daily-top-rewards/<mode>')
 @admin_required
 def admin_daily_top_rewards_set(mode):
-    if mode not in ('mines','upgrade'):
+    if mode not in ('mines','upgrade','hilo'):
         return error('Неизвестный топ.',404)
     data=request.get_json(silent=True) or {}
     reward_type=str(data.get('type') or 'none')
@@ -3421,7 +3421,7 @@ def admin_daily_top_rewards_set(mode):
 @app.post('/api/admin/daily-top-schedule/<mode>')
 @admin_required
 def admin_daily_top_schedule_set(mode):
-    if mode not in ('mines','upgrade'):
+    if mode not in ('mines','upgrade','hilo'):
         return error('Неизвестный топ.',404)
     data=request.get_json(silent=True) or {}
 
@@ -3488,7 +3488,7 @@ def admin_daily_top_schedule_set(mode):
 @app.post('/api/admin/daily-top-reset/<mode>')
 @admin_required
 def admin_daily_top_reset(mode):
-    if mode not in ('mines','upgrade'):
+    if mode not in ('mines','upgrade','hilo'):
         return error('Неизвестный топ.',404)
 
     # Settle an already finished period before starting a fresh TOP-DROP window.
@@ -3551,6 +3551,13 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
                                AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
                              ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
                              LIMIT 1""",(start_db,end_db)).fetchone()
+    elif mode=='hilo':
+        _, hl_id = wins_feed_cutoff(db,'hilo')
+        winner=db.execute("""SELECT b.user_id FROM hilo_room_bets b JOIN users u ON u.id=b.user_id
+                             WHERE b.settled=1 AND b.id>? AND COALESCE(u.withdrawal_enabled,1)=1
+                               AND b.created_at>=? AND b.created_at<?
+                               AND b.payout+b.prize_price>CASE WHEN b.gift_name='' THEN b.amount ELSE 0 END
+                             ORDER BY b.payout+b.prize_price DESC,b.id DESC LIMIT 1""",(hl_id,start_db,end_db)).fetchone()
     else:
         winner=db.execute("""SELECT s.user_id FROM upgrade_spins s
                              JOIN users u ON u.id=s.user_id
@@ -3568,7 +3575,7 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
         return False
     reward=refresh_top_reward_price(reward)
     reward_type=reward.get('type')
-    title='Mines' if mode=='mines' else 'Upgrade'
+    title={'mines':'Mines','upgrade':'Upgrade','hilo':'Hi-Lo'}[mode]
     period_label=_daily_top_period_label(start_utc,end_utc)
     top_source_label=f'От ТОП дня ({period_label})'
     if reward_type=='gram':
@@ -3605,7 +3612,7 @@ def settle_previous_daily_top_rewards(db):
     if not isinstance(schedules,dict): schedules={}
     schedule_changed=False
 
-    for mode in ('mines','upgrade'):
+    for mode in ('mines','upgrade','hilo'):
         reward=settings.get(mode) or {'type':'none'}
         raw=schedules.get(mode)
         start=parse_datetime_utc(raw.get('start_at')) if isinstance(raw,dict) else None
@@ -5854,9 +5861,11 @@ def public_user_profile(user_id):
         mines_count = len(mine_rows)
         max_mines_x = 0.0
         mines_drop = None
+        mines_wins = 0
         for row in mine_rows:
             if row['state'] != 'won' or row['bet_type'] == 'promo_gift':
                 continue
+            mines_wins += 1
             try:
                 opened_count = len(json.loads(row['opened'] or '[]'))
             except (TypeError, ValueError, json.JSONDecodeError):
@@ -5879,6 +5888,7 @@ def public_user_profile(user_id):
         upgrade_count = len(upgrade_rows)
         max_upgrade_x = 0.0
         upgrade_drop = None
+        upgrade_wins = 0
         for row in upgrade_rows:
             source_price = int(row['source_price'] or 0)
             target_price = int(row['target_price'] or 0)
@@ -5888,6 +5898,8 @@ def public_user_profile(user_id):
                 result = {}
             if isinstance(result, dict) and result.get('reward_type') == 'wager_progress':
                 continue
+            if int(row['won'] or 0):
+                upgrade_wins += 1
             if int(row['won'] or 0) and source_price > 0:
                 max_upgrade_x = max(max_upgrade_x, target_price/source_price)
             if not int(row['won'] or 0) or target_price <= 0:
@@ -5902,12 +5914,29 @@ def public_user_profile(user_id):
                                    WHERE b.user_id=? AND r.state='settled'""", (user_id,)).fetchall()
         arena_count = len(arena_rows)
         max_arena_x = 0.0
+        arena_wins = 0
         for row in arena_rows:
             stake = int(row['amount'] or 0)
             pool = int(row['total_pool'] or 0)
             if stake > 0 and pool > 0 and int(row['winner_user_id'] or 0) == int(user_id):
+                arena_wins += 1
                 ton_pool = max(0, min(pool, int(row['ton_pool'] or 0)))
                 max_arena_x = max(max_arena_x, (pool - arena_fee_cents(ton_pool)) / stake)
+
+        hilo_rows = db.execute("SELECT round_no,direction,payout,won,prize_name,prize_image,prize_price,created_at FROM hilo_room_bets WHERE user_id=? AND settled=1", (user_id,)).fetchall()
+        hilo_count, hilo_wins, max_hilo_x, hilo_drop = len(hilo_rows), 0, 0.0, None
+        for row in hilo_rows:
+            if not (row['won'] or int(row['payout'] or 0) > 0):
+                continue
+            base = hilo_room_rank(row['round_no'])
+            if hilo_room_is_push(base, row['direction']):
+                continue
+            hilo_wins += 1
+            max_hilo_x = max(max_hilo_x, hilo_room_step_micro(base, row['direction']) / HILO_MICRO)
+            prize = int(row['prize_price'] or 0)
+            if (row['prize_name'] and prize > (hilo_drop['price_cents'] if hilo_drop else 0) and drop_is_after_override(row['created_at'])
+                    and (show_black or not gift_black_background({'name': row['prize_name']}))):
+                hilo_drop = dict(price_cents=prize, name=row['prize_name'], image_url=row['prize_image'] or '', source='Hi-Lo')
 
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
@@ -5915,7 +5944,7 @@ def public_user_profile(user_id):
         if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
-        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop) if x),
+        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, hilo_drop) if x),
                        key=lambda x: x['price_cents'], default=None)
 
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
@@ -5925,7 +5954,12 @@ def public_user_profile(user_id):
                               progress=round(level_progress, 1)),
                    stats=dict(mines_count=mines_count, upgrade_count=upgrade_count,
                               max_mines_x=round(max_mines_x, 4), max_upgrade_x=round(max_upgrade_x, 4),
-                              arena_count=arena_count, max_arena_x=round(max_arena_x, 4)),
+                              arena_count=arena_count, max_arena_x=round(max_arena_x, 4),
+                              mines_wins=mines_wins, upgrade_wins=upgrade_wins, arena_wins=arena_wins,
+                              hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4)),
+                   drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
+                              upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
+                              hilo=(hilo_drop['price_cents']/100 if hilo_drop else None)),
                    max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 
@@ -5968,23 +6002,25 @@ def admin_wins_feeds():
         mines_time, mines_id = wins_feed_cutoff(db, 'mines')
         upgrade_time, _ = wins_feed_cutoff(db, 'upgrade')
         craft_time, _ = wins_feed_cutoff(db, 'craft')
+        hilo_time, hilo_id = wins_feed_cutoff(db, 'hilo')
+        hilo = db.execute("SELECT COUNT(*) AS total FROM hilo_room_bets WHERE settled=1 AND id>? AND payout+prize_price>CASE WHEN gift_name='' THEN amount ELSE 0 END", (hilo_id,)).fetchone()['total']
         mines = db.execute("SELECT COUNT(*) AS total FROM rounds WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift' AND (id>? OR settled_at>?)", (mines_id,mines_time)).fetchone()['total']
         upgrade = db.execute('SELECT COUNT(*) AS total FROM upgrade_spins WHERE won=1 AND created_at>?', (upgrade_time,)).fetchone()['total']
         craft = db.execute('SELECT COUNT(*) AS total FROM craft_spins WHERE created_at>?', (craft_time,)).fetchone()['total']
-    return jsonify(mines=mines,upgrade=upgrade,craft=craft,
-                   cleared_at=dict(mines=mines_time or None,upgrade=upgrade_time or None,craft=craft_time or None))
+    return jsonify(mines=mines,upgrade=upgrade,craft=craft,hilo=hilo,
+                   cleared_at=dict(mines=mines_time or None,upgrade=upgrade_time or None,craft=craft_time or None,hilo=hilo_time or None))
 
 
 @app.post('/api/admin/wins-feeds/clear')
 @admin_required
 def admin_clear_wins_feeds():
     mode = str((request.get_json(silent=True) or {}).get('mode') or '')
-    if mode not in ('mines','upgrade','craft','both','all'):
-        return error('Выберите Мины, Апгрейд, Крафт или все разделы.')
+    if mode not in ('mines','upgrade','craft','hilo','both','all'):
+        return error('Выберите Мины, Апгрейд, Крафт, Hi-Lo или все разделы.')
     if mode == 'both':
         kinds = ['mines','upgrade']
     elif mode == 'all':
-        kinds = ['mines','upgrade','craft']
+        kinds = ['mines','upgrade','craft','hilo']
     else:
         kinds = [mode]
     db = connect()
@@ -5992,7 +6028,7 @@ def admin_clear_wins_feeds():
         db.execute('BEGIN IMMEDIATE')
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         for kind in kinds:
-            highest_round = db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM rounds').fetchone()['last_id'] if kind=='mines' else 0
+            highest_round = (db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM rounds').fetchone()['last_id'] if kind=='mines' else db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM hilo_room_bets').fetchone()['last_id'] if kind=='hilo' else 0)
             db.execute('INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id', (kind,timestamp,highest_round))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'],session['uid'],'wins_feed_clear',mode))
         db.commit()
@@ -9303,10 +9339,11 @@ def hilo_room_payload(db, uid, n, phase, now):
                  gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', want_gift=bool(r['want_gift']),
                  prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
             for r in rows]
+    _, hl_clear_id = wins_feed_cutoff(db, 'hilo')
     recent_rows = db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.won,b.gift_name,b.gift_image,
                                         b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
-                                 FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1
-                                 ORDER BY b.id DESC LIMIT 30""").fetchall()
+                                 FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1 AND b.id>?
+                                 ORDER BY b.id DESC LIMIT 30""", (hl_clear_id,)).fetchall()
     last = db.execute("""SELECT id,round_no,direction,amount,payout,won,gift_name,gift_image,prize_name,prize_image,prize_price FROM hilo_room_bets WHERE user_id=? AND settled=1
                          ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
     nums = hilo_round_numbers(db, [r['round_no'] for r in recent_rows] + ([last['round_no']] if last else []) + [n])
@@ -9334,6 +9371,38 @@ def hilo_room_payload(db, uid, n, phase, now):
                           payout=last['payout'] / 100, prize_name=last['prize_name'] or '', prize_image=last['prize_image'] or '',
                           prize_price=(last['prize_price'] or 0) / 100) if last else None,
                 min_nft=crash_min_prize_cents() / 100)
+
+
+@app.get('/api/hilo/recent-wins')
+@login_required
+def hilo_recent_wins():
+    with connect() as db:
+        try:
+            settle_previous_daily_top_rewards(db)
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('Daily top reward settlement failed while loading Hi-Lo wins')
+        _, max_id = wins_feed_cutoff(db, 'hilo')
+        sel = """SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.gift_name,b.gift_image,
+                        b.prize_name,b.prize_image,b.prize_price,b.created_at,u.name,u.username,u.photo_url
+                 FROM hilo_room_bets b JOIN users u ON u.id=b.user_id
+                 WHERE b.settled=1 AND b.id>?
+                   AND b.payout+b.prize_price>CASE WHEN b.gift_name='' THEN b.amount ELSE 0 END"""
+        rows = db.execute(sel+' ORDER BY b.id DESC LIMIT 50', (max_id,)).fetchall()
+        top = db.execute(sel+""" AND COALESCE(u.withdrawal_enabled,1)=1 AND b.created_at>=?
+                          ORDER BY b.payout+b.prize_price DESC,b.id DESC LIMIT 1""",
+                         (max_id, _daily_top_db_string(daily_top_candidate_start('hilo')))).fetchone()
+    def item(r):
+        base = hilo_room_rank(r['round_no'])
+        total = int(r['payout'] or 0) + int(r['prize_price'] or 0)
+        return dict(id=r['id'], user_id=r['user_id'], name=r['name'], username=r['username'], photo_url=r['photo_url'],
+                    direction=r['direction'], bet=r['amount']/100, amount=total/100,
+                    multiplier=round(hilo_room_step_micro(base, r['direction'])/HILO_MICRO, 4),
+                    gift=(dict(name=r['prize_name'], image_url=r['prize_image'], price_ton=(r['prize_price'] or 0)/100)
+                          if r['prize_name'] else None), created_at=r['created_at'])
+    return jsonify(items=[item(r) for r in rows], top_drop=item(top) if top else None,
+                   top_reward=daily_top_reward('hilo'), top_schedule=daily_top_schedule_view('hilo'))
 
 
 @app.get('/api/hilo/room')

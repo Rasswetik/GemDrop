@@ -8213,13 +8213,17 @@ def arena_state_payload(db, uid, now=None):
 @app.get('/api/arena/state')
 @login_required
 def arena_state():
-    arena_mark_viewed()
     if creator_demo_active(session['uid']):
         return jsonify(demo_arena_state_payload(session['uid'], int(time.time() * 1000)))
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        arena_advance(db, int(time.time() * 1000))
+        now_ms = int(time.time() * 1000)
+        arena_advance(db, now_ms)
+        try:
+            arena_bot_tick(db, now_ms)
+        except Exception:
+            app.logger.exception('Arena bot tick failed')
         db.commit()
         return jsonify(arena_state_payload(db, session['uid'], int(time.time() * 1000)))
     finally:
@@ -8331,75 +8335,47 @@ def arena_bet():
 
 
 # ===================== Arena house bot (@gemdrop_amd) =====================
-# The admin account plays in the Arena like an ordinary player and is visible in the round list.
-# It joins almost every round: with a random TON stake or a random catalog gift worth 0.10-15 TON.
-# It also STARTS rounds while real people are looking at the Arena, so the Arena is never empty.
-# It never sends any message anywhere and writes nothing to the account's history.
-# The bot plays with house money: its stake is not taken from the account's balance/inventory.
-# When the bot wins it is paid only the real players' part of the pool; when it loses, the winner
-# receives its stake (that is the cost of the house bot).
+# A player called @gemdrop_amd takes part in the Arena like everybody else: it STARTS rounds by itself
+# and joins nearly every round with a random TON stake or a random catalog gift worth 0.10-15 TON.
+# Nothing marks it as a bot and it never sends any message. It is driven by the Arena state polling
+# (so it works on every worker, with no background job) and only acts while someone has the Arena open.
+# It plays with house money: its stake is not taken from any balance/inventory. If it wins it is paid
+# only the real players' part of the pool; if it loses, the winner receives its stake.
 ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_amd').strip().lstrip('@').lower()
+ARENA_BOT_FALLBACK_ID = 9000000001          # used only when that Telegram account never opened the app
 ARENA_BOT_MIN_CENTS = 10
 ARENA_BOT_MAX_CENTS = 1500
-ARENA_BOT_ROUND_CHANCE = 0.9
-ARENA_BOT_GIFT_CHANCE = 0.45
-ARENA_VIEW_TTL_MS = 60000          # the bot starts rounds only if someone looked at the Arena this recently
-_arena_bot = dict(uid=0, checked=0)
-_arena_view = dict(written=0)
+ARENA_BOT_ROUND_CHANCE = 90                 # percent of rounds the bot takes part in
+ARENA_BOT_GIFT_CHANCE = 45                  # percent of its stakes made with a gift
+_arena_bot = dict(uid=0)
 
 
-def arena_bot_uid(db=None):
-    """Id of the bot account (cached). 0 when the account does not exist yet."""
+def arena_bot_uid(db):
+    """Id of the bot player. Uses the real @gemdrop_amd account when it exists, otherwise creates one."""
     if _arena_bot['uid']:
         return _arena_bot['uid']
-    if time.time() - _arena_bot['checked'] < 20:
-        return 0
-    _arena_bot['checked'] = time.time()
-    own = db is None
-    db = db or connect()
-    try:
-        row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()
-        if not row and (os.environ.get('ARENA_BOT_USER_ID') or '').isdigit():
-            row = db.execute('SELECT id FROM users WHERE id=?', (int(os.environ['ARENA_BOT_USER_ID']),)).fetchone()
-        if row:
-            _arena_bot['uid'] = int(row['id'])
-        else:
-            app.logger.warning('Arena bot: user @%s not found. Open the app once with that account '
-                               'or set ARENA_BOT_USER_ID.', ARENA_BOT_USERNAME)
-    finally:
-        if own:
-            db.close()
+    row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()
+    if not row and (os.environ.get('ARENA_BOT_USER_ID') or '').isdigit():
+        row = db.execute('SELECT id FROM users WHERE id=?', (int(os.environ['ARENA_BOT_USER_ID']),)).fetchone()
+    if not row:
+        row = db.execute('SELECT id FROM users WHERE id=?', (ARENA_BOT_FALLBACK_ID,)).fetchone()
+    if not row:
+        db.execute('INSERT OR IGNORE INTO users(id,name,username) VALUES(?,?,?)',
+                   (ARENA_BOT_FALLBACK_ID, 'GemDrop', ARENA_BOT_USERNAME))
+        row = db.execute('SELECT id FROM users WHERE id=?', (ARENA_BOT_FALLBACK_ID,)).fetchone()
+    if row:
+        _arena_bot['uid'] = int(row['id'])
     return _arena_bot['uid']
 
 
-def arena_mark_viewed():
-    """Called by /api/arena/state: remembers that a real person is looking at the Arena."""
-    now = time.time()
-    if now - _arena_view['written'] < 8:
-        return
-    _arena_view['written'] = now
-    try:
-        save_document('arena_last_view', {'at': int(now * 1000)})
-    except Exception:
-        pass
-
-
-def arena_has_viewers(now_ms):
-    try:
-        doc = read_document('arena_last_view') or {}
-        return now_ms - int(doc.get('at') or 0) <= ARENA_VIEW_TTL_MS
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return False
-
-
-def arena_bot_roll_cents():
+def arena_bot_roll_cents(h):
     # Log-uniform: small stakes are common, 10-15 TON are rare.
-    value = int(ARENA_BOT_MIN_CENTS * (ARENA_BOT_MAX_CENTS / ARENA_BOT_MIN_CENTS) ** (secrets.randbelow(10 ** 6) / 10 ** 6))
+    value = int(ARENA_BOT_MIN_CENTS * (ARENA_BOT_MAX_CENTS / ARENA_BOT_MIN_CENTS) ** ((h % 10 ** 6) / 10 ** 6))
     return value if value < 100 else value // 5 * 5
 
 
-def arena_bot_random_gift(cents):
-    """A random catalog gift priced near the rolled amount (None when the catalog has nothing suitable)."""
+def arena_bot_random_gift(h):
+    """A random catalog gift in the 0.10-15 TON range (None when the catalog has nothing suitable)."""
     try:
         pool = []
         for g in read_catalog().get('gifts', []):
@@ -8410,82 +8386,51 @@ def arena_bot_random_gift(cents):
         return None
     if not pool:
         return None
-    price, g = pool[secrets.randbelow(len(pool))]
+    price, g = pool[h % len(pool)]
     return dict(name=str(g['name'])[:140], image_url=safe_image(g.get('image_url')), price=price, xp=False, house=True)
 
 
-def arena_bot_place_bet(db, uid, now, may_start):
-    """One random bet in the open round. Starts the round when allowed. Returns True when placed."""
-    row = arena_advance(db, now)
-    if row['state'] != 'open':
+def arena_bot_dice(round_id, started):
+    """Per-round random numbers that every worker computes identically (no shared state needed)."""
+    key = app.secret_key if isinstance(app.secret_key, bytes) else str(app.secret_key).encode()
+    digest = hmac.new(key, f'arena-bot:{int(round_id)}:{int(bool(started))}'.encode(), hashlib.sha256).digest()
+    return [int.from_bytes(digest[i:i + 4], 'big') for i in range(0, 20, 4)]
+
+
+def arena_bot_tick(db, now):
+    """Call inside an open transaction, right after arena_advance. Returns True if the bot bet."""
+    row = arena_latest(db)
+    if not row or row['state'] != 'open':
         return False
-    close_at = int(row['close_at'] or 0)
-    if close_at <= 0:
-        if not may_start:
+    uid = arena_bot_uid(db)
+    if not uid:
+        return False
+    started = int(row['close_at'] or 0) > 0
+    d = arena_bot_dice(row['id'], started)
+    if d[0] % 100 >= ARENA_BOT_ROUND_CHANCE:
+        return False
+    if started:
+        span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
+        due = int(row['open_at'] or now) + 1200 + d[1] % span
+        if now >= int(row['close_at']) - ARENA_SNIPE_WINDOW_MS - 400:
             return False
-    elif now >= close_at - ARENA_SNIPE_WINDOW_MS - 400:
+    else:
+        due = int(row['open_at'] or now) + 2500 + d[1] % 6000
+    if now < due:
         return False
     if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():
         return False
-    gift = arena_bot_random_gift(0) if secrets.randbelow(100) < int(ARENA_BOT_GIFT_CHANCE * 100) else None
+    gift = arena_bot_random_gift(d[2]) if d[3] % 100 < ARENA_BOT_GIFT_CHANCE else None
     if gift:
         amount, gift_amount, gifts = int(gift['price']), int(gift['price']), [gift]
     else:
-        amount, gift_amount, gifts = arena_bot_roll_cents(), 0, []
+        amount, gift_amount, gifts = arena_bot_roll_cents(d[2]), 0, []
     db.execute('INSERT INTO arena_bets(round_id,user_id,amount,gift_amount,gifts) VALUES(?,?,?,?,?)',
                (row['id'], uid, amount, gift_amount, json.dumps(gifts, ensure_ascii=False, default=str)))
-    if close_at <= 0:
+    if not started:
         db.execute("UPDATE arena_rounds SET open_at=?,close_at=? WHERE id=? AND state='open'",
                    (now, now + ARENA_BETTING_MS, row['id']))
     return True
-
-
-def arena_bot_loop():
-    time.sleep(9)
-    decided = {}   # round_id -> (will_join, due_at_ms)
-    while True:
-        try:
-            if not game_available('arena', True):
-                time.sleep(3)
-                continue
-            now = int(time.time() * 1000)
-            db = connect()
-            try:
-                uid = arena_bot_uid(db)
-                if not uid:
-                    time.sleep(10)
-                    continue
-                row = arena_latest(db)
-                if row and row['state'] == 'open':
-                    rid = int(row['id'])
-                    started = int(row['close_at'] or 0) > 0
-                    key = (rid, started)
-                    if key not in decided:
-                        join = secrets.randbelow(100) < int(ARENA_BOT_ROUND_CHANCE * 100)
-                        if started:
-                            span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
-                            due = int(row['open_at'] or now) + 1200 + secrets.randbelow(span)
-                        else:
-                            due = now + 2500 + secrets.randbelow(6000)
-                        decided[key] = (join, due)
-                        for old in [k for k in decided if k[0] < rid - 20]:
-                            decided.pop(old, None)
-                    join, due = decided[key]
-                    if join and now >= due and (started or arena_has_viewers(now)):
-                        decided[key] = (False, due)
-                        db.execute('BEGIN IMMEDIATE')
-                        try:
-                            ok = arena_bot_place_bet(db, uid, now, may_start=True)
-                            db.commit() if ok else db.rollback()
-                        except Exception:
-                            db.rollback()
-                            raise
-            finally:
-                db.close()
-        except Exception:
-            app.logger.exception('Arena bot loop failed')
-            time.sleep(5)
-        time.sleep(0.7)
 
 
 # ================================== Crash ==================================
@@ -9234,7 +9179,7 @@ def hilo_room_settle(db, n, phase):
         # "Win as NFT": the TON win is exchanged for the closest catalog gift that does not exceed it,
         # the small remainder stays on the balance.
         prize = None
-        if won and not gift_bet and int(r['want_gift'] or 0) and total > 0:
+        if won and not gift_bet and not push and total > 0:
             try:
                 prize = crash_prize_preview(total)
             except Exception:
@@ -9279,7 +9224,7 @@ def hilo_room_payload(db, uid, n, phase, now):
                          FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.round_no=?
                          ORDER BY b.amount DESC,b.id ASC LIMIT 60""", (n,)).fetchall()
     bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
-                 amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
+                 settled=bool(r['settled']), amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
                  gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', want_gift=bool(r['want_gift']),
                  prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
             for r in rows]
@@ -9357,7 +9302,7 @@ def hilo_room_bet():
     n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
     if phase >= HILO_BET_MS - 300:
         return error('Приём ставок закрыт — дождитесь следующего раунда.', 409)
-    want_gift = 1 if data.get('want_gift') in (True, 1, '1', 'true') else 0
+    want_gift = 1   # a TON win is always paid as the closest NFT gift (+ remainder in TON)
     db = connect()
     new_level = None
     try:
@@ -14658,7 +14603,6 @@ if BOT_TOKEN:
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
     start_background(configure_bot, 660103)
 start_background(log_pruner_loop, 660104)
-start_background(arena_bot_loop, 661203)
 
 
 if __name__ == '__main__':

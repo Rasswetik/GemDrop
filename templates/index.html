@@ -7601,4 +7601,77 @@ const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.ge
   object-position:center!important;
 }
 </style>
+<style id="mines-phone-desktop-and-nft-images-v9">
+/* Desktop Mines must be literally the phone composition, centred. */
+@media (min-width:701px){
+  body.studio[data-page="minesPage"] .app{
+    width:100%!important;
+    max-width:568px!important;
+    margin:0 auto!important;
+    padding-left:18px!important;
+    padding-right:18px!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage:not(.hidden){
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+    padding:0!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage>.mines-title{
+    width:100%!important;
+    max-width:none!important;
+    margin:0 0 14px!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage>.mines-layout{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:auto!important;
+    gap:14px!important;
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage .mines-play,
+  body.studio[data-page="minesPage"] #minesPage .mines-settings{
+    grid-column:auto!important;
+    grid-row:auto!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    margin:0!important;
+    padding:20px!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage .board{
+    width:100%!important;
+    max-width:430px!important;
+    margin:0 auto!important;
+    padding:10px!important;
+    gap:8px!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage>.recent-wins-card{
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    margin:16px 0 0!important;
+    padding:20px!important;
+  }
+}
+/* Telegram / Fragment NFT art: show the whole square artwork, never crop it. */
+.gift-deposit-orbit img,
+.gift-deposit-rate>img,
+.relayer-event>img,
+.gift-art img,
+.public-profile-gift img,
+#giftModal img,
+.fragment-preview img{
+  object-fit:contain!important;
+  object-position:center!important;
+}
+.gift-deposit-orbit,
+.gift-deposit-rate>img,
+.relayer-event>img{
+  overflow:hidden!important;
+}
+</style>
 </body></html>

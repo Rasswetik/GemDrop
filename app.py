@@ -1,4 +1,4 @@
-import hashlib
+Hello, когда я забираю подарком, во-первых, тут должно писать, выиграешь подарком, ну да, все так. Зачем ты эмоди подарком? Надо вместо эмоди подарка просто подвигай грамма. И все, поправь все, что можно. А, и не, ты неправильно указал, должен быть юз. @gemdrop_admimport hashlib
 import hmac
 import json
 import math
@@ -8334,14 +8334,14 @@ def arena_bet():
 
 
 
-# ===================== Arena house bot (@gemdrop_amd) =====================
-# A player called @gemdrop_amd takes part in the Arena like everybody else: it STARTS rounds by itself
+# ===================== Arena house bot (@gemdrop_adm) =====================
+# A player called @gemdrop_adm takes part in the Arena like everybody else: it STARTS rounds by itself
 # and joins nearly every round with a random TON stake or a random catalog gift worth 0.10-15 TON.
 # Nothing marks it as a bot and it never sends any message. It is driven by the Arena state polling
 # (so it works on every worker, with no background job) and only acts while someone has the Arena open.
 # It plays with house money: its stake is not taken from any balance/inventory. If it wins it is paid
 # only the real players' part of the pool; if it loses, the winner receives its stake.
-ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_amd').strip().lstrip('@').lower()
+ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_adm').strip().lstrip('@').lower()
 ARENA_BOT_FALLBACK_ID = 9000000001          # used only when that Telegram account never opened the app
 ARENA_BOT_MIN_CENTS = 10
 ARENA_BOT_MAX_CENTS = 1500
@@ -8351,7 +8351,7 @@ _arena_bot = dict(uid=0)
 
 
 def arena_bot_uid(db):
-    """Id of the bot player. Uses the real @gemdrop_amd account when it exists, otherwise creates one."""
+    """Id of the bot player. Uses the real @gemdrop_adm account when it exists, otherwise creates one."""
     if _arena_bot['uid']:
         return _arena_bot['uid']
     row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()

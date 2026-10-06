@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '99-portal-resume-after-connect'
+BUILD_ID = '100-provably-fair-core'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -402,6 +402,30 @@ def _initialize_schema():
             reference_type TEXT NOT NULL DEFAULT '', reference_id TEXT NOT NULL DEFAULT '',
             details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS fairness_client_seeds (
+            user_id INTEGER PRIMARY KEY,
+            client_seed TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS fairness_proofs (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL DEFAULT 0,
+            game TEXT NOT NULL,
+            reference_id TEXT NOT NULL DEFAULT '',
+            server_seed_hash TEXT NOT NULL,
+            server_seed TEXT NOT NULL,
+            client_seed TEXT NOT NULL,
+            nonce INTEGER NOT NULL DEFAULT 0,
+            algorithm TEXT NOT NULL DEFAULT 'HMAC-SHA256-MOD-v1',
+            outcome_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'committed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            revealed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS fairness_proofs_user_game
+            ON fairness_proofs(user_id,game,status,created_at);
+        CREATE INDEX IF NOT EXISTS fairness_proofs_reference
+            ON fairness_proofs(game,reference_id);
         CREATE TABLE IF NOT EXISTS bot_updates (
             update_id INTEGER PRIMARY KEY, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -914,6 +938,247 @@ def _initialize_schema():
 
 
 initialize()
+
+
+
+FAIRNESS_ALGORITHM = 'HMAC-SHA256-MOD-v1'
+FAIRNESS_GAME_LABELS = {
+    'mines': 'Mines',
+    'roll': 'Roll',
+    'upgrade': 'Upgrade',
+    'craft': 'Craft',
+    'arena': 'Arena',
+    'crash': 'Crash',
+    'hilo': 'Hi-Lo',
+    'hilo_solo': 'Hi-Lo',
+}
+FAIRNESS_PUBLIC_GAMES = {'arena', 'crash', 'hilo'}
+
+
+def fairness_seed_hash(server_seed):
+    return hashlib.sha256(str(server_seed).encode()).hexdigest()
+
+
+def fairness_client_seed(db, user_id):
+    row = db.execute('SELECT client_seed FROM fairness_client_seeds WHERE user_id=?', (int(user_id),)).fetchone()
+    if row and str(row['client_seed'] or ''):
+        return str(row['client_seed'])
+    value = f'gemdrop-{int(user_id)}-{secrets.token_hex(8)}'
+    db.execute('INSERT OR REPLACE INTO fairness_client_seeds(user_id,client_seed,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)',
+               (int(user_id), value))
+    return value
+
+
+def fairness_create(db, game, user_id=0, reference_id='', client_seed=None):
+    game = str(game or '').strip().lower()
+    if game not in FAIRNESS_GAME_LABELS:
+        raise ValueError('Неизвестный режим Proof of Fairness.')
+    proof_id = secrets.token_hex(16)
+    server_seed = secrets.token_hex(32)
+    user_id = int(user_id or 0)
+    client_seed = str(client_seed or (fairness_client_seed(db, user_id) if user_id else f'{game}:{reference_id or proof_id}'))[:96]
+    reference_id = str(reference_id or proof_id)[:120]
+    db.execute("""INSERT INTO fairness_proofs(
+                    id,user_id,game,reference_id,server_seed_hash,server_seed,client_seed,nonce,algorithm,outcome_json,status)
+                  VALUES(?,?,?,?,?,?,?,?,?,'{}','committed')""",
+               (proof_id,user_id,game,reference_id,fairness_seed_hash(server_seed),server_seed,client_seed,0,FAIRNESS_ALGORITHM))
+    return db.execute('SELECT * FROM fairness_proofs WHERE id=?', (proof_id,)).fetchone()
+
+
+def fairness_for_ref(db, game, reference_id, user_id=None):
+    if user_id is None:
+        return db.execute('SELECT * FROM fairness_proofs WHERE game=? AND reference_id=? ORDER BY created_at DESC LIMIT 1',
+                          (str(game),str(reference_id))).fetchone()
+    return db.execute('SELECT * FROM fairness_proofs WHERE game=? AND reference_id=? AND user_id=? ORDER BY created_at DESC LIMIT 1',
+                      (str(game),str(reference_id),int(user_id))).fetchone()
+
+
+def fairness_ensure_ref(db, game, reference_id, user_id=0, client_seed=None):
+    row = fairness_for_ref(db, game, reference_id, user_id)
+    return row or fairness_create(db, game, user_id, reference_id, client_seed)
+
+
+def fairness_current_personal(db, game, user_id):
+    row = db.execute("""SELECT * FROM fairness_proofs
+                        WHERE user_id=? AND game=? AND status='committed' AND reference_id=id
+                        ORDER BY created_at DESC LIMIT 1""", (int(user_id),str(game))).fetchone()
+    return row or fairness_create(db, game, int(user_id))
+
+
+def fairness_attach(db, proof_id, reference_id):
+    db.execute("""UPDATE fairness_proofs SET reference_id=?
+                  WHERE id=? AND status='committed'""", (str(reference_id)[:120],str(proof_id)))
+    return db.execute('SELECT * FROM fairness_proofs WHERE id=?', (str(proof_id),)).fetchone()
+
+
+def fairness_outcome_dict(row):
+    try:
+        value = json.loads(row['outcome_json'] or '{}') if row else {}
+    except (TypeError,ValueError,json.JSONDecodeError):
+        value = {}
+    return value if isinstance(value,dict) else {}
+
+
+def fairness_store_outcome(db, proof_id, outcome):
+    row = db.execute('SELECT * FROM fairness_proofs WHERE id=?', (str(proof_id),)).fetchone()
+    if not row:
+        return None
+    merged = fairness_outcome_dict(row)
+    if isinstance(outcome,dict):
+        merged.update(outcome)
+    db.execute('UPDATE fairness_proofs SET outcome_json=? WHERE id=?',
+               (json.dumps(merged,ensure_ascii=False,separators=(',',':')),str(proof_id)))
+    return db.execute('SELECT * FROM fairness_proofs WHERE id=?', (str(proof_id),)).fetchone()
+
+
+def fairness_reveal(db, proof_id, outcome=None):
+    row = fairness_store_outcome(db, proof_id, outcome or {})
+    if not row:
+        return None
+    db.execute("""UPDATE fairness_proofs
+                  SET status='revealed',revealed_at=COALESCE(revealed_at,CURRENT_TIMESTAMP)
+                  WHERE id=?""", (str(proof_id),))
+    return db.execute('SELECT * FROM fairness_proofs WHERE id=?', (str(proof_id),)).fetchone()
+
+
+def fairness_reveal_ref(db, game, reference_id, outcome=None, user_id=None):
+    row = fairness_for_ref(db, game, reference_id, user_id)
+    return fairness_reveal(db, row['id'], outcome) if row else None
+
+
+class FairnessRng:
+    """Deterministic audited RNG.
+
+    Every draw is HMAC_SHA256(key=server_seed,
+    message=client_seed:nonce:game:label), interpreted as a 256-bit integer
+    and reduced modulo the requested upper bound. The exact draw list is stored
+    with the revealed proof so it can be recomputed independently.
+    """
+    def __init__(self, proof):
+        if not proof:
+            raise ValueError('Proof of Fairness commitment missing.')
+        self.proof = proof
+        self.draws = []
+
+    def draw(self, label, upper):
+        upper = int(upper)
+        if upper <= 0:
+            raise ValueError('Fairness draw upper bound must be positive.')
+        label = str(label)
+        message = f"{self.proof['client_seed']}:{int(self.proof['nonce'] or 0)}:{self.proof['game']}:{label}"
+        digest = hmac.new(str(self.proof['server_seed']).encode(), message.encode(), hashlib.sha256).hexdigest()
+        value = int(digest, 16) % upper
+        self.draws.append(dict(label=label,upper=upper,value=value,digest=digest,message=message))
+        return value
+
+    def choice(self, label, values):
+        values = list(values)
+        if not values:
+            raise ValueError('Fairness choice requires values.')
+        return values[self.draw(label, len(values))]
+
+    def sample(self, label, values, count):
+        pool = list(values)
+        count = max(0,min(len(pool),int(count)))
+        out = []
+        for index in range(count):
+            pos = self.draw(f'{label}:{index}', len(pool))
+            out.append(pool.pop(pos))
+        return out
+
+    def audit(self):
+        return list(self.draws)
+
+
+def fairness_public(row):
+    if not row:
+        return None
+    revealed = str(row['status'] or '') == 'revealed'
+    data = dict(
+        id=str(row['id']),
+        game=str(row['game']),
+        game_label=FAIRNESS_GAME_LABELS.get(str(row['game']),str(row['game'])),
+        reference_id=str(row['reference_id'] or ''),
+        server_seed_hash=str(row['server_seed_hash']),
+        client_seed=str(row['client_seed']),
+        nonce=int(row['nonce'] or 0),
+        algorithm=str(row['algorithm'] or FAIRNESS_ALGORITHM),
+        status='revealed' if revealed else 'committed',
+        created_at=row['created_at'],
+        revealed_at=row['revealed_at'] if revealed else None,
+        server_seed=str(row['server_seed']) if revealed else None,
+        outcome=fairness_outcome_dict(row) if revealed else None,
+    )
+    data['verification'] = {
+        'commit': 'SHA256(server_seed) == server_seed_hash',
+        'draw': 'HMAC_SHA256(server_seed, client_seed:nonce:game:label) as integer mod upper == value',
+    }
+    return data
+
+
+def fairness_recent(db, game, user_id, limit=6):
+    if game in FAIRNESS_PUBLIC_GAMES:
+        rows = db.execute("""SELECT * FROM fairness_proofs
+                            WHERE user_id=0 AND game=? AND status='revealed'
+                            ORDER BY revealed_at DESC,created_at DESC LIMIT ?""",
+                          (game,max(1,min(20,int(limit))))).fetchall()
+    else:
+        rows = db.execute("""SELECT * FROM fairness_proofs
+                            WHERE user_id=? AND game=? AND status='revealed'
+                            ORDER BY revealed_at DESC,created_at DESC LIMIT ?""",
+                          (int(user_id),game,max(1,min(20,int(limit))))).fetchall()
+    return [fairness_public(x) for x in rows]
+
+
+@app.get('/api/fairness/current/<game>')
+@login_required
+def fairness_current_api(game):
+    game = str(game or '').lower()
+    if game not in FAIRNESS_GAME_LABELS or game == 'hilo_solo':
+        return error('Неизвестный режим Proof of Fairness.',404)
+    with connect() as db:
+        if game in FAIRNESS_PUBLIC_GAMES:
+            current = db.execute("""SELECT * FROM fairness_proofs
+                                    WHERE user_id=0 AND game=?
+                                    ORDER BY created_at DESC LIMIT 1""",(game,)).fetchone()
+        else:
+            current = fairness_current_personal(db, game, session['uid'])
+        recent = fairness_recent(db, game, session['uid'], 8)
+        db.commit()
+    return jsonify(ok=True,current=fairness_public(current),recent=recent,
+                   client_seed=(None if game in FAIRNESS_PUBLIC_GAMES else current['client_seed']))
+
+
+@app.get('/api/fairness/proof/<proof_id>')
+@login_required
+def fairness_proof_api(proof_id):
+    if not re.fullmatch(r'[a-f0-9]{32}',str(proof_id or '')):
+        return error('Некорректный Proof ID.',404)
+    with connect() as db:
+        row = db.execute('SELECT * FROM fairness_proofs WHERE id=?',(proof_id,)).fetchone()
+    if not row or (int(row['user_id'] or 0) not in (0,int(session['uid']))):
+        return error('Proof не найден.',404)
+    return jsonify(ok=True,proof=fairness_public(row))
+
+
+@app.post('/api/fairness/client-seed')
+@login_required
+def fairness_client_seed_api():
+    value = str((request.get_json(silent=True) or {}).get('client_seed') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9._:-]{3,64}', value):
+        return error('Client seed: 3–64 символа, латиница, цифры, точка, дефис, _ или :.')
+    with connect() as db:
+        db.execute("""INSERT INTO fairness_client_seeds(user_id,client_seed,updated_at)
+                      VALUES(?,?,CURRENT_TIMESTAMP)
+                      ON CONFLICT(user_id) DO UPDATE SET client_seed=excluded.client_seed,updated_at=CURRENT_TIMESTAMP""",
+                   (session['uid'],value))
+        # Only unused commitments are discarded. Any proof already attached to a
+        # real game keeps its original client seed forever.
+        db.execute("""DELETE FROM fairness_proofs
+                      WHERE user_id=? AND status='committed' AND reference_id=id""",(session['uid'],))
+        db.commit()
+    return jsonify(ok=True,client_seed=value)
+
 
 
 def error(message, code=400):

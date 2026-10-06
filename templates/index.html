@@ -3894,16 +3894,76 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <button id="topRewardModalClose" class="primary top-reward-close" type="button">Закрыть</button>
 </div></div><div id="rollPoolModal" class="modal hidden"><div class="modal-card roll-pool-card"><div class="roll-pool-head"><div><h2>Призовой пул</h2><p id="rollPoolDescription">Содержимое Roll и шансы выпадения</p></div><button id="rollPoolX" class="roll-pool-x" type="button" aria-label="Закрыть">×</button></div><div id="rollPoolGrid" class="roll-pool-grid"></div><div class="roll-pool-foot"><button id="rollPoolClose" class="primary" type="button">Готово</button></div></div></div><div id="rollWinModal" class="modal hidden"><div class="modal-card roll-win-card"><h2 id="rollWinHeading">Результат</h2><img id="rollWinImage" class="hidden" alt=""><p id="rollWinName" class="modal-name"></p><button id="rollWinClose" class="primary">Продолжить</button></div></div>
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
-<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules"><div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">Угадайте, будет ли следующая карта выше или ниже</p></div>
-<div class="hl-rl-list">
-<div class="hl-rl-item"><i>1</i><div><b>Карты</b><span>Карты — подарки Telegram с рангом от 1 до 15. Чем выше ранг, тем дороже подарок.</span></div></div>
-<div class="hl-rl-item"><i>2</i><div><b>Раунд — 15 секунд</b><span>Общий для всех игроков: 10 секунд идёт приём ставок, затем открывается следующая карта.</span></div></div>
-<div class="hl-rl-item"><i>3</i><div><b>Ваш выбор</b><span><em class="up">▲ Hi</em> — карта выше, <em class="down">▼ Lo</em> — ниже. Новая карта никогда не равна текущей.</span></div></div>
-<div class="hl-rl-item"><i>4</i><div><b>Выигрыш</b><span>Ставка × икс на кнопке: чем меньше шанс, тем икс больше. Выигрыш приходит подарком, ближайшим по цене (не дороже), а разница зачисляется на баланс.</span></div></div>
-</div>
-<div class="hl-rl-ex"><b>Пример</b><span>Ставка подарком на 8 TON, икс 1.5 → выигрыш 12 TON: вы получаете подарок до 12 TON и компенсацию разницы. Подарок, которым вы ставили, забирается.</span></div>
-<div class="hl-rl-note"><b>Крайние карты.</b> На карте 15 выше быть не может, а на карте 1 — ниже: такая ставка возвращается (x1.00). Если выигрыш дешевле самого дешёвого подарка, он придёт в TON.</div>
-<p id="hlRulesRtp" class="hl-rules-sub" style="display:none"></p><button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
+<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules hlg">
+<div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">6 коротких шагов — и вы в игре</p></div>
+
+<section class="hlg-step"><div class="hlg-art" id="hlgLadder"></div>
+<div class="hlg-tx"><h3><i>1</i>Карты — это подарки</h3><p>У каждой карты есть <b>ранг от 1 до 15</b>. Это подарки Telegram: чем выше ранг, тем дороже подарок.</p></div></section>
+
+<section class="hlg-step"><div class="hlg-art"><svg viewBox="0 0 320 112" role="img" aria-label="Раунд длится 15 секунд">
+<defs><linearGradient id="hlgCardG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b7cf6"/><stop offset="1" stop-color="#4a58d8"/></linearGradient></defs>
+<g class="hlg-flip" style="transform-origin:160px 26px"><rect x="138" y="4" width="44" height="44" rx="9" fill="url(#hlgCardG)" stroke="#ffffff44"/>
+<g class="hlg-back"><text x="160" y="35" text-anchor="middle" font-size="22" font-weight="900" fill="#fff">?</text></g>
+<g class="hlg-front"><text x="160" y="35" text-anchor="middle" font-size="22" font-weight="900" fill="#fff">11</text></g></g>
+<rect x="20" y="62" width="280" height="12" rx="6" fill="#1d2036"/>
+<rect class="hlg-fill" x="20" y="62" width="280" height="12" rx="6" fill="#3ddc84"/>
+<line x1="206.7" y1="56" x2="206.7" y2="80" stroke="#ffffff55" stroke-width="2" stroke-dasharray="3 3"/>
+<text x="113" y="98" text-anchor="middle" font-size="12" font-weight="800" fill="#3ddc84">Ставки · 10 с</text>
+<text x="253" y="98" text-anchor="middle" font-size="12" font-weight="800" fill="#b3a8ff">Открытие · 5 с</text></svg></div>
+<div class="hlg-tx"><h3><i>2</i>Раунд — 15 секунд</h3><p>Раунд <b>общий для всех игроков</b>. <b>10 секунд</b> принимаются ставки, затем <b>5 секунд</b> открывается следующая карта. В каждом раунде — одна ставка.</p></div></section>
+
+<section class="hlg-step"><div class="hlg-art"><svg viewBox="0 0 320 150" role="img" aria-label="Выберите выше или ниже">
+<defs><linearGradient id="hlgGreen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ff0a4"/><stop offset="1" stop-color="#1fa866"/></linearGradient>
+<linearGradient id="hlgRed" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8aa0"/><stop offset="1" stop-color="#c93a5a"/></linearGradient></defs>
+<rect x="46" y="22" width="70" height="92" rx="13" fill="url(#hlgCardG)" stroke="#ffffff55"/><text x="81" y="78" text-anchor="middle" font-size="36" font-weight="900" fill="#fff">8</text>
+<text x="81" y="14" text-anchor="middle" font-size="11" font-weight="800" fill="#8f9ab8">ТЕКУЩАЯ</text>
+<path d="M130 68h60" stroke="#ffffff33" stroke-width="2" stroke-dasharray="4 5"/><path d="M186 62l8 6-8 6" fill="none" stroke="#ffffff55" stroke-width="2"/>
+<g class="hlg-flip2" style="transform-origin:245px 68px">
+<g class="hlg-backB"><rect x="210" y="22" width="70" height="92" rx="13" fill="#232744" stroke="#ffffff33"/><text x="245" y="78" text-anchor="middle" font-size="34" font-weight="900" fill="#8f9ab8">?</text></g>
+<g class="hlg-faceHi"><rect x="210" y="22" width="70" height="92" rx="13" fill="url(#hlgGreen)" stroke="#ffffff66"/><text x="245" y="78" text-anchor="middle" font-size="36" font-weight="900" fill="#fff">12</text></g>
+<g class="hlg-faceLo"><rect x="210" y="22" width="70" height="92" rx="13" fill="url(#hlgRed)" stroke="#ffffff66"/><text x="245" y="78" text-anchor="middle" font-size="36" font-weight="900" fill="#fff">3</text></g></g>
+<text class="hlg-faceHi" x="245" y="14" text-anchor="middle" font-size="12" font-weight="900" fill="#3ddc84">▲ ВЫШЕ</text>
+<text class="hlg-faceLo" x="245" y="14" text-anchor="middle" font-size="12" font-weight="900" fill="#ff6f8a">▼ НИЖЕ</text>
+<g><rect x="94" y="122" width="62" height="24" rx="12" fill="#3ddc8433" stroke="#3ddc84"/><rect class="hlg-pickHi" x="94" y="122" width="62" height="24" rx="12" fill="#3ddc84"/><text x="125" y="139" text-anchor="middle" font-size="12" font-weight="900" fill="#e9fff3">▲ Hi</text>
+<rect x="164" y="122" width="62" height="24" rx="12" fill="#ff6f8a33" stroke="#ff6f8a"/><rect class="hlg-pickLo" x="164" y="122" width="62" height="24" rx="12" fill="#ff6f8a"/><text x="195" y="139" text-anchor="middle" font-size="12" font-weight="900" fill="#ffeef1">▼ Lo</text></g></svg></div>
+<div class="hlg-tx"><h3><i>3</i>Ваш выбор: Hi или Lo</h3><p>Угадайте, будет ли следующая карта <em class="up">▲ выше</em> или <em class="down">▼ ниже</em> текущей. <b>Две одинаковые карты подряд не выпадают</b> — ничьей не бывает.</p></div></section>
+
+<section class="hlg-step"><div class="hlg-art"><svg viewBox="0 0 320 96" role="img" aria-label="Икс равен RTP делить на шанс">
+<g class="hlg-pop" style="animation-delay:0s"><rect x="8" y="22" width="78" height="52" rx="12" fill="#ffffff10" stroke="#ffffff2a"/><text x="47" y="44" text-anchor="middle" font-size="10" font-weight="800" fill="#8f9ab8">ОТДАЧА</text><text x="47" y="64" text-anchor="middle" font-size="18" font-weight="900" fill="#fff">97%</text></g>
+<g class="hlg-pop" style="animation-delay:.45s"><text x="104" y="57" text-anchor="middle" font-size="24" font-weight="900" fill="#8f9ab8">÷</text></g>
+<g class="hlg-pop" style="animation-delay:.9s"><rect x="122" y="22" width="84" height="52" rx="12" fill="#3ddc8418" stroke="#3ddc8466"/><text x="164" y="44" text-anchor="middle" font-size="10" font-weight="800" fill="#8f9ab8">ШАНС</text><text x="164" y="64" text-anchor="middle" font-size="18" font-weight="900" fill="#3ddc84">64.3%</text></g>
+<g class="hlg-pop" style="animation-delay:1.35s"><text x="224" y="57" text-anchor="middle" font-size="24" font-weight="900" fill="#8f9ab8">=</text></g>
+<g class="hlg-pop" style="animation-delay:1.8s"><rect x="240" y="22" width="72" height="52" rx="12" fill="#ffd25a22" stroke="#ffd25a"/><text x="276" y="44" text-anchor="middle" font-size="10" font-weight="800" fill="#c9b27a">ИКС</text><text x="276" y="64" text-anchor="middle" font-size="18" font-weight="900" fill="#ffd25a">x1.51</text></g></svg></div>
+<div class="hlg-tx"><h3><i>4</i>Икс зависит от шанса</h3><p>Чем меньше шанс угадать, тем <b>больше икс</b>. Икс = отдача ÷ шанс, но не ниже <b>x1.01</b>. Передвиньте ползунок и посмотрите, как меняются шансы для любой карты:</p>
+<div class="hlg-sim"><div class="hlg-sim-top"><span>Текущая карта</span><b id="hlgRankNum">6</b></div>
+<input id="hlgRank" type="range" min="1" max="15" value="6" aria-label="Ранг текущей карты">
+<div class="hlg-strip" id="hlgStrip"></div>
+<div class="hlg-odds"><div class="hlg-odd hi"><small>▲ Hi</small><b id="hlgHiX">—</b><span id="hlgHiC">—</span></div><div class="hlg-odd lo"><small>▼ Lo</small><b id="hlgLoX">—</b><span id="hlgLoC">—</span></div></div></div></div></section>
+
+<section class="hlg-step"><div class="hlg-art"><svg viewBox="0 0 320 130" role="img" aria-label="Выигрыш приходит подарком и остатком на баланс">
+<g class="hlg-coin0" style="transform-origin:46px 56px"><circle cx="46" cy="56" r="24" fill="#ffd25a" stroke="#fff3c4" stroke-width="3"/><text x="46" y="62" text-anchor="middle" font-size="16" font-weight="900" fill="#6b4a00">8</text></g>
+<text x="46" y="98" text-anchor="middle" font-size="11" font-weight="800" fill="#8f9ab8">ставка</text>
+<path d="M82 56h86" stroke="#ffffff33" stroke-width="2" stroke-dasharray="4 5"/><path d="M164 49l8 7-8 7" fill="none" stroke="#ffffff66" stroke-width="2"/>
+<text x="124" y="46" text-anchor="middle" font-size="14" font-weight="900" fill="#3ddc84">x1.51</text>
+<circle class="hlg-fly" cx="70" cy="56" r="9" fill="#ffd25a"/>
+<g class="hlg-gift" style="transform-origin:224px 62px"><rect x="196" y="50" width="56" height="42" rx="6" fill="#8b7cf6"/><rect x="190" y="38" width="68" height="16" rx="5" fill="#a89cff"/><rect x="219" y="38" width="10" height="54" fill="#ffd25a"/><path d="M224 38c-14-18-26-4-14 0M224 38c14-18 26-4 14 0" fill="none" stroke="#ffd25a" stroke-width="4" stroke-linecap="round"/></g>
+<text class="hlg-lbl" x="224" y="112" text-anchor="middle" font-size="11" font-weight="800" fill="#c8bfff">подарок ≈ 12 TON</text>
+<g class="hlg-rem"><circle cx="286" cy="86" r="14" fill="#ffd25a" stroke="#fff3c4" stroke-width="2"/><text x="286" y="91" text-anchor="middle" font-size="12" font-weight="900" fill="#6b4a00">+</text><text x="286" y="116" text-anchor="middle" font-size="10" font-weight="800" fill="#3ddc84">на баланс</text></g></svg></div>
+<div class="hlg-tx"><h3><i>5</i>Выигрыш — подарком + остаток</h3><p>Ставка × икс = ваш выигрыш. Он приходит <b>подарком, ближайшим по цене (не дороже)</b>, а разница зачисляется на баланс. Если выигрыш дешевле самого дешёвого подарка — придёт TON.</p>
+<div class="hl-rl-ex"><b>Пример</b><span>Ставка 8 TON на карте 6, выбрано ▲ Hi: 9 из 14 карт выше → икс 1.51 → выигрыш ≈ 12.06 TON. Вы получаете подарок до 12.06 TON и остаток на баланс.</span></div>
+<p class="hlg-small"><b>Ставка подарком:</b> он берётся как ставка по его цене. При выигрыше вы получаете новый подарок на сумму выигрыша; если выигрыш слишком мал для подарка — ваш подарок возвращается плюс прибыль в TON. При проигрыше подарок сгорает.</p></div></section>
+
+<section class="hlg-step"><div class="hlg-art"><svg viewBox="0 0 320 120" role="img" aria-label="На картах 1 и 15 ставка возвращается">
+<rect x="46" y="10" width="58" height="76" rx="11" fill="url(#hlgCardG)" stroke="#ffffff55"/><text x="75" y="60" text-anchor="middle" font-size="30" font-weight="900" fill="#fff">1</text>
+<rect x="216" y="10" width="58" height="76" rx="11" fill="url(#hlgCardG)" stroke="#ffffff55"/><text x="245" y="60" text-anchor="middle" font-size="30" font-weight="900" fill="#fff">15</text>
+<g class="hlg-spin" style="transform-origin:160px 48px"><path d="M140 48a20 20 0 1 1 6 14" fill="none" stroke="#ffd25a" stroke-width="4" stroke-linecap="round"/><path d="M138 62l8 2-2-9z" fill="#ffd25a"/></g>
+<text x="160" y="53" text-anchor="middle" font-size="12" font-weight="900" fill="#ffd25a">x1.00</text>
+<text x="75" y="108" text-anchor="middle" font-size="11" font-weight="800" fill="#8f9ab8">ниже нельзя</text>
+<text x="245" y="108" text-anchor="middle" font-size="11" font-weight="800" fill="#8f9ab8">выше нельзя</text></svg></div>
+<div class="hlg-tx"><h3><i>6</i>Крайние карты</h3><p>На картах <b>1</b> и <b>15</b> исход почти предрешён, поэтому обе кнопки дают <b>x1.00</b>: ставка просто возвращается, без выигрыша и без потери.</p></div></section>
+
+<div class="hlg-facts"><div><b>15 с</b><span>длится раунд</span></div><div><b>10 с</b><span>приём ставок</span></div><div><b>0.10 TON</b><span>мин. ставка</span></div><div><b>300 TON</b><span>макс. ставка</span></div><div><b>1</b><span>ставка за раунд</span></div><div><b>x1.01</b><span>мин. икс</span></div></div>
+<button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
 <div id="crGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="crGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="crGiftGrid" class="cr-gift-grid"></div><div id="crGiftFoot" class="cr-gift-foot hidden"><button id="crGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="crGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="arGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Ставка подарком</h2><p>Стоимость подарка идёт в банк арены</p></div><button id="arGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="arGiftGrid" class="cr-gift-grid"></div><div id="arGiftFoot" class="cr-gift-foot hidden"><button id="arGiftConfirm" class="primary" type="button">Выбрать</button></div><button id="arGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="giftBetModal" class="modal hidden"><div class="modal-card"><h2>Ставка подарком</h2><div class="gift-bet-ton"><button id="useTonBet">Использовать TON</button></div><div id="giftBetList" class="gift-bet-list"></div><button id="closeGiftBet" class="modal-close-small">Закрыть</button></div></div>
@@ -4999,7 +5059,7 @@ $('hlGiftBtn').onclick=hlOpenGiftPicker;
 $('hlGiftClose').onclick=()=>$('hlGiftModal').classList.add('hidden');
 $('hlGiftConfirm').onclick=()=>{if(!HL.sel)return;HL.gift=HL.sel;$('hlGiftModal').classList.add('hidden');hlPaintMode();hlRender()};
 $('hlGiftTon').onclick=()=>{HL.gift=null;$('hlGiftModal').classList.add('hidden');hlPaintMode();hlRender()};
-$('hlInfoBtn').onclick=()=>$('hlInfoModal').classList.remove('hidden');
+$('hlInfoBtn').onclick=()=>{$('hlInfoModal').classList.remove('hidden');try{hlGuideOpen()}catch(e){}};
 $('hlInfoClose').onclick=()=>$('hlInfoModal').classList.add('hidden');
 document.querySelectorAll('#hiloPage [data-hlmul],#hiloPage [data-hlmax]').forEach(c=>c.onclick=()=>{if(HL.gift)return;let s=HL.st,max=Math.min(Number(user?.balance||0),s?s.max_bet:300),min=s?s.min_bet:.1,v=hlBetValue()||1;if(c.dataset.hlmax)v=max;else v=v*Number(c.dataset.hlmul);v=Math.max(min,Math.min(s?s.max_bet:300,Math.floor(v*100)/100));$('hlBet').value=v.toFixed(2);hlRender()});
 $('hlBet').addEventListener('input',()=>hlRender());
@@ -6560,4 +6620,83 @@ async function bcLoadStatus(){let d=await api('/api/admin/broadcast/status'),roo
 function bcPollStatus(){clearTimeout(bcPollT);bcLoadStatus().then(run=>{if(run&&!$('broadcastAdminPage').classList.contains('hidden'))bcPollT=setTimeout(bcPollStatus,2500)}).catch(e=>{$('bcStatus').innerHTML='<div class="empty">'+escapeHtml(e.message)+'</div>'})}
 $('bcRefreshStatus').onclick=bcPollStatus;
 async function loadBroadcastAdmin(){bcRestoreDraft();renderBroadcastButtons();await Promise.all([loadBroadcastEmojiGrid(),bcLoadMyEmoji()]);previewBroadcast();bcPollStatus()}
-</script></body></html>
+</script><style id="hilo-guide">
+#hlInfoModal .hlg{max-width:420px;padding:22px 16px 16px;text-align:left}
+#hlInfoModal .hl-rl-head{text-align:center}
+.hlg-step{margin:0 0 12px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);overflow:hidden}
+.hlg-art{background:radial-gradient(circle at 50% 40%,rgba(108,92,231,.22),rgba(14,15,28,.55));padding:12px 10px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+.hlg-art svg{display:block;width:100%;height:auto;max-height:170px}
+.hlg-tx{padding:12px 14px 14px}
+.hlg-tx h3{display:flex;align-items:center;gap:10px;margin:0 0 6px;font-size:16px;color:#fff}
+.hlg-tx h3 i{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;font-style:normal;font-weight:900;font-size:13px;color:#fff;background:linear-gradient(145deg,#6c5ce7,#3b82f6);flex:none}
+.hlg-tx p{margin:0;font-size:13.5px;line-height:1.5;color:#b9c1da}.hlg-tx p b{color:#fff}
+.hlg-tx em{font-style:normal;font-weight:900}.hlg-tx em.up{color:#3ddc84}.hlg-tx em.down{color:#ff6f8a}
+.hlg-small{margin-top:10px!important;font-size:12.5px!important;color:#8f9ab8!important}
+.hlg-tx .hl-rl-ex{margin:10px 0 0}
+.hlg-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:2px 0 14px}
+.hlg-facts>div{padding:10px 6px;border-radius:14px;text-align:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07)}
+.hlg-facts b{display:block;font-size:15px;color:#ffd25a}.hlg-facts span{display:block;margin-top:2px;font-size:11px;color:#8f9ab8}
+.hlg-sim{margin-top:12px;padding:12px;border-radius:14px;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.07)}
+.hlg-sim-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:12px;font-weight:800;color:#8f9ab8;text-transform:uppercase;letter-spacing:.05em}
+.hlg-sim-top b{min-width:34px;padding:3px 10px;border-radius:10px;text-align:center;font-size:16px;color:#fff;background:linear-gradient(145deg,#6c5ce7,#3b82f6)}
+#hlgRank{width:100%;margin:0 0 10px;accent-color:#8b7cf6}
+.hlg-strip{display:grid;grid-template-columns:repeat(15,1fr);gap:3px;margin-bottom:10px}
+.hlg-strip i{height:26px;border-radius:6px;display:grid;place-items:center;font-style:normal;font-size:9px;font-weight:900;color:#ffffffcc;background:#232744;transition:background .25s,transform .25s,box-shadow .25s}
+.hlg-strip i.hi{background:#2bb673;color:#fff}.hlg-strip i.lo{background:#d44a68;color:#fff}
+.hlg-strip i.cur{background:#ffd25a;color:#3a2a00;transform:translateY(-3px) scale(1.12);box-shadow:0 4px 12px #ffd25a66}
+.hlg-odds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hlg-odd{padding:9px 10px;border-radius:12px;border:1px solid}
+.hlg-odd.hi{background:#3ddc8414;border-color:#3ddc8444}.hlg-odd.lo{background:#ff6f8a14;border-color:#ff6f8a44}
+.hlg-odd small{display:block;font-size:12px;font-weight:900}.hlg-odd.hi small{color:#3ddc84}.hlg-odd.lo small{color:#ff6f8a}
+.hlg-odd b{display:block;margin:2px 0;font-size:20px;color:#fff}.hlg-odd span{font-size:11.5px;color:#b9c1da}
+.hlg-fill{transform-box:fill-box;transform-origin:left center;animation:hlgFill 9s linear infinite}
+@keyframes hlgFill{0%{transform:scaleX(0);fill:#3ddc84}66.6%{transform:scaleX(.667);fill:#3ddc84}66.7%{transform:scaleX(.667);fill:#8b7cf6}100%{transform:scaleX(1);fill:#8b7cf6}}
+.hlg-flip{animation:hlgFlipA 9s linear infinite}
+@keyframes hlgFlipA{0%,64%{transform:scaleX(1)}68%{transform:scaleX(0)}72%,100%{transform:scaleX(1)}}
+.hlg-back{animation:hlgBackA 9s linear infinite}.hlg-front{animation:hlgFrontA 9s linear infinite}
+@keyframes hlgBackA{0%,67.9%{opacity:1}68%,100%{opacity:0}}
+@keyframes hlgFrontA{0%,67.9%{opacity:0}68%,100%{opacity:1}}
+.hlg-flip2{animation:hlgFlipB 8s linear infinite}
+@keyframes hlgFlipB{0%,10%{transform:scaleX(1)}13%{transform:scaleX(0)}16%,58%{transform:scaleX(1)}62%{transform:scaleX(0)}66%,100%{transform:scaleX(1)}}
+.hlg-backB{animation:hlgBackB 8s linear infinite}
+@keyframes hlgBackB{0%,12.9%{opacity:1}13%,61.9%{opacity:0}62%,100%{opacity:0}}
+.hlg-faceHi{opacity:0;animation:hlgFHi 8s linear infinite}.hlg-faceLo{opacity:0;animation:hlgFLo 8s linear infinite}
+@keyframes hlgFHi{0%,12.9%{opacity:0}13%,47%{opacity:1}47.1%,100%{opacity:0}}
+@keyframes hlgFLo{0%,61.9%{opacity:0}62%,97%{opacity:1}97.1%,100%{opacity:0}}
+.hlg-pickHi{opacity:0;animation:hlgPHi 8s ease-in-out infinite}.hlg-pickLo{opacity:0;animation:hlgPLo 8s ease-in-out infinite}
+@keyframes hlgPHi{0%,3%{opacity:0}8%,47%{opacity:.35}52%,100%{opacity:0}}
+@keyframes hlgPLo{0%,53%{opacity:0}58%,97%{opacity:.35}100%{opacity:0}}
+.hlg-pop{animation:hlgPopA 6s ease-in-out infinite both}
+@keyframes hlgPopA{0%{opacity:0;transform:translateY(8px)}8%,82%{opacity:1;transform:none}94%,100%{opacity:0;transform:translateY(-4px)}}
+.hlg-fly{transform-box:fill-box;transform-origin:center;animation:hlgFlyA 7s ease-in-out infinite}
+@keyframes hlgFlyA{0%{opacity:0;transform:translateX(0)}5%{opacity:1}30%{opacity:1;transform:translateX(112px) scale(.7)}34%,100%{opacity:0;transform:translateX(112px) scale(.3)}}
+.hlg-gift{transform-box:view-box;animation:hlgGiftA 7s ease-in-out infinite}
+@keyframes hlgGiftA{0%,30%{transform:scale(.15);opacity:0}38%{transform:scale(1.18);opacity:1}44%,92%{transform:scale(1);opacity:1}100%{transform:scale(1);opacity:0}}
+.hlg-lbl{animation:hlgLblA 7s ease-in-out infinite}
+@keyframes hlgLblA{0%,42%{opacity:0}50%,92%{opacity:1}100%{opacity:0}}
+.hlg-rem{animation:hlgRemA 7s ease-in-out infinite}
+@keyframes hlgRemA{0%,48%{opacity:0;transform:translateY(-16px)}58%{opacity:1;transform:translateY(0)}66%{transform:translateY(-3px)}72%,92%{opacity:1;transform:translateY(0)}100%{opacity:0}}
+.hlg-coin0{animation:hlgCoinA 7s ease-in-out infinite}
+@keyframes hlgCoinA{0%,100%{transform:scale(1)}8%{transform:scale(.9)}}
+.hlg-spin{animation:hlgSpinA 3.2s linear infinite}
+@keyframes hlgSpinA{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#hlInfoModal *{animation:none!important}#hlInfoModal .hlg-front,#hlInfoModal .hlg-faceHi,#hlInfoModal .hlg-pop,#hlInfoModal .hlg-gift,#hlInfoModal .hlg-lbl,#hlInfoModal .hlg-rem{opacity:1!important}#hlInfoModal .hlg-back,#hlInfoModal .hlg-backB{opacity:0!important}#hlInfoModal .hlg-fill{transform:scaleX(.667)}}
+</style>
+<script id="hilo-guide-js">
+(function(){
+const N=15;let built=false;
+function rtp(){try{let s=HL.st,o=s&&s.odds,r=s&&s.card&&s.card.rank;if(o&&r){for(const [d,w] of [['hi',N-r],['lo',r-1]]){const e=o[d];if(e&&!e.push&&w>0&&w<N-1&&e.x>1.02){const v=e.x*w/(N-1);if(v>.85&&v<1)return v}}}}catch(e){}return .97}
+function hue(k){try{return hlHue(k)}catch(e){return(210+k*21)%360}}
+function ladder(){const box=document.getElementById('hlgLadder');if(!box)return;let bars='';for(let k=1;k<=N;k++){const h=22+k*4,x=8+(k-1)*20.4;bars+=`<g class="hlg-bar" style="animation-delay:${((k-1)*.18).toFixed(2)}s"><rect x="${x.toFixed(1)}" y="${96-h}" width="17" height="${h}" rx="5" fill="hsl(${hue(k)} 70% 56%)"/><text x="${(x+8.5).toFixed(1)}" y="${96-h/2+4}" text-anchor="middle" font-size="9" font-weight="900" fill="#fff">${k}</text></g>`}
+box.innerHTML=`<svg viewBox="0 0 320 130" role="img" aria-label="Ранги карт от 1 до 15"><style>.hlg-bar{transform-box:fill-box;transform-origin:50% 100%;animation:hlgBarA 3.6s ease-in-out infinite}@keyframes hlgBarA{0%,22%,100%{transform:scaleY(1);filter:none}8%{transform:scaleY(1.12);filter:brightness(1.5)}}@media(prefers-reduced-motion:reduce){.hlg-bar{animation:none}}</style>${bars}<text x="8" y="116" font-size="11" font-weight="800" fill="#8f9ab8">1 · дешёвый</text><text x="312" y="116" text-anchor="end" font-size="11" font-weight="800" fill="#ffd25a">15 · дорогой</text><path d="M96 111h128" stroke="#ffffff33" stroke-width="1.5"/><path d="M220 107l6 4-6 4" fill="none" stroke="#ffffff55" stroke-width="1.5"/></svg>`}
+function strip(){const st=document.getElementById('hlgStrip');if(!st||st.children.length)return;for(let k=1;k<=N;k++){const i=document.createElement('i');i.textContent=k;st.append(i)}}
+function paint(){const inp=document.getElementById('hlgRank');if(!inp)return;const r=Number(inp.value),R=rtp();document.getElementById('hlgRankNum').textContent=r;
+[...document.getElementById('hlgStrip').children].forEach((el,i)=>{const k=i+1;el.className=k===r?'cur':k>r?'hi':'lo'});
+for(const [id,w] of [['Hi',N-r],['Lo',r-1]]){const push=w<=0||w>=N-1,x=push?1:Math.max(1.01,R*(N-1)/w),c=w/(N-1)*100;
+document.getElementById('hlg'+id+'X').textContent='x'+x.toFixed(2);
+document.getElementById('hlg'+id+'C').textContent=push?'возврат ставки':w+' из '+(N-1)+' карт · '+c.toFixed(1)+'%'}}
+window.hlGuideOpen=function(){if(!built){built=true;ladder();strip();document.getElementById('hlgRank').addEventListener('input',paint)}
+const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.getElementById('hlgRank');inp.value=r;paint();const card=document.querySelector('#hlInfoModal .modal-card');if(card)card.scrollTop=0}
+})();
+</script>
+</body></html>

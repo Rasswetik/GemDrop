@@ -1,0 +1,38 @@
+name: V96 verification
+
+on:
+  push:
+    branches: [test/v96-check]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python syntax
+        run: python -m py_compile app.py
+      - name: Verify expected v96 wiring
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          app=Path("app.py").read_text(encoding="utf-8")
+          html=Path("templates/index.html").read_text(encoding="utf-8")
+          checks={
+            "build": "96-portal-relayer-broadcast-deeplinks" in app,
+            "portal_reserve": "PORTAL_WITHDRAW_RESERVE=Decimal('0.30')" in app,
+            "portal_withdraw": "/partners/nfts/withdraw" in app,
+            "portal_partner_auth": "portal_partner_auth" in app,
+            "broadcast_no_admin_delete": "staged_user_id" in app,
+            "miniapp_buttons": "Открыть приложение" in html,
+            "portal_runtime": "portalPartnerBalance" in html,
+            "deep_links": "arena:'arenaPage'" in html and "upgrade:'upgradePage'" in html,
+          }
+          print(checks)
+          assert all(checks.values()), checks
+          PY

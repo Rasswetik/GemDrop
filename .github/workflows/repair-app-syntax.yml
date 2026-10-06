@@ -15,6 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Repair broken Relayr regex
         run: python fix_app_syntax.py
+      - name: Repair PostgreSQL runtime compatibility
+        run: python fix_postgres_runtime.py
+      - name: Repair NFT profile artwork
+        run: python fix_profile_nft_images.py
       - name: Verify Python syntax
         run: python -m py_compile app.py
       - name: Commit repaired app.py

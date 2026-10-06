@@ -15935,6 +15935,7 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
                     miniapp_markup('Открыть GemDrop','profile'),'HTML')
             return dict(ok=True,status='portal_waiting_recipient',provider='portal',manual_required=False)
         source=str(old.get('source') or '');price=_portal_decimal(old.get('purchase_price') or 0)
+        already_owned=old.get('status')=='portal_bought' and bool(nft.get('id'))
         try:
             wallet=_portal_wallet_info()
             if not nft.get('id'):
@@ -15943,8 +15944,9 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
                 if not candidate:candidate=_portal_market_candidate(row)
                 if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found','В Portal Market нет подходящего подарка этой коллекции.','lookup')
                 nft=candidate;price=Decimal('0') if source=='owned' else _portal_decimal(nft.get('price'))
+                already_owned=(source=='owned')
                 append_portal_log(f'Вывод #{withdrawal_id}: найден {nft.get("name") or row.get("gift_name")} · {price} TON · {source}.')
-            need=price+PORTAL_WITHDRAW_RESERVE
+            need=(Decimal('0') if already_owned else price)+PORTAL_WITHDRAW_RESERVE
             if wallet['balance']<need:
                 return _portal_manual(withdrawal_id,row,'portal_insufficient_balance',
                     f'Недостаточно TON на Portal: баланс {_portal_decimal_text(wallet["balance"])}, нужно {_portal_decimal_text(need)} '
@@ -15952,7 +15954,7 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
                     'balance',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
             if source=='owned' and str(nft.get('status') or '').casefold()=='listed':
                 _portal_partner_request('POST','/partners/nfts/'+str(nft['id'])+'/unlist')
-            if source=='market':
+            if source=='market' and not already_owned:
                 _portal_auto_log(withdrawal_id,row,'portal_buying',stage='buy',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
                 buy=_portal_partner_request('POST','/partners/nfts',payload={'nft_details':[{'id':str(nft['id']),'price':_portal_decimal_text(price)}]})
                 owned=_portal_partner_request('GET','/partners/nfts/owned',params={'ids':str(nft['id']),'limit':5})

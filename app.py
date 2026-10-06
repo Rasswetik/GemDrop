@@ -8159,6 +8159,18 @@ def arena_advance(db, now=None):
         return row
     players = arena_players(db, row['id'])
     total = sum(max(0, int(x['amount'] or 0)) for x in players)
+
+    # A house-bot opening bet is persistent. If its 20 s countdown expires before
+    # a real player joins, keep the bot bet in this same round and switch the
+    # round back to an untimed "waiting for player" state. The next real bet
+    # starts a fresh 20 s countdown without recreating or changing the bot stake.
+    bot_uid = arena_bot_uid(db)
+    if (len(players) == 1 and total > 0 and bot_uid
+            and int(players[0]['user_id']) == int(bot_uid)):
+        db.execute("UPDATE arena_rounds SET open_at=?,close_at=0,extended=0 WHERE id=? AND state='open'",
+                   (now, row['id']))
+        return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()
+
     if len(players) < 2 or total <= 0:
         arena_refund_round(db, row, players)
         return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()

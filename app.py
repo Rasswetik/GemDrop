@@ -14897,25 +14897,30 @@ async def _relayer_scan_async(force=False):
     client=_relayer_client()
     try:
         await client.connect()
-        if not await client.is_user_authorized(): _relayer_state(authorized=False,status='login_required'); return dict(ok=False,status='login_required',processed=0)
-        me=await client.get_me(); gifts=await _relayer_saved_gifts(client); state=read_document('relayer_state') or {}; baseline=not bool(state.get('baseline_ready')); processed=credited=0
-        stars_balance=int(state.get('stars_balance') or 0)
-        try:
-            _,functions,_,_,_,_=_relayer_imports();payments=getattr(functions,'payments',None)
-            cls=getattr(payments,'GetStarsStatusRequest',None) if payments else None
-            if cls:
-                peer=await client.get_input_entity('me');sig=inspect.signature(cls.__init__);kwargs={}
-                for name,param in sig.parameters.items():
-                    if name=='self':continue
-                    if name=='peer':kwargs[name]=peer
-                    elif param.default is inspect._empty:kwargs[name]=False
-                stars_balance=_relayer_stars_value(getattr(await client(cls(**kwargs)),'balance',0))
+        if not await client.is_user_authorized():
+            _relayer_state(authorized=False,status='login_required')
+            return dict(ok=False,status='login_required',processed=0)
+        me=await client.get_me();gifts=await _relayer_saved_gifts(client);state=read_document('relayer_state') or {}
+        baseline=not bool(state.get('baseline_ready'));processed=credited=0
+        try:stars_balance=await _relayer_stars_balance(client)
         except Exception:
-            app.logger.exception('Relayer Stars balance refresh failed')
+            app.logger.exception('Relayer Stars balance refresh failed');stars_balance=int(state.get('stars_balance') or 0)
         for entry in gifts:
-            info=_relayer_resolve_gift(_relayer_entry_info(entry)); result=_relayer_credit(info,baseline=baseline); processed+=0 if result=='duplicate' else 1; credited+=1 if result=='credited' else 0
-        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),saved_gifts_count=len(gifts),stars_balance=stars_balance,balance_checked_at=datetime.now(timezone.utc).isoformat(),last_processed=processed,last_credited=credited,error=''); return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline,stars_balance=stars_balance,saved_gifts_count=len(gifts))
-    finally: await client.disconnect()
+            info=_relayer_resolve_gift(_relayer_entry_info(entry));result=_relayer_credit(info,baseline=baseline)
+            processed+=0 if result=='duplicate' else 1;credited+=1 if result=='credited' else 0
+        auto=await _relayer_process_pending_with_client(client,gifts)
+        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,
+                       last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),saved_gifts_count=len(gifts),
+                       stars_balance=stars_balance,balance_checked_at=datetime.now(timezone.utc).isoformat(),
+                       last_processed=processed,last_credited=credited,last_auto_processed=auto['processed'],
+                       last_auto_completed=auto['completed'],error='')
+        return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline,
+                    stars_balance=stars_balance,saved_gifts_count=len(gifts),
+                    auto_processed=auto['processed'],auto_completed=auto['completed'])
+    finally:
+        try:_relayer_save_session(client)
+        except Exception:pass
+        await client.disconnect()
 
 @app.post('/api/admin/relayer/scan')
 @admin_required
@@ -14930,7 +14935,10 @@ def relayer_auto_loop():
         try:
             cfg=relayer_settings()
             if cfg['enabled'] and cfg['api_id'] and cfg['api_hash']:_relayer_run(_relayer_scan_async())
-        except Exception as exc: app.logger.exception('Relayer scan failed'); _relayer_state(status='error',error=str(exc)[:180])
+        except Exception as exc:
+            app.logger.exception('Relayer scan failed');_relayer_state(status='error',error=str(exc)[:180])
+        try:_portal_resume_pending()
+        except Exception:app.logger.exception('Portal withdrawal resume failed')
         time.sleep(RELAYER_SCAN_SECONDS)
 
 

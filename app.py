@@ -594,7 +594,10 @@ def _initialize_schema():
         ])
         ensure_columns('arena_rounds', [('extended', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('hilo_room_bets', [('gift_name', "TEXT NOT NULL DEFAULT ''"), ('gift_image', "TEXT NOT NULL DEFAULT ''"),
-                                          ('gift_row', "TEXT NOT NULL DEFAULT ''"), ('won', 'INTEGER NOT NULL DEFAULT 0')])
+                                          ('gift_row', "TEXT NOT NULL DEFAULT ''"), ('won', 'INTEGER NOT NULL DEFAULT 0'),
+                                          ('want_gift', 'INTEGER NOT NULL DEFAULT 0'),
+                                          ('prize_name', "TEXT NOT NULL DEFAULT ''"), ('prize_image', "TEXT NOT NULL DEFAULT ''"),
+                                          ('prize_price', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('arena_bets', [('gift_amount', 'INTEGER NOT NULL DEFAULT 0'),
                                       ('gifts', "TEXT NOT NULL DEFAULT '[]'")])
         ensure_columns('crash_bets', [
@@ -7862,6 +7865,8 @@ def arena_refund_round(db, row, players):
         if not amount:
             continue
         uid = int(player['user_id'])
+        if uid == arena_bot_uid(db):
+            continue   # house bot: its stake was never taken, so there is nothing to return
         gifts = arena_gift_list(player['gifts'])
         gift_amount = min(amount, max(0, int(player['gift_amount'] or 0)))
         ton = amount - gift_amount
@@ -7913,6 +7918,12 @@ def arena_advance(db, now=None):
     fee = arena_fee_cents(ton_total)
     payout = ton_total - fee
     prize_gifts = arena_prize_gifts(players)
+    bot_uid = arena_bot_uid(db)
+    if bot_uid and int(winner['user_id']) == bot_uid:
+        # House bot won: it is paid only what real players put in; its own (phantom) stake is not paid back.
+        bot_ton = max(0, int(winner['amount'] or 0) - min(int(winner['amount'] or 0), int(winner['gift_amount'] or 0)))
+        payout = max(0, payout - bot_ton)
+        prize_gifts = [g for g in prize_gifts if not g.get('house')]
     changed = db.execute("""UPDATE arena_rounds SET state='settled',settled_at=?,winner_user_id=?,total_pool=?
                             WHERE id=? AND state='open'""",
                          (now, int(winner['user_id']), total, row['id']))
@@ -7932,7 +7943,7 @@ def arena_advance(db, now=None):
                                + ', '.join(str(g.get('name') or 'Подарок') for g in prize_gifts)
                                + ' (без комиссии)')
         for player in players:
-            if int(player['user_id']) != int(winner['user_id']):
+            if int(player['user_id']) != int(winner['user_id']) and int(player['user_id']) != bot_uid:
                 names = ', '.join(str(g.get('name') or 'Подарок') for g in arena_gift_list(player['gifts']))
                 record_transaction(db, int(player['user_id']), 'arena_loss', 0, 'arena_round', row['id'],
                                    f'Arena #{row["id"]}: проигрыш {int(player["amount"] or 0)/100:.2f} TON'
@@ -8202,6 +8213,7 @@ def arena_state_payload(db, uid, now=None):
 @app.get('/api/arena/state')
 @login_required
 def arena_state():
+    arena_mark_viewed()
     if creator_demo_active(session['uid']):
         return jsonify(demo_arena_state_payload(session['uid'], int(time.time() * 1000)))
     db = connect()
@@ -8319,111 +8331,161 @@ def arena_bet():
 
 
 # ===================== Arena house bot (@gemdrop_amd) =====================
-# The admin account plays in the Arena like an ordinary player: in almost every round that a real
-# player has started it joins with a random TON stake or a random gift worth 0.10-15 TON. It never
-# sends any message anywhere. Stakes come from the account's own balance / inventory, so no money
-# or gifts are created out of thin air; if the account cannot afford a stake the round is skipped.
+# The admin account plays in the Arena like an ordinary player and is visible in the round list.
+# It joins almost every round: with a random TON stake or a random catalog gift worth 0.10-15 TON.
+# It also STARTS rounds while real people are looking at the Arena, so the Arena is never empty.
+# It never sends any message anywhere and writes nothing to the account's history.
+# The bot plays with house money: its stake is not taken from the account's balance/inventory.
+# When the bot wins it is paid only the real players' part of the pool; when it loses, the winner
+# receives its stake (that is the cost of the house bot).
 ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_amd').strip().lstrip('@').lower()
 ARENA_BOT_MIN_CENTS = 10
 ARENA_BOT_MAX_CENTS = 1500
-ARENA_BOT_ROUND_CHANCE = 0.88
+ARENA_BOT_ROUND_CHANCE = 0.9
 ARENA_BOT_GIFT_CHANCE = 0.45
+ARENA_VIEW_TTL_MS = 60000          # the bot starts rounds only if someone looked at the Arena this recently
+_arena_bot = dict(uid=0, checked=0)
+_arena_view = dict(written=0)
 
 
-def arena_bot_user_id(db):
-    row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()
-    return int(row['id']) if row else 0
+def arena_bot_uid(db=None):
+    """Id of the bot account (cached). 0 when the account does not exist yet."""
+    if _arena_bot['uid']:
+        return _arena_bot['uid']
+    if time.time() - _arena_bot['checked'] < 20:
+        return 0
+    _arena_bot['checked'] = time.time()
+    own = db is None
+    db = db or connect()
+    try:
+        row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()
+        if not row and (os.environ.get('ARENA_BOT_USER_ID') or '').isdigit():
+            row = db.execute('SELECT id FROM users WHERE id=?', (int(os.environ['ARENA_BOT_USER_ID']),)).fetchone()
+        if row:
+            _arena_bot['uid'] = int(row['id'])
+        else:
+            app.logger.warning('Arena bot: user @%s not found. Open the app once with that account '
+                               'or set ARENA_BOT_USER_ID.', ARENA_BOT_USERNAME)
+    finally:
+        if own:
+            db.close()
+    return _arena_bot['uid']
+
+
+def arena_mark_viewed():
+    """Called by /api/arena/state: remembers that a real person is looking at the Arena."""
+    now = time.time()
+    if now - _arena_view['written'] < 8:
+        return
+    _arena_view['written'] = now
+    try:
+        save_document('arena_last_view', {'at': int(now * 1000)})
+    except Exception:
+        pass
+
+
+def arena_has_viewers(now_ms):
+    try:
+        doc = read_document('arena_last_view') or {}
+        return now_ms - int(doc.get('at') or 0) <= ARENA_VIEW_TTL_MS
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 def arena_bot_roll_cents():
     # Log-uniform: small stakes are common, 10-15 TON are rare.
-    value = ARENA_BOT_MIN_CENTS * (ARENA_BOT_MAX_CENTS / ARENA_BOT_MIN_CENTS) ** (secrets.randbelow(10 ** 6) / 10 ** 6)
-    value = int(value)
+    value = int(ARENA_BOT_MIN_CENTS * (ARENA_BOT_MAX_CENTS / ARENA_BOT_MIN_CENTS) ** (secrets.randbelow(10 ** 6) / 10 ** 6))
     return value if value < 100 else value // 5 * 5
 
 
-def arena_bot_place_bet(db, uid, now):
-    """Place one random bet in the open, already started round. Returns True when a bet was placed."""
+def arena_bot_random_gift(cents):
+    """A random catalog gift priced near the rolled amount (None when the catalog has nothing suitable)."""
+    try:
+        pool = []
+        for g in read_catalog().get('gifts', []):
+            price = ton_to_cents(g.get('price_ton') or 0)
+            if ARENA_BOT_MIN_CENTS <= price <= ARENA_BOT_MAX_CENTS and g.get('name') and safe_image(g.get('image_url')):
+                pool.append((price, g))
+    except Exception:
+        return None
+    if not pool:
+        return None
+    price, g = pool[secrets.randbelow(len(pool))]
+    return dict(name=str(g['name'])[:140], image_url=safe_image(g.get('image_url')), price=price, xp=False, house=True)
+
+
+def arena_bot_place_bet(db, uid, now, may_start):
+    """One random bet in the open round. Starts the round when allowed. Returns True when placed."""
     row = arena_advance(db, now)
+    if row['state'] != 'open':
+        return False
     close_at = int(row['close_at'] or 0)
-    if row['state'] != 'open' or close_at <= 0 or now >= close_at - ARENA_SNIPE_WINDOW_MS - 400:
+    if close_at <= 0:
+        if not may_start:
+            return False
+    elif now >= close_at - ARENA_SNIPE_WINDOW_MS - 400:
         return False
     if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():
         return False
-    if not db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id<>?', (row['id'], uid)).fetchone():
-        return False
-    item = None
-    if secrets.randbelow(100) < int(ARENA_BOT_GIFT_CHANCE * 100):
-        purge_expired_inventory(db, uid)
-        pool = db.execute('SELECT * FROM inventory WHERE user_id=? AND promo_locked=0 AND floor_price BETWEEN ? AND ?',
-                          (uid, ARENA_BOT_MIN_CENTS, ARENA_BOT_MAX_CENTS)).fetchall()
-        if pool:
-            item = pool[secrets.randbelow(len(pool))]
-    gifts, gift_amount = [], 0
-    if item is not None:
-        amount = int(item['floor_price'] or 0)
-        if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item['id'], uid)).rowcount:
-            return False
-        gifts = [dict(name=str(item['gift_name'] or 'Подарок')[:140], image_url=str(item['image_url'] or ''),
-                      price=amount, xp=bool(gift_counts_for_xp(item)), row=dict(item))]
-        gift_amount = amount
+    gift = arena_bot_random_gift(0) if secrets.randbelow(100) < int(ARENA_BOT_GIFT_CHANCE * 100) else None
+    if gift:
+        amount, gift_amount, gifts = int(gift['price']), int(gift['price']), [gift]
     else:
-        amount = arena_bot_roll_cents()
-        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                          (amount, uid, amount)).rowcount:
-            return False
+        amount, gift_amount, gifts = arena_bot_roll_cents(), 0, []
     db.execute('INSERT INTO arena_bets(round_id,user_id,amount,gift_amount,gifts) VALUES(?,?,?,?,?)',
                (row['id'], uid, amount, gift_amount, json.dumps(gifts, ensure_ascii=False, default=str)))
-    if gifts:
-        record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
-                           f'Arena #{row["id"]}: {gifts[0]["name"]} ({amount/100:.2f} TON)')
-        if gifts[0]['xp']:
-            increase_turnover(db, uid, amount)
-    else:
-        record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'], f'Arena #{row["id"]}: {amount/100:.2f} TON')
-        increase_turnover(db, uid, amount)
+    if close_at <= 0:
+        db.execute("UPDATE arena_rounds SET open_at=?,close_at=? WHERE id=? AND state='open'",
+                   (now, now + ARENA_BETTING_MS, row['id']))
     return True
 
 
 def arena_bot_loop():
     time.sleep(9)
-    decided = {}   # round_id -> (will_join, delay_ms)
-    uid = 0
+    decided = {}   # round_id -> (will_join, due_at_ms)
     while True:
         try:
             if not game_available('arena', True):
                 time.sleep(3)
                 continue
             now = int(time.time() * 1000)
-            with connect() as db:
-                uid = uid or arena_bot_user_id(db)
+            db = connect()
+            try:
+                uid = arena_bot_uid(db)
                 if not uid:
-                    time.sleep(30)
+                    time.sleep(10)
                     continue
                 row = arena_latest(db)
-                if row and row['state'] == 'open' and int(row['close_at'] or 0) > 0:
+                if row and row['state'] == 'open':
                     rid = int(row['id'])
-                    if rid not in decided:
-                        span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
-                        decided[rid] = (secrets.randbelow(100) < int(ARENA_BOT_ROUND_CHANCE * 100),
-                                        1200 + secrets.randbelow(span))
-                        for old in [k for k in decided if k < rid - 20]:
+                    started = int(row['close_at'] or 0) > 0
+                    key = (rid, started)
+                    if key not in decided:
+                        join = secrets.randbelow(100) < int(ARENA_BOT_ROUND_CHANCE * 100)
+                        if started:
+                            span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
+                            due = int(row['open_at'] or now) + 1200 + secrets.randbelow(span)
+                        else:
+                            due = now + 2500 + secrets.randbelow(6000)
+                        decided[key] = (join, due)
+                        for old in [k for k in decided if k[0] < rid - 20]:
                             decided.pop(old, None)
-                    will_join, delay = decided[rid]
-                    if will_join and now >= int(row['open_at'] or 0) + delay:
-                        decided[rid] = (False, delay)
+                    join, due = decided[key]
+                    if join and now >= due and (started or arena_has_viewers(now)):
+                        decided[key] = (False, due)
                         db.execute('BEGIN IMMEDIATE')
                         try:
-                            ok = arena_bot_place_bet(db, uid, now)
+                            ok = arena_bot_place_bet(db, uid, now, may_start=True)
                             db.commit() if ok else db.rollback()
                         except Exception:
                             db.rollback()
                             raise
+            finally:
+                db.close()
         except Exception:
             app.logger.exception('Arena bot loop failed')
             time.sleep(5)
         time.sleep(0.7)
-
 
 
 # ================================== Crash ==================================
@@ -9121,6 +9183,18 @@ def hilo_tiers():
     return jsonify(tiers=[dict(rank=i + 1, **g) for i, g in enumerate(hilo_tier_gifts())])
 
 
+def hilo_room_is_push(base, direction):
+    """On the top card nothing can be higher (and nothing lower on the bottom one): that bet is a push."""
+    return hilo_wins(base, direction) <= 0
+
+
+def hilo_room_step_micro(base, direction):
+    """Room payout multiplier. An impossible direction is counted as exactly x1.00 (the bet comes back)."""
+    if hilo_room_is_push(base, direction):
+        return HILO_MICRO
+    return hilo_step_micro(base, direction)
+
+
 def hilo_room_rank(n):
     import hmac as _hmac, hashlib as _hashlib
     key = app.secret_key if isinstance(app.secret_key, bytes) else str(app.secret_key).encode()
@@ -9150,21 +9224,44 @@ def hilo_room_settle(db, n, phase):
                       (n, n, phase, HILO_BET_MS)).fetchall()
     for r in rows:
         base, res = hilo_room_rank(r['round_no']), hilo_room_rank(r['round_no'] + 1)
-        won = res > base if r['direction'] == 'hi' else res < base
-        step = hilo_step_micro(base, r['direction'])
+        push = hilo_room_is_push(base, r['direction'])
+        won = True if push else (res > base if r['direction'] == 'hi' else res < base)
+        step = hilo_room_step_micro(base, r['direction'])
         total = int(r['amount']) * step // HILO_MICRO if won and step else 0
         gift_bet = bool(r['gift_name'])
         # A winning gift bet returns the gift itself and pays only the profit in TON on top.
         credit = max(0, total - int(r['amount'])) if gift_bet else total
+        # "Win as NFT": the TON win is exchanged for the closest catalog gift that does not exceed it,
+        # the small remainder stays on the balance.
+        prize = None
+        if won and not gift_bet and int(r['want_gift'] or 0) and total > 0:
+            try:
+                prize = crash_prize_preview(total)
+            except Exception:
+                prize = None
         if not db.execute('UPDATE hilo_room_bets SET settled=1,payout=?,won=? WHERE id=? AND settled=0',
                           (credit, 1 if won else 0, r['id'])).rowcount:
             continue
         if not won:
             continue
-        label = f'Hi-Lo общий раунд x{step / HILO_MICRO:.2f}'
+        label = f'Hi-Lo общий раунд x{step / HILO_MICRO:.2f}' + (' (возврат)' if push else '')
         if gift_bet:
             hilo_restore_gift(db, r['user_id'], r['gift_row'], r['gift_name'], r['gift_image'], r['amount'])
             record_transaction(db, r['user_id'], 'hilo_gift_return', 0, 'hilo_room', r['id'], f"{r['gift_name']} · {label}")
+        if prize:
+            remainder = max(0, total - int(prize['price_cents']))
+            db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                          VALUES(?,?,?,?,?,'game',?)""",
+                       (r['user_id'], prize['id'], prize['name'], prize['image_url'], prize['price_cents'], r['id']))
+            db.execute('UPDATE hilo_room_bets SET prize_name=?,prize_image=?,prize_price=? WHERE id=?',
+                       (prize['name'][:140], prize['image_url'], prize['price_cents'], r['id']))
+            record_transaction(db, r['user_id'], 'hilo_gift_win', 0, 'hilo_room', r['id'], f"{prize['name']} · {label}")
+            credit = remainder
+            if remainder:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, r['user_id']))
+                record_transaction(db, r['user_id'], 'hilo_win', remainder, 'hilo_room', r['id'],
+                                   f"{label}: остаток после подарка {prize['name']}")
+            continue
         if credit:
             db.execute('UPDATE users SET balance=balance+? WHERE id=?', (credit, r['user_id']))
             record_transaction(db, r['user_id'], 'hilo_win', credit, 'hilo_room', r['id'], label)
@@ -9174,28 +9271,36 @@ def hilo_room_payload(db, uid, n, phase, now):
     base = hilo_room_rank(n)
     reveal = phase >= HILO_BET_MS
     card = lambda rk: dict(rank=rk, **hilo_tier_card(rk))
-    odds = {d: dict(x=hilo_step_micro(base, d) / HILO_MICRO, chance=round(hilo_wins(base, d) * 100 / HILO_RANKS, 1))
+    odds = {d: dict(x=hilo_room_step_micro(base, d) / HILO_MICRO,
+                    chance=(100.0 if hilo_room_is_push(base, d) else round(hilo_wins(base, d) * 100 / HILO_RANKS, 1)),
+                    push=hilo_room_is_push(base, d))
             for d in ('hi', 'lo')}
-    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,u.name,u.photo_url
+    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,b.want_gift,b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
                          FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.round_no=?
                          ORDER BY b.amount DESC,b.id ASC LIMIT 60""", (n,)).fetchall()
     bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
                  amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
-                 gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '') for r in rows]
-    recent_rows = db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.won,b.gift_name,b.gift_image,u.name,u.photo_url
+                 gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', want_gift=bool(r['want_gift']),
+                 prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
+            for r in rows]
+    recent_rows = db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.won,b.gift_name,b.gift_image,
+                                        b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
                                  FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1
-                                 ORDER BY b.id DESC LIMIT 15""").fetchall()
-    last = db.execute("""SELECT id,round_no,direction,amount,payout,won,gift_name,gift_image FROM hilo_room_bets WHERE user_id=? AND settled=1
+                                 ORDER BY b.id DESC LIMIT 30""").fetchall()
+    last = db.execute("""SELECT id,round_no,direction,amount,payout,won,gift_name,gift_image,prize_name,prize_image,prize_price FROM hilo_room_bets WHERE user_id=? AND settled=1
                          ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
     nums = hilo_round_numbers(db, [r['round_no'] for r in recent_rows] + ([last['round_no']] if last else []) + [n])
     cur_no = nums.get(n, 0)
     recent = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', round=r['round_no'],
                    direction=r['direction'], amount=r['amount'] / 100, payout=r['payout'] / 100, no=nums.get(r['round_no'], 0),
                    won=bool(r['won'] or r['payout'] > 0),
-                   gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', mine=r['user_id'] == uid)
+                   gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', mine=r['user_id'] == uid,
+                   x=hilo_room_step_micro(hilo_room_rank(r['round_no']), r['direction']) / HILO_MICRO,
+                   push=hilo_room_is_push(hilo_room_rank(r['round_no']), r['direction']),
+                   prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
               for r in recent_rows]
     upto = n + 1 if reveal else n
-    seq = [hilo_room_rank(k) for k in range(upto - 10, upto)]
+    seq = [hilo_room_rank(k) for k in range(upto - 25, upto)]
     history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
                for i, r in enumerate(seq[1:])]
     me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
@@ -9206,7 +9311,9 @@ def hilo_room_payload(db, uid, n, phase, now):
                 balance=(me['balance'] / 100) if me else 0,
                 last=dict(id=last['id'], round=last['round_no'], no=nums.get(last['round_no'], 0), gift_name=last['gift_name'] or '', gift_image=last['gift_image'] or '',
                           won=bool(last['won'] or last['payout'] > 0), direction=last['direction'], amount=last['amount'] / 100,
-                          payout=last['payout'] / 100) if last else None)
+                          payout=last['payout'] / 100, prize_name=last['prize_name'] or '', prize_image=last['prize_image'] or '',
+                          prize_price=(last['prize_price'] or 0) / 100) if last else None,
+                min_nft=crash_min_prize_cents() / 100)
 
 
 @app.get('/api/hilo/room')
@@ -9250,8 +9357,7 @@ def hilo_room_bet():
     n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
     if phase >= HILO_BET_MS - 300:
         return error('Приём ставок закрыт — дождитесь следующего раунда.', 409)
-    if not hilo_step_micro(hilo_room_rank(n), direction):
-        return error('С этой карты так ставить нельзя — выберите другое направление.', 409)
+    want_gift = 1 if data.get('want_gift') in (True, 1, '1', 'true') else 0
     db = connect()
     new_level = None
     try:
@@ -9291,7 +9397,7 @@ def hilo_room_bet():
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
                 db.rollback()
                 return error('Недостаточно средств.')
-            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount) VALUES(?,?,?,?)', (n, uid, direction, bet))
+            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,want_gift) VALUES(?,?,?,?,?)', (n, uid, direction, bet, want_gift))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
             new_level = increase_turnover(db, uid, bet)
         db.commit()

@@ -491,6 +491,18 @@ def _initialize_schema():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS portal_withdrawal_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, withdrawal_id INTEGER NOT NULL UNIQUE,
+            user_id INTEGER NOT NULL, requested_name TEXT NOT NULL DEFAULT '',
+            requested_number TEXT NOT NULL DEFAULT '', nft_id TEXT NOT NULL DEFAULT '',
+            nft_name TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '',
+            purchase_price TEXT NOT NULL DEFAULT '0', balance_before TEXT NOT NULL DEFAULT '0',
+            withdrawal_fee TEXT NOT NULL DEFAULT '0.30', withdrawal_ids TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending', stage TEXT NOT NULL DEFAULT '',
+            attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS roll_spins (
             id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, roll_id TEXT NOT NULL,
             price INTEGER NOT NULL, outcome TEXT NOT NULL, gift_name TEXT NOT NULL DEFAULT '',
@@ -7883,6 +7895,7 @@ def request_withdrawal(item_id):
     if creator_demo_active(session['uid']):
         return error('Demo-подарки нельзя отправить на реальный вывод.', 409)
     fee=30
+    withdrawal_id=None
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -7898,20 +7911,29 @@ def request_withdrawal(item_id):
         if item['promo_locked']:return error('Промо-подарок нельзя вывести до завершения отыгрыша.',409)
         if int(item['deposit_mirror'] or 0):return error('Этот NFT уже учтён как пополнение TON и хранится в инвентаре как подтверждение.',409)
         db.execute('UPDATE users SET balance=balance-? WHERE id=?',(fee,session['uid']))
-        db.execute("""INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,external_url,
+        cur=db.execute("""INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,external_url,
                                                fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,fee_amount)
                       VALUES(?,?,?,?,?,?,?,?,'pending',?,?,?,?,?,?,?,?)""",
                    (session['uid'],item['id'],item['gift_id'],item['gift_name'],item['image_url'],item['floor_price'],item['source'],
                     item['round_id'],item['external_url'] or '',item['fragment_number'] or '',item['fragment_model'] or '',
                     item['fragment_backdrop'] or '',item['fragment_symbol'] or '',item['price_source'] or '',item['animation_url'] or '',fee))
+        withdrawal_id=int(cur.lastrowid)
         if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid'])).rowcount:
             return error('Не удалось зарезервировать подарок.',409)
         record_transaction(db,session['uid'],'withdrawal_fee',-fee,'inventory',item_id,'Комиссия вывода подарка 0.30 TON')
         record_transaction(db,session['uid'],'withdrawal_request',0,'inventory',item_id,item['gift_name'])
         db.commit()
-        return jsonify(ok=True,fee=0.30)
     finally:
         db.close()
+    row=_relayer_withdrawal_target(withdrawal_id)
+    if not relayer_settings().get('auto_withdraw_enabled',True):
+        if row:_relayer_auto_log(withdrawal_id,row,'disabled',error_text='Автовывод отключён. Требуется ручной вывод.')
+        return jsonify(ok=True,fee=0.30,withdrawal_id=withdrawal_id,auto_status='disabled',manual_required=True,
+                       message='Автовывод отключён. Заявка сохранена для ручного вывода.')
+    if row:_relayer_auto_log(withdrawal_id,row,'queued')
+    Thread(target=_auto_withdrawal_thread,args=(withdrawal_id,),daemon=True).start()
+    return jsonify(ok=True,fee=0.30,withdrawal_id=withdrawal_id,auto_status='queued',manual_required=False,
+                   message='Заявка принята. Проверяем Relayer и Portal Market.')
 
 @app.post('/api/inventory/<int:item_id>/claim-promo')
 @login_required
@@ -13979,23 +14001,48 @@ def admin_remove_inventory(user_id, item_id):
 @app.get('/api/admin/withdrawals')
 @admin_required
 def admin_withdrawals():
-    view = request.args.get('view', 'pending').strip().lower()
-    if view not in {'pending', 'completed'}:
-        return error('Неизвестный раздел выводов.')
-    where = "w.status='pending'" if view == 'pending' else "w.status IN ('approved','rejected')"
+    view=request.args.get('view','pending').strip().lower()
+    if view not in {'pending','completed'}:return error('Неизвестный раздел выводов.')
+    where="w.status='pending'" if view=='pending' else "w.status IN ('approved','rejected')"
     with connect() as db:
-        rows = db.execute(f'''SELECT w.*,u.name AS user_name,u.username,
-                                     au.name AS admin_name,au.username AS admin_username
-                              FROM withdrawals w
-                              JOIN users u ON u.id=w.user_id
-                              LEFT JOIN users au ON au.id=w.admin_id
-                              WHERE {where}
-                              ORDER BY w.id DESC LIMIT 300''').fetchall()
-    return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], user_name=x['user_name'],
-                               username=x['username'], gift_name=x['gift_name'], image_url=x['image_url'],
-                               price_ton=x['floor_price']/100, status=x['status'], admin_id=x['admin_id'],
-                               admin_name=x['admin_name'], admin_username=x['admin_username'],
-                               created_at=x['created_at'], processed_at=x['processed_at'],external_url=x['external_url'] or '') for x in rows])
+        rows=db.execute(f"""SELECT w.*,u.name AS user_name,u.username,au.name AS admin_name,au.username AS admin_username,
+                                   rl.status AS relayer_status,rl.transfer_stars AS relayer_transfer_stars,
+                                   rl.error AS relayer_error,rl.attempts AS relayer_attempts,rl.updated_at AS relayer_updated_at,
+                                   pl.status AS portal_status,pl.stage AS portal_stage,pl.error AS portal_error,
+                                   pl.attempts AS portal_attempts,pl.nft_id AS portal_nft_id,pl.nft_name AS portal_nft_name,
+                                   pl.source AS portal_source,pl.purchase_price AS portal_purchase_price,
+                                   pl.balance_before AS portal_balance_before,pl.withdrawal_ids AS portal_withdrawal_ids,
+                                   pl.updated_at AS portal_updated_at
+                            FROM withdrawals w JOIN users u ON u.id=w.user_id
+                            LEFT JOIN users au ON au.id=w.admin_id
+                            LEFT JOIN relayer_withdrawal_logs rl ON rl.withdrawal_id=w.id
+                            LEFT JOIN portal_withdrawal_logs pl ON pl.withdrawal_id=w.id
+                            WHERE {where} ORDER BY w.id DESC LIMIT 300""").fetchall()
+    failures={'disabled','login_required','insufficient_stars','blocked','recipient_unavailable','error',
+              'portal_not_configured','portal_not_found','portal_insufficient_balance','portal_buy_failed',
+              'portal_withdraw_failed','portal_error','portal_recovered','portal_unknown'}
+    items=[]
+    for x in rows:
+        ps=str(x['portal_status'] or '');rs=str(x['relayer_status'] or '')
+        provider='portal' if ps else ('relayer' if rs else '')
+        status=ps or rs
+        err=(x['portal_error'] or '') if ps else (x['relayer_error'] or '')
+        items.append(dict(id=x['id'],user_id=x['user_id'],user_name=x['user_name'],username=x['username'],
+            gift_name=x['gift_name'],image_url=x['image_url'],price_ton=x['floor_price']/100,status=x['status'],
+            admin_id=x['admin_id'],admin_name=x['admin_name'],admin_username=x['admin_username'],
+            created_at=x['created_at'],processed_at=x['processed_at'],external_url=x['external_url'] or '',
+            delivery_provider=provider,auto_status=status,auto_error=err,
+            auto_transfer_stars=int(x['relayer_transfer_stars'] or 0),
+            auto_attempts=int((x['portal_attempts'] if ps else x['relayer_attempts']) or 0),
+            auto_updated_at=(x['portal_updated_at'] if ps else x['relayer_updated_at']),
+            manual_required=bool(x['status']=='pending' and status in failures),
+            portal_stage=x['portal_stage'] or '',portal_nft_id=x['portal_nft_id'] or '',
+            portal_nft_name=x['portal_nft_name'] or '',portal_source=x['portal_source'] or '',
+            portal_purchase_price=x['portal_purchase_price'] or '0',
+            portal_balance_before=x['portal_balance_before'] or '0',
+            portal_withdrawal_ids=x['portal_withdrawal_ids'] or ''))
+    return jsonify(items=items)
+
 
 @app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
 @admin_required
@@ -14677,6 +14724,171 @@ async def _relayer_saved_gifts(client):
             elif name=='peer':kwargs[name]=peer
             else:kwargs[name]=False
     result=await client(cls(**kwargs)); return list(getattr(result,'gifts',None) or getattr(result,'saved_gifts',None) or [])
+
+
+async def _relayer_stars_balance(client):
+    _,functions,_,_,_,_=_relayer_imports()
+    payments=getattr(functions,'payments',None);cls=getattr(payments,'GetStarsStatusRequest',None) if payments else None
+    if cls is None:return 0
+    peer=await client.get_input_entity('me');sig=inspect.signature(cls.__init__);kwargs={}
+    for name,param in sig.parameters.items():
+        if name=='self':continue
+        if name=='peer':kwargs[name]=peer
+        elif param.default is inspect._empty:kwargs[name]=False
+    return _relayer_stars_value(getattr(await client(cls(**kwargs)),'balance',0))
+
+def _relayer_slug_from_url(value):
+    m=re.search(r'https?://(?:t\\.me/nft|fragment\\.com/gift)/([A-Za-z0-9_-]+)',str(value or ''),re.I)
+    return m.group(1) if m else ''
+
+def _relayer_withdrawal_target(withdrawal_id):
+    with connect() as db:
+        row=db.execute("""SELECT w.*,u.name AS user_name,u.username,e.external_key AS deposit_external_key,
+                                 e.external_url AS deposit_external_url
+                          FROM withdrawals w JOIN users u ON u.id=w.user_id
+                          LEFT JOIN relayer_gift_events e ON e.inventory_id=w.inventory_id WHERE w.id=?""",(withdrawal_id,)).fetchone()
+    return dict(row) if row else None
+
+def _relayer_transfer_meta(entry,info):
+    out=dict(info or {});gift=getattr(entry,'gift',None) or entry
+    try:out['transfer_stars']=max(0,int(getattr(entry,'transfer_stars',0) or getattr(gift,'transfer_stars',0) or 0))
+    except (TypeError,ValueError):out['transfer_stars']=0
+    raw=getattr(entry,'can_transfer_at',None) or getattr(gift,'can_transfer_at',None)
+    if hasattr(raw,'timestamp'):
+        try:raw=int(raw.timestamp())
+        except Exception:raw=0
+    try:out['can_transfer_at']=max(0,int(raw or 0))
+    except (TypeError,ValueError):out['can_transfer_at']=0
+    return out
+
+def _relayer_match_withdrawal(row,gifts):
+    target_slug=_relayer_slug_from_url(row.get('deposit_external_url') or row.get('external_url'))
+    target_number=str(row.get('fragment_number') or '').strip()
+    target_name=_relayer_norm(re.sub(r'\\s*\\((?:Black|Onyx|Onyx Black)\\)\\s*$','',str(row.get('gift_name') or ''),flags=re.I))
+    infos=[]
+    for entry in gifts:
+        info=_relayer_transfer_meta(entry,_relayer_entry_info(entry))
+        if not info.get('slug'):continue
+        infos.append((entry,info))
+        if target_slug and str(info.get('slug') or '').casefold()==target_slug.casefold():return entry,info
+    if target_number:
+        for entry,info in infos:
+            if str(info.get('fragment_number') or '')==target_number:return entry,info
+        return None,None
+    for entry,info in infos:
+        live=_relayer_norm(info.get('gift_name'));base=_relayer_norm(re.sub(r'-\\d+$','',str(info.get('slug') or ''),flags=re.I))
+        if target_name and (target_name==live or target_name==base or target_name in live or live in target_name):return entry,info
+    return None,None
+
+def _relayer_auto_log(withdrawal_id,row,status,info=None,transfer_stars=0,error_text=''):
+    info=info or {};inc=1 if status=='sending' else 0
+    with connect() as db:
+        db.execute("""INSERT INTO relayer_withdrawal_logs(withdrawal_id,user_id,inventory_id,external_key,gift_slug,gift_name,
+                      fragment_number,status,transfer_stars,attempts,error,updated_at,completed_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                      ON CONFLICT(withdrawal_id) DO UPDATE SET external_key=excluded.external_key,gift_slug=excluded.gift_slug,
+                      status=excluded.status,transfer_stars=excluded.transfer_stars,
+                      attempts=relayer_withdrawal_logs.attempts+CASE WHEN excluded.status='sending' THEN 1 ELSE 0 END,
+                      error=excluded.error,updated_at=CURRENT_TIMESTAMP,
+                      completed_at=CASE WHEN excluded.status='completed' THEN CURRENT_TIMESTAMP ELSE relayer_withdrawal_logs.completed_at END""",
+                   (withdrawal_id,int(row['user_id']),int(row.get('inventory_id') or 0),
+                    str(info.get('external_key') or row.get('deposit_external_key') or ''),str(info.get('slug') or ''),
+                    str(row.get('gift_name') or ''),str(row.get('fragment_number') or ''),status,
+                    max(0,int(transfer_stars or 0)),inc,str(error_text or '')[:500],status))
+        db.commit()
+
+async def _relayer_transfer_saved_gift(client,row,info):
+    from telethon import types
+    _,functions,_,_,_,_=_relayer_imports()
+    can_at=int(info.get('can_transfer_at') or 0)
+    if can_at and can_at>int(time.time()):raise RuntimeError(f'NFT пока нельзя передать: Telegram transfer lock ещё {can_at-int(time.time())} сек.')
+    slug=str(info.get('slug') or '')
+    if not slug:raise RuntimeError('У NFT отсутствует Telegram slug.')
+    saved_cls=getattr(types,'InputSavedStarGiftSlug',None)
+    if saved_cls is None:raise RuntimeError('Текущая версия Telethon не поддерживает InputSavedStarGiftSlug.')
+    username=str(row.get('username') or '').strip().lstrip('@')
+    try:peer=await client.get_input_entity('@'+username if username else int(row['user_id']))
+    except Exception as exc:raise RuntimeError('Не удалось определить Telegram-получателя.') from exc
+    stargift=saved_cls(slug=slug);transfer_stars=max(0,int(info.get('transfer_stars') or 0));payments=getattr(functions,'payments',None)
+    if transfer_stars:
+        if await _relayer_stars_balance(client)<transfer_stars:raise RuntimeError('Недостаточно Stars на Relayer.')
+        invoice=types.InputInvoiceStarGiftTransfer(stargift=stargift,to_id=peer)
+        form=await client(functions.payments.GetPaymentFormRequest(invoice=invoice))
+        await client(functions.payments.SendStarsFormRequest(form_id=form.form_id,invoice=invoice))
+    else:
+        await client(functions.payments.TransferStarGiftRequest(stargift=stargift,to_id=peer))
+    return transfer_stars
+
+def _complete_auto_withdrawal(withdrawal_id,row,provider,info=None,paid=0):
+    changed=False
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT id FROM withdrawals WHERE id=? AND status='pending'",(withdrawal_id,)).fetchone():
+            db.execute("UPDATE withdrawals SET status='approved',admin_id=0,processed_at=CURRENT_TIMESTAMP WHERE id=?",(withdrawal_id,))
+            record_transaction(db,int(row['user_id']),'withdrawal_auto',0,'withdrawal',withdrawal_id,str(row.get('gift_name') or 'NFT'))
+            log_event(db,int(row['user_id']),'withdrawal_auto_completed',withdrawal_id=withdrawal_id,gift_name=row.get('gift_name') or '',provider=provider)
+            changed=True
+        db.commit()
+    if provider=='relayer':_relayer_auto_log(withdrawal_id,row,'completed',info or {},paid)
+    if changed:
+        notify_user_async(int(row['user_id']),f'✅ <b>Ваш подарок успешно выведен</b>\\n\\n🎁 {escape(str(row.get("gift_name") or "NFT"))}',
+                          miniapp_markup('Открыть GemDrop','profile'),'HTML')
+    return dict(ok=True,status='completed',provider=provider)
+
+async def _relayer_auto_withdraw_one_async(withdrawal_id,client=None,gifts=None):
+    row=_relayer_withdrawal_target(withdrawal_id)
+    if not row or str(row.get('status') or '')!='pending':return dict(ok=False,status='not_pending')
+    own=client is None
+    try:
+        if own:
+            client=_relayer_client();await client.connect()
+        if not await client.is_user_authorized():raise RuntimeError('Relayer не авторизован.')
+        gifts=gifts if gifts is not None else await _relayer_saved_gifts(client)
+        _,info=_relayer_match_withdrawal(row,gifts)
+        if not info:
+            _relayer_auto_log(withdrawal_id,row,'not_found',error_text='Подарок не найден на Relayer. Переходим в Portal Market.')
+            notify_user_async(int(row['user_id']),
+                f'🔎 <b>Подарок не найден на Relayer</b>\\n\\n🎁 {escape(str(row.get("gift_name") or "Подарок"))}\\n'
+                'Пробуем купить самый доступный подходящий подарок через Portal Market.',
+                miniapp_markup('Открыть GemDrop','profile'),'HTML')
+            return _portal_fallback_withdraw(withdrawal_id,row)
+        _relayer_auto_log(withdrawal_id,row,'sending',info,info.get('transfer_stars') or 0)
+        try:paid=await _relayer_transfer_saved_gift(client,row,info)
+        except Exception as exc:
+            msg=str(exc)[:450];low=msg.casefold()
+            status='insufficient_stars' if 'stars' in low else ('blocked' if 'lock' in low or 'пока нельзя' in low else ('recipient_unavailable' if 'получател' in low else 'error'))
+            msg=msg.rstrip('.')+'. Требуется ручной вывод.'
+            _relayer_auto_log(withdrawal_id,row,status,info,info.get('transfer_stars') or 0,msg)
+            return dict(ok=False,status=status,error=msg,manual_required=True)
+        return _complete_auto_withdrawal(withdrawal_id,row,'relayer',info,paid)
+    except Exception as exc:
+        msg=str(exc)[:450].rstrip('.')+'. Требуется ручной вывод.'
+        _relayer_auto_log(withdrawal_id,row,'login_required' if 'авторизован' in msg.casefold() else 'error',error_text=msg)
+        return dict(ok=False,status='error',error=msg,manual_required=True)
+    finally:
+        if own and client is not None:
+            try:_relayer_save_session(client)
+            except Exception:pass
+            try:await client.disconnect()
+            except Exception:pass
+
+async def _relayer_process_pending_with_client(client,gifts,limit=6):
+    with connect() as db:
+        rows=db.execute("""SELECT w.id FROM withdrawals w LEFT JOIN relayer_withdrawal_logs l ON l.withdrawal_id=w.id
+                           LEFT JOIN portal_withdrawal_logs p ON p.withdrawal_id=w.id
+                           WHERE w.status='pending' AND p.id IS NULL AND (l.id IS NULL OR l.status='queued')
+                           ORDER BY w.id LIMIT ?""",(max(1,min(20,int(limit))),)).fetchall()
+    done=0
+    for x in rows:
+        r=await _relayer_auto_withdraw_one_async(int(x['id']),client=client,gifts=gifts);done+=1 if r.get('status')=='completed' else 0
+    return dict(processed=len(rows),completed=done)
+
+def _auto_withdrawal_thread(withdrawal_id):
+    try:_relayer_run(_relayer_auto_withdraw_one_async(int(withdrawal_id)))
+    except Exception as exc:
+        app.logger.exception('NFT auto withdrawal failed')
+        row=_relayer_withdrawal_target(withdrawal_id)
+        if row:_relayer_auto_log(withdrawal_id,row,'error',error_text=str(exc)[:450]+'. Требуется ручной вывод.')
 
 
 async def _relayer_scan_async(force=False):

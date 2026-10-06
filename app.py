@@ -997,8 +997,7 @@ def login_required(fn):
 
 
 def admin_required(fn):
-    @wraps(fn)
-    def decorated(*args, **kwargs):
+    @wraps(fn)    def decorated(*args, **kwargs):
         user = current_user()
         if not user or user['id'] not in ADMIN_IDS:
             return error('Нет доступа.', 403)
@@ -1997,8 +1996,7 @@ def read_catalog(include_hidden=False):
 
 def repair_legacy_upgrade_wagers():
     """Restore wager gifts incorrectly changed into upgrade targets by older releases."""
-    try:catalog=read_catalog(include_hidden=True).get('gifts',[])
-    except (OSError,ValueError,TypeError):catalog=[]
+    try:catalog=read_catalog(include_hidden=True).get('gifts',[])    except (OSError,ValueError,TypeError):catalog=[]
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -2997,8 +2995,7 @@ def spin_roll(roll_id):
             ticket-=weight
         entry=roll['entries'][index]
         new_boost=entry['boost'] if entry['kind']=='boost' else 1
-        updated=db.execute('UPDATE users SET balance=balance-?,roll_boost=? WHERE id=? AND balance>=?',
-                           (roll['price'],new_boost,session['uid'],roll['price']))
+        updated=db.execute('UPDATE users SET balance=balance-?,roll_boost=? WHERE id=? AND balance>=?',                           (roll['price'],new_boost,session['uid'],roll['price']))
         if not updated.rowcount: return error('Недостаточно TON.')
         spin_id=secrets.token_hex(16)
         if entry['kind']=='gift':
@@ -3996,7 +3993,6 @@ def incoming_transfer():
     return jsonify(transfer=dict(id=row['id'],amount=row['amount']/100,
                   old_balance=row['recipient_before']/100,new_balance=(row['recipient_before']+row['amount'])/100,
                   sender=dict(name=row['name'],username=row['username'],photo_url=row['photo_url'])))
-
 
 @app.post('/api/transfers/<transfer_id>/seen')
 @login_required
@@ -4997,7 +4993,6 @@ def normalize_reward_task(data, current=None):
 def reward_task_period(task):
     return datetime.now(timezone.utc).strftime('%Y-%m-%d') if task['category'] == 'daily' else 'once'
 
-
 def reward_task_progress(db, task, user_id):
     metric = task['metric']
     if metric == 'level':
@@ -5997,8 +5992,7 @@ def public_user_profile(user_id):
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 
 
-@app.get('/api/users/<int:user_id>/balance-history')
-@login_required
+@app.get('/api/users/<int:user_id>/balance-history')@login_required
 def public_user_balance_history(user_id):
     try:
         offset = max(0, min(100000, int(request.args.get('offset', 0))))
@@ -6997,8 +6991,7 @@ def admin_add_emoji():
     if not re.fullmatch(r'[0-9]{5,30}', eid):
         return error('Введите корректный ID эмодзи.')
     try:
-        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [eid]}) or []
-        if not stickers:
+        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [eid]}) or []        if not stickers:
             return error('Telegram не нашёл эмодзи с таким ID.')
         item = dict(id=eid, emoji=stickers[0].get('emoji') or '⭐')
         remember_emojis([item])
@@ -7997,8 +7990,7 @@ def game_layout():
 def is_admin_session():
     try:
         return int(session.get('uid') or 0) in ADMIN_IDS
-    except (TypeError, ValueError):
-        return False
+    except (TypeError, ValueError):        return False
 
 
 def game_modes():
@@ -8997,8 +8989,7 @@ def crash_state_payload(db, uid, now):
     for r in rows:
         is_gift = (r['bet_type'] or 'ton') in ('gift', 'promo_gift')
         bets.append(dict(user_id=r['user_id'], name=r['name'], photo_url=r['photo_url'], bet=r['bet'] / 100,
-                         bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',
-                         bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
+                         bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',                         bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
                          state=('active' if phase != 'crashed' and r['state'] == 'active' else r['state']),
                          cashout=(r['cashout_x100'] or 0) / 100, payout=(r['payout'] or 0) / 100,
                          prize=(crash_gift_view(r['prize_name'], r['prize_image'], r['prize_price'])
@@ -9997,8 +9988,7 @@ def save_admin_section_settings():
         for key, value in (layout.get('badges') or {}).items():
             if key not in GAME_KEYS:
                 continue
-            if value in ('', None):
-                continue
+            if value in ('', None):                continue
             if value not in GAME_BADGES:
                 return error('Значок: new, hot, top, beta или soon.')
             badges[key] = value
@@ -10997,8 +10987,7 @@ def admin_publish_post():
             if text:
                 rich_html += '\n' + rich_custom_emoji_html(text)
             payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
-            if reply_markup:
-                payload['reply_markup'] = reply_markup
+            if reply_markup:                payload['reply_markup'] = reply_markup
             transport_used = 'rich_message'
             sent = remember_sent(telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30)))
         elif total_media == 1:
@@ -11997,8 +11986,7 @@ def creator_create_bonus():
     if kind not in ('freebet', 'promocode'):
         return error('Выберите Freebet или промокод.')
     if reward_type not in ('balance', 'wager_gift'):
-        return error('Авторам доступны TON или отыгрышный подарок.')
-    code = str(data.get('code') or '').strip().upper()
+        return error('Авторам доступны TON или отыгрышный подарок.')    code = str(data.get('code') or '').strip().upper()
     if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
         return error('Код: 3–32 символа, только A-Z, 0-9, _ и -. Можно оставить поле пустым — код сгенерируется автоматически.')
     try:
@@ -12997,8 +12985,7 @@ def _activity_upgrade(r):
         else:
             lines.append(f'Проигрыш: потеряна жизнь, осталось {int(result.get("wager_attempts_remaining") or 0)} '
                          f'из {int(result.get("wager_attempts_total") or 1)}')
-        return _ev(title='Upgrade · отыгрыш (проигрыш)', lines=lines, tone='loss', **base)
-    if won:
+        return _ev(title='Upgrade · отыгрыш (проигрыш)', lines=lines, tone='loss', **base)    if won:
         lines = [stake, goal, f'Выигран подарок: {tgt_name} ({_money(tgt_price)})']
         if from_ton:
             lines.append(f'Списано с баланса за ставку: {_money(src_price)}')
@@ -15045,8 +15032,7 @@ def telegram_webhook():
             try:
                 total_amount = int(pre_checkout.get('total_amount'))
             except (TypeError, ValueError):
-                total_amount = -1
-            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+                total_amount = -1            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
                 with connect() as db:
                     order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
                                        (order_id, uid)).fetchone()

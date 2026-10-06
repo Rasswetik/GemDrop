@@ -897,7 +897,8 @@ p,.muted,.caption,.notice,small{line-height:1.5}
 #upgradePage .upgrade-action{margin-top:7px}
 #adminPage .admin-menu{gap:20px}
 
-@media(max-height:710px){#upgradePage .upgrade-wheel-wrap{margin:15px auto}}
+@media(max-height:710px){#upgradePage .upgrade-wheel-wrap{margin:15px auto}
+}
 #upgradePage .upgrade-wins-card{border-color:#344f67;background:linear-gradient(155deg,#1c1e33,#141626)}
 #upgradePage .upgrade-wins-card h2{color:#5cabe0;font-size:12px;font-weight:760;letter-spacing:.035em;text-transform:none}
 .upgrade-win-row{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;padding:12px;border-bottom:1px solid #2b3f50}
@@ -996,8 +997,7 @@ p,.muted,.caption,.notice,small{line-height:1.5}
 #profilePage #inventoryGrid .promo-ribbon{top:4px;right:4px;padding:3px 4px;font-size:8px}
 
 @media(max-width:360px){#profilePage #inventoryGrid.inventory{gap:6px}
-#profilePage #inventoryGrid .gift{padding:5px}
-#profilePage #inventoryGrid .gift-art{height:86px;padding:5px}
+#profilePage #inventoryGrid .gift{padding:5px}#profilePage #inventoryGrid .gift-art{height:86px;padding:5px}
 #profilePage #inventoryGrid .gift strong{font-size:10px}
 }
 .recent-wins-card .top-drop-empty{color:#aeb9c6;font-size:11px}
@@ -1796,7 +1796,8 @@ html.upgrade-spin-lock .app{transform:none!important}
 #craftPage .craft-win-chip img{display:block!important;flex:none!important;width:23px!important;height:23px!important;max-width:23px!important;max-height:23px!important;object-fit:contain!important}
 #craftPage .craft-win-chip div{min-width:0!important;overflow:hidden!important}
 #craftPage .craft-win-chip b{display:block!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#eef2f7!important;font-size:10.5px!important;font-weight:760!important}
-#craftPage .craft-win-arrow{display:grid!important;place-items:center!important;width:18px!important;color:#71879b!important;font-size:11px!important;font-weight:800!important}#winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+#craftPage .craft-win-arrow{display:grid!important;place-items:center!important;width:18px!important;color:#71879b!important;font-size:11px!important;font-weight:800!important}
+#winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 #winsAdminPage .wins-admin-stat{border-color:rgba(255,255,255,.08)!important;background:rgba(255,255,255,.035)!important;border-radius:15px!important}
 #winsAdminPage .wins-admin-stat span{color:#8f9aa4!important;font-size:10px!important}
 #winsAdminPage .wins-admin-stat strong{color:#f1f3f6!important;font-size:22px!important}
@@ -1995,8 +1996,7 @@ button:not(:disabled){cursor:pointer}
 .comp-final-art{display:grid;place-items:center;min-height:132px;border-radius:18px;background:radial-gradient(circle,rgba(71,176,245,.16),rgba(255,255,255,.035) 68%)}
 .comp-final-art img{width:124px;height:124px;object-fit:contain;filter:drop-shadow(0 10px 14px rgba(0,0,0,.35))}
 .comp-final-art b{font-size:32px;font-weight:950;letter-spacing:-.06em;color:#ffffff}
-.comp-final-art b+img{width:30px;height:30px;margin-left:6px}
-.comp-final-art:has(b){display:flex;gap:7px}
+.comp-final-art b+img{width:30px;height:30px;margin-left:6px}.comp-final-art:has(b){display:flex;gap:7px}
 .comp-final-text{display:grid;gap:7px;min-width:0}
 .comp-final-text strong{font-size:18px;line-height:1.15;color:#f9fafc}
 .comp-final-text span{font-size:13px;color:#b9c6d4;line-height:1.45}
@@ -2695,7 +2695,8 @@ body.studio .app{padding:28px 18px calc(105px + env(safe-area-inset-bottom))!imp
 body.studio .balance{padding:7px 9px!important;min-height:36px!important;font-size:12px!important;gap:5px}
 body.studio .balance img{width:17px!important;height:17px!important}
 body.studio .deposit-mini{height:36px!important;width:32px!important;border-radius:10px!important}
-body.studio .top-actions{gap:5px;flex-shrink:0}.mines-layout{grid-template-columns:minmax(0,1fr);gap:14px}
+body.studio .top-actions{gap:5px;flex-shrink:0}
+.mines-layout{grid-template-columns:minmax(0,1fr);gap:14px}
 .mines-play,.mines-settings{border-radius:20px;padding:20px}
 body.studio #minesPage .board{gap:8px;max-width:430px}
 body.studio #minesPage .cell{border-radius:11px!important}
@@ -2994,8 +2995,7 @@ body.studio.modal-open #nav{visibility:hidden!important;pointer-events:none!impo
 .notifications-card .picker-close{width:36px;height:36px;border-radius:10px;background:#1e2135;color:#b6c3d1;font-size:24px}
 .notification-list{min-height:0;overflow:auto}
 .notification-row{padding:12px 0;border-bottom:1px solid #2b2f4c}
-.notification-row p{margin:0 0 6px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
-.notification-row.unread p{color:#47b0f5}
+.notification-row p{margin:0 0 6px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}.notification-row.unread p{color:#47b0f5}
 .notification-row time,.history-row time{color:#8599aa;font-size:11px}
 .history-filter{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
 .history-filter .text-input{min-width:0;margin:0;font-size:16px}
@@ -3486,7 +3486,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 .bc-filter-wide{grid-column:1/-1}.bc-cells .bc-cell{min-height:78px;display:flex!important;align-items:center!important;justify-content:center!important;flex-direction:column!important;gap:4px!important;padding:7px!important;overflow:hidden}.bc-cells .bc-cell img{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important;margin:0 auto!important}.bc-cells .bc-cell img+span{display:none!important}.bc-cells .bc-cell>span:first-child{font-size:29px!important;line-height:1!important}.bc-cells .bc-cell small{width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:8px!important}
 .gift.deposit-mirror{position:relative;opacity:.94}.gift.deposit-mirror:after{content:'ПОПОЛНЕНИЕ';position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:7px;background:#245c87;color:#dff4ff;font-size:7px;font-weight:950;letter-spacing:.04em;box-shadow:0 3px 10px #0007}
 .pp-hero-ico{animation:profileHeroBreathe 3.2s ease-in-out infinite}.pp-stage{overflow:hidden}.pp-stage:after{content:'';position:absolute;inset:-35%;pointer-events:none;background:conic-gradient(from 0deg,transparent,rgba(85,190,255,.07),transparent 24%);animation:profileStageSweep 8s linear infinite}.pp-stage>*{position:relative;z-index:1}@keyframes profileHeroBreathe{50%{transform:translateY(-2px) scale(1.025);filter:drop-shadow(0 7px 15px rgba(70,176,245,.18))}}@keyframes profileStageSweep{to{transform:rotate(360deg)}}
-.hlg-tutorial-media{margin:12px 0 18px;border:1px solid #ffffff18;border-radius:18px;overflow:hidden;background:#101426;box-shadow:0 14px 34px #0005}.hlg-tutorial-media img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}\n#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 @media(max-width:390px){.relayer-grid{grid-template-columns:1fr}.gift-deposit-instruction{grid-template-columns:58px minmax(0,1fr)}.gift-deposit-orbit{width:58px;height:58px}.gift-deposit-orbit img{width:52px;height:52px}.gift-deposit-rate{grid-template-columns:46px minmax(0,1fr) auto}.gift-deposit-rate>img{width:46px;height:46px}}
 </style>
 <style id="desktop-mobile-shell">
@@ -3512,6 +3512,101 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
   .toast,.level-notice{max-width:min(520px,calc(100vw - 40px))!important}
   .modal-card{max-width:min(460px,calc(100vw - 44px))}
   .creator-gift-modal-sheet{width:min(540px,calc(100vw - 28px))!important}
+}
+</style>
+
+
+<style id="gift-deposit-modal-final-v5">
+#depositModal[data-method="gift"]{
+  position:fixed!important;inset:0!important;z-index:10040!important;
+  display:flex!important;align-items:center!important;justify-content:center!important;
+  padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right))
+          max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))!important;
+  box-sizing:border-box!important;overflow:hidden!important;
+  background:rgba(3,6,14,.78)!important;backdrop-filter:blur(12px)!important;
+}
+#depositModal[data-method="gift"].hidden{display:none!important}
+#depositModal[data-method="gift"] .deposit-card{
+  position:relative!important;inset:auto!important;transform:none!important;
+  width:min(540px,calc(100vw - 20px))!important;
+  height:min(820px,calc(100dvh - 20px))!important;
+  max-width:540px!important;max-height:calc(100dvh - 20px)!important;
+  margin:0!important;padding:16px!important;border-radius:24px!important;
+  box-sizing:border-box!important;overflow:hidden!important;
+  display:flex!important;flex-direction:column!important;
+}
+#depositModal[data-method="gift"] #depositGiftStep{
+  display:grid!important;grid-template-rows:auto auto auto auto minmax(0,1fr)!important;
+  gap:10px!important;min-height:0!important;height:100%!important;width:100%!important;
+  overflow:hidden!important;margin:0!important;padding:0!important;
+}
+#depositModal[data-method="gift"] #depositGiftStep.hidden{display:none!important}
+#depositModal[data-method="gift"] .deposit-modal-close{
+  position:absolute!important;top:12px!important;right:12px!important;z-index:9!important;
+  width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;
+  padding:0!important;margin:0!important;border:1px solid rgba(255,255,255,.10)!important;
+  border-radius:13px!important;background:rgba(24,28,44,.96)!important;color:#fff!important;
+  font:700 26px/1 Arial,sans-serif!important;display:grid!important;place-items:center!important;
+  cursor:pointer!important;pointer-events:auto!important;touch-action:manipulation!important;
+}
+#depositModal[data-method="gift"] .deposit-back{
+  width:40px!important;height:40px!important;min-height:40px!important;margin:0!important;
+  padding:0!important;border-radius:13px!important;display:grid!important;place-items:center!important;
+}
+#depositModal[data-method="gift"] .gift-head{
+  margin:0!important;padding:0 48px 8px 0!important;min-width:0!important;
+  border-bottom:1px solid rgba(255,255,255,.07)!important;
+}
+#depositModal[data-method="gift"] .gift-head .deposit-head-icon{width:48px!important;height:48px!important}
+#depositModal[data-method="gift"] .gift-head h2{font-size:21px!important;line-height:1.15!important;margin:1px 0 4px!important}
+#depositModal[data-method="gift"] .gift-head p{margin:0!important;font-size:11px!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction{
+  display:grid!important;grid-template-columns:54px minmax(0,1fr)!important;gap:11px!important;
+  align-items:center!important;padding:10px 11px!important;margin:0!important;border-radius:16px!important;
+}
+#depositModal[data-method="gift"] .gift-deposit-orbit{width:54px!important;height:54px!important;border-radius:15px!important}
+#depositModal[data-method="gift"] .gift-deposit-orbit img{width:48px!important;height:48px!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction b{font-size:13px!important;line-height:1.35!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction small{font-size:10px!important;line-height:1.35!important;margin-top:4px!important}
+#depositModal[data-method="gift"] .gift-relay-open{
+  margin:0!important;min-height:44px!important;border-radius:14px!important;flex:0 0 auto!important;
+}
+#depositModal[data-method="gift"] .gift-relay-status.hidden{display:none!important}
+#depositModal[data-method="gift"] .gift-rates-head{
+  margin:1px 2px 0!important;align-items:center!important;min-height:28px!important;
+}
+#depositModal[data-method="gift"] .gift-rates-head b{font-size:13px!important}
+#depositModal[data-method="gift"] .gift-rates-head small{display:none!important}
+#depositModal[data-method="gift"] .gift-deposit-rates{
+  min-height:0!important;max-height:none!important;height:100%!important;
+  overflow-y:auto!important;overflow-x:hidden!important;padding:0 3px 4px 0!important;
+  overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important;
+  scrollbar-width:thin!important;
+}
+#depositModal[data-method="gift"] .gift-deposit-rate{
+  grid-template-columns:50px minmax(0,1fr) auto!important;
+  min-height:62px!important;padding:6px 9px!important;border-radius:13px!important;
+}
+#depositModal[data-method="gift"] .gift-deposit-rate>img{width:50px!important;height:50px!important}
+#depositModal[data-method="gift"] .gift-deposit-rate strong{font-size:11.5px!important}
+#depositModal[data-method="gift"] .gift-rate-price{font-size:11.5px!important}
+@media (max-width:430px){
+  #depositModal[data-method="gift"]{padding:8px!important}
+  #depositModal[data-method="gift"] .deposit-card{
+    width:calc(100vw - 16px)!important;height:calc(100dvh - 16px)!important;
+    max-height:calc(100dvh - 16px)!important;border-radius:20px!important;padding:13px!important;
+  }
+  #depositModal[data-method="gift"] .gift-head h2{font-size:19px!important}
+  #depositModal[data-method="gift"] .gift-deposit-instruction{grid-template-columns:48px minmax(0,1fr)!important;padding:9px!important}
+  #depositModal[data-method="gift"] .gift-deposit-orbit{width:48px!important;height:48px!important}
+  #depositModal[data-method="gift"] .gift-deposit-orbit img{width:44px!important;height:44px!important}
+}
+@media (max-height:650px){
+  #depositModal[data-method="gift"] .deposit-card{height:calc(100dvh - 12px)!important;max-height:calc(100dvh - 12px)!important;padding:11px!important}
+  #depositModal[data-method="gift"] #depositGiftStep{gap:7px!important}
+  #depositModal[data-method="gift"] .gift-head p{display:none!important}
+  #depositModal[data-method="gift"] .gift-deposit-instruction small{display:none!important}
+  #depositModal[data-method="gift"] .gift-relay-open{min-height:40px!important}
 }
 </style>
 
@@ -3594,7 +3689,8 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 </div>
 <div class="panel arena-players-panel"><div class="panel-head"><h2>Игроки</h2><span id="arenaPlayersCount">0</span></div><div id="arenaPlayers" class="arena-player-list"><div class="empty">Пока нет ставок</div></div></div>
 </section>
-<section id="crashPage" class="hidden"><h1 class="page-title">Crash</h1>
+<section id="crashPage" class="hidden">
+<h1 class="page-title">Crash</h1>
 <div id="crHistory" class="cr-history" aria-label="Последние раунды"></div>
 <div id="crStage" class="cr-stage" data-phase="betting">
 <div class="cr-sky" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -3898,8 +3994,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
     <label><span>Telegram API Hash</span><input id="relayApiHash" class="text-input" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></label>
   </div>
   <label class="toggle-row"><span><strong>Автопроверка</strong><br><small class="muted">Фоново проверять новые NFT</small></span><input id="relayAutoEnabled" type="checkbox" checked></label>
-  <label class="caption" for="relayDeliveryMode">Что выдавать за входящий NFT</label>
-  <select id="relayDeliveryMode" class="text-input">
+  <label class="caption" for="relayDeliveryMode">Что выдавать за входящий NFT</label>  <select id="relayDeliveryMode" class="text-input">
     <option value="inventory" selected>Подарок в инвентарь — основной режим</option>
     <option value="balance">Стоимость в TON на баланс — запасной режим</option>
   </select>
@@ -3946,7 +4041,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="rewardModal" class="modal hidden"><div class="modal-card"><h2>Поздравляем!</h2><div id="rewardGift" class="promo-success-gift hidden"><img id="rewardImage" src="/static/img/ton.png" alt=""></div><div id="rewardGiftName" class="promo-success-name hidden"></div><div id="rewardTon" class="promo-success-ton hidden"><span id="rewardAmount">+0.00</span><img src="/static/img/ton.png" alt="TON"></div><p id="rewardExtra" class="modal-extra hidden"></p><button id="claimReward" class="primary">Забрать</button></div></div>
 <button id="levelNotice" class="level-notice hidden" type="button">Новый уровень! Нажмите, чтобы получить награду</button><div id="levelsModal" class="modal hidden"><div class="modal-card level-modal-card"><h2>Уровни и награды</h2><p id="levelsSummary">Ваш прогресс</p><div id="levelsList" class="level-list"></div><button id="closeLevels" class="primary" type="button">Закрыть</button></div></div><div id="levelRewardModal" class="modal hidden"><div class="modal-card level-reward-card"><h2>Награда получена!</h2><div id="levelRewardBody"></div><button id="closeLevelReward" class="primary" type="button">Готово</button></div></div><div id="upgradeListModal" class="modal hidden"><div class="modal-card upgrade-list-card"><div class="picker-heading"><h2 id="upgradeListTitle">Целевой подарок</h2><button id="closeUpgradeList" type="button" class="picker-close" aria-label="Закрыть">×</button></div><div id="upgradeTonPick" class="upgrade-ton-pick hidden"><div class="utp-head"><img src="/static/img/ton.png" alt="TON"><div><b>Ставка TON</b><small id="upgradeTonBalance">Баланс: 0.00 TON</small></div></div><div class="utp-field"><input id="upgradeTonAmount" class="embedded-input" type="text" inputmode="decimal" placeholder="0.10" aria-label="Ставка TON" autocomplete="off"><span>TON</span></div><div class="utp-presets"><button type="button" data-utp="0.5">0.5</button><button type="button" data-utp="1">1</button><button type="button" data-utp="5">5</button><button type="button" data-utp="max">MAX</button></div><button id="upgradeSelectTon" class="primary utp-go" type="button">Выбрать</button></div><div id="upgradeList" class="upgrade-list"></div></div></div><div id="upgradeResultModal" class="modal hidden"><div id="upgradeResultCard" class="modal-card upgrade-result-card"><h2 id="upgradeResultHeading">Результат</h2><img id="upgradeResultImage" alt=""><p id="upgradeResultText"></p><div id="upgradeCompensation" class="upgrade-compensation hidden" role="status"></div><button id="closeUpgradeResult" class="primary" type="button">Продолжить</button></div></div><div id="rewardsReceivedModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rrTitle"><div class="modal-card rr-card"><div class="rr-badge" aria-hidden="true">🎁</div><h2 id="rrTitle">Вы получили</h2><p id="rrSub" class="rr-sub">Награды уже зачислены в ваш аккаунт</p><div id="rrList" class="rr-list"></div><button id="rrClaim" class="rr-claim" type="button">Забрать</button></div></div><div id="transferModal" class="modal hidden"><div class="modal-card transfer-card"><div class="transfer-heading"><h2>Перевести TON</h2><p id="transferIntro">Укажите получателя и сумму</p></div><div id="transferLocked" class="transfer-locked hidden"></div><div id="transferForm" class="transfer-form"><input id="transferUsername" class="text-input" placeholder="@username" autocomplete="off" aria-label="Username получателя"><input id="transferAmount" class="text-input" type="text" inputmode="decimal" placeholder="Сумма, TON" aria-label="Сумма перевода"><div id="transferFee" class="transfer-meta hidden"></div><button id="prepareTransfer" class="primary" type="button">Продолжить</button></div><div id="transferConfirm" class="transfer-confirm-step hidden"><div class="transfer-confirm-kicker">ПОДТВЕРЖДЕНИЕ</div><h3>Проверьте перевод</h3><div id="transferConfirmUser" class="transfer-confirm-user"></div><div id="transferConfirmSummary" class="transfer-meta"></div><div class="transfer-buttons"><button id="transferCancelConfirm" class="secondary" type="button">Назад</button><button id="sendTransfer" class="primary" type="button">Подтвердить</button></div></div><button id="closeTransfer" class="secondary" type="button" style="margin-top:12px">Закрыть</button></div></div><div id="transferReceiptModal" class="modal hidden"><div class="modal-card transfer-receipt"><div id="transferReceiptAvatar" class="avatar">G</div><h2 id="transferReceiptHeading">Перевод отправлен</h2><p id="transferReceiptText"></p><div class="transfer-before-after"><del id="transferReceiptOld">0.00</del><span>→</span><b id="transferReceiptNew">0.00</b><img src="/static/img/ton.png" alt="TON" style="width:22px;height:22px"></div><button id="transferReceiptContinue" class="primary" type="button">Продолжить</button></div></div><div id="giftModal" class="modal hidden"><div class="modal-card"><div class="modal-art"><img id="giftModalImage" src="/static/img/ton.png" alt=""></div><div id="giftModalName" class="modal-name"></div><div class="modal-price"><img src="/static/img/ton.png" alt="TON"><span id="giftModalPrice">0.00</span></div><div id="giftSourceLabel" class="gift-source-label hidden"></div><div id="giftPromoBox" class="promo-wager-box hidden"><div class="promo-wager-title"><b>Промо-отыгрыш</b><span id="giftPromoX">X25</span></div><div class="promo-wager-progress"><i id="giftPromoBar"></i></div><div class="promo-wager-values"><span id="giftPromoProgress">0.00 TON</span><span id="giftPromoTarget">0.00 TON</span></div><div id="giftPromoAttempts" class="promo-attempts hidden"></div><div id="giftPromoExpiry" class="promo-gift-expiry hidden"></div><button id="claimPromoGift" class="primary promo-claim hidden">Получить подарок</button></div><div id="giftNormalActions" class="modal-actions"><button id="sellGift" class="primary">Продать</button><button id="withdrawGift" class="secondary">Вывести</button><div id="withdrawRestrictionText" class="withdraw-restriction-note hidden"></div></div><button id="closeGiftModal" class="back" style="padding:18px 0 0">Закрыть</button></div></div><div id="depositModal" class="modal hidden"><div class="modal-card deposit-card">
-<button id="closeDeposit" class="secondary" type="button" aria-label="Закрыть">Закрыть</button>
+<button id="closeDeposit" class="deposit-modal-close" type="button" aria-label="Закрыть">×</button>
 <div id="depositMethodStep" class="deposit-method-step">
   <div class="deposit-choice-head"><span class="deposit-kicker">ПОПОЛНЕНИЕ</span><h2>Выберите способ пополнения</h2><p>Выберите TON, Telegram Stars или NFT-подарок</p></div>
   <div class="deposit-methods">
@@ -3980,7 +4075,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
   <div class="gift-deposit-instruction"><div class="gift-deposit-orbit"><img src="/static/img/gift.png" alt="" onerror="this.onerror=null;this.src='/static/img/gift.svg'"></div><div><b>Отправьте NFT на <span id="giftRelayUsername">@Gemdrop_relay</span></b><small>После отправки подарок автоматически появится в вашем инвентаре с названием, номером и изображением.</small></div></div>
   <button id="openGiftRelay" class="primary gift-relay-open" type="button">Открыть @Gemdrop_relay</button>
   <div id="giftRelayStatus" class="gift-relay-status hidden" aria-live="polite"></div>
-  <div class="gift-rates-head"><div><b>Все подарки</b><small>Название и текущая стоимость</small></div><span id="giftRateCount">0</span></div>
+  <div class="gift-rates-head"><div><b>Все подарки</b></div><span id="giftRateCount">0</span></div>
   <div id="giftDepositRates" class="gift-deposit-rates"><div class="empty">Загружаем каталог…</div></div>
 </div>
 </div></div>
@@ -4000,8 +4095,6 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules hlg">
 <div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">6 коротких шагов — и вы в игре</p></div>
-<div class="hlg-tutorial-media"><img id="hiloTutorialMedia" src="/static/tutorials/hilo_tutorial.gif?v=3" alt="Анимация обучения Hi-Lo" decoding="async" fetchpriority="high" onerror="this.onerror=null;this.src='/static/tutorials/hilo_tutorial.svg?v=3'"></div>
-
 <section class="hlg-step"><div class="hlg-art" id="hlgLadder"></div>
 <div class="hlg-tx"><h3><i>1</i>Карты — это подарки</h3><p>У каждой карты есть <b>ранг от 1 до 15</b>. Это подарки Telegram: чем выше ранг, тем дороже подарок.</p></div></section>
 
@@ -4365,10 +4458,7 @@ function renderGiftDepositCatalog(d){
   $('giftRelayUsername').textContent=username;
   $('openGiftRelay').textContent='Открыть '+username;
   let status=$('giftRelayStatus');
-  if(status){
-    status.className='gift-relay-status'+(d.relayer_ready?' hidden':' warn');
-    status.textContent=d.relayer_ready?'':'Пополнение подарками временно недоступно. Попробуйте немного позже.';
-  }
+  if(status){status.className='gift-relay-status hidden';status.textContent='';}
   if(!giftDepositCatalog.length){root.innerHTML='<div class="empty">Список подарков пока пуст.</div>';return}
   for(let item of giftDepositCatalog){
     let row=document.createElement('div');row.className='gift-deposit-rate';
@@ -4396,7 +4486,7 @@ async function checkStarsOrder(orderId,quiet=false){try{let d=await api(`/api/st
 function openStarsInvoice(url){return new Promise((resolve,reject)=>{if(tg?.openInvoice){try{tg.openInvoice(url,status=>resolve(status||'closed'))}catch(e){reject(e)}}else{try{window.open(url,'_blank','noopener');resolve('opened')}catch(e){reject(e)}}})}
 async function topupStars(){if(busy)return;if(pendingStarsOrder){$('starsTopupAction').disabled=true;await checkStarsOrder(pendingStarsOrder);$('starsTopupAction').disabled=false;return}let amount=Number($('starsTopupAmount').value.trim().replace(',','.'));if(!Number.isFinite(amount)||amount<.01)return toast('Введите сумму от 0.01 TON');let promo=$('starsPromoCode').value.trim();if(promo){let ok=await validateDepositPromoKind('stars',promo);if(!ok)return}busy=true;$('starsTopupAction').disabled=true;$('starsDepositResult').classList.add('hidden');try{let d=await api('/api/stars/deposit/create',{method:'POST',body:JSON.stringify({amount:money(amount)})});pendingStarsOrder=d.order_id;starsStatus(`Счёт создан: ${Number(d.stars).toLocaleString('ru-RU')} Stars. Подтвердите оплату в Telegram…`);$('starsTopupAction').textContent='Проверить зачисление';let invoiceStatus=await openStarsInvoice(d.invoice_url);if(invoiceStatus==='paid'){starsStatus('Оплата прошла. Ждём подтверждение от Telegram…');for(let i=0;i<8&&pendingStarsOrder;i++){await new Promise(r=>setTimeout(r,i?1300:450));if(await checkStarsOrder(pendingStarsOrder,true))break}if(pendingStarsOrder)starsStatus('Оплата принята Telegram. Зачисление ещё обрабатывается — нажмите «Проверить зачисление».')}else if(invoiceStatus==='cancelled'){pendingStarsOrder=null;$('starsTopupAction').textContent='Пополнить через Stars';starsStatus('Оплата отменена. Баланс и вывод не изменены.','error')}else if(invoiceStatus==='failed'){pendingStarsOrder=null;$('starsTopupAction').textContent='Пополнить через Stars';starsStatus('Telegram не смог провести оплату. Попробуйте ещё раз.','error')}else{starsStatus('Счёт открыт в Telegram. После оплаты нажмите «Проверить зачисление».')}}catch(e){starsStatus(e.message,'error');toast(e.message)}finally{busy=false;$('starsTopupAction').disabled=false;updateStarsQuote()}}
 document.querySelectorAll('[data-topup]').forEach(button=>button.onclick=()=>{$('topupAmount').value=money(button.dataset.topup);$('topupAmount').dispatchEvent(new Event('input',{bubbles:true}))});
-$('depositMini').onclick=openDeposit;$('chooseTonDeposit').onclick=()=>chooseDepositMethod('ton');$('chooseStarsDeposit').onclick=()=>chooseDepositMethod('stars');$('chooseGiftDeposit').onclick=()=>chooseDepositMethod('gift');$('openGiftRelay').onclick=openGiftRelayer;document.querySelectorAll('[data-deposit-back]').forEach(b=>b.onclick=()=>showDepositStep('method'));$('modalWalletButton').onclick=connectWallet;$('disconnectWallet').onclick=disconnectTonWallet;$('refreshWalletBalance').onclick=refreshTonWalletBalance;$('topupAction').onclick=topupTon;$('starsTopupAction').onclick=topupStars;$('closeDeposit').onclick=closeDepositModal;$('starsTopupAmount').addEventListener('input',()=>{updateStarsQuote();updateDepositPromoStatusFor('stars')});
+$('depositMini').onclick=openDeposit;$('chooseTonDeposit').onclick=()=>chooseDepositMethod('ton');$('chooseStarsDeposit').onclick=()=>chooseDepositMethod('stars');$('chooseGiftDeposit').onclick=()=>chooseDepositMethod('gift');$('openGiftRelay').onclick=openGiftRelayer;document.querySelectorAll('[data-deposit-back]').forEach(b=>b.onclick=()=>showDepositStep('method'));$('modalWalletButton').onclick=connectWallet;$('disconnectWallet').onclick=disconnectTonWallet;$('refreshWalletBalance').onclick=refreshTonWalletBalance;$('topupAction').onclick=topupTon;$('starsTopupAction').onclick=topupStars;$('closeDeposit').onclick=closeDepositModal;$('depositModal').addEventListener('click',e=>{if(e.target===$('depositModal'))closeDepositModal()});$('starsTopupAmount').addEventListener('input',()=>{updateStarsQuote();updateDepositPromoStatusFor('stars')});
 function relayStatusName(status){return({online:'Подключён',login_required:'Нужен вход',code_sent:'Код отправлен',need_password:'Нужен 2FA',qr_wait:'Ждём QR',qr_starting:'Создаём QR',logged_out:'Отключён',login_error:'Ошибка входа',error:'Ошибка проверки'})[status]||status||'Не подключён'}
 function relayEventStatus(status){return({delivered:'В инвентаре',credited:'TON зачислен',unmatched:'Не найден игрок',unpriced:'Нет цены',not_nft:'Не NFT',baseline:'Исходное состояние'})[status]||status}
 function relayRenderEvents(items){let root=$('relayEvents');if(!root)return;root.replaceChildren();if(!items?.length){root.innerHTML='<div class="empty">Пока нет событий</div>';return}for(let e of items){let row=document.createElement('div');row.className='relayer-event';let im=new Image;im.src=e.image_url||'/static/img/gift.svg';im.alt=e.gift_name||'NFT';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};let meta=document.createElement('div'),name=document.createElement('strong'),sub=document.createElement('small');name.textContent=(e.gift_name||'Telegram NFT')+(e.fragment_number?' #'+e.fragment_number:'');sub.textContent=e.sender_user_id?('Отправитель '+e.sender_user_id+(e.sender_name?' · '+e.sender_name:'')):'Отправитель не определён';meta.append(name,sub);let price=document.createElement('div');price.className='re-price';price.textContent=e.price_ton?money(e.price_ton)+' TON':'—';let status=document.createElement('span');status.className='re-status '+(e.status||'');status.textContent=relayEventStatus(e.status);price.append(status);row.append(im,meta,price);if(e.external_url){row.style.cursor='pointer';row.onclick=()=>tg?.openTelegramLink?tg.openTelegramLink(e.external_url):window.open(e.external_url,'_blank','noopener')}root.append(row)}}
@@ -4493,7 +4583,8 @@ async function openLevelsModal(){$('levelsModal').classList.remove('hidden');$('
 $('openLevels').onclick=openLevelsModal;$('levelNotice').onclick=()=>{$('levelNotice').classList.remove('show');$('levelNotice').classList.add('hidden');openLevelsModal()};$('closeLevels').onclick=()=>$('levelsModal').classList.add('hidden');$('closeLevelReward').onclick=()=>{$('levelRewardModal').classList.add('hidden');loadInventory()};
 async function showLevelNotice(level){let n=$('levelNotice');if(!n)return;let num=Number(level?.level??level)||'';n.className='level-notice';n.innerHTML='<span class="ln-badge"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.4 6.6 19.5l1.2-6L3.3 9.3l6.1-.7Z"/></svg></span><span class="ln-text"><b>Новый уровень'+(num?' '+num:'')+'</b><small>Нажмите, чтобы забрать награду</small></span><span class="ln-arrow">›</span>';void n.offsetWidth;n.classList.add('show');clearTimeout(levelNoticeTimer);levelNoticeTimer=setTimeout(()=>{n.classList.remove('show');setTimeout(()=>n.classList.add('hidden'),260)},6500);loadLevels(true).then(d=>{if(!d)return;let ok=d.levels.some(x=>x.unlocked&&!x.claimed&&x.reward.type!=='none');n.querySelector('b').textContent='Уровень '+d.level+' открыт';n.querySelector('small').textContent=ok?'Нажмите, чтобы забрать награду':'Нажмите, чтобы посмотреть прогресс'}).catch(()=>{})}
 function showClaimedLevel(claim){if(!claim?.code)return;let body=$('levelRewardBody');body.replaceChildren();let intro=document.createElement('p');intro.textContent='Ваш промокод за уровень:';let code=document.createElement('code');code.className='level-reward-code';code.textContent=claim.code;body.append(intro,code);$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden')}
-async function claimLevelReward(level){let button=[...$('levelsList').querySelectorAll('.level-card')][level-1];if(button)button.disabled=true;try{let d=await api(`/api/levels/${level}/claim`,{method:'POST',body:'{}'});setUser(d.user);let r=d.reward||{},body=$('levelRewardBody');body.replaceChildren();let title=document.createElement('p');title.textContent=d.message||'Награда уровня получена.';body.append(title);if(r.type==='tickets'){let amount=document.createElement('strong');amount.className='level-reward-code';amount.textContent='+'+Number(r.tickets||0).toLocaleString('ru-RU')+' 🎟';body.append(amount)}if(r.code){let code=document.createElement('code');code.className='level-reward-code';code.textContent=r.code;body.append(code);let note=document.createElement('small');note.style.display='block';note.style.marginTop='8px';note.textContent='Промокод уже добавлен в Бонусы → Промокоды.';body.append(note);myPromoVisible=3;await Promise.all([loadMyPromos(),refreshBonusBadge()])}if(r.gift?.image_url){let image=document.createElement('img');image.src=r.gift.image_url;image.alt=r.gift.name||'Подарок';image.style.cssText='width:110px;height:110px;object-fit:contain;display:block;margin:8px auto';body.append(image)}$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden');await Promise.allSettled([loadLevels(true),loadInventory()])}catch(e){toast(e.message);if(button)button.disabled=false}}function levelField(parent,label,value,onchange,type='text',options=null){let wrap=document.createElement('label');wrap.textContent=label;let input=document.createElement(options?'select':'input');input.className='text-input';if(options){options.forEach(([v,t])=>input.add(new Option(t,v)));input.value=value??options[0][0]}else{input.type=type;input.value=value??'';if(type==='number'){input.step='0.01';input.min='0'}}input[options?'onchange':'oninput']=()=>onchange(input.value);wrap.append(input);parent.append(wrap);return input}
+async function claimLevelReward(level){let button=[...$('levelsList').querySelectorAll('.level-card')][level-1];if(button)button.disabled=true;try{let d=await api(`/api/levels/${level}/claim`,{method:'POST',body:'{}'});setUser(d.user);let r=d.reward||{},body=$('levelRewardBody');body.replaceChildren();let title=document.createElement('p');title.textContent=d.message||'Награда уровня получена.';body.append(title);if(r.type==='tickets'){let amount=document.createElement('strong');amount.className='level-reward-code';amount.textContent='+'+Number(r.tickets||0).toLocaleString('ru-RU')+' 🎟';body.append(amount)}if(r.code){let code=document.createElement('code');code.className='level-reward-code';code.textContent=r.code;body.append(code);let note=document.createElement('small');note.style.display='block';note.style.marginTop='8px';note.textContent='Промокод уже добавлен в Бонусы → Промокоды.';body.append(note);myPromoVisible=3;await Promise.all([loadMyPromos(),refreshBonusBadge()])}if(r.gift?.image_url){let image=document.createElement('img');image.src=r.gift.image_url;image.alt=r.gift.name||'Подарок';image.style.cssText='width:110px;height:110px;object-fit:contain;display:block;margin:8px auto';body.append(image)}$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden');await Promise.allSettled([loadLevels(true),loadInventory()])}catch(e){toast(e.message);if(button)button.disabled=false}}
+function levelField(parent,label,value,onchange,type='text',options=null){let wrap=document.createElement('label');wrap.textContent=label;let input=document.createElement(options?'select':'input');input.className='text-input';if(options){options.forEach(([v,t])=>input.add(new Option(t,v)));input.value=value??options[0][0]}else{input.type=type;input.value=value??'';if(type==='number'){input.step='0.01';input.min='0'}}input[options?'onchange':'oninput']=()=>onchange(input.value);wrap.append(input);parent.append(wrap);return input}
 function renderLevelMultiFields(fields,r){r.components=r.components||{};let specs=[['balance','Баланс TON'],['gift','Обычный подарок'],['wager_gift','Отыгрышный подарок'],['deposit_bonus','Бонус на пополнение']];for(let [kind,title] of specs){let toggle=document.createElement('label');toggle.className='multi-reward-line';let check=document.createElement('input');check.type='checkbox';check.checked=!!r.components[kind];let label=document.createElement('span');label.textContent=title;toggle.append(check,label);fields.append(toggle);check.onchange=()=>{if(check.checked)r.components[kind]=kind==='balance'?{amount_ton:'1.00'}:kind==='gift'?{gift_id:catalogItems[0]?.id||''}:kind==='wager_gift'?{gift_id:catalogItems[0]?.id||'',wager_multiplier:25,gift_expires_days:0}:{bonus_percent:30,bonus_fixed_ton:0,min_deposit_ton:0};else delete r.components[kind];renderLevelsAdmin()};if(!check.checked)continue;let component=r.components[kind];if(kind==='balance')levelField(fields,'Сумма TON',component.amount_ton??'1.00',v=>component.amount_ton=v,'number');if(kind==='gift'||kind==='wager_gift'){levelField(fields,'Подарок Portal',component.gift_id||catalogItems[0]?.id||'',v=>component.gift_id=v,'text',catalogItems.map(g=>[String(g.id),g.name]));if(kind==='wager_gift'){levelField(fields,'Отыгрыш X',component.wager_multiplier||25,v=>component.wager_multiplier=v,'number');levelField(fields,'Сгорание подарка, дней · 0 = выключено',component.gift_expires_days||0,v=>component.gift_expires_days=v,'number')}}if(kind==='deposit_bonus'){levelField(fields,'Бонус, %',component.bonus_percent||0,v=>component.bonus_percent=v,'number');levelField(fields,'Бонус, TON',component.bonus_fixed_ton||0,v=>component.bonus_fixed_ton=v,'number');levelField(fields,'Депозит от, TON',component.min_deposit_ton||0,v=>component.min_deposit_ton=v,'number')}}}
 function serializeLevelReward(r){return {...r,amount:r.amount_ton,bonus_fixed:r.bonus_fixed_ton,min_deposit:r.min_deposit_ton,components:Object.fromEntries(Object.entries(r.components||{}).map(([k,v])=>[k,{...v,amount:v.amount_ton,bonus_fixed:v.bonus_fixed_ton,min_deposit:v.min_deposit_ton}]))}}
 function renderLevelsAdmin(){
@@ -4902,8 +4993,7 @@ const CREATOR_TIER_COPY={
  god:['До 10 TON в день','10 отыгрышных подарков в день','Подарок 3–15 TON · X от 17 · до 20 активаций','Депозит на выбор: без депозита или любой минимум','Выдаёт только администратор']
 };
 function renderCreatorLevels(){let state=creatorPanelState||{},current=state.creator_level||'base',idx=CREATOR_TIER_ORDER.indexOf(current),root=$('creatorLevelDeck');root.replaceChildren();$('creatorLevelBadge').textContent=state.creator_level_info?.name||'Base';for(let [i,key] of CREATOR_TIER_ORDER.entries()){let info=key===current?(state.creator_level_info||{}):null,card=document.createElement('div');card.className='creator-tier-card'+(key===current?' current':i<idx?' passed':'');let kicker=document.createElement('span');kicker.className='tier-kicker';kicker.textContent=key===current?'ВАШ УРОВЕНЬ':i<idx?'ПРОЙДЕН':'СЛЕДУЮЩИЙ';let h=document.createElement('h3');h.textContent=key==='super_creator'?'Super Creator':key==='god'?'God':key[0].toUpperCase()+key.slice(1);let ul=document.createElement('ul');for(let line of CREATOR_TIER_COPY[key]){let li=document.createElement('li');li.textContent=line;ul.append(li)}card.append(kicker,h,ul);root.append(card)}let currentCard=root.querySelector('.current');if(currentCard)setTimeout(()=>currentCard.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'}),40)}
-function creatorBuilderLimits(){let s=creatorBuilderState||{},cfg=s.level_info||{},u=s.usage||{},budget=Number(cfg.daily_budget_ton||0),used=Number(u.budget_used||0),remain=Math.max(0,budget-used),pct=budget?Math.min(100,used/budget*100):0;$('creatorLimitText').textContent=money(used)+' / '+money(budget)+' TON';$('creatorLimitBar').style.width=pct+'%';let extra=[];if(cfg.daily_code_limit)extra.push('Кодов: '+Number(u.code_count||0)+'/'+cfg.daily_code_limit);if(cfg.wager_daily_limit)extra.push('Отыгрышных: '+Number(u.wager_count||0)+'/'+cfg.wager_daily_limit);extra.push('Осталось '+money(remain)+' TON');$('creatorLimitExtra').textContent=extra.join(' · ');let custom=!!cfg.custom_deposit;$('creatorDepositWrap').classList.toggle('hidden',!custom);$('creatorFixedWrap').classList.toggle('hidden',custom);$('creatorFixedDeposit').textContent='Депозит за всё время ≥ '+money(cfg.activation_min_deposit_ton||0)+' TON';$('creatorBuilderOpenHint').textContent=(cfg.name||'Base')+' · осталось '+money(remain)+' TON сегодня'}
-function selectedCreatorGift(){return (creatorBuilderState?.gifts||[]).find(g=>String(g.id)===String($('creatorBonusGift').value))||null}
+function creatorBuilderLimits(){let s=creatorBuilderState||{},cfg=s.level_info||{},u=s.usage||{},budget=Number(cfg.daily_budget_ton||0),used=Number(u.budget_used||0),remain=Math.max(0,budget-used),pct=budget?Math.min(100,used/budget*100):0;$('creatorLimitText').textContent=money(used)+' / '+money(budget)+' TON';$('creatorLimitBar').style.width=pct+'%';let extra=[];if(cfg.daily_code_limit)extra.push('Кодов: '+Number(u.code_count||0)+'/'+cfg.daily_code_limit);if(cfg.wager_daily_limit)extra.push('Отыгрышных: '+Number(u.wager_count||0)+'/'+cfg.wager_daily_limit);extra.push('Осталось '+money(remain)+' TON');$('creatorLimitExtra').textContent=extra.join(' · ');let custom=!!cfg.custom_deposit;$('creatorDepositWrap').classList.toggle('hidden',!custom);$('creatorFixedWrap').classList.toggle('hidden',custom);$('creatorFixedDeposit').textContent='Депозит за всё время ≥ '+money(cfg.activation_min_deposit_ton||0)+' TON';$('creatorBuilderOpenHint').textContent=(cfg.name||'Base')+' · осталось '+money(remain)+' TON сегодня'}function selectedCreatorGift(){return (creatorBuilderState?.gifts||[]).find(g=>String(g.id)===String($('creatorBonusGift').value))||null}
 function paintCreatorGiftButton(){let g=selectedCreatorGift(),preview=$('creatorGiftPickerPreview');preview.replaceChildren();if(g?.image_url){let im=new Image;im.src=g.image_url;im.alt='';im.onerror=()=>{preview.textContent='🎁'};preview.append(im)}else preview.textContent='🎁';$('creatorGiftPickerName').textContent=g?.name||'Выбрать подарок';$('creatorGiftPickerMeta').textContent=g?money(g.price_ton)+' TON':'Откроется каталог доступных подарков'}
 function paintCreatorBuilder(){let s=creatorBuilderState||{},cfg=s.level_info||{};$('creatorBuilderTitle').textContent='Создание '+(creatorBuilderKind==='freebet'?'Freebet':'промокода');$('creatorCreateBonus').textContent='Создать '+(creatorBuilderKind==='freebet'?'Freebet':'промокод');document.querySelectorAll('[data-creator-kind]').forEach(b=>b.classList.toggle('active',b.dataset.creatorKind===creatorBuilderKind));document.querySelectorAll('[data-creator-reward]').forEach(b=>b.classList.toggle('active',b.dataset.creatorReward===creatorBuilderReward));let wager=creatorBuilderReward==='wager_gift',allowed=Number(cfg.wager_daily_limit||0)>0;document.querySelector('[data-creator-reward="wager_gift"]').disabled=!allowed;$('creatorWagerFields').classList.toggle('hidden',!wager);$('creatorBonusAmountWrap').classList.toggle('hidden',wager);let maxUses=wager?Number(cfg.wager_max_uses||1):1000;$('creatorBonusUses').max=String(maxUses);if(wager&&Number($('creatorBonusUses').value)>maxUses)$('creatorBonusUses').value=maxUses;if(wager){$('creatorBonusX').min=String(cfg.wager_min_x||1);if(Number($('creatorBonusX').value)<Number(cfg.wager_min_x||1))$('creatorBonusX').value=String(cfg.wager_min_x||1)}$('creatorGiftPickerRange').textContent=(cfg.wager_gift_min_ton||0)+'–'+(cfg.wager_gift_max_ton||0)+' TON · X от '+(cfg.wager_min_x||0);paintCreatorGiftButton();creatorBuilderLimits()}
 async function loadCreatorBuilder(){try{let d=await api('/api/creator/bonus-builder');creatorBuilderState=d;let current=$('creatorBonusGift').value;if(!current||!(d.gifts||[]).some(g=>String(g.id)===String(current)))$('creatorBonusGift').value='';if(creatorBuilderReward==='wager_gift'&&!Number(d.level_info?.wager_daily_limit||0))creatorBuilderReward='balance';paintCreatorBuilder();renderCreatorGiftPicker()}catch(e){toast(e.message)}}
@@ -5392,7 +5482,8 @@ body.studio[data-page=giveawayPage] #headerControls .top-actions{display:none!im
 #levelNotice .ln-badge svg{width:24px;height:24px;fill:#fff;stroke:#fff;stroke-width:1;stroke-linejoin:round}
 #levelNotice .ln-text{flex:1;min-width:0;display:grid;gap:2px}
 #levelNotice .ln-text b{font-size:15px;font-weight:800}
-#levelNotice .ln-text small{font-size:12px;color:#a9c3de}#levelNotice .ln-arrow{flex:none;font-size:26px;color:#7fb4e8;line-height:1}
+#levelNotice .ln-text small{font-size:12px;color:#a9c3de}
+#levelNotice .ln-arrow{flex:none;font-size:26px;color:#7fb4e8;line-height:1}
 .reward-task-desc{display:block;margin:2px 0 6px;color:#8c9ab3;font-size:12px}
 
 /* ===== v70: upgrade page redesign (wheel, picks, wide wins) ===== */
@@ -5902,7 +5993,6 @@ body.studio #giveawayPage .giveaway-winner-prize{max-width:100%;font-size:13px;t
 @media(prefers-reduced-motion:reduce){.gc-rocket,.gc-rocket-tilt,.gc-flame,.gc-star{animation:none!important}.gc-rocket{opacity:1;transform:translate(0,0)}}
 .gm-save{width:100%;min-height:48px;margin-top:6px}.gm-save:disabled{opacity:.45}
 .games-admin-hint{margin:12px 2px 0;color:var(--muted);font-size:12.5px;line-height:1.45}
-
 /* ===== Crash page + game modes ===== */
 .gm-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:11px;align-items:center;padding:10px 11px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:rgba(255,255,255,.028);transition:border-color .2s ease}
 .gm-row[data-mode=admin]{border-color:#feca5844}
@@ -6291,7 +6381,8 @@ body.studio #crashPage .cr-action.cashout{background:linear-gradient(115deg,#ffd
 .game-card .gc-badge-hot{color:#3b0d08;background:linear-gradient(135deg,#ffc27a,#ff5a4f);box-shadow:0 4px 14px rgba(255,100,70,.45),inset 0 1px rgba(255,255,255,.5)}
 .game-card .gc-badge-top{color:#3a2800;background:linear-gradient(135deg,#ffeb99,#f2b632);box-shadow:0 4px 14px rgba(242,182,50,.42),inset 0 1px rgba(255,255,255,.55)}
 .game-card .gc-badge-beta{color:#1b1040;background:linear-gradient(135deg,#d4c3ff,#8b6cf0);box-shadow:0 4px 14px rgba(139,108,240,.42),inset 0 1px rgba(255,255,255,.5)}
-.game-card .gc-badge-soon{color:#cfd6f0;background:#2b3150;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}.game-card .gc-badge-soon:after{display:none}
+.game-card .gc-badge-soon{color:#cfd6f0;background:#2b3150;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.game-card .gc-badge-soon:after{display:none}
 .gm-layout{grid-column:1/-1;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .gm-layout .gm-move{width:38px;height:38px;border-radius:11px;border:1px solid #23263f;background:#0d0f1b;color:#cdd5ee;font-size:16px;font-weight:800;transition:transform .18s cubic-bezier(.2,.9,.25,1),background .2s ease}
 .gm-layout .gm-move:active{transform:scale(.92)}
@@ -6898,12 +6989,9 @@ const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.ge
   background:#202331!important;border:1px solid rgba(255,255,255,.12)!important;box-shadow:0 5px 18px rgba(0,0,0,.22)!important;
 }
 #depositModal[data-method="gift"] #closeDeposit:before{font-size:24px!important}
-.hlg-tutorial-media{position:relative!important;aspect-ratio:10/7!important;background:#0c1021!important}
-.hlg-tutorial-media img{width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;display:block!important}
 @media(max-width:390px){
  #depositModal[data-method="gift"]{padding:8px!important}
- #depositModal[data-method="gift"] .deposit-card{width:calc(100vw - 16px)!important;height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;padding:12px!important;border-radius:20px!important}
- #depositModal[data-method="gift"] .gift-deposit-instruction{grid-template-columns:48px minmax(0,1fr)!important;padding:9px 10px!important}
+ #depositModal[data-method="gift"] .deposit-card{width:calc(100vw - 16px)!important;height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;padding:12px!important;border-radius:20px!important} #depositModal[data-method="gift"] .gift-deposit-instruction{grid-template-columns:48px minmax(0,1fr)!important;padding:9px 10px!important}
  #depositModal[data-method="gift"] .gift-deposit-orbit{width:48px!important;height:48px!important}
  #depositModal[data-method="gift"] .gift-deposit-orbit img{width:43px!important;height:43px!important}
  #depositModal[data-method="gift"] .gift-deposit-instruction small{font-size:9.5px!important}

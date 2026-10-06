@@ -282,6 +282,8 @@ def _initialize_schema():
             user_id INTEGER NOT NULL,
             direction TEXT NOT NULL,
             amount INTEGER NOT NULL,
+            gift_name TEXT NOT NULL DEFAULT '',
+            gift_image TEXT NOT NULL DEFAULT '',
             settled INTEGER NOT NULL DEFAULT 0,
             payout INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -582,6 +584,7 @@ def _initialize_schema():
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('arena_rounds', [('extended', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('hilo_room_bets', [('gift_name', "TEXT NOT NULL DEFAULT ''"), ('gift_image', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('arena_bets', [('gift_amount', 'INTEGER NOT NULL DEFAULT 0'),
                                       ('gifts', "TEXT NOT NULL DEFAULT '[]'")])
         ensure_columns('crash_bets', [
@@ -8994,17 +8997,28 @@ def hilo_room_payload(db, uid, n, phase, now):
     card = lambda rk: dict(rank=rk, **hilo_tier_card(rk))
     odds = {d: dict(x=hilo_step_micro(base, d) / HILO_MICRO, chance=round(hilo_wins(base, d) * 100 / HILO_RANKS, 1))
             for d in ('hi', 'lo')}
-    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.settled,b.payout,u.name,u.photo_url
+    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,u.name,u.photo_url
                          FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.round_no=?
                          ORDER BY b.amount DESC,b.id ASC LIMIT 60""", (n,)).fetchall()
     bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
-                 amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid) for r in rows]
+                 amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
+                 gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '') for r in rows]
+    recent = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', round=r['round_no'],
+                   direction=r['direction'], amount=r['amount'] / 100, payout=r['payout'] / 100,
+                   gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', mine=r['user_id'] == uid)
+              for r in db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.gift_name,b.gift_image,u.name,u.photo_url
+                                   FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1
+                                   ORDER BY b.id DESC LIMIT 15""").fetchall()]
+    upto = n + 1 if reveal else n
+    seq = [hilo_room_rank(k) for k in range(upto - 10, upto)]
+    history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
+               for i, r in enumerate(seq[1:])]
     last = db.execute("""SELECT id,round_no,direction,amount,payout FROM hilo_room_bets WHERE user_id=? AND settled=1
                          ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
     me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
     return dict(now=now, round=n, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
                 result=card(hilo_room_rank(n + 1)) if reveal else None, odds=odds, bets=bets,
-                history=[hilo_room_rank(k) for k in range(n - 7, n)], rtp=hilo_rtp(),
+                history=history, recent=recent,
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
                 balance=(me['balance'] / 100) if me else 0,
                 last=dict(id=last['id'], round=last['round_no'], direction=last['direction'], amount=last['amount'] / 100,
@@ -9033,12 +9047,19 @@ def hilo_room_bet():
     direction = data.get('direction')
     if direction not in ('hi', 'lo'):
         return error('Выберите Hi или Lo.')
+    inventory_id = data.get('inventory_id')
     try:
-        bet = parse_amount(data.get('bet'))
-    except (ValueError, InvalidOperation, TypeError):
-        return error('Укажите корректную ставку.')
-    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
-        return error('Ставка от 0.10 до 300 TON.')
+        inventory_id = int(inventory_id) if inventory_id not in (None, '') else None
+    except (TypeError, ValueError):
+        return error('Некорректный подарок для ставки.')
+    bet = 0
+    if inventory_id is None:
+        try:
+            bet = parse_amount(data.get('bet'))
+        except (ValueError, InvalidOperation, TypeError):
+            return error('Укажите корректную ставку.')
+        if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+            return error('Ставка от 0.10 до 300 TON.')
     uid = session['uid']
     now = int(time.time() * 1000)
     n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
@@ -9054,12 +9075,38 @@ def hilo_room_bet():
         if db.execute('SELECT 1 FROM hilo_room_bets WHERE round_no=? AND user_id=?', (n, uid)).fetchone():
             db.rollback()
             return error('В этом раунде ставка уже сделана.', 409)
-        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
-            db.rollback()
-            return error('Недостаточно средств.')
-        cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount) VALUES(?,?,?,?)', (n, uid, direction, bet))
-        record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
-        new_level = increase_turnover(db, uid, bet)
+        gname = gimage = ''
+        if inventory_id is not None:
+            purge_expired_inventory(db, uid)
+            lock = ' FOR UPDATE' if DATABASE_URL else ''
+            item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock, (inventory_id, uid)).fetchone()
+            if not item:
+                db.rollback()
+                return error('Подарок не найден в инвентаре.', 404)
+            if item['promo_locked']:
+                db.rollback()
+                return error('Отыгрышные подарки в Hi-Lo недоступны.')
+            bet = int(item['floor_price'] or 0)
+            if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+                db.rollback()
+                return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            xp_allowed = gift_counts_for_xp(item)
+            gname, gimage = str(item['gift_name'] or '')[:140], str(item['image_url'] or '')
+            if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
+                db.rollback()
+                return error('Подарок уже используется.', 409)
+            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,gift_name,gift_image) VALUES(?,?,?,?,?,?)',
+                             (n, uid, direction, bet, gname, gimage))
+            record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_room', cur.lastrowid, gname)
+            if xp_allowed:
+                new_level = increase_turnover(db, uid, bet)
+        else:
+            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+                db.rollback()
+                return error('Недостаточно средств.')
+            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount) VALUES(?,?,?,?)', (n, uid, direction, bet))
+            record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
+            new_level = increase_turnover(db, uid, bet)
         db.commit()
     finally:
         db.close()

@@ -125,17 +125,14 @@ def claim_upgrade_loss_compensation(db, user_id, spin_id, result):
     elif kind == 'tickets':
         tickets = max(1, int(reward.get('tickets') or 1))
         db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (tickets, user_id))
-        db.execute('''INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details)
-                      VALUES(?,?,?,?,?,?)''',
+        db.execute("INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)",
                    (user_id, tickets, 'upgrade_compensation', 'upgrade', spin_id,
                     f'Компенсация Upgrade: {tickets} билет(ов)'))
     elif kind in ('gift', 'wager_gift'):
         locked = kind == 'wager_gift'
         price = ton_to_cents(reward.get('price_ton') or 0)
         multiplier = float(reward.get('wager_multiplier') or 0)
-        cur = db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                         promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress)
-                         VALUES(?,?,?,?,?,'upgrade_compensation',?,?,?,0)''',
+        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress) VALUES(?,?,?,?,?,'upgrade_compensation',?,?,?,0)",
                          (user_id, reward.get('gift_id') or '', reward.get('name') or 'Подарок',
                           reward.get('image_url') or '', price, int(locked), multiplier,
                           round(price * multiplier)))

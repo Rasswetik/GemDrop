@@ -1601,17 +1601,20 @@ def level_number(db, turnover):
     return int(row['n'] or 1)
 
 
-def increase_turnover(db, user_id, amount):
+def increase_turnover(db, user_id, amount, withdrawal_wager=True):
     if amount <= 0:
         return None
     user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
     previous_turnover = int(user['turnover_cents'] or 0)
     previous = level_number(db, previous_turnover)
     new_turnover = previous_turnover + amount
-    db.execute("""UPDATE users
-                  SET turnover_cents=turnover_cents+?,
-                      withdrawal_wager_progress=MIN(withdrawal_wager_required,withdrawal_wager_progress+?)
-                  WHERE id=?""", (amount, amount, user_id))
+    if withdrawal_wager:
+        db.execute("""UPDATE users
+                      SET turnover_cents=turnover_cents+?,
+                          withdrawal_wager_progress=MIN(withdrawal_wager_required,withdrawal_wager_progress+?)
+                      WHERE id=?""", (amount, amount, user_id))
+    else:
+        db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(amount,user_id))
     current = level_number(db, new_turnover)
     return current if current > previous else None
 
@@ -3917,7 +3920,7 @@ def upgrade_spin():
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
-        result['new_level']=increase_turnover(db,session['uid'],source_price) if xp_allowed else None
+        result['new_level']=increase_turnover(db,session['uid'],source_price,withdrawal_wager=bool(amount_text)) if xp_allowed else None
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
         promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
@@ -4172,7 +4175,7 @@ def start():
                   loss_rtp_boost=round(promo_loss_boost,2) if bet_type=='promo_gift' else None,
                   game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         # Promo-wager gifts do not count toward site turnover or levels.
-        new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(db,session['uid'],bet)
+        new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(db,session['uid'],bet,withdrawal_wager=(bet_type=='ton'))
         db.commit()
         if new_level:
             notify_level_up_async(session['uid'], new_level)
@@ -8682,7 +8685,7 @@ def arena_bet():
             record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {snapshot["name"]} ({amount/100:.2f} TON)')
             if snapshot['xp']:
-                increase_turnover(db, uid, amount)
+                increase_turnover(db, uid, amount, withdrawal_wager=False)
         else:
             record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {amount/100:.2f} TON')
@@ -9220,7 +9223,7 @@ def crash_bet():
                             str(item['gift_name'] or '')[:140], str(item['image_url'] or '')))
                 record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
                 if xp_allowed:
-                    new_level = increase_turnover(db, uid, bet)
+                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=False)
         else:
             updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet))
             if not updated.rowcount:
@@ -19631,7 +19634,7 @@ def arena_bet():
             record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {snapshot["name"]} ({amount/100:.2f} TON)')
             if snapshot['xp']:
-                increase_turnover(db, uid, amount)
+                increase_turnover(db, uid, amount, withdrawal_wager=False)
         else:
             record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {amount/100:.2f} TON')
@@ -20169,7 +20172,7 @@ def crash_bet():
                             str(item['gift_name'] or '')[:140], str(item['image_url'] or '')))
                 record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
                 if xp_allowed:
-                    new_level = increase_turnover(db, uid, bet)
+                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=False)
         else:
             updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet))
             if not updated.rowcount:

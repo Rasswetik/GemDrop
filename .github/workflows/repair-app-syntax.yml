@@ -2,7 +2,7 @@ name: Repair app.py syntax
 
 on:
   push:
-    branches: [main]
+    branches: [main, test/portal-broadcast-v96]
   workflow_dispatch:
 
 permissions:

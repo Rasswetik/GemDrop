@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '89-arena-gifts-snipe'
+BUILD_ID = '90-arena-gift-prize'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -5210,7 +5210,7 @@ def admin_game_history():
         queries.append(f"""SELECT CAST(b.round_id AS TEXT) AS id,b.user_id,'arena' AS game,
                          CASE WHEN r.state<>'settled' THEN 'active' WHEN r.winner_user_id=b.user_id THEN 'won' ELSE 'lost' END AS outcome,
                          b.amount AS stake,
-                         CASE WHEN r.state='settled' AND r.winner_user_id=b.user_id THEN r.total_pool-(r.total_pool*{ARENA_FEE_PERCENT}/100) ELSE 0 END AS payout,
+                         CASE WHEN r.state='settled' AND r.winner_user_id=b.user_id THEN ((SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id)-((SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id)*{ARENA_FEE_PERCENT}/100))+(r.total_pool-(SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id)) ELSE 0 END AS payout,
                          CASE WHEN r.total_pool>0 THEN b.amount*10000/r.total_pool ELSE 0 END AS chance,
                          '' AS source_name,b.gifts AS gift_name,b.created_at AS date,u.name,u.username
                          FROM arena_bets b JOIN arena_rounds r ON r.id=b.round_id JOIN users u ON u.id=b.user_id"""+(' WHERE b.user_id=?' if uid else ''))
@@ -5694,6 +5694,7 @@ PUBLIC_BALANCE_KINDS = {
     'arena_bet': 'Ставка в Арене',
     'arena_gift_bet': 'Ставка подарком в Арене',
     'arena_win': 'Выигрыш в Арене',
+    'arena_gift_win': 'Подарки из Арены',
     'arena_loss': 'Проигрыш в Арене',
     'arena_refund': 'Возврат ставки в Арене',
     'arena_gift_refund': 'Возврат подарка в Арене',
@@ -5823,7 +5824,8 @@ def public_user_profile(user_id):
                 upgrade_drop = dict(price_cents=target_price, name=row['target_name'] or 'Подарок Upgrade',
                                     image_url=row['target_image'] or '', source='Upgrade')
 
-        arena_rows = db.execute("""SELECT b.amount,r.winner_user_id,r.total_pool FROM arena_bets b
+        arena_rows = db.execute("""SELECT b.amount,r.winner_user_id,r.total_pool,
+                                   (SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id) AS ton_pool FROM arena_bets b
                                    JOIN arena_rounds r ON r.id=b.round_id
                                    WHERE b.user_id=? AND r.state='settled'""", (user_id,)).fetchall()
         arena_count = len(arena_rows)
@@ -5832,7 +5834,8 @@ def public_user_profile(user_id):
             stake = int(row['amount'] or 0)
             pool = int(row['total_pool'] or 0)
             if stake > 0 and pool > 0 and int(row['winner_user_id'] or 0) == int(user_id):
-                max_arena_x = max(max_arena_x, (pool - arena_fee_cents(pool)) / stake)
+                ton_pool = max(0, min(pool, int(row['ton_pool'] or 0)))
+                max_arena_x = max(max_arena_x, (pool - arena_fee_cents(ton_pool)) / stake)
 
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
@@ -7743,6 +7746,39 @@ def arena_restore_gift(db, user_id, snapshot):
                tuple(row[c] for c in cols))
 
 
+def arena_pools(players):
+    """(total, ton) in cents. total = TON + gifts at their price; only the TON part is ever taxed."""
+    total = ton = 0
+    for p in players:
+        amount = max(0, int(p['amount'] or 0))
+        gift = min(amount, max(0, int(p['gift_amount'] or 0)))
+        total += amount
+        ton += amount - gift
+    return total, ton
+
+
+def arena_prize_gifts(players):
+    """Every gift staked in the round: the winner takes all of them."""
+    out = []
+    for p in players:
+        for g in arena_gift_list(p['gifts']):
+            out.append(dict(g, _owner=p['name'] if 'name' in p.keys() else ''))
+    return out
+
+
+def arena_award_gift(db, user_id, snapshot, round_id):
+    """Give a staked gift to the round winner as a brand-new inventory item."""
+    row = dict(snapshot.get('row') or {})
+    if not row:
+        row = dict(gift_id='arena', gift_name=str(snapshot.get('name') or 'Подарок'),
+                   image_url=str(snapshot.get('image_url') or ''), floor_price=int(snapshot.get('price') or 0))
+    row.pop('id', None)
+    row.pop('created_at', None)
+    row['source'] = 'arena_win'
+    row['round_id'] = None
+    arena_restore_gift(db, user_id, {'row': row})
+
+
 def arena_players(db, round_id):
     return db.execute("""SELECT b.user_id,b.amount,b.gift_amount,b.gifts,u.name,u.username,u.photo_url
                          FROM arena_bets b JOIN users u ON u.id=b.user_id
@@ -7802,16 +7838,30 @@ def arena_advance(db, now=None):
         if ticket < cursor:
             winner = player
             break
-    fee = arena_fee_cents(total)
-    payout = total - fee
+    # Commission is taken ONLY from the TON part of the pool. Gifts are never taxed:
+    # the winner receives every staked gift in full, plus the TON pool minus the fee.
+    total, ton_total = arena_pools(players)
+    fee = arena_fee_cents(ton_total)
+    payout = ton_total - fee
+    prize_gifts = arena_prize_gifts(players)
     changed = db.execute("""UPDATE arena_rounds SET state='settled',settled_at=?,winner_user_id=?,total_pool=?
                             WHERE id=? AND state='open'""",
                          (now, int(winner['user_id']), total, row['id']))
     if changed.rowcount:
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, int(winner['user_id'])))
-        record_transaction(db, int(winner['user_id']), 'arena_win', payout, 'arena_round', row['id'],
-                           f'Arena #{row["id"]}: выигрыш {payout/100:.2f} TON '
-                           f'(банк {total/100:.2f}, комиссия {ARENA_FEE_PERCENT}% = {fee/100:.2f})')
+        winner_id = int(winner['user_id'])
+        if payout > 0:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, winner_id))
+            record_transaction(db, winner_id, 'arena_win', payout, 'arena_round', row['id'],
+                               f'Arena #{row["id"]}: выигрыш {payout/100:.2f} TON '
+                               + (f'(TON-банк {ton_total/100:.2f}, комиссия {ARENA_FEE_PERCENT}% = {fee/100:.2f})'
+                                  if fee else '(без комиссии)'))
+        for gift in prize_gifts:
+            arena_award_gift(db, winner_id, gift, row['id'])
+        if prize_gifts:
+            record_transaction(db, winner_id, 'arena_gift_win', 0, 'arena_round', row['id'],
+                               f'Arena #{row["id"]}: получены подарки — '
+                               + ', '.join(str(g.get('name') or 'Подарок') for g in prize_gifts)
+                               + ' (без комиссии)')
         for player in players:
             if int(player['user_id']) != int(winner['user_id']):
                 names = ', '.join(str(g.get('name') or 'Подарок') for g in arena_gift_list(player['gifts']))
@@ -7869,10 +7919,20 @@ def demo_arena_advance(record, uid, now=None):
             winner = player
             break
     winner_id = int(winner.get('user_id') or 0)
-    payout = total - arena_fee_cents(total)
+    ton_total = sum(max(0, int(x.get('amount') or 0) - min(int(x.get('amount') or 0), int(x.get('gift_amount') or 0)))
+                    for x in players)
+    payout = ton_total - arena_fee_cents(ton_total)   # fee only on the TON part
     state.update(state='settled', settled_at=now, winner_user_id=winner_id, total_pool=total)
     if winner_id == int(uid):
         record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + payout
+        items = list(record.get('demo_inventory') or [])
+        next_id = max([int(x.get('id') or 0) for x in items] + [0]) + 1
+        for player in players:
+            for gift in (player.get('gifts') or []):
+                if isinstance(gift, dict) and isinstance(gift.get('item'), dict):
+                    items.append(dict(gift['item'], id=next_id))
+                    next_id += 1
+        record['demo_inventory'] = items
     record['demo_arena'] = state
     return state
 
@@ -7908,7 +7968,12 @@ def demo_arena_state_payload(uid, now=None):
     winner = next((x for x in result if x['user_id'] == winner_id), None) if winner_id else None
     mine = next((x for x in result if x['user_id'] == int(uid)), None)
     pool_cents = int(state.get('total_pool') or 0) if state.get('state') == 'settled' else total
-    fee_cents = arena_fee_cents(pool_cents)
+    ton_cents = sum(max(0, int(x.get('amount') or 0) - min(int(x.get('amount') or 0), int(x.get('gift_amount') or 0)))
+                    for x in players)
+    fee_cents = arena_fee_cents(ton_cents)
+    prize_gifts = [dict(name=str(g.get('name') or 'Подарок'), image_url=str(g.get('image_url') or ''),
+                        price=int(g.get('price') or 0) / 100, owner=str(p.get('name') or ''))
+                   for p in players for g in (p.get('gifts') or []) if isinstance(g, dict)]
     return dict(
         available=game_available('arena'), demo=True, now=now,
         betting_ms=ARENA_BETTING_MS, result_ms=ARENA_RESULT_MS,
@@ -7918,7 +7983,8 @@ def demo_arena_state_payload(uid, now=None):
         round=dict(id=int(state.get('id') or now), state=state.get('state') or 'open', extended=False,
                    open_at=int(state.get('open_at') or 0), close_at=int(state.get('close_at') or 0),
                    settled_at=int(state.get('settled_at') or 0), total_pool=pool_cents / 100,
-                   fee=fee_cents / 100, payout=(pool_cents-fee_cents)/100,
+                   ton_pool=ton_cents / 100, gift_pool=max(0, pool_cents - ton_cents) / 100,
+                   fee=fee_cents / 100, payout=(ton_cents-fee_cents)/100, prize_gifts=prize_gifts,
                    winner_user_id=winner_id),
         players=result, winner=winner, my_bet=mine,
         mine_result=('won' if winner_id == int(uid) else 'lost') if winner_id and mine else None,
@@ -7959,7 +8025,8 @@ def demo_arena_bet(data):
     snapshot = None
     if gift_mode:
         demo_remove_item(record, item['id'])
-        snapshot = dict(name=str(item.get('name') or 'Подарок')[:140], image_url=str(item.get('image_url') or ''), price=amount)
+        snapshot = dict(name=str(item.get('name') or 'Подарок')[:140], image_url=str(item.get('image_url') or ''), price=amount,
+                        item=dict(item))
     else:
         record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) - amount
     increase_demo_turnover(record, amount)
@@ -8023,8 +8090,13 @@ def arena_state_payload(db, uid, now=None):
     winner_id = int(row['winner_user_id'] or 0)
     winner = next((x for x in result if x['user_id'] == winner_id), None) if winner_id else None
     mine = next((x for x in result if x['user_id'] == int(uid)), None)
+    _, ton_cents = arena_pools(players)
     pool_cents = int(row['total_pool'] or 0) if row['state'] == 'settled' else total
-    fee_cents = arena_fee_cents(pool_cents)
+    gift_cents = max(0, pool_cents - ton_cents)
+    fee_cents = arena_fee_cents(ton_cents)
+    prize_gifts = [dict(name=str(g.get('name') or 'Подарок'), image_url=str(g.get('image_url') or ''),
+                        price=int(g.get('price') or 0) / 100, owner=str(g.get('_owner') or ''))
+                   for g in arena_prize_gifts(players)]
     return dict(
         available=game_available('arena'),
         now=now,
@@ -8043,8 +8115,11 @@ def arena_state_payload(db, uid, now=None):
             close_at=int(row['close_at'] or 0),
             settled_at=int(row['settled_at'] or 0),
             total_pool=pool_cents / 100,
+            ton_pool=ton_cents / 100,
+            gift_pool=gift_cents / 100,
             fee=fee_cents / 100,
-            payout=(pool_cents - fee_cents) / 100,
+            payout=(ton_cents - fee_cents) / 100,   # TON that lands on the balance
+            prize_gifts=prize_gifts,                # gifts that go to the winner (never taxed)
             winner_user_id=winner_id,
         ),
         players=result,
@@ -11748,6 +11823,7 @@ def _activity_arena(r):
     state = _col(r, 'round_state', 'open')
     pool = int(_col(r, 'total_pool', 0) or 0)
     won = state == 'settled' and int(_col(r, 'winner_user_id', 0) or 0) == int(r['user_id'])
+    ton_pool = max(0, min(pool, int(_col(r, 'round_ton_pool', pool) or 0)))
     parts = []
     if ton:
         parts.append(_money(ton))
@@ -11763,9 +11839,14 @@ def _activity_arena(r):
     chance = amount * 100.0 / pool if pool else 0
     lines.append(f'Банк: {_money(pool)} · шанс на победу {chance:.1f}%')
     if won:
-        payout = pool - arena_fee_cents(pool)
-        lines.append(f'Выплата {_money(payout)} (комиссия {ARENA_FEE_PERCENT}%) · x{payout / amount:.2f}' if amount else '')
-        lines.append(f'Чистыми: +{_money(payout - amount)}')
+        fee = arena_fee_cents(ton_pool)
+        ton_payout = ton_pool - fee
+        gift_value = pool - ton_pool
+        payout = ton_payout + gift_value          # TON + gifts at their price
+        lines.append(f'Выплата TON: {_money(ton_payout)}' + (f' (комиссия {ARENA_FEE_PERCENT}% только с TON)' if fee else ' (без комиссии)'))
+        if gift_value:
+            lines.append(f'Получены подарки на {_money(gift_value)} (без комиссии)')
+        lines.append(f'x{payout / amount:.2f} · чистыми: +{_money(payout - amount)}' if amount else '')
         return _ev(title='Арена · выигрыш', lines=lines, amount=(payout - amount) / 100, tone='win', **base)
     lines.append(f'Проигрыш: {_money(amount)}' + (' (включая подарки)' if gifts else ''))
     return _ev(title='Арена · проигрыш', lines=lines, amount=-amount / 100, tone='loss', **base)
@@ -11898,7 +11979,8 @@ def admin_user_activity(user_id):
                                            WHERE b.user_id=? ORDER BY b.round_id DESC LIMIT ?''',(user_id,limit)).fetchall())
         add(_activity_upgrade, db.execute('SELECT * FROM upgrade_spins WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?',
                                           (user_id,limit)).fetchall())
-        add(_activity_arena, db.execute('''SELECT b.*,r.state AS round_state,r.winner_user_id,r.total_pool
+        add(_activity_arena, db.execute('''SELECT b.*,r.state AS round_state,r.winner_user_id,r.total_pool,
+                                           (SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id) AS round_ton_pool
                                            FROM arena_bets b JOIN arena_rounds r ON r.id=b.round_id
                                            WHERE b.user_id=? ORDER BY b.round_id DESC LIMIT ?''',(user_id,limit)).fetchall())
         tx_rows = db.execute('SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT ?',(user_id,limit)).fetchall()

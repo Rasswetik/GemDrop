@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import asyncio
@@ -53,7 +54,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '95-portal-market-payout-fallback'
+BUILD_ID = '96-portal-relayer-broadcast-deeplinks'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -64,7 +65,7 @@ app.secret_key = os.environ.get('SECRET_KEY') or (
 WEBHOOK_SECRET = hashlib.sha256((app.secret_key + BOT_TOKEN).encode()).hexdigest()[:48]
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                   SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')),
-                  MAX_CONTENT_LENGTH=2 * 1024 * 1024)
+                  MAX_CONTENT_LENGTH=96 * 1024 * 1024)
 
 @app.get('/static/img/start.png')
 def start_png_alias():
@@ -6951,6 +6952,37 @@ def validate_greeting(text):
         raise ValueError('Приветствие слишком длинное: максимум 4096 символов.')
 
 
+MINIAPP_DESTINATIONS = {
+    'home': 'Главная', 'games': 'Игры', 'mines': 'Мины', 'upgrade': 'Апгрейды',
+    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'giveaways': 'Розыгрыши',
+    'profile': 'Профиль', 'levels': 'Уровни', 'bonuses': 'Бонусы',
+    'creator': 'Панель автора', 'deposit': 'Пополнение',
+}
+
+
+def miniapp_target_url(value='', fallback=''):
+    raw = str(value or '').strip()
+    action = ''
+    if raw.startswith('section:'):
+        action = raw.split(':', 1)[1].strip().lower()
+    elif raw in MINIAPP_DESTINATIONS:
+        action = raw
+    if action:
+        if action not in MINIAPP_DESTINATIONS:
+            raise ValueError('Неизвестный раздел GemDrop.')
+        if not WEBAPP_URL.startswith('https://'):
+            raise ValueError('WEBAPP_URL должен быть HTTPS для кнопки Mini App.')
+        return WEBAPP_URL.rstrip('/') + '/?open=' + action
+    if raw:
+        if not re.match(r'^https://', raw, re.I):
+            raise ValueError('Web App URL должен начинаться с https://.')
+        return raw[:2048]
+    target = str(fallback or '').strip() or WEBAPP_URL.rstrip('/') + '/'
+    if not target.startswith('https://'):
+        raise ValueError('WEBAPP_URL должен быть HTTPS для кнопки Mini App.')
+    return target[:2048]
+
+
 def normalize_start_buttons(raw):
     """Validate the editable /start inline keyboard and keep an editor-friendly shape."""
     if raw is None:
@@ -6977,8 +7009,13 @@ def normalize_start_buttons(raw):
             if icon and not re.fullmatch(r'[0-9]{5,30}', icon):
                 raise ValueError(f'Некорректный ID premium emoji у кнопки «{text}».')
             if kind == 'web_app':
-                if value and not re.match(r'^https://', value, re.I):
-                    raise ValueError(f'Web App URL кнопки «{text}» должен начинаться с https://.')
+                if value.startswith('section:'):
+                    action = value.split(':', 1)[1].strip().lower()
+                    if action not in MINIAPP_DESTINATIONS:
+                        raise ValueError(f'Неизвестный раздел GemDrop у кнопки «{text}».')
+                    value = 'section:' + action
+                elif value and not re.match(r'^(https://|\{webapp_url\})', value, re.I):
+                    raise ValueError(f'Web App кнопки «{text}» должен открывать раздел GemDrop или HTTPS URL.')
                 value = value[:2048]
             elif kind == 'url':
                 if not re.match(r'^(https?://|tg://)', value, re.I):
@@ -7043,9 +7080,9 @@ def build_start_keyboard(uid, referrer=None):
             if re.fullmatch(r'[0-9]{5,30}', icon):
                 button['icon_custom_emoji_id'] = icon
             if kind == 'web_app':
-                target = value or play_url
-                target = target.replace('{webapp_url}', play_url)
-                if not target.startswith('https://'):
+                try:
+                    target = miniapp_target_url(value.replace('{webapp_url}', play_url), play_url)
+                except ValueError:
                     target = play_url
                 button['web_app'] = {'url': target[:2048]}
             elif kind == 'url':
@@ -7311,6 +7348,22 @@ def _bc_call(method, payload, files=None):
                        retry=int((data.get('parameters') or {}).get('retry_after') or 0))
 
 
+def _bc_upload_photo(item):
+    if not isinstance(item, dict) or not item.get('data'):
+        raise ValueError('Некорректный временный файл рассылки.')
+    try:
+        blob = base64.b64decode(str(item.get('data') or ''), validate=True)
+    except (ValueError, TypeError):
+        raise ValueError('Не удалось прочитать временный файл рассылки.')
+    if not blob or len(blob) > 8 * 1024 * 1024:
+        raise ValueError('Фото рассылки повреждено или превышает 8 МБ.')
+    name = re.sub(r'[^A-Za-z0-9._-]+', '_', str(item.get('name') or 'photo.jpg'))[:120] or 'photo.jpg'
+    mime = str(item.get('mime') or 'image/jpeg')
+    if not mime.startswith('image/'):
+        mime = 'image/jpeg'
+    return name, blob, mime
+
+
 def _bc_send_one(b, user_id):
     text, chat = b['text'] or '', int(user_id)
     try:
@@ -7321,33 +7374,66 @@ def _bc_send_one(b, user_id):
     if markup and not markup['inline_keyboard']:
         markup = None
     visible = len(re.sub(r'<[^>]+>', '', text))
+    cached_ids = []
+
     def message(body):
-        payload = dict(chat_id=chat, text=body or '👇', parse_mode='HTML', link_preview_options={'is_disabled': True})
+        payload = dict(chat_id=chat, text=body or '👇', parse_mode='HTML',
+                       link_preview_options={'is_disabled': True})
         if markup:
             payload['reply_markup'] = markup
         return _bc_call('sendMessage', payload)
+
     if not ids:
-        return message(text)
+        ok, res = message(text)
+        return ok, res, cached_ids
+
     if len(ids) == 1:
         caption_ok = bool(text) and visible <= 1024
-        payload = dict(chat_id=chat, photo=ids[0])
+        payload = dict(chat_id=chat)
         if caption_ok:
             payload.update(caption=text, parse_mode='HTML')
         if markup and (caption_ok or not text):
             payload['reply_markup'] = markup
-        ok, res = _bc_call('sendPhoto', payload)
+        if isinstance(ids[0], dict):
+            try:
+                upload = _bc_upload_photo(ids[0])
+            except ValueError as exc:
+                return False, dict(code=0, description=str(exc), retry=0), cached_ids
+            ok, res = _bc_call('sendPhoto', payload, files={'photo': upload})
+        else:
+            payload['photo'] = str(ids[0])
+            ok, res = _bc_call('sendPhoto', payload)
+        if ok and isinstance(res, dict) and res.get('photo'):
+            cached_ids = [str(res['photo'][-1].get('file_id') or '')]
+            cached_ids = [x for x in cached_ids if x]
         if ok and text and not caption_ok:
             ok, res = message(text)
-        return ok, res
+        return ok, res, cached_ids
+
     caption_ok = bool(text) and visible <= 1024 and not markup
-    media = [dict(type='photo', media=f) for f in ids]
+    media, files = [], {}
+    try:
+        for index, item in enumerate(ids):
+            if isinstance(item, dict):
+                key = f'photo{index}'
+                files[key] = _bc_upload_photo(item)
+                media.append(dict(type='photo', media='attach://' + key))
+            else:
+                media.append(dict(type='photo', media=str(item)))
+    except ValueError as exc:
+        return False, dict(code=0, description=str(exc), retry=0), cached_ids
     if caption_ok:
         media[0].update(caption=text, parse_mode='HTML')
-    ok, res = _bc_call('sendMediaGroup', dict(chat_id=chat, media=media))
+    ok, res = _bc_call('sendMediaGroup', dict(chat_id=chat, media=media), files=files or None)
+    if ok and isinstance(res, list):
+        cached_ids = [
+            str((msg.get('photo') or [{}])[-1].get('file_id') or '')
+            for msg in res if isinstance(msg, dict) and msg.get('photo')
+        ]
+        cached_ids = [x for x in cached_ids if x]
     if ok and (markup or (text and not caption_ok)):
         ok, res = message(text)
-    return ok, res
-
+    return ok, res, cached_ids
 
 def _bc_process_batch():
     if not BOT_TOKEN:
@@ -7369,7 +7455,13 @@ def _bc_process_batch():
             if r['broadcast_id'] not in cache:
                 cache[r['broadcast_id']] = db.execute('SELECT * FROM broadcasts WHERE id=?', (r['broadcast_id'],)).fetchone()
         b = cache[r['broadcast_id']]
-        ok, res = _bc_send_one(b, r['user_id'])
+        ok, res, cached_ids = _bc_send_one(b, r['user_id'])
+        if cached_ids:
+            encoded_photos = json.dumps(cached_ids, ensure_ascii=False)
+            with connect() as db:
+                db.execute('UPDATE broadcasts SET photos=? WHERE id=?', (encoded_photos, r['broadcast_id']))
+                db.commit()
+            b['photos'] = encoded_photos
         attempts, state, error, col, delay = int(r['attempts']) + 1, 'sent', '', 'sent', 0
         if not ok:
             code, desc = res['code'], res['description']
@@ -7436,8 +7528,9 @@ def admin_broadcast_send():
             return error('По этим фильтрам нет получателей.', 409)
     except (ValueError, RuntimeError) as exc:
         return error(str(exc), 409)
-    # Photos are uploaded once to the admin's own chat to obtain reusable Telegram file_ids,
-    # then the temporary message is removed. Every recipient gets the same file_id.
+    # Keep uploads server-side until the first real recipient is sent. Telegram file_ids
+    # are then cached for every remaining recipient. This avoids the old visible
+    # admin-chat upload -> deleteMessage round trip.
     file_ids = []
     for f in files:
         blob = f.read()
@@ -7445,12 +7538,11 @@ def admin_broadcast_send():
             return error('Прикрепляйте только изображения (JPG, PNG, WEBP).')
         if len(blob) > 8 * 1024 * 1024:
             return error('Одно фото — не более 8 МБ.')
-        ok, res = _bc_call('sendPhoto', dict(chat_id=int(session['uid']), disable_notification=True),
-                           files={'photo': (f.filename or 'photo.jpg', blob, f.mimetype)})
-        if not ok:
-            return error('Telegram не принял фото: ' + res['description'] + '. Админ должен запустить бота (/start).', 409)
-        file_ids.append(res['photo'][-1]['file_id'])
-        _bc_call('deleteMessage', dict(chat_id=int(session['uid']), message_id=res['message_id']))
+        file_ids.append({
+            'name': (f.filename or 'photo.jpg')[:120],
+            'mime': (f.mimetype or 'image/jpeg')[:80],
+            'data': base64.b64encode(blob).decode('ascii'),
+        })
     with connect() as db:
         cur = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,created_at) VALUES(?,?,?,?,?,?)',
                          (session['uid'], text, json.dumps(file_ids), json.dumps(buttons), len(rows), int(time.time())))
@@ -7470,16 +7562,22 @@ def admin_broadcast_send():
 def admin_broadcast_status():
     with connect() as db:
         rows = db.execute('SELECT * FROM broadcasts ORDER BY id DESC LIMIT 8').fetchall()
-    items = []
-    for r in rows:
-        done = int(r['sent']) + int(r['failed']) + int(r['blocked'])
-        try:
-            photos = len(json.loads(r['photos'] or '[]'))
-        except (TypeError, ValueError):
-            photos = 0
-        items.append(dict(id=r['id'], state=r['state'], total=r['total'], sent=r['sent'], failed=r['failed'], blocked=r['blocked'],
-                          pending=max(0, int(r['total']) - done), photos=photos, created_at=r['created_at'],
-                          preview=re.sub(r'<[^>]+>', '', r['text'] or '')[:70]))
+        items = []
+        for r in rows:
+            done = int(r['sent']) + int(r['failed']) + int(r['blocked'])
+            try:
+                photos = len(json.loads(r['photos'] or '[]'))
+            except (TypeError, ValueError):
+                photos = 0
+            errors = db.execute("""SELECT user_id,state,error FROM broadcast_items
+                                   WHERE broadcast_id=? AND state IN ('failed','blocked') AND error<>''
+                                   ORDER BY id DESC LIMIT 6""", (r['id'],)).fetchall()
+            items.append(dict(
+                id=r['id'], state=r['state'], total=r['total'], sent=r['sent'], failed=r['failed'],
+                blocked=r['blocked'], pending=max(0, int(r['total']) - done), photos=photos,
+                created_at=r['created_at'], preview=re.sub(r'<[^>]+>', '', r['text'] or '')[:70],
+                errors=[dict(user_id=x['user_id'], state=x['state'], error=x['error']) for x in errors],
+            ))
     return jsonify(items=items)
 
 
@@ -7580,7 +7678,12 @@ def normalize_post_buttons(raw):
                 button['icon_custom_emoji_id'] = icon
             kind = str(item.get('type') or 'url')
             value = str(item.get('value') or '').strip()
-            if kind == 'url':
+            if kind == 'web_app':
+                try:
+                    button['web_app'] = {'url': miniapp_target_url(value)}
+                except ValueError as exc:
+                    raise ValueError(f'Кнопка «{text}»: {exc}') from exc
+            elif kind == 'url':
                 if not re.match(r'^(https?://|tg://)', value, re.I):
                     raise ValueError(f'У кнопки «{text}» должна быть ссылка http(s):// или tg://.')
                 button['url'] = value[:2048]
@@ -15870,8 +15973,16 @@ def _portal_auto_log(withdrawal_id,row,status,stage='',nft=None,source='',purcha
     return _portal_log_row(withdrawal_id)
 
 def _portal_manual(withdrawal_id,row,status,message,stage='error',**kwargs):
+    previous = _portal_log_row(withdrawal_id) or {}
+    first_notice = previous.get('status') != status or str(previous.get('error') or '') != str(message)
     _portal_auto_log(withdrawal_id,row,status,stage=stage,error_text=message,**kwargs)
     append_portal_log(f'Вывод #{withdrawal_id}: {message} Нужен ручной вывод.','error')
+    if first_notice:
+        notify_user_async(
+            int(row['user_id']),
+            '⚠️ <b>Автоматический вывод не завершён</b>\n\n'
+            'Заявка сохранена и помечена для ручного вывода администратором. Повторно запрашивать подарок не нужно.',
+            miniapp_markup('Открыть GemDrop', 'profile'), 'HTML')
     return dict(ok=False,status=status,error=message,manual_required=True,provider='portal')
 
 def _portal_finish(withdrawal_id,row,nft,ids):

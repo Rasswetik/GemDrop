@@ -454,9 +454,20 @@ def _initialize_schema():
             gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
             image_url TEXT NOT NULL DEFAULT '', external_url TEXT NOT NULL DEFAULT '',
             fragment_number TEXT NOT NULL DEFAULT '', floor_price INTEGER NOT NULL DEFAULT 0,
+            portal_price INTEGER NOT NULL DEFAULT 0,
             inventory_id INTEGER, status TEXT NOT NULL DEFAULT 'seen',
             raw_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             credited_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS relayer_withdrawal_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, withdrawal_id INTEGER NOT NULL UNIQUE,
+            user_id INTEGER NOT NULL, inventory_id INTEGER NOT NULL DEFAULT 0,
+            external_key TEXT NOT NULL DEFAULT '', gift_slug TEXT NOT NULL DEFAULT '',
+            gift_name TEXT NOT NULL DEFAULT '', fragment_number TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending', transfer_stars INTEGER NOT NULL DEFAULT 0,
+            attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT
         );
         CREATE TABLE IF NOT EXISTS roll_spins (
             id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, roll_id TEXT NOT NULL,
@@ -687,7 +698,11 @@ def _initialize_schema():
             ('status', "TEXT NOT NULL DEFAULT 'pending'"), ('admin_id', 'INTEGER'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"), ('processed_at', 'TEXT'),
             ('external_url', "TEXT NOT NULL DEFAULT ''"),
+            ('fragment_number', "TEXT NOT NULL DEFAULT ''"), ('fragment_model', "TEXT NOT NULL DEFAULT ''"),
+            ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"), ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"),
+            ('price_source', "TEXT NOT NULL DEFAULT ''"), ('animation_url', "TEXT NOT NULL DEFAULT ''"),
         ])
+        ensure_columns('relayer_gift_events', [('portal_price', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('referrals', [
             ('referrer_id', 'INTEGER NOT NULL DEFAULT 0'), ('created_at', "TEXT NOT NULL DEFAULT ''"),
         ])
@@ -741,7 +756,8 @@ def _initialize_schema():
         ensure_postgres_bigint('upgrade_spins', ['user_id', 'source_price', 'target_price'])
         ensure_postgres_bigint('upgrade_promo_pity', ['user_id'])
         ensure_postgres_bigint('user_notifications', ['user_id'])
-        ensure_postgres_bigint('relayer_gift_events', ['sender_user_id', 'floor_price', 'inventory_id'])
+        ensure_postgres_bigint('relayer_gift_events', ['sender_user_id', 'floor_price', 'portal_price', 'inventory_id'])
+        ensure_postgres_bigint('relayer_withdrawal_logs', ['withdrawal_id', 'user_id', 'inventory_id', 'transfer_stars'])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.executescript("""
@@ -766,6 +782,8 @@ def _initialize_schema():
         CREATE INDEX IF NOT EXISTS broadcast_items_pending ON broadcast_items(state, next_at, id);
         CREATE INDEX IF NOT EXISTS broadcast_items_bc ON broadcast_items(broadcast_id, state);
         CREATE INDEX IF NOT EXISTS relayer_gift_events_sender ON relayer_gift_events(sender_user_id,id DESC);
+        CREATE INDEX IF NOT EXISTS relayer_withdrawal_logs_status ON relayer_withdrawal_logs(status,id DESC);
+        CREATE INDEX IF NOT EXISTS relayer_withdrawal_logs_user ON relayer_withdrawal_logs(user_id,id DESC);
         CREATE TABLE IF NOT EXISTS creator_chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id BIGINT NOT NULL,
@@ -13731,6 +13749,7 @@ def relayer_settings():
         relay_username=str(doc.get('relay_username') or ton.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay',
         delivery_mode=delivery_mode, credit_balance=(delivery_mode == 'balance'),
         keep_inventory=(delivery_mode == 'inventory'),
+        auto_withdraw_enabled=bool(doc.get('auto_withdraw_enabled', True)),
     )
 
 
@@ -13739,11 +13758,21 @@ def relayer_public_ready():
     return bool(cfg['enabled'] and cfg['api_id'] and cfg['api_hash'] and state.get('authorized'))
 
 
+GIFT_DEPOSIT_ACCEPT_RATE = Decimal('0.90')
+
+
+def _gift_deposit_accept_cents(portal_cents):
+    try: raw=max(0,int(portal_cents or 0))
+    except (TypeError,ValueError): raw=0
+    return int((Decimal(raw)*GIFT_DEPOSIT_ACCEPT_RATE).quantize(Decimal('1'),rounding=ROUND_HALF_UP)) if raw else 0
+
+
 def relayer_public_catalog():
     items, seen = [], set()
     for gift in read_catalog().get('gifts', []):
-        try: price = ton_to_cents(gift.get('price_ton') or 0)
-        except (ValueError, TypeError, InvalidOperation): price = 0
+        try: portal_price = ton_to_cents(gift.get('price_ton') or 0)
+        except (ValueError, TypeError, InvalidOperation): portal_price = 0
+        price=_gift_deposit_accept_cents(portal_price)
         if price <= 0: continue
         gid, name = str(gift.get('id') or ''), str(gift.get('name') or 'Подарок').strip() or 'Подарок'
         key = (gid, name.casefold())
@@ -13830,7 +13859,7 @@ def admin_relayer_settings():
     username = str(data.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay'
     delivery_mode=str(data.get('delivery_mode') or 'inventory').strip().lower()
     if delivery_mode not in {'inventory','balance'}: delivery_mode='inventory'
-    save_document('relayer_settings', dict(enabled=bool(data.get('enabled',True)),api_id=api_id,api_hash=api_hash,relay_username=username,delivery_mode=delivery_mode,updated_at=datetime.now(timezone.utc).isoformat(),admin_id=session['uid']))
+    save_document('relayer_settings', dict(enabled=bool(data.get('enabled',True)),api_id=api_id,api_hash=api_hash,relay_username=username,delivery_mode=delivery_mode,auto_withdraw_enabled=bool(data.get('auto_withdraw_enabled',True)),updated_at=datetime.now(timezone.utc).isoformat(),admin_id=session['uid']))
     ton_doc = read_document('ton_settings') or {}; ton_doc.update({'gifts_enabled':bool(data.get('gifts_enabled',True)),'relay_username':username,'updated_at':datetime.now(timezone.utc).isoformat(),'admin_id':session['uid']}); save_document('ton_settings',ton_doc)
     return jsonify(ok=True)
 
@@ -14050,7 +14079,8 @@ def _relayer_credit(info,baseline=False):
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'baseline',info.get('raw_json','{}'))); db.commit(); return 'baseline'
         if not user_row:
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'unmatched',info.get('raw_json','{}'))); db.commit(); return 'unmatched'
-        price=max(0,int(info.get('floor_price') or 0))
+        portal_price=max(0,int(info.get('floor_price') or 0))
+        price=_gift_deposit_accept_cents(portal_price)
         mode=cfg.get('delivery_mode') or 'inventory'
         if mode=='balance' and price<=0:
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),0,'unpriced',info.get('raw_json','{}'))); db.commit(); return 'unpriced'
@@ -14063,7 +14093,9 @@ def _relayer_credit(info,baseline=False):
             db.execute('UPDATE users SET balance=balance+? WHERE id=?',(price,uid))
             record_transaction(db,uid,'gift_deposit',price,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
             event_status='credited'
-        db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}'))); db.commit()
+        db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}')))
+        db.execute('UPDATE relayer_gift_events SET portal_price=? WHERE external_key=?',(portal_price,info['external_key']))
+        db.commit()
     finally: db.close()
     gift_name=escape(str(info.get('gift_name') or 'Telegram NFT'))
     number=str(info.get('fragment_number') or '').strip()

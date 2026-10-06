@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import hmac
 import asyncio
@@ -7349,27 +7348,25 @@ def _bc_call(method, payload, files=None):
 
 
 def _bc_upload_photo(item):
-    if not isinstance(item, dict) or not item.get('data'):
+    if not isinstance(item, dict) or not item.get('blob'):
         raise ValueError('Некорректный временный файл рассылки.')
-    try:
-        blob = base64.b64decode(str(item.get('data') or ''), validate=True)
-    except (ValueError, TypeError):
-        raise ValueError('Не удалось прочитать временный файл рассылки.')
-    if not blob or len(blob) > 8 * 1024 * 1024:
+    blob = item.get('blob')
+    if not isinstance(blob, (bytes, bytearray)) or not blob or len(blob) > 8 * 1024 * 1024:
         raise ValueError('Фото рассылки повреждено или превышает 8 МБ.')
     name = re.sub(r'[^A-Za-z0-9._-]+', '_', str(item.get('name') or 'photo.jpg'))[:120] or 'photo.jpg'
     mime = str(item.get('mime') or 'image/jpeg')
     if not mime.startswith('image/'):
         mime = 'image/jpeg'
-    return name, blob, mime
+    return name, bytes(blob), mime
 
 
 def _bc_send_one(b, user_id):
     text, chat = b['text'] or '', int(user_id)
     try:
         markup = {'inline_keyboard': json.loads(b['buttons'] or '[]')} or None
-        ids = json.loads(b['photos'] or '[]')
-    except (TypeError, ValueError):
+        raw_photos = b['photos']
+        ids = raw_photos if isinstance(raw_photos, list) else json.loads(raw_photos or '[]')
+    except (TypeError, ValueError, KeyError):
         markup, ids = None, []
     if markup and not markup['inline_keyboard']:
         markup = None
@@ -7455,13 +7452,7 @@ def _bc_process_batch():
             if r['broadcast_id'] not in cache:
                 cache[r['broadcast_id']] = db.execute('SELECT * FROM broadcasts WHERE id=?', (r['broadcast_id'],)).fetchone()
         b = cache[r['broadcast_id']]
-        ok, res, cached_ids = _bc_send_one(b, r['user_id'])
-        if cached_ids:
-            encoded_photos = json.dumps(cached_ids, ensure_ascii=False)
-            with connect() as db:
-                db.execute('UPDATE broadcasts SET photos=? WHERE id=?', (encoded_photos, r['broadcast_id']))
-                db.commit()
-            b['photos'] = encoded_photos
+        ok, res, _ = _bc_send_one(b, r['user_id'])
         attempts, state, error, col, delay = int(r['attempts']) + 1, 'sent', '', 'sent', 0
         if not ok:
             code, desc = res['code'], res['description']
@@ -7528,33 +7519,66 @@ def admin_broadcast_send():
             return error('По этим фильтрам нет получателей.', 409)
     except (ValueError, RuntimeError) as exc:
         return error(str(exc), 409)
-    # Keep uploads server-side until the first real recipient is sent. Telegram file_ids
-    # are then cached for every remaining recipient. This avoids the old visible
-    # admin-chat upload -> deleteMessage round trip.
-    file_ids = []
+
+    # Never upload a "service copy" to the admin chat. If photos are attached, send
+    # the real broadcast once to the first reachable recipient, capture Telegram
+    # file_ids from that real delivery, then queue all remaining users with file_ids.
+    uploads = []
     for f in files:
         blob = f.read()
         if not (f.mimetype or '').startswith('image/') or not blob:
             return error('Прикрепляйте только изображения (JPG, PNG, WEBP).')
         if len(blob) > 8 * 1024 * 1024:
             return error('Одно фото — не более 8 МБ.')
-        file_ids.append({
+        uploads.append({
             'name': (f.filename or 'photo.jpg')[:120],
             'mime': (f.mimetype or 'image/jpeg')[:80],
-            'data': base64.b64encode(blob).decode('ascii'),
+            'blob': blob,
         })
+
+    staged_user_id = None
+    file_ids = []
+    if uploads:
+        if not BOT_TOKEN:
+            return error('BOT_TOKEN не настроен — фото рассылки нельзя загрузить в Telegram.', 503)
+        staging = {'text': text, 'photos': uploads, 'buttons': json.dumps(buttons, ensure_ascii=False)}
+        last_error = ''
+        # A blocked first user must not break the whole broadcast. Try a small
+        # prefix of the selected audience until Telegram accepts the real delivery.
+        for row in rows[:min(12, len(rows))]:
+            ok, result, cached = _bc_send_one(staging, int(row['id']))
+            if ok and cached:
+                staged_user_id = int(row['id'])
+                file_ids = cached
+                break
+            if isinstance(result, dict):
+                last_error = str(result.get('description') or '')[:180]
+        if staged_user_id is None or not file_ids:
+            return error('Telegram не принял фото рассылки' + (': ' + last_error if last_error else '') + '.', 502)
+
+    now = int(time.time())
     with connect() as db:
-        cur = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,created_at) VALUES(?,?,?,?,?,?)',
-                         (session['uid'], text, json.dumps(file_ids), json.dumps(buttons), len(rows), int(time.time())))
+        cur = db.execute(
+            'INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
+            (session['uid'], text, json.dumps(file_ids, ensure_ascii=False), json.dumps(buttons, ensure_ascii=False),
+             len(rows), 1 if staged_user_id is not None else 0, now))
         bid = cur.lastrowid
         for row in rows:
-            db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bid, int(row['id'])))
+            uid = int(row['id'])
+            if uid == staged_user_id:
+                db.execute("""INSERT INTO broadcast_items(broadcast_id,user_id,state,attempts,error,next_at)
+                              VALUES(?,?,'sent',1,'',0)""", (bid, uid))
+            else:
+                db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bid, uid))
+        if staged_user_id is not None and len(rows) == 1:
+            db.execute("UPDATE broadcasts SET state='done',finished_at=? WHERE id=?", (now, bid))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'broadcast',
-                    json.dumps(dict(id=bid, count=len(rows), photos=len(file_ids), test=test, filters=filters), ensure_ascii=False)[:1000]))
+                    json.dumps(dict(id=bid, count=len(rows), photos=len(file_ids), test=test, filters=filters,
+                                    staged_user_id=staged_user_id), ensure_ascii=False)[:1000]))
         db.commit()
     NOTIFY_WAKE.set()
-    return jsonify(ok=True, id=bid, queued=len(rows))
+    return jsonify(ok=True, id=bid, queued=len(rows), sent_now=1 if staged_user_id is not None else 0)
 
 
 @app.get('/api/admin/broadcast/status')
@@ -15435,6 +15459,26 @@ def store_portal_key(key):
     })
 
 
+def saved_portal_partner_key():
+    """Partner API token for the Relayer account; kept separate from catalog/TMA auth."""
+    try:
+        doc = read_document('portal_partner_auth') or {}
+        value = str(doc.get('token') or '').strip()
+        return value if len(value) <= 8000 and '\n' not in value and '\r' not in value else ''
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return ''
+
+
+def store_portal_partner_key(token):
+    token = str(token or '').strip()
+    if not token:
+        return
+    save_document('portal_partner_auth', {
+        'token': token,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    })
+
+
 
 PORTAL_BACKGROUND_LABELS = {
     'black': 'Black',
@@ -15857,7 +15901,9 @@ PORTAL_WITHDRAW_RESERVE=Decimal('0.30')
 portal_withdraw_lock=__import__('threading').Lock()
 
 def portal_partner_token():
-    raw=str(saved_portal_key() or '').strip()
+    # Backward-compatible fallback lets installations migrate from the old shared key
+    # without breaking withdrawals, while new admin saves no longer overwrite catalog auth.
+    raw=str(saved_portal_partner_key() or saved_portal_key() or '').strip()
     if not raw:return ''
     if raw.casefold().startswith('tma ') or ('hash=' in raw and 'auth_date=' in raw):return ''
     for prefix in ('partners ','bearer '):
@@ -16052,7 +16098,15 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
             if not nft.get('id'):
                 _portal_auto_log(withdrawal_id,row,'portal_lookup',stage='lookup')
                 candidate,_=_portal_owned_candidate(row);source='owned' if candidate else 'market'
-                if not candidate:candidate=_portal_market_candidate(row)
+                if not candidate:
+                    candidate=_portal_market_candidate(row)
+                    if candidate and old.get('source')!='market':
+                        notify_user_async(
+                            int(row['user_id']),
+                            '🔎 <b>Подарок не найден на Relayer</b>\n\n'
+                            'GemDrop нашёл подходящий подарок на Portal Market и автоматически покупает его для вашего вывода. '
+                            'Для отправки через Portal может понадобиться написать любое сообщение боту @GiftsToPortals.',
+                            miniapp_markup('Открыть GemDrop','profile'),'HTML')
                 if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found','В Portal Market нет подходящего подарка этой коллекции.','lookup')
                 nft=candidate;price=Decimal('0') if source=='owned' else _portal_decimal(nft.get('price'))
                 already_owned=(source=='owned')
@@ -16134,7 +16188,7 @@ def admin_portal_partner():
     token=str((request.get_json(silent=True) or {}).get('token') or '').strip()
     if token:
         if len(token)>8000 or '\n' in token or '\r' in token:return error('Некорректный Partner token Portal.')
-        store_portal_key(token);append_portal_log('Partner token Portal Market обновлён.')
+        store_portal_partner_key(token);append_portal_log('Partner token Portal Market аккаунта Relayer обновлён.')
     data=_portal_runtime_data()
     return jsonify(ok=not bool(data.get('error')),**data)
 

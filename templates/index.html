@@ -3761,8 +3761,8 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
   <div id="arenaNote" class="muted arena-note"></div>
 </div>
 
-    <div class="panel arena-recent-panel"><div class="panel-head"><h2>Последние игры</h2><span id="arenaMaxX">MAX X —</span></div><div id="arenaRecent" class="arena-recent-list"><div class="empty">Пока нет завершённых арен</div></div></div>
-<div class="panel arena-players-panel"><div class="panel-head"><h2>Игроки</h2><span id="arenaPlayersCount">0</span></div><div id="arenaPlayers" class="arena-player-list"><div class="empty">Пока нет ставок</div></div></div>
+    <div class="panel arena-players-panel"><div class="panel-head"><h2>Игроки</h2><span id="arenaPlayersCount">0</span></div><div id="arenaPlayers" class="arena-player-list"><div class="empty">Пока нет ставок</div></div></div>
+<div class="panel arena-recent-panel"><div class="panel-head"><h2>Последние игры</h2><span id="arenaMaxX">MAX X —</span></div><div id="arenaRecent" class="arena-recent-list"><div class="empty">Пока нет завершённых арен</div></div></div>
 
   </aside>
 </div>
@@ -7547,6 +7547,19 @@ const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.ge
     width:100%!important;
     margin:0 auto!important;
   }
+}
+</style>
+<style id="profile-role-buttons-spacing-v1">
+#profilePage #creatorEntry,
+#profilePage #adminEntry{
+  width:100%;
+  display:block;
+}
+#profilePage #creatorEntry:not(.hidden)+#adminEntry:not(.hidden){
+  margin-top:10px;
+}
+#profilePage #adminEntry:not(.hidden)+#profileLogout{
+  margin-top:18px;
 }
 </style>
 </body></html>

@@ -10522,116 +10522,195 @@ def create_upgrade_compensation_promo(db, user_id, source_price, force=False, pi
     return promo_view(row)
 
 def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None):
-    """Award exactly one server-selected prize, persisted with the upgrade spin.
+    """Select one compensation prize without crediting it yet.
 
-    Cosmetic reel items come from the same eligible pool; replaying a spin uses
-    its saved result and never issues the prize twice.
+    The prize is persisted in upgrade_spins and is credited only after the
+    client reel finishes and calls /api/upgrade/compensation/claim.
     """
-    empty = dict(cashback=0, cashback_percent=0, promo=None, reward=None, reel=[])
-    if source_price < 500:
+    empty = dict(cashback=0, cashback_percent=0, promo=None, reward=None, reel=[],
+                 deferred=False, claimed=False)
+    source_price = max(0, int(source_price or 0))
+    if source_price < MIN_BET_CENTS:
         return empty
+
     large = source_price >= 10000
     medium = source_price >= 2500
-    budget = max(100, round(source_price * (.20 if large else .16)))
+    budget = max(1, round(source_price * (.20 if large else .16)))
     catalog_candidates = craft_catalog_candidates()
-    gifts = [g for g in catalog_candidates if g['price'] <= budget]
-    # For medium TON losses the old compensation tape could contain only TON
-    # cells when the catalog had no very cheap gifts. Keep the actual economy
-    # conservative, but always put a real catalog gift into the visible/prize
-    # pool when the stake is large enough to make that fair.
+
+    # Small losses always get the compensation window, but gifts start only
+    # from 5 TON so a tiny bet can never roll an oversized catalog reward.
+    allow_gifts = source_price >= 500
+    gifts = [g for g in catalog_candidates if g['price'] <= budget] if allow_gifts else []
+
     visual_budget = max(budget, round(source_price * (.75 if medium or large else .42)))
     if target_price:
         try:
             visual_budget = max(visual_budget, round(int(target_price) * .18))
         except (TypeError, ValueError):
             pass
-    visual_gifts = [g for g in catalog_candidates if g['price'] <= visual_budget]
+    visual_gifts = ([g for g in catalog_candidates if g['price'] <= visual_budget]
+                    if allow_gifts else [])
     if not gifts and source_price >= 1000 and visual_gifts:
         gifts = visual_gifts[:max(1, min(18, len(visual_gifts)))]
+
     pool = []
     for percent in (1, 2, 3, 5):
-        amount = max(1, round(source_price * percent / 100))
-        pool.append(dict(type='balance', amount=amount/100, image_url='/static/img/ton.png', name='TON'))
-    # Tickets are a first-class Upgrade compensation prize. Scale them with the
-    # lost stake while keeping a useful minimum for small eligible losses.
-    ticket_count=max(1,min(250,round(source_price/500)))
+        amount_cents = max(1, round(source_price * percent / 100))
+        pool.append(dict(type='balance', amount=amount_cents / 100,
+                         image_url='/static/img/ton.png', name='TON'))
+    ticket_count = max(1, min(250, round(source_price / 500)))
     pool.append(dict(type='tickets', tickets=ticket_count, image_url='', name='Билеты'))
+
     gift_options = []
     for gift in gifts:
-        # Larger losses increase the eligible catalog and lower playthrough.
         for kind in ('gift', 'wager_gift', 'promo'):
-            multiplier = secrets.choice([5, 8, 10] if large else [8, 10, 12] if medium else [10, 15, 20])
-            gift_options.append(dict(type=kind, gift_id=gift['id'], name=gift['name'],
-                                     image_url=gift['image_url'], price_ton=gift['price']/100,
-                                     wager_multiplier=multiplier if kind=='wager_gift' else 0))
+            multiplier = secrets.choice([5, 8, 10] if large else
+                                        [8, 10, 12] if medium else
+                                        [10, 15, 20])
+            gift_options.append(dict(
+                type=kind, gift_id=gift['id'], name=gift['name'],
+                image_url=gift['image_url'], price_ton=gift['price'] / 100,
+                wager_multiplier=multiplier if kind == 'wager_gift' else 0
+            ))
+
     if gift_options:
-        # Gift / wagering / personal-code rewards together: 80%, 85%, 90%.
         weights = [('balance', 8 if large else 12 if medium else 16),
                    ('tickets', 10), ('wager_gift', 37), ('gift', 25),
                    ('promo', 20 if large else 16 if medium else 12)]
-        roll = secrets.randbelow(100)
+        roll = secrets.randbelow(sum(weight for _, weight in weights))
         kind = 'balance'
         for candidate, weight in weights:
             if roll < weight:
                 kind = candidate
                 break
             roll -= weight
-        if kind in ('balance','tickets'):
-            candidates=[x for x in pool if x['type']==kind]
+        if kind in ('balance', 'tickets'):
+            candidates = [x for x in pool if x['type'] == kind]
         else:
-            candidates=[g for g in gift_options if g['type']==kind]
+            candidates = [g for g in gift_options if g['type'] == kind]
         reward = dict(secrets.choice(candidates or pool))
     else:
         reward = dict(secrets.choice(pool))
+
     reel_options = pool + gift_options
     if visual_gifts:
-        # Near-miss and possible compensation gift cells, so high-value TON losses
-        # do not look like a tape of TON-only consolation prizes.
-        extra_reel_gifts = []
         for gift in visual_gifts[-18:]:
             for kind in ('gift', 'wager_gift'):
-                multiplier = secrets.choice([5, 8, 10] if large else [8, 10, 12] if medium else [10, 15, 20])
-                extra_reel_gifts.append(dict(type=kind, gift_id=gift['id'], name=gift['name'],
-                                             image_url=gift['image_url'], price_ton=gift['price']/100,
-                                             wager_multiplier=multiplier if kind=='wager_gift' else 0))
-        reel_options.extend(extra_reel_gifts)
-    comp = dict(empty, reward=reward, reel=reel_options)
-    if reward['type'] == 'balance':
-        amount = ton_to_cents(reward['amount'])
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
-        record_transaction(db, user_id, 'upgrade_cashback', amount, 'upgrade', '', 'Компенсация Upgrade')
-        comp['cashback'] = amount/100
-    elif reward['type']=='tickets':
-        tickets=max(1,int(reward.get('tickets') or 1))
-        db.execute('UPDATE users SET tickets=tickets+? WHERE id=?',(tickets,user_id))
-        db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
-                   (user_id,tickets,'upgrade_compensation','upgrade','',f'Компенсация Upgrade: {tickets} билет(ов)'))
-    elif reward['type'] in ('gift', 'wager_gift'):
-        locked = reward['type'] == 'wager_gift'
-        price = ton_to_cents(reward['price_ton'])
-        multiplier = reward['wager_multiplier']
-        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                         promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress)
-                         VALUES(?,?,?,?,?,'upgrade_compensation',?,?,?,0)""",
-                         (user_id,reward['gift_id'],reward['name'],reward['image_url'],price,
-                          int(locked),multiplier,round(price*multiplier)))
+                multiplier = secrets.choice([5, 8, 10] if large else
+                                            [8, 10, 12] if medium else
+                                            [10, 15, 20])
+                reel_options.append(dict(
+                    type=kind, gift_id=gift['id'], name=gift['name'],
+                    image_url=gift['image_url'], price_ton=gift['price'] / 100,
+                    wager_multiplier=multiplier if kind == 'wager_gift' else 0
+                ))
+
+    return dict(empty,
+                reward=reward,
+                reel=[secrets.choice(reel_options or pool) for _ in range(36)],
+                deferred=True,
+                claimed=False)
+
+
+def claim_upgrade_loss_compensation(db, user_id, spin_id, result):
+    """Credit a deferred Upgrade compensation exactly once."""
+    comp = dict((result or {}).get('compensation') or {})
+    reward = dict(comp.get('reward') or {})
+    if not reward or not comp.get('deferred'):
+        return result, False
+    if comp.get('claimed'):
+        return result, False
+
+    kind = str(reward.get('type') or '')
+    if kind == 'balance':
+        amount = ton_to_cents(reward.get('amount') or 0)
+        if amount > 0:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+            record_transaction(db, user_id, 'upgrade_cashback', amount, 'upgrade', spin_id,
+                               'Компенсация Upgrade')
+            comp['cashback'] = amount / 100
+    elif kind == 'tickets':
+        tickets = max(1, int(reward.get('tickets') or 1))
+        db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (tickets, user_id))
+        db.execute("INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)",
+                   (user_id, tickets, 'upgrade_compensation', 'upgrade', spin_id,
+                    f'Компенсация Upgrade: {tickets} билет(ов)'))
+    elif kind in ('gift', 'wager_gift'):
+        locked = kind == 'wager_gift'
+        price = ton_to_cents(reward.get('price_ton') or 0)
+        multiplier = float(reward.get('wager_multiplier') or 0)
+        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress) VALUES(?,?,?,?,?,'upgrade_compensation',?,?,?,0)",
+                         (user_id, reward.get('gift_id') or '', reward.get('name') or 'Подарок',
+                          reward.get('image_url') or '', price, int(locked), multiplier,
+                          round(price * multiplier)))
         reward['inventory_id'] = cur.lastrowid
-        reward['wager_target'] = round(price*multiplier)/100
-        record_transaction(db, user_id, 'upgrade_compensation_gift', 0, 'inventory', cur.lastrowid, reward['name'])
-    else:
+        reward['wager_target'] = round(price * multiplier) / 100
+        record_transaction(db, user_id, 'upgrade_compensation_gift', 0, 'inventory',
+                           cur.lastrowid, reward.get('name') or 'Подарок')
+    elif kind == 'promo':
         code = unique_promo_code(db, 'UPG')
-        expires = (datetime.now(timezone.utc)+timedelta(days=7)).isoformat()
+        expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
         db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,
                      gift_price,wager_multiplier,max_uses,created_by,assigned_user_id,source_label,description,
                      reward_json,expires_at) VALUES(?,'gift',0,?,?,?,?,0,1,0,?,?,?,?,?)""",
-                   (code,reward['gift_id'],reward['name'],reward['image_url'],ton_to_cents(reward['price_ton']),
-                    user_id,'Компенсация Upgrade','Персональный промокод на подарок',
-                    json.dumps(dict(compensation=True, owner_id=user_id)),expires))
-        comp['promo'] = promo_view(db.execute('SELECT * FROM promo_codes WHERE code=?',(code,)).fetchone())
+                   (code, reward.get('gift_id') or '', reward.get('name') or 'Подарок',
+                    reward.get('image_url') or '', ton_to_cents(reward.get('price_ton') or 0),
+                    user_id, 'Компенсация Upgrade', 'Персональный промокод на подарок',
+                    json.dumps(dict(compensation=True, owner_id=user_id), ensure_ascii=False), expires))
+        comp['promo'] = promo_view(db.execute('SELECT * FROM promo_codes WHERE code=?', (code,)).fetchone())
         reward['code'] = code
-    # Keep the replay payload small even for large catalogs.
-    comp['reel'] = [secrets.choice(reel_options or pool or gift_options) for _ in range(36)]
-    return comp
+    else:
+        raise ValueError('Неизвестный тип компенсации.')
+
+    comp['reward'] = reward
+    comp['claimed'] = True
+    comp['claimed_at'] = datetime.now(timezone.utc).isoformat()
+    result = dict(result or {})
+    result['compensation'] = comp
+    return result, True
+
+
+@app.post('/api/upgrade/compensation/claim')
+@login_required
+def upgrade_compensation_claim():
+    data = request.get_json(silent=True) or {}
+    spin_id = str(data.get('spin_id') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', spin_id):
+        return error('Некорректная компенсация.', 400)
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT user_id,won,result_json FROM upgrade_spins WHERE id=?' +
+                         (' FOR UPDATE' if DATABASE_URL else ''), (spin_id,)).fetchone()
+        if not row or int(row['user_id']) != int(session['uid']):
+            db.rollback()
+            return error('Компенсация не найдена.', 404)
+        try:
+            result = json.loads(row['result_json'] or '{}')
+        except (TypeError, ValueError, json.JSONDecodeError):
+            db.rollback()
+            return error('Данные компенсации повреждены.', 409)
+        if bool(row['won']):
+            db.rollback()
+            return error('У выигрышного апгрейда нет компенсации.', 409)
+        comp = dict(result.get('compensation') or {})
+        if not comp.get('reward') or not comp.get('deferred'):
+            db.rollback()
+            return error('Для этой игры компенсация недоступна.', 409)
+        result, newly_claimed = claim_upgrade_loss_compensation(
+            db, session['uid'], spin_id, result)
+        db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',
+                   (json.dumps(result, ensure_ascii=False), spin_id))
+        db.commit()
+    finally:
+        db.close()
+
+    promo_code = (((result.get('compensation') or {}).get('promo') or {}).get('code'))
+    if newly_claimed and promo_code:
+        notify_promo_async(session['uid'], promo_code, 'bonuses')
+    return jsonify(ok=True, newly_claimed=newly_claimed,
+                   compensation=result.get('compensation') or {}, user=profile())
 
 
 @app.get('/api/rewards/pending')

@@ -3681,6 +3681,23 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 @media(max-width:420px){#giftModal>.modal-card{padding:16px!important;border-radius:19px!important}#giftModal .modal-name{font-size:17px}#giftModal .modal-actions{grid-template-columns:1fr}#giftModal .modal-actions>button{min-height:46px}}
 @media(max-height:620px){#giftModal>.modal-card{max-height:calc(100dvh - 12px)!important;padding:14px!important}#giftModal .modal-art{width:104px;height:104px}#giftModal .modal-price{margin:6px 0 12px}}
 </style>
+
+<style id="upgrade-compensation-repair">
+#upgradeResultModal{z-index:65000!important}
+#upgradeResultModal #upgradeResultCard.compensation-open{width:min(560px,calc(100vw - 24px))!important;max-width:560px!important;overflow:hidden!important;padding:22px 14px 16px!important}
+#upgradeCompensation{display:block;width:100%!important;min-width:0!important;overflow:hidden!important;margin:0 0 14px!important}
+#upgradeCompensation.hidden{display:none!important}
+#upgradeCompensation .comp-reel{width:100%!important;max-width:100%!important;overflow:hidden!important}
+#upgradeCompensation .comp-reel-track{display:flex!important;width:max-content!important;min-width:max-content!important;height:100%!important;gap:0!important}
+#upgradeCompensation .comp-reel-cell{flex:0 0 var(--cell-width)!important;width:var(--cell-width)!important;min-width:var(--cell-width)!important;max-width:var(--cell-width)!important}
+#upgradeResultCard.compensation-open #closeUpgradeResult{width:100%!important;margin-top:4px!important}
+@media(max-width:520px){
+  #upgradeResultModal{padding:10px!important;align-items:center!important}
+  #upgradeResultModal #upgradeResultCard.compensation-open{width:100%!important;max-height:calc(100dvh - 20px)!important;padding:18px 10px 14px!important;border-radius:22px!important}
+  #upgradeResultCard.compensation-open h2{margin-bottom:14px!important}
+  #upgradeCompensation .comp-reel{height:174px!important}
+}
+</style>
 </head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="gdSpace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0d22"/><stop offset=".6" stop-color="#171a40"/><stop offset="1" stop-color="#2a2358"/></linearGradient>
 <radialGradient id="gdSpaceGlow" cx=".5" cy="1.1" r=".9"><stop offset="0" stop-color="#6a58ff" stop-opacity=".45"/><stop offset="1" stop-color="#6a58ff" stop-opacity="0"/></radialGradient>
@@ -4327,8 +4344,10 @@ setInterval(refreshGiftExpiryLabels,1000);
 function giftBackgroundLabel(item){let own=item?.background_label||item?.fragment_backdrop||item?.backdrop||'';let key=String(own).replace(/[\s_-]+/g,'').toLowerCase();if(key==='black')return'Black';if(key==='onyx'||key==='onyxblack')return'Onyx Black';let match=String(item?.name||item?.gift_name||'').match(/\((Onyx Black|Onyx|Black)\)\s*$/i);if(match)return /^black$/i.test(match[1])?'Black':'Onyx Black';let id=String(item?.gift_id||item?.id||'');if(/:background:black$/i.test(id))return'Black';if(/:background:onyx(?:-black)?$/i.test(id))return'Onyx Black';return''}
 function giftDisplayName(item){return item?.base_name||String(item?.name||'Подарок').replace(/\s*\((?:Onyx Black|Onyx|Black)\)\s*$/i,'')}
 function giftBackgroundClass(label){return label==='Black'?'portal-bg-black':label==='Onyx Black'?'portal-bg-onyx-black':''}
-function itemCard(item,clickable=false){let bgLabel=giftBackgroundLabel(item),bgClass=giftBackgroundClass(bgLabel);let card=document.createElement('article');card.className='gift '+giftTier(item.price_ton)+(clickable?' clickable':'')+(item.promo_locked?' promo-wager':'')+(item.deposit_mirror?' deposit-mirror':'')+(bgClass?' '+bgClass:'');if(bgLabel&&!blackBackgroundsEnabled)card.style.setProperty('display','none','important');let art=document.createElement('div');art.className='gift-art';art.textContent='✦';if(item.image_url){let img=new Image;img.loading='lazy';img.src=item.image_url;img.alt=giftDisplayName(item);img.onerror=()=>{img.onerror=null;img.src='/static/img/gift.svg'};art.replaceChildren(img)}if(bgLabel==='Onyx Black'){let badge=document.createElement('span');badge.className='gift-background-badge';let dot=document.createElement('i');let text=document.createElement('em');text.textContent=bgLabel;badge.append(dot,text);art.append(badge)}if(item.promo_locked){let ribbon=document.createElement('span');ribbon.className='promo-ribbon';ribbon.textContent='PROMO X'+Number(item.wager_multiplier||0).toString().replace('.0','');card.append(ribbon);let attempts=Math.max(0,Number(item.wager_attempts_remaining??1));card.title=(item.wager_burn_on_loss===false?'Подарок не сгорает при проигрыше':`Жизни: ${attempts}`)+' · отыгрыш и прогресс внутри'}let name=document.createElement('strong');name.textContent=giftDisplayName(item);let price=document.createElement('small');if(item.price_ton==null){price.textContent='—'}else{let ti=new Image;ti.src=TON;ti.alt='TON';price.append(ti,document.createTextNode(money(item.price_ton)))}card.append(art,name,price);if(clickable)card.onclick=()=>openGift(item);return card}
-function openGift(item){let seq=++giftModalSeq;selectedGift=item;$('giftModalImage').src=item.image_url||TON;$('giftModalImage').onerror=()=>{$('giftModalImage').onerror=null;$('giftModalImage').src='/static/img/gift.svg'};let modalArt=$('giftModalImage').parentElement;if(modalArt._fragmentMotionCleanup)modalArt._fragmentMotionCleanup();modalArt.classList.remove('portal-bg-black','portal-bg-onyx-black','fragment-exact');let modalBg=giftBackgroundClass(giftBackgroundLabel(item));if(modalBg)modalArt.classList.add(modalBg);$('giftModalName').textContent=giftDisplayName(item);$('giftModalPrice').textContent=item.price_ton==null?'—':money(item.price_ton);let sourceLabel=$('giftSourceLabel');sourceLabel.textContent=item.source_label||'';sourceLabel.classList.toggle('hidden',!item.source_label);let promo=!!item.promo_locked,depositMirror=!!item.deposit_mirror;$('giftPromoBox').classList.toggle('hidden',!promo);$('giftNormalActions').classList.toggle('hidden',promo||depositMirror);let expiry=$('giftPromoExpiry'),attemptsBox=$('giftPromoAttempts');expiry.classList.add('hidden');expiry.removeAttribute('data-expires');attemptsBox.classList.add('hidden');if(promo){$('giftPromoX').textContent='X'+Number(item.wager_multiplier||0).toString().replace('.0','');let attempts=Math.max(0,Number(item.wager_attempts_remaining??1));attemptsBox.textContent=item.wager_burn_on_loss===false?'Подарок не сгорает при проигрыше':`Жизни: ${attempts} из ${Math.max(attempts,Number(item.wager_attempts_total||attempts||1))}`;attemptsBox.classList.remove('hidden');$('giftPromoProgress').textContent=money(item.wager_progress)+' TON';$('giftPromoTarget').textContent=money(item.wager_target)+' TON';if(item.expires_at){expiry.dataset.expires=item.expires_at;expiry.textContent=giftExpiryText(item.expires_at);expiry.classList.remove('hidden')}let bar=$('giftPromoBar'),track=bar.parentElement,values=$('giftPromoProgress').parentElement,pct=Math.max(0,Math.min(100,Number(item.wager_percent||0)));track.style.opacity='1';track.style.transform='scaleY(1)';values.style.opacity='1';$('claimPromoGift').classList.add('hidden');$('claimPromoGift').textContent='Разблокировать';if(item.wager_complete){bar.style.width='0%';requestAnimationFrame(()=>requestAnimationFrame(()=>bar.style.width='100%'));setTimeout(()=>{if(seq!==giftModalSeq)return;track.style.opacity='0';track.style.transform='scaleY(.6)';values.style.opacity='0';setTimeout(()=>{if(seq===giftModalSeq)$('claimPromoGift').classList.remove('hidden')},180)},780)}else{bar.style.width=pct+'%'}}applyWithdrawalState();$('giftModal').classList.remove('hidden')}
+function giftImageSources(item){let link=String(item?.external_url||item?.fragment_url||'');let slug=link.match(/\/(?:nft|gift)\/([a-z0-9_-]+-\d+)(?:\/|$|[?#])/i)?.[1]?.toLowerCase();return[slug?'https://nft.fragment.com/gift/'+slug+'.webp':'',item?.image_url,'/static/img/gift.png','/static/img/gift.svg'].filter((url,i,all)=>url&&all.indexOf(url)===i)}
+function applyGiftImage(img,item){let sources=giftImageSources(item),next=0;img.onerror=()=>{if(next<sources.length)img.src=sources[next++];else img.onerror=null};img.src=sources[next++]||'/static/img/gift.png'}
+function itemCard(item,clickable=false){let bgLabel=giftBackgroundLabel(item),bgClass=giftBackgroundClass(bgLabel);let card=document.createElement('article');card.className='gift '+giftTier(item.price_ton)+(clickable?' clickable':'')+(item.promo_locked?' promo-wager':'')+(item.deposit_mirror?' deposit-mirror':'')+(bgClass?' '+bgClass:'');if(bgLabel&&!blackBackgroundsEnabled)card.style.setProperty('display','none','important');let art=document.createElement('div');art.className='gift-art';art.textContent='✦';{let img=new Image;img.loading='lazy';img.alt=giftDisplayName(item);applyGiftImage(img,item);art.replaceChildren(img)}if(bgLabel==='Onyx Black'){let badge=document.createElement('span');badge.className='gift-background-badge';let dot=document.createElement('i');let text=document.createElement('em');text.textContent=bgLabel;badge.append(dot,text);art.append(badge)}if(item.promo_locked){let ribbon=document.createElement('span');ribbon.className='promo-ribbon';ribbon.textContent='PROMO X'+Number(item.wager_multiplier||0).toString().replace('.0','');card.append(ribbon);let attempts=Math.max(0,Number(item.wager_attempts_remaining??1));card.title=(item.wager_burn_on_loss===false?'Подарок не сгорает при проигрыше':`Жизни: ${attempts}`)+' · отыгрыш и прогресс внутри'}let name=document.createElement('strong');name.textContent=giftDisplayName(item);let price=document.createElement('small');if(item.price_ton==null){price.textContent='—'}else{let ti=new Image;ti.src=TON;ti.alt='TON';price.append(ti,document.createTextNode(money(item.price_ton)))}card.append(art,name,price);if(clickable)card.onclick=()=>openGift(item);return card}
+function openGift(item){let seq=++giftModalSeq;selectedGift=item;applyGiftImage($('giftModalImage'),item);let modalArt=$('giftModalImage').parentElement;if(modalArt._fragmentMotionCleanup)modalArt._fragmentMotionCleanup();modalArt.classList.remove('portal-bg-black','portal-bg-onyx-black','fragment-exact');let modalBg=giftBackgroundClass(giftBackgroundLabel(item));if(modalBg)modalArt.classList.add(modalBg);$('giftModalName').textContent=giftDisplayName(item);$('giftModalPrice').textContent=item.price_ton==null?'—':money(item.price_ton);let sourceLabel=$('giftSourceLabel');sourceLabel.textContent=item.source_label||'';sourceLabel.classList.toggle('hidden',!item.source_label);let promo=!!item.promo_locked,depositMirror=!!item.deposit_mirror;$('giftPromoBox').classList.toggle('hidden',!promo);$('giftNormalActions').classList.toggle('hidden',promo||depositMirror);let expiry=$('giftPromoExpiry'),attemptsBox=$('giftPromoAttempts');expiry.classList.add('hidden');expiry.removeAttribute('data-expires');attemptsBox.classList.add('hidden');if(promo){$('giftPromoX').textContent='X'+Number(item.wager_multiplier||0).toString().replace('.0','');let attempts=Math.max(0,Number(item.wager_attempts_remaining??1));attemptsBox.textContent=item.wager_burn_on_loss===false?'Подарок не сгорает при проигрыше':`Жизни: ${attempts} из ${Math.max(attempts,Number(item.wager_attempts_total||attempts||1))}`;attemptsBox.classList.remove('hidden');$('giftPromoProgress').textContent=money(item.wager_progress)+' TON';$('giftPromoTarget').textContent=money(item.wager_target)+' TON';if(item.expires_at){expiry.dataset.expires=item.expires_at;expiry.textContent=giftExpiryText(item.expires_at);expiry.classList.remove('hidden')}let bar=$('giftPromoBar'),track=bar.parentElement,values=$('giftPromoProgress').parentElement,pct=Math.max(0,Math.min(100,Number(item.wager_percent||0)));track.style.opacity='1';track.style.transform='scaleY(1)';values.style.opacity='1';$('claimPromoGift').classList.add('hidden');$('claimPromoGift').textContent='Разблокировать';if(item.wager_complete){bar.style.width='0%';requestAnimationFrame(()=>requestAnimationFrame(()=>bar.style.width='100%'));setTimeout(()=>{if(seq!==giftModalSeq)return;track.style.opacity='0';track.style.transform='scaleY(.6)';values.style.opacity='0';setTimeout(()=>{if(seq===giftModalSeq)$('claimPromoGift').classList.remove('hidden')},180)},780)}else{bar.style.width=pct+'%'}}applyWithdrawalState();$('giftModal').classList.remove('hidden')}
 $('closeGiftModal').onclick=()=>{giftModalSeq++;$('giftModal').classList.add('hidden');selectedGift=null};
 $('sellGift').onclick=async()=>{if(!selectedGift||busy)return;busy=true;try{let d=await api(`/api/inventory/${selectedGift.id}/sell`,{method:'POST',body:'{}'});setUser(d.user);$('giftModal').classList.add('hidden');selectedGift=null;await loadInventory();toast('Подарок продан')}catch(e){toast(e.message)}finally{busy=false}};
 function showWithdrawalContactNotice(){
@@ -4775,86 +4794,158 @@ $('upgradeTonAmount').onkeydown=e=>{if(e.key==='Enter')$('upgradeSelectTon').cli
 $('ugMine').onclick=()=>{if(!upgradeBusy)upgradeList('mine')};$('ugTarget').onclick=()=>{if(!upgradeBusy){if(!upgradeSource)upgradeList('mine');else upgradeList('target')}};$('closeUpgradeList').onclick=()=>$('upgradeListModal').classList.add('hidden');
 let compensationResult=null,compensationPhase='idle',compensationResizeObserver=null;
 function renderUpgradeCompensation(result){
-  compensationResult=result;compensationPhase=(!result.won&&result.compensation?.reward)?'ready':'idle';
-  compensationResizeObserver?.disconnect();$('upgradeResultCard').classList.remove('compensation-open');$('upgradeCompensation').replaceChildren();$('upgradeCompensation').classList.add('hidden');
-  $('upgradeResultImage').classList.remove('hidden');$('upgradeResultText').classList.remove('hidden');
-  $('closeUpgradeResult').disabled=false;$('closeUpgradeResult').textContent='Продолжить';
-  if(!result.won){$('upgradeResultText').textContent=`−${money(result.source.price_ton)} TON`}
+  compensationResult=result;
+  compensationPhase=(!result.won&&result.compensation?.reward)?'ready':'idle';
+  compensationResizeObserver?.disconnect();
+  $('upgradeResultCard').classList.remove('compensation-open');
+  $('upgradeCompensation').replaceChildren();
+  $('upgradeCompensation').classList.add('hidden');
+  $('upgradeResultImage').classList.remove('hidden');
+  $('upgradeResultText').classList.remove('hidden');
+  $('closeUpgradeResult').disabled=false;
+  $('closeUpgradeResult').textContent=compensationPhase==='ready'?'Открыть компенсацию':'Продолжить';
 }
 function compensationCell(prize){
-  let cell=document.createElement('div');cell.className='comp-reel-cell '+prize.type;
-  let img=new Image;img.src=prize.image_url||TON;img.alt=prize.name||'TON';img.onerror=()=>{img.onerror=null;img.src=TON};
-  if(prize.type==='balance'){
-    let value=document.createElement('div');value.className='comp-ton-value';let amount=document.createElement('b');amount.textContent=money(prize.amount);value.append(amount,img);cell.append(value);
+  let cell=document.createElement('div');
+  cell.className='comp-reel-cell '+(prize?.type||'gift');
+  let img=new Image;
+  img.src=prize?.image_url||TON;
+  img.alt=prize?.name||'TON';
+  img.onerror=()=>{img.onerror=null;img.src=TON};
+  if(prize?.type==='balance'){
+    let value=document.createElement('div');value.className='comp-ton-value';
+    let amount=document.createElement('b');amount.textContent=money(prize.amount);
+    value.append(amount,img);cell.append(value);
     cell.setAttribute('aria-label',money(prize.amount)+' TON');
-  }else if(prize.type==='tickets'){let value=document.createElement('div');value.className='comp-ton-value';let amount=document.createElement('b');amount.textContent=''+Number(prize.tickets||0);value.append(amount);cell.append(value)}else{
-    if(prize.type==='wager_gift'||prize.type==='promo'){
-      let tag=document.createElement('small');tag.textContent=prize.type==='wager_gift'?`Отыгрыш ×${prize.wager_multiplier}`:'Промокод';cell.append(tag);
+  }else if(prize?.type==='tickets'){
+    let tag=document.createElement('small');tag.textContent='Билеты';
+    let value=document.createElement('div');value.className='comp-ton-value';
+    let amount=document.createElement('b');amount.textContent=''+Number(prize.tickets||0);
+    value.append(amount);cell.append(tag,value);
+  }else{
+    if(prize?.type==='wager_gift'||prize?.type==='promo'){
+      let tag=document.createElement('small');
+      tag.textContent=prize.type==='wager_gift'?('Отыгрыш ×'+prize.wager_multiplier):'Промокод';
+      cell.append(tag);
     }
-    let label=document.createElement('b');label.textContent=prize.name;cell.append(img,label);
+    let label=document.createElement('b');label.textContent=prize?.name||'Подарок';
+    cell.append(img,label);
   }
   return cell;
 }
 function renderCompensationPrize(prize){
-  let wrap=document.createElement('div');wrap.className='comp-final-prize '+(prize.type||'gift');
+  let wrap=document.createElement('div');wrap.className='comp-final-prize '+(prize?.type||'gift');
   let visual=document.createElement('div');visual.className='comp-final-art';
-  if(prize.type==='balance'){
+  if(prize?.type==='balance'){
     let amount=document.createElement('b');amount.textContent=money(prize.amount);
     let icon=new Image;icon.src=TON;icon.alt='TON';visual.append(amount,icon);
-  }else if(prize.type==='tickets'){let amount=document.createElement('b');amount.textContent=''+Number(prize.tickets||0);visual.append(amount)}else{
-    let img=new Image;img.src=prize.image_url||TON;img.alt=prize.name||'Подарок';img.onerror=()=>{img.onerror=null;img.src=TON};visual.append(img);
+  }else if(prize?.type==='tickets'){
+    let amount=document.createElement('b');amount.textContent=''+Number(prize.tickets||0);visual.append(amount);
+  }else{
+    let img=new Image;img.src=prize?.image_url||TON;img.alt=prize?.name||'Подарок';
+    img.onerror=()=>{img.onerror=null;img.src=TON};visual.append(img);
   }
   let text=document.createElement('div');text.className='comp-final-text';
-  let title=document.createElement('strong');
-  let detail=document.createElement('span');
-  if(prize.type==='balance'){
-    title.textContent='Начислено на баланс';detail.textContent=`+${money(prize.amount)} TON`;
-  }else if(prize.type==='tickets'){title.textContent='Билеты розыгрыша';detail.textContent=`+${Number(prize.tickets||0).toLocaleString('ru-RU')} билетов`}else if(prize.type==='wager_gift'){
-    title.textContent=prize.name||'Подарок';detail.textContent=`Добавлено в инвентарь · отыгрыш ×${prize.wager_multiplier}`;
-  }else if(prize.type==='promo'){
-    title.textContent=prize.name||'Промокод';detail.textContent='Персональный промокод на подарок';
-  }else{
-    title.textContent=prize.name||'Подарок';detail.textContent='Добавлено в инвентарь';
-  }
+  let title=document.createElement('strong'),detail=document.createElement('span');
+  if(prize?.type==='balance'){title.textContent='Начислено на баланс';detail.textContent='+'+money(prize.amount)+' TON'}
+  else if(prize?.type==='tickets'){title.textContent='Билеты розыгрыша';detail.textContent='+'+Number(prize.tickets||0).toLocaleString('ru-RU')+' билетов'}
+  else if(prize?.type==='wager_gift'){title.textContent=prize.name||'Подарок';detail.textContent='Добавлено в инвентарь · отыгрыш ×'+prize.wager_multiplier}
+  else if(prize?.type==='promo'){title.textContent=prize.name||'Промокод';detail.textContent='Персональный промокод на подарок'}
+  else{title.textContent=prize?.name||'Подарок';detail.textContent='Добавлено в инвентарь'}
   text.append(title,detail);
-  if(prize.code){let code=document.createElement('code');code.textContent=prize.code;text.append(code)}
+  if(prize?.code){let code=document.createElement('code');code.textContent=prize.code;text.append(code)}
   wrap.append(visual,text);return wrap;
 }
 async function spinCompensation(){
-  if(compensationPhase!=='ready')return;
-  compensationPhase='spinning';$('upgradeResultCard').classList.add('compensation-open');let comp=compensationResult.compensation,box=$('upgradeCompensation'),button=$('closeUpgradeResult');
+  if(compensationPhase!=='ready'||!compensationResult?.compensation?.reward)return;
+  compensationPhase='spinning';
+  compensationResizeObserver?.disconnect();
+  let card=$('upgradeResultCard'),comp=compensationResult.compensation,box=$('upgradeCompensation'),button=$('closeUpgradeResult');
   let reward=comp.reward;
-  button.disabled=true;button.textContent='Рулетка крутится…';$('upgradeResultImage').classList.add('hidden');$('upgradeResultText').classList.add('hidden');
-  $('upgradeResultHeading').textContent='Ваша компенсация';box.classList.remove('hidden');
-  let viewport=document.createElement('div');viewport.className='comp-reel';viewport.setAttribute('aria-label','Линия по центру показывает выигрыш');let track=document.createElement('div');track.className='comp-reel-track';
-  let items=(comp.reel?.length?comp.reel:[reward]).filter(Boolean),giftItems=items.filter(x=>x.type&&x.type!=='balance'&&x.type!=='tickets'),stop=48+Math.floor(Math.random()*14);
-  for(let i=0;i<stop+5;i++){
+  card.classList.add('compensation-open');
+  button.disabled=true;button.textContent='Рулетка крутится…';
+  $('upgradeResultImage').classList.add('hidden');$('upgradeResultText').classList.add('hidden');
+  $('upgradeResultHeading').textContent='Ваша компенсация';
+  box.classList.remove('hidden');
+  box.style.opacity='1';box.style.transform='none';
+
+  let viewport=document.createElement('div');viewport.className='comp-reel';
+  viewport.setAttribute('aria-label','Линия по центру показывает выигрыш');
+  let track=document.createElement('div');track.className='comp-reel-track';
+  let items=(comp.reel?.length?comp.reel:[reward]).filter(Boolean);
+  if(!items.length)items=[reward];
+  let giftItems=items.filter(x=>x?.type&&x.type!=='balance'&&x.type!=='tickets');
+  let stop=52+Math.floor(Math.random()*8);
+  for(let i=0;i<stop+6;i++){
     let pool=(i%4===1&&giftItems.length)?giftItems:items;
     let prize=i===stop?reward:pool[Math.floor(Math.random()*pool.length)];
     let cell=compensationCell(prize);cell.dataset.stop=i===stop?'1':'0';track.append(cell);
   }
   viewport.append(track);box.replaceChildren(viewport);
-  await new Promise(requestAnimationFrame);
-  // IMPORTANT: translateX(%) is relative to the whole long track, not to the
-  // visible viewport. That made the visual stop cell differ from comp.reward.
-  // Use pixels so the real server reward always lands under the center marker.
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
   let visibleCells=()=>window.matchMedia('(max-width: 520px)').matches?2:3;
   let cellWidth=0,targetPx=0;
-  let measure=()=>{let count=visibleCells();cellWidth=viewport.clientWidth/count;track.style.setProperty('--visible-cells',count);track.style.setProperty('--cell-width',cellWidth+'px');targetPx=viewport.clientWidth/2-(stop+.5)*cellWidth};measure();
-  compensationResizeObserver=new ResizeObserver(measure);compensationResizeObserver.observe(viewport);
-  let duration=matchMedia('(prefers-reduced-motion: reduce)').matches?420:(upgradeFast?1400+Math.random()*250:4200+Math.random()*900);
-  let animation=track.animate([{transform:'translateX(0px)'},{transform:`translateX(${targetPx}px)`}],{duration,easing:'cubic-bezier(.09,.66,.10,1)',fill:'forwards'});
-  try{await animation.finished}catch(e){}finally{animation.cancel();measure();track.style.transform=`translateX(${targetPx}px)`}
-  track.children[stop]?.classList.add('selected');
-  await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?120:(upgradeFast?100:430)));
-  compensationResizeObserver?.disconnect();
-  let out=box.animate([{opacity:1,transform:'scale(1)'},{opacity:.08,transform:'scale(.985)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?80:220,easing:'ease-out',fill:'forwards'});
-  try{await out.finished}catch(e){}
-  box.replaceChildren(renderCompensationPrize(reward));
-  box.animate([{opacity:0,transform:'translateY(8px) scale(.96)'},{opacity:1,transform:'translateY(0) scale(1)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?80:360,easing:'cubic-bezier(.2,1.1,.25,1)',fill:'both'});
-  compensationPhase='done';button.disabled=false;button.textContent='Готово';
-}
+  let measure=()=>{
+    let width=Math.max(1,viewport.getBoundingClientRect().width);
+    let count=visibleCells();
+    cellWidth=width/count;
+    track.style.setProperty('--cell-width',cellWidth+'px');
+    targetPx=width/2-(stop+.5)*cellWidth;
+  };
+  measure();
+  if(window.ResizeObserver){
+    compensationResizeObserver=new ResizeObserver(measure);
+    compensationResizeObserver.observe(viewport);
+  }
 
+  let reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let duration=reduced?350:(upgradeFast?1350:4300);
+  try{
+    if(track.animate){
+      let animation=track.animate(
+        [{transform:'translate3d(0,0,0)'},{transform:'translate3d('+targetPx+'px,0,0)'}],
+        {duration,easing:'cubic-bezier(.08,.68,.12,1)',fill:'forwards'}
+      );
+      await animation.finished.catch(()=>{});
+      animation.cancel();
+    }else{
+      track.style.transition='transform '+duration+'ms cubic-bezier(.08,.68,.12,1)';
+      requestAnimationFrame(()=>track.style.transform='translate3d('+targetPx+'px,0,0)');
+      await new Promise(r=>setTimeout(r,duration+40));
+    }
+  }finally{
+    measure();
+    track.style.transition='none';
+    track.style.transform='translate3d('+targetPx+'px,0,0)';
+  }
+
+  track.children[stop]?.classList.add('selected');
+  await new Promise(r=>setTimeout(r,reduced?80:380));
+  compensationResizeObserver?.disconnect();
+  button.textContent='Начисляем…';
+
+  try{
+    let claimed=await api('/api/upgrade/compensation/claim',{
+      method:'POST',
+      body:JSON.stringify({spin_id:compensationResult.id}),
+      timeoutMs:12000
+    });
+    compensationResult.compensation=claimed.compensation||comp;
+    reward=compensationResult.compensation.reward||reward;
+    setUser(claimed.user);
+    box.replaceChildren(renderCompensationPrize(reward));
+    box.style.opacity='1';box.style.transform='none';
+    if(reward.type==='promo')loadMyPromos().catch(()=>{});
+    if(reward.type==='gift'||reward.type==='wager_gift')loadInventory().catch(()=>{});
+    compensationPhase='done';
+    button.disabled=false;button.textContent='Готово';
+  }catch(e){
+    compensationPhase='ready';
+    button.disabled=false;button.textContent='Повторить получение';
+    toast(e.message||'Не удалось начислить компенсацию');
+  }
+}
 
 var upgradeFast=false;$('upgradeAction').onclick=async()=>{if(upgradeBusy||!upgradePreviewData)return;let sourceBefore={...upgradeSource};upgradeBusy=true;upgradeWinsPending=true;document.documentElement.classList.add('upgrade-spin-lock');stopUpgradeIdle();paintUpgrade();$('ugWheelBox').classList.add('spinning');let token=upgradePendingId||(crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2)).replaceAll('-','');upgradePendingId=token;try{let d=await api('/api/upgrade/spin',{method:'POST',body:JSON.stringify({...(upgradeSource.type==='ton'?{amount:money(upgradeSource.price_ton)}:{inventory_id:upgradeSource.id}),gift_id:upgradeGoal.id,request_id:token}),timeoutMs:14000});upgradePendingId=null;setUser(d.user);if(d.new_level)showLevelNotice(d.new_level);let chance=d.chance,region=(d.won?chance/2:chance+(100-chance)/2)+(Math.random()*2-1)*((d.won?chance:100-chance)/2)*.7,goal=region*3.6,previous=((upgradePointerAngle%360)+360)%360,delta=(goal-previous+360)%360,reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,tempoRoll=Math.random(),duration=reduced?0:(upgradeFast?1500:5200+Math.round(Math.random()*1300)),turns=reduced?0:(upgradeFast?3:6),curve='cubic-bezier(.17,.67,.1,1)',startAngle=upgradePointerAngle;upgradePointerAngle+=360*turns+delta;let pointer=$('ugPointer');pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${startAngle}deg)`;void pointer.offsetWidth;pointer.style.transition=`transform ${duration}ms ${curve}`;pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;$('upgradeStatus').textContent='';await new Promise(r=>setTimeout(r,duration+180));$('ugWheelBox').classList.remove('spinning');let card=$('upgradeResultCard');card.classList.toggle('won',d.won);card.classList.toggle('lost',!d.won);card.classList.toggle('ton-loss-result',!d.won&&d.source_type==='ton');$('upgradeResultHeading').textContent=d.won?(d.reward_type==='wager_progress'?'Прогресс отыгрыша':'Апгрейд успешен!'):'В этот раз не повезло';$('upgradeResultImage').src=d.won&&d.reward_type!=='wager_progress'?d.target.image_url:d.source.image_url;$('upgradeResultText').classList.toggle('ton-loss',!d.won&&d.source_type==='ton');$('upgradeResultText').textContent=d.won?(d.reward_type==='wager_progress'?`${d.source.name}: ${money(d.wager_progress)} / ${money(d.wager_target)} TON отыграно${d.wager_complete?' · разблокируйте в профиле':''}`:`${d.target.name} добавлен в инвентарь`):(d.source_type==='ton'?`−${money(d.source.price_ton)}`:d.reward_type==='wager_progress'?(d.wager_burned?`${d.source.name}: жизни закончились, подарок сгорел`:(d.wager_burn_on_loss===false?`${d.source.name}: подарок сохранён`:`${d.source.name}: осталось жизней ${d.wager_attempts_remaining}`)):`${d.source.name} использован в апгрейде`);if(!d.won&&d.source_type==='ton'){let icon=document.createElement('img');icon.src='/static/img/ton.png';icon.alt='TON';$('upgradeResultText').append(icon)}renderUpgradeCompensation(d);if(!d.won&&d.compensation?.promo)loadMyPromos();$('upgradeResultModal').classList.remove('hidden');$('upgradeStatus').textContent='';upgradeKeepAfterResult=d.source_type==='ton'||Boolean(d.reward_type==='wager_progress'&&d.awarded_inventory_id&&!d.wager_complete);if(d.source_type==='ton'){upgradeSource=sourceBefore;upgradePreviewData=null}else if(upgradeKeepAfterResult){upgradeSource={...sourceBefore,id:d.awarded_inventory_id,promo_locked:true,wager_progress:d.wager_progress,wager_target:d.wager_target,wager_attempts_total:d.wager_attempts_total,wager_attempts_remaining:d.wager_attempts_remaining,wager_burn_on_loss:d.wager_burn_on_loss};upgradePreviewData=null}else{upgradeSource=null;upgradeGoal=null;upgradePreviewData=null}await loadInventory()}catch(e){toast(e.message);$('upgradeStatus').textContent=e.message}finally{$('ugWheelBox').classList.remove('spinning');document.documentElement.classList.remove('upgrade-spin-lock');upgradeBusy=false;paintUpgrade();if(upgradeWinsPending)loadUpgradeWins(true)}};
 $('closeUpgradeResult').onclick=()=>{if(compensationPhase==='spinning')return;if(compensationPhase==='ready'){spinCompensation();return}compensationPhase='idle';compensationResizeObserver?.disconnect();$('upgradeResultCard').classList.remove('compensation-open');$('upgradeResultModal').classList.add('hidden');if(!upgradeKeepAfterResult){upgradeSource=null;upgradeGoal=null;upgradePreviewData=null}upgradeKeepAfterResult=false;upgradePointerAngle=0;$('ugPointer').style.transition='none';$('ugPointer').style.transform='translate(-50%,-50%) rotate(0deg)';loadUpgrade()};

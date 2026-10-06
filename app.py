@@ -12,7 +12,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from functools import wraps
+from functools import wraps, lru_cache
 from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -51,7 +51,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '90-arena-gift-prize'
+BUILD_ID = '91-hilo-gift-win'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -8344,7 +8344,9 @@ def arena_bet():
 ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_adm').strip().lstrip('@').lower()
 ARENA_BOT_FALLBACK_ID = 9000000001          # used only when that Telegram account never opened the app
 ARENA_BOT_MIN_CENTS = 10
-ARENA_BOT_MAX_CENTS = 1500
+ARENA_BOT_MAX_CENTS = 100                  # opening stake never above 1 TON (log-uniform, mostly 0.1-0.5)
+ARENA_BOT_TOPUP_CAP_CENTS = 1500           # whole bot stake in a round never above 15 TON
+ARENA_BOT_TOPUP_MIN_SHARE = 0.3            # tops up only when the gap is at least 30% of its current stake
 ARENA_BOT_ROUND_CHANCE = 90                 # percent of rounds the bot takes part in
 ARENA_BOT_GIFT_CHANCE = 45                  # percent of its stakes made with a gift
 _arena_bot = dict(uid=0)
@@ -8374,13 +8376,15 @@ def arena_bot_roll_cents(h):
     return value if value < 100 else value // 5 * 5
 
 
-def arena_bot_random_gift(h):
-    """A random catalog gift in the 0.10-15 TON range (None when the catalog has nothing suitable)."""
+def arena_bot_random_gift(h, lo=None, hi=None):
+    """A random catalog gift priced lo..hi cents (default 0.10 TON .. opening cap). None when nothing fits."""
+    lo = ARENA_BOT_MIN_CENTS if lo is None else int(lo)
+    hi = ARENA_BOT_MAX_CENTS if hi is None else int(hi)
     try:
         pool = []
         for g in read_catalog().get('gifts', []):
             price = ton_to_cents(g.get('price_ton') or 0)
-            if ARENA_BOT_MIN_CENTS <= price <= ARENA_BOT_MAX_CENTS and g.get('name') and safe_image(g.get('image_url')):
+            if lo <= price <= hi and g.get('name') and safe_image(g.get('image_url')):
                 pool.append((price, g))
     except Exception:
         return None
@@ -8397,6 +8401,50 @@ def arena_bot_dice(round_id, started):
     return [int.from_bytes(digest[i:i + 4], 'big') for i in range(0, 20, 4)]
 
 
+def arena_bot_ts(value):
+    """created_at text (UTC) -> ms; None when it cannot be parsed."""
+    try:
+        dt = datetime.strptime(str(value)[:19].replace('T', ' '), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except (ValueError, TypeError):
+        return None
+
+
+def arena_bot_topup(db, row, uid, now, d, mine):
+    """The bot already bet this round. If a real player came with a clearly bigger stake, it adds a gift or
+    TON to its own stake (60-100% of the biggest real stake, never above the cap), after a human-like pause."""
+    close_at = int(row['close_at'] or 0)
+    if close_at <= 0 or now >= close_at - ARENA_SNIPE_WINDOW_MS - 500:
+        return False
+    others = db.execute('SELECT amount,created_at FROM arena_bets WHERE round_id=? AND user_id<>?',
+                        (row['id'], uid)).fetchall()
+    if not others:
+        return False
+    biggest = max(int(o['amount'] or 0) for o in others)
+    target = min(ARENA_BOT_TOPUP_CAP_CENTS, int(biggest * (0.6 + (d[4] % 41) / 100)))
+    have = int(mine['amount'] or 0)
+    gap = target - have
+    if gap < max(ARENA_BOT_MIN_CENTS * 2, int(have * ARENA_BOT_TOPUP_MIN_SHARE)):
+        return False
+    stamps = [t for t in (arena_bot_ts(o['created_at']) for o in others) if t]
+    if stamps and now < max(stamps) + 1200 + d[3] % 2600:
+        return False
+    gift = None
+    if (d[4] // 100) % 100 < ARENA_BOT_GIFT_CHANCE:
+        gift = arena_bot_random_gift(d[2], lo=max(ARENA_BOT_MIN_CENTS, int(gap * 0.6)), hi=gap)
+    gifts = arena_gift_list(mine['gifts'])
+    gift_amount = int(mine['gift_amount'] or 0)
+    if gift:
+        add = int(gift['price'])
+        gifts.append(gift)
+        gift_amount += add
+    else:
+        add = gap if gap < 100 else gap // 5 * 5
+    db.execute('UPDATE arena_bets SET amount=amount+?,gift_amount=?,gifts=? WHERE round_id=? AND user_id=?',
+               (add, gift_amount, json.dumps(gifts, ensure_ascii=False, default=str), row['id'], uid))
+    return True
+
+
 def arena_bot_tick(db, now):
     """Call inside an open transaction, right after arena_advance. Returns True if the bot bet."""
     row = arena_latest(db)
@@ -8409,6 +8457,10 @@ def arena_bot_tick(db, now):
     d = arena_bot_dice(row['id'], started)
     if d[0] % 100 >= ARENA_BOT_ROUND_CHANCE:
         return False
+    mine = db.execute('SELECT amount,gift_amount,gifts FROM arena_bets WHERE round_id=? AND user_id=?',
+                      (row['id'], uid)).fetchone()
+    if mine:
+        return arena_bot_topup(db, row, uid, now, d, mine)
     if started:
         span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
         due = int(row['open_at'] or now) + 1200 + d[1] % span
@@ -8963,7 +9015,8 @@ def hilo_step_micro(rank, direction):
     wins = hilo_wins(rank, direction)
     if wins <= 0:
         return 0
-    return max(HILO_MIN_STEP_MICRO, int(hilo_rtp() * HILO_RANKS * HILO_MICRO / wins))
+    # The next card is never equal to the current one: the win chance is wins / (RANKS - 1).
+    return max(HILO_MIN_STEP_MICRO, int(hilo_rtp() * (HILO_RANKS - 1) * HILO_MICRO / wins))
 
 
 def hilo_pick_card():
@@ -8992,7 +9045,7 @@ def hilo_game_view(row):
         for direction in ('hi', 'lo'):
             wins = hilo_wins(rank, direction)
             step = hilo_step_micro(rank, direction)
-            options[direction] = dict(wins=wins, chance=round(wins * 100 / HILO_RANKS, 1), x=step / HILO_MICRO,
+            options[direction] = dict(wins=wins, chance=round(wins * 100 / (HILO_RANKS - 1), 1), x=step / HILO_MICRO,
                                       payout=(bet * (mult_micro * step // HILO_MICRO) // HILO_MICRO) / 100 if step else 0)
     prize = None
     if row['prize_name']:
@@ -9019,10 +9072,10 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     bet, mult = int(game['bet']), int(game['mult_micro'])
     payout = bet * mult // HILO_MICRO
     prize_info, remainder = None, 0
-    if want_gift:
-        prize_info = crash_prize_preview(payout)
-        if not prize_info:
-            raise ValueError('Сумма ещё ниже самого дешёвого подарка — заберите TON.')
+    # The win always arrives as a Telegram gift, the rest goes to the balance.
+    # Only if it is below the cheapest gift does it stay in TON.
+    prize_info = crash_prize_preview(payout)
+    if prize_info:
         remainder = max(0, payout - prize_info['price_cents'])
         moved = db.execute("""UPDATE hilo_games SET state='cashed',payout=?,prize_name=?,prize_image=?,prize_price=?,
                               finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'""",
@@ -9129,8 +9182,10 @@ def hilo_tiers():
 
 
 def hilo_room_is_push(base, direction):
-    """On the top card nothing can be higher (and nothing lower on the bottom one): that bet is a push."""
-    return hilo_wins(base, direction) <= 0
+    """Nothing can be higher than the top card (nor lower than the bottom one), and the next card is never
+    equal - so the opposite bet is a sure win. Both are a push (x1.00): the stake simply comes back."""
+    wins = hilo_wins(base, direction)
+    return wins <= 0 or wins >= HILO_RANKS - 1
 
 
 def hilo_room_step_micro(base, direction):
@@ -9140,10 +9195,29 @@ def hilo_room_step_micro(base, direction):
     return hilo_step_micro(base, direction)
 
 
-def hilo_room_rank(n):
-    import hmac as _hmac, hashlib as _hashlib
+def _hilo_hash(tag, n):
     key = app.secret_key if isinstance(app.secret_key, bytes) else str(app.secret_key).encode()
-    return int.from_bytes(_hmac.new(key, f'hilo-room:{n}'.encode(), _hashlib.sha256).digest()[:4], 'big') % HILO_RANKS + 1
+    return int.from_bytes(hmac.new(key, f'hilo-room:{tag}:{int(n)}'.encode(), hashlib.sha256).digest()[:4], 'big')
+
+
+def _hilo_raw(n):
+    return _hilo_hash('b', n) % HILO_RANKS + 1
+
+
+@lru_cache(maxsize=8192)
+def hilo_room_rank(n):
+    """Card of shared round n. Two neighbouring rounds never get the same rank.
+    Stateless: every worker derives the same value. A raw hash that repeats its predecessor is replaced by
+    a rank that differs from the raw neighbours (and from the replaced predecessor, if there was one)."""
+    n = int(n)
+    raw = _hilo_raw(n)
+    if n <= 0 or raw != _hilo_raw(n - 1):
+        return raw
+    excluded = {raw, _hilo_raw(n + 1)}
+    if n - 1 > 0 and _hilo_raw(n - 1) == _hilo_raw(n - 2):
+        excluded.add(hilo_room_rank(n - 1))
+    free = [v for v in range(1, HILO_RANKS + 1) if v not in excluded]
+    return free[_hilo_hash('a', n) % len(free)]
 
 
 def hilo_restore_gift(db, uid, raw, name, image, price):
@@ -9174,23 +9248,24 @@ def hilo_room_settle(db, n, phase):
         step = hilo_room_step_micro(base, r['direction'])
         total = int(r['amount']) * step // HILO_MICRO if won and step else 0
         gift_bet = bool(r['gift_name'])
-        # A winning gift bet returns the gift itself and pays only the profit in TON on top.
-        credit = max(0, total - int(r['amount'])) if gift_bet else total
-        # "Win as NFT": the TON win is exchanged for the closest catalog gift that does not exceed it,
-        # the small remainder stays on the balance.
+        # The whole win is paid as a Telegram gift: the closest catalog gift that does not exceed it,
+        # the remainder goes to the balance. A staked gift is taken (8 TON gift x1.5 -> a ~12 TON gift + remainder).
+        # Only a push (x1.00) or a win below the cheapest gift returns the staked gift (+ profit in TON).
         prize = None
-        if won and not gift_bet and not push and total > 0:
+        if won and not push and total > 0:
             try:
                 prize = crash_prize_preview(total)
             except Exception:
                 prize = None
+        keep_stake = gift_bet and (push or not prize)
+        credit = max(0, total - int(r['amount'])) if keep_stake else total
         if not db.execute('UPDATE hilo_room_bets SET settled=1,payout=?,won=? WHERE id=? AND settled=0',
                           (credit, 1 if won else 0, r['id'])).rowcount:
             continue
         if not won:
             continue
         label = f'Hi-Lo общий раунд x{step / HILO_MICRO:.2f}' + (' (возврат)' if push else '')
-        if gift_bet:
+        if keep_stake:
             hilo_restore_gift(db, r['user_id'], r['gift_row'], r['gift_name'], r['gift_image'], r['amount'])
             record_transaction(db, r['user_id'], 'hilo_gift_return', 0, 'hilo_room', r['id'], f"{r['gift_name']} · {label}")
         if prize:
@@ -9217,7 +9292,7 @@ def hilo_room_payload(db, uid, n, phase, now):
     reveal = phase >= HILO_BET_MS
     card = lambda rk: dict(rank=rk, **hilo_tier_card(rk))
     odds = {d: dict(x=hilo_room_step_micro(base, d) / HILO_MICRO,
-                    chance=(100.0 if hilo_room_is_push(base, d) else round(hilo_wins(base, d) * 100 / HILO_RANKS, 1)),
+                    chance=(100.0 if hilo_room_is_push(base, d) else round(hilo_wins(base, d) * 100 / (HILO_RANKS - 1), 1)),
                     push=hilo_room_is_push(base, d))
             for d in ('hi', 'lo')}
     rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,b.want_gift,b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
@@ -9472,6 +9547,8 @@ def hilo_guess():
             db.rollback()
             return error('Нет активной игры.', 409)
         rank = int(game['cur_rank'])
+        while new_rank == rank:      # the next card is never equal to the current one
+            new_rank, card_name, card_image = hilo_pick_card()
         step = hilo_step_micro(rank, direction)
         if not step:
             db.rollback()
@@ -9490,7 +9567,7 @@ def hilo_guess():
                 return error('Игра уже завершена.', 409)
             if mult >= HILO_MAX_MULT_MICRO or int(game['bet']) * mult // HILO_MICRO >= HILO_MAX_PAYOUT_CENTS:
                 fresh = db.execute('SELECT * FROM hilo_games WHERE id=?', (game['id'],)).fetchone()
-                payout, prize, remainder = hilo_settle_cashout(db, uid, fresh, False)
+                payout, prize, remainder = hilo_settle_cashout(db, uid, fresh, True)
                 settled = dict(payout=payout / 100, prize=prize, remainder=remainder / 100, auto=True)
         else:
             moved = db.execute("""UPDATE hilo_games SET state='lost',cur_rank=?,card_name=?,card_image=?,history=?,
@@ -9518,7 +9595,7 @@ def hilo_guess():
 @login_required
 def hilo_cashout():
     uid = session['uid']
-    want_gift = bool((request.get_json(silent=True) or {}).get('gift'))
+    want_gift = True   # gift-first payout is mandatory; the request flag is ignored
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')

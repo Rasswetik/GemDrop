@@ -19,8 +19,24 @@ for bad in bad_variants:
         changed = True
         break
 
-if not changed and fixed not in text:
-    raise SystemExit("Relayr regex syntax marker not found; refusing to mutate app.py")
+main_line = "    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)"
+main_pos = text.find(main_line)
+if main_pos == -1:
+    raise SystemExit("app.py main marker not found; refusing to truncate")
+
+main_end = text.find("\n", main_pos)
+if main_end == -1:
+    main_end = len(text)
+else:
+    main_end += 1
+
+trailing = text[main_end:]
+if trailing.strip():
+    text = text[:main_end]
+    changed = True
+
+if fixed not in text:
+    raise SystemExit("Relayr regex syntax marker not fixed")
 
 path.write_text(text, encoding="utf-8")
-print("app.py Relayr regex syntax is valid")
+print("app.py syntax repair applied")

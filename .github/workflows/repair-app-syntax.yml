@@ -21,6 +21,8 @@ jobs:
         run: python fix_profile_nft_images.py
       - name: Repair Upgrade compensation
         run: python fix_upgrade_compensation.py
+      - name: Add admin Telegram/Fragment NFT inventory grants
+        run: python fix_admin_nft_inventory.py
       - name: Verify Python syntax
         run: python -m py_compile app.py
       - name: Commit repaired files

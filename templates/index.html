@@ -3598,11 +3598,11 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <h1 class="page-title">Hi-Lo</h1>
 <div class="hl-top"><div id="hlStrip" class="hl-strip" aria-label="История карт"></div><button id="hlInfoBtn" class="hl-info" type="button" aria-label="Правила">i</button></div>
 <div class="hl-room"><span id="hlRoundNo">Раунд #—</span><b id="hlTimer">—</b></div><div class="hl-bar"><i id="hlBarFill"></i></div>
-<div class="hl-stage"><div id="hlCard" class="hl-card back" style="--h:262"><span id="hlRank" class="hl-rank">?</span><div class="hl-art"><img id="hlImg" class="hidden" alt=""><span id="hlQ" class="hl-q">?</span></div><b id="hlName" class="hl-name">Загрузка…</b><div id="hlBadge" class="hl-badge hidden"></div></div></div>
+<div class="hl-stage"><div id="hlCard" class="hl-card back" style="--h:262"><span id="hlRank" class="hl-rank">?</span><div class="hl-art"><img id="hlImg" class="hidden" alt=""><span id="hlQ" class="hl-q">?</span></div><b id="hlName" class="hl-name">Загрузка…</b></div></div>
 <div id="hlResult" class="hl-result hidden"></div>
 <div class="hl-guess">
-<button id="hlHi" class="hl-btn hi" type="button" disabled><span class="hl-chance">—</span><span class="hl-x">—</span><span class="hl-lbl"><i>▲</i>Hi</span><span class="hl-val"></span></button>
-<button id="hlLo" class="hl-btn lo" type="button" disabled><span class="hl-chance">—</span><span class="hl-x">—</span><span class="hl-lbl"><i>▼</i>Lo</span><span class="hl-val"></span></button>
+<button id="hlHi" class="hl-btn hi" type="button" disabled><span class="hl-lbl"><i>▲</i>Hi</span><span class="hl-x">—</span></button>
+<button id="hlLo" class="hl-btn lo" type="button" disabled><span class="hl-lbl"><i>▼</i>Lo</span><span class="hl-x">—</span></button>
 </div>
 <div class="panel cr-panel hl-panel">
 <div class="cr-field-head"><label for="hlBet">Ставка, TON</label><span id="hlBalance">Баланс 0.00</span></div>
@@ -3858,7 +3858,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <button id="topRewardModalClose" class="primary top-reward-close" type="button">Закрыть</button>
 </div></div><div id="rollPoolModal" class="modal hidden"><div class="modal-card roll-pool-card"><div class="roll-pool-head"><div><h2>Призовой пул</h2><p id="rollPoolDescription">Содержимое Roll и шансы выпадения</p></div><button id="rollPoolX" class="roll-pool-x" type="button" aria-label="Закрыть">×</button></div><div id="rollPoolGrid" class="roll-pool-grid"></div><div class="roll-pool-foot"><button id="rollPoolClose" class="primary" type="button">Готово</button></div></div></div><div id="rollWinModal" class="modal hidden"><div class="modal-card roll-win-card"><h2 id="rollWinHeading">Результат</h2><img id="rollWinImage" class="hidden" alt=""><p id="rollWinName" class="modal-name"></p><button id="rollWinClose" class="primary">Продолжить</button></div></div>
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
-<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules"><h2>Hi-Lo</h2><p>Карты — подарки Telegram, ранг от 1 до 15: чем выше ранг, тем дороже подарок (ранг 1 — около 3 TON). Раунд общий и идёт каждые 15 секунд: 10 секунд приём ставок, затем открывается следующая карта.</p><p>Угадайте, будет ли следующая карта <b>выше (Hi)</b> или <b>ниже (Lo)</b>. Одинаковый ранг — проигрыш.</p><p>Выигрыш = ставка × множитель кнопки: чем меньше шанс, тем он больше.</p><p>Выплата приходит на баланс автоматически после раунда.</p><p id="hlRulesRtp" class="hl-rules-sub" style="display:none"></p><button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
+<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules"><h2>Hi-Lo</h2><p>Карты — подарки Telegram, ранг от 1 до 15: чем выше ранг, тем дороже подарок (ранг 1 — около 3 TON). Раунд общий и идёт каждые 15 секунд: 10 секунд приём ставок, затем открывается следующая карта.</p><p>Угадайте, будет ли следующая карта <b>выше (Hi)</b> или <b>ниже (Lo)</b>. Одинаковый ранг — проигрыш.</p><p>Выигрыш = ставка × множитель кнопки: чем меньше шанс, тем он больше.</p><p>Выплата приходит на баланс автоматически после раунда. Если вы ставили подарком и выиграли, подарок возвращается в инвентарь, а выигрыш в TON начисляется сверху.</p><p id="hlRulesRtp" class="hl-rules-sub" style="display:none"></p><button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
 <div id="crGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="crGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="crGiftGrid" class="cr-gift-grid"></div><div id="crGiftFoot" class="cr-gift-foot hidden"><button id="crGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="crGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="arGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Ставка подарком</h2><p>Стоимость подарка идёт в банк арены</p></div><button id="arGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="arGiftGrid" class="cr-gift-grid"></div><div id="arGiftFoot" class="cr-gift-foot hidden"><button id="arGiftConfirm" class="primary" type="button">Выбрать</button></div><button id="arGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="giftBetModal" class="modal hidden"><div class="modal-card"><h2>Ставка подарком</h2><div class="gift-bet-ton"><button id="useTonBet">Использовать TON</button></div><div id="giftBetList" class="gift-bet-list"></div><button id="closeGiftBet" class="modal-close-small">Закрыть</button></div></div>
@@ -4873,10 +4873,18 @@ $('crNft').onclick=()=>crCashout(true);
 $('crAction').onclick=async()=>{if(CR.busy||!CR.st)return;let ph=crPhase(),mb=CR.st.my_bet;if(ph==='flying'&&mb&&mb.state==='active')return crCashout(crGiftCashoutAvailable(crPotential()));if(ph!=='betting'||mb)return;let auto=String($('crAuto').value||'').trim().replace(',','.');if(auto&&!(Number(auto)>=1.01))return toast('Авто-вывод — от 1.01x');if(auto&&CR.gift?.promo_locked&&Number(auto)<1.2)return toast('Для отыгрышного подарка авто-вывод — от 1.20x');let payload={auto:auto||null};if(CR.gift){payload.inventory_id=CR.gift.id}else{let bet=crBetValue();if(bet<CR.st.min_bet)return toast('Минимальная ставка '+money(CR.st.min_bet)+' TON');if(bet>CR.st.max_bet)return toast('Максимальная ставка '+money(CR.st.max_bet)+' TON');if(bet>Number(user?.balance||0)){toast('Недостаточно средств');openDeposit();return}payload.bet=bet.toFixed(2)}CR.busy=true;crPaintAction(ph);try{let d=await api('/api/crash/bet',{method:'POST',body:JSON.stringify(payload),timeoutMs:6000});let usedGift=!!CR.gift;crApply(d.state);setUser(d.user);if(d.new_level)showLevelNotice(d.new_level);if(usedGift){CR.gift=null;crPaintBetMode();$('crBet').value='1.00';loadInventory()}$('crNote').textContent=''}catch(e){toast(e.message);if(CR.gift)loadInventory().then(()=>{if(CR.gift&&!(inventoryItems||[]).some(x=>x.id===CR.gift.id)){CR.gift=null;crPaintBetMode()}});clearTimeout(CR.pollT);CR.busy=false;await crPoll()}finally{CR.busy=false;crPaintAction(crPhase())}};
 
 /* ===== Hi-Lo (общие раунды по 15 сек) ===== */
-var HL={active:false,st:null,tick:0,busy:false,off:0,flipped:0,lastSeen:0,pollAt:0,gift:null,sel:null};
+var HL={active:false,st:null,tick:0,busy:false,off:0,offSet:false,shown:null,want:null,swapping:false,barW:0,lastSeen:0,pollAt:0,gift:null,sel:null};
+function hlSync(serverNow){let o=serverNow-Date.now();HL.off=HL.offSet?HL.off+(o-HL.off)*.2:o;HL.offSet=true}
 function hlHue(r){return(210+(Number(r)||1)*21)%360}
 function hlBetValue(){let v=parseFloat(String($('hlBet').value).replace(',','.'));return Number.isFinite(v)?v:0}
-function hlFlip(){let c=$('hlCard');c.classList.remove('flip');void c.offsetWidth;c.classList.add('flip')}
+function hlFlip(){}
+function hlSwap(c){let key=c.rank+'|'+(c.name||'');if(HL.want&&HL.want.key===key)return;HL.want={key,c};if(!HL.swapping)hlRunSwap()}
+function hlRunSwap(){let card=$('hlCard'),t=HL.want;if(!t||t.key===HL.shown)return;
+ let calm=!card.animate||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches);
+ if(HL.shown==null||calm){hlShowCard(t.c);HL.shown=t.key;if(!calm)card.animate([{opacity:0,transform:'scale(.96)'},{opacity:1,transform:'none'}],{duration:260,easing:'ease-out'});return}
+ HL.swapping=true;
+ let a=card.animate([{transform:'perspective(900px) rotateY(0deg)'},{transform:'perspective(900px) rotateY(88deg)'}],{duration:190,easing:'ease-in',fill:'forwards'});
+ a.onfinish=()=>{let t2=HL.want;hlShowCard(t2.c);HL.shown=t2.key;let b=card.animate([{transform:'perspective(900px) rotateY(-88deg)'},{transform:'perspective(900px) rotateY(0deg)'}],{duration:280,easing:'cubic-bezier(.2,.9,.25,1)'});a.cancel();b.onfinish=()=>{HL.swapping=false;if(HL.want&&HL.want.key!==HL.shown)hlRunSwap()}}}
 function hlMine(){return (HL.st?.bets||[]).find(b=>b.mine)||null}
 function hlPhase(){let s=HL.st;if(!s)return 0;let t=Date.now()+HL.off;return Math.floor(t/s.room_ms)>s.round?s.room_ms-1:t%s.room_ms}
 function hlStake(){return HL.gift?Number(HL.gift.price_ton):hlBetValue()}
@@ -4884,40 +4892,43 @@ function hlPaintMode(){let g=HL.gift,btn=$('hlGiftBtn'),inp=$('hlBet'),panel=doc
 function hlShowCard(c){let card=$('hlCard'),img=$('hlImg'),q=$('hlQ');card.classList.remove('back');card.style.setProperty('--h',hlHue(c.rank));$('hlRank').textContent=c.rank;if(c.image_url){if(img.getAttribute('src')!==c.image_url)img.src=c.image_url;img.classList.remove('hidden');q.classList.add('hidden');img.onerror=()=>{img.classList.add('hidden');q.classList.remove('hidden');q.textContent='🎁'}}else{img.classList.add('hidden');q.classList.remove('hidden');q.textContent='🎁'}$('hlName').textContent=(c.name?giftDisplayName({name:c.name}):'Подарок')+(c.price_ton?' · '+money(c.price_ton)+' TON':'')}
 function hlRowEl(b,extra){let row=document.createElement('div');row.className='hl-bet-row '+b.direction+(b.mine?' mine':'');row.onclick=()=>openPublicProfile(b.user_id);let av=document.createElement('div');av.className='arena-player-avatar';avatar(av,b);let nm=document.createElement('div');nm.className='hl-nm';let n1=document.createElement('b');n1.textContent=(b.mine?'Вы · ':'')+b.name;nm.append(n1);if(extra){let s=document.createElement('small');s.textContent=extra;nm.append(s)}let dir=document.createElement('span');dir.className='hl-dir';dir.textContent=b.direction==='hi'?'▲ Hi':'▼ Lo';let am=document.createElement('span');am.className='hl-amt';if(b.gift_image){let g=new Image;g.src=b.gift_image;g.alt='';g.className='hl-gift';g.onerror=()=>g.remove();am.append(g)}let t=document.createElement('span');t.textContent=money(b.amount);let i=new Image;i.src=TON;i.alt='TON';am.append(t,i);row.append(av,nm,dir,am);return row}
 function hlRenderLists(reveal){let s=HL.st,res=reveal&&s.result?s.result.rank:0,sig=(s.bets||[]).map(b=>[b.user_id,b.direction,b.amount,b.gift_name].join(':')).join('|')+'#'+res,box=$('hlBets');if(box._k!==sig){box._k=sig;box.replaceChildren();$('hlBetsCount').textContent=(s.bets||[]).length;if(!(s.bets||[]).length)box.innerHTML='<div class="empty">Пока нет ставок</div>';for(let b of s.bets||[]){let row=hlRowEl(b,b.gift_name?giftDisplayName({name:b.gift_name}):'');if(res){let won=b.direction==='hi'?res>s.card.rank:res<s.card.rank;row.classList.add(won?'won':'lost')}box.append(row)}}
- let rs=(s.recent||[]).map(b=>[b.user_id,b.round,b.payout].join(':')).join('|'),rb=$('hlRecent');if(rb._k!==rs){rb._k=rs;rb.replaceChildren();if(!(s.recent||[]).length)rb.innerHTML='<div class="empty">Пока пусто</div>';for(let b of s.recent||[]){let row=hlRowEl(b,b.no>0?'Раунд #'+b.no:'');row.classList.add(b.payout>0?'won':'lost');let am=row.querySelector('.hl-amt');let r=document.createElement('em');r.className='hl-res';r.textContent=b.payout>0?'+'+money(b.payout):'−'+money(b.amount);am.replaceChildren(r);rb.append(row)}}}
-function hlResult(s,mine,reveal){let el=$('hlResult'),card=$('hlCard'),r=null;
- if(mine&&reveal&&s.result){let eq=s.result.rank===s.card.rank,won=!eq&&(mine.direction==='hi'?s.result.rank>s.card.rank:s.result.rank<s.card.rank),x=s.odds?.[mine.direction]?.x||0;r={won,eq,amount:mine.amount,payout:mine.amount*x,gift:mine.gift_name,dir:mine.direction,no:s.no,from:s.card.rank,to:s.result.rank}}
- else if(!mine&&s.last&&s.last.round===s.round-1){let l=s.last;r={won:l.payout>0,eq:false,amount:l.amount,payout:l.payout,gift:l.gift_name,dir:l.direction,no:l.no}}
- let key=r?[r.no,r.won,r.payout,r.dir].join():'';if(el._k!==key){el._k=key;el.replaceChildren();el.className='hl-result'+(r?' '+(r.won?'won':'lost'):' hidden');if(r){let ic=document.createElement('span');ic.className='hl-res-ic';ic.textContent=r.won?'✓':'✕';let tx=document.createElement('div');tx.className='hl-res-tx';let b=document.createElement('b');b.textContent=r.won?'Победа':'Ставка проиграла';let sm=document.createElement('small');let parts=[];if(r.no>0)parts.push('Раунд #'+r.no);parts.push(r.dir==='hi'?'▲ Hi':'▼ Lo');if(r.from)parts.push(r.from+' → '+r.to);if(r.eq)parts.push('одинаковый ранг');if(r.gift)parts.push(giftDisplayName({name:r.gift}));sm.textContent=parts.join(' · ');tx.append(b,sm);let am=document.createElement('span');am.className='hl-res-am';am.textContent=r.won?'+'+money(r.payout)+' TON':'−'+(r.gift?'подарок':money(r.amount)+' TON');el.append(ic,tx,am)}}
- card.classList.toggle('lost',!!r&&!r.won&&reveal);card.classList.toggle('cashed',!!r&&r.won&&reveal)}
+ let rs=(s.recent||[]).map(b=>[b.user_id,b.round,b.payout,b.won].join(':')).join('|'),rb=$('hlRecent');if(rb._k!==rs){rb._k=rs;rb.replaceChildren();if(!(s.recent||[]).length)rb.innerHTML='<div class="empty">Пока пусто</div>';for(let b of s.recent||[]){let row=hlRowEl(b,b.no>0?'Раунд #'+b.no:'');row.classList.add(b.won?'won':'lost');let am=row.querySelector('.hl-amt'),gi=am.querySelector('.hl-gift');let r=document.createElement('em');r.className='hl-res';r.textContent=b.won?(b.gift_name&&!b.payout?'вернулся':'+'+money(b.payout)):'−'+money(b.amount);am.replaceChildren(...(gi?[gi]:[]),r);rb.append(row)}}}
+function hlResult(s,mine,reveal){let el=$('hlResult'),r=null,cut=v=>Math.floor(v*100+1e-6)/100;
+ if(mine&&reveal&&s.result){let eq=s.result.rank===s.card.rank,won=!eq&&(mine.direction==='hi'?s.result.rank>s.card.rank:s.result.rank<s.card.rank),x=s.odds?.[mine.direction]?.x||0,total=cut(mine.amount*x);r={won,amount:mine.amount,payout:mine.gift_name?Math.max(0,cut(total-mine.amount)):total,gift:mine.gift_name,img:mine.gift_image,x,no:s.no}}
+ else if(!mine&&s.last&&s.last.round===s.round-1){let l=s.last;r={won:!!l.won,amount:l.amount,payout:l.payout,gift:l.gift_name,img:l.gift_image,x:0,no:l.no}}
+ let key=r?[r.no,r.won,r.payout].join():'';if(el._k===key)return;el._k=key;el.replaceChildren();
+ if(!r){el.className='hl-result hidden';return}
+ let rn=r.no>0?'Раунд #'+r.no:'',gname=r.gift?giftDisplayName({name:r.gift}):'';
+ if(!r.won){el.className='hl-result lost';let t=document.createElement('span');t.textContent=[rn,'−'+(r.gift?gname:money(r.amount)+' TON')].filter(Boolean).join(' · ');el.append(t);return}
+ el.className='hl-result won'+(r.gift?' gift':'');
+ let ic=document.createElement('span');ic.className='hl-res-ic';if(r.gift&&r.img){let im=new Image;im.src=r.img;im.alt='';im.onerror=()=>{im.remove();ic.textContent='🎁'};ic.append(im)}else ic.textContent=r.gift?'🎁':'✓';
+ let tx=document.createElement('div');tx.className='hl-res-tx';let b=document.createElement('b');b.textContent=r.gift?'Подарок вернулся':'Выигрыш';let sm=document.createElement('small');sm.textContent=[rn,r.gift?gname:(r.x?'x'+Number(r.x).toFixed(2):'')].filter(Boolean).join(' · ');tx.append(b,sm);
+ let am=document.createElement('span');am.className='hl-res-am';am.textContent=r.gift?(r.payout>0?'+ '+money(r.payout)+' TON':'+ 0 TON'):'+'+money(r.payout)+' TON';el.append(ic,tx,am)}
 function hlRender(){
  let s=HL.st;if(!s)return;let ph=hlPhase(),reveal=ph>=s.bet_ms,mine=hlMine();
  $('hlBalance').textContent='Баланс '+money(user?.balance??s.balance);
  $('hlRoundNo').textContent='Раунд '+(s.no>0?'#'+s.no:'—');
  let left=Math.max(0,Math.ceil(((reveal?s.room_ms:s.bet_ms)-ph)/1000));
  $('hlTimer').textContent=reveal?'Следующий через '+left+' с':'Ставки: '+left+' с';
- $('hlBarFill').style.width=(ph/s.room_ms*100).toFixed(1)+'%';$('hlBarFill').classList.toggle('reveal',reveal);
+ {let w=ph/s.room_ms*100,f=$('hlBarFill');f.style.transition=w<HL.barW?'none':'';HL.barW=w;f.style.width=w.toFixed(1)+'%';f.classList.toggle('reveal',reveal)}
  let strip=$('hlStrip'),hs=(s.history||[]).slice(-6),sig=hs.map(h=>h.rank).join();
  if(strip._k!==sig){strip._k=sig;strip.replaceChildren();hs.forEach((h,i)=>{let el=document.createElement('div');el.className='hl-chip'+(i===hs.length-1?' cur':'');el.style.setProperty('--h',hlHue(h.rank));if(h.image_url){let im=new Image;im.src=h.image_url;im.alt='';im.onerror=()=>im.remove();el.append(im)}let b=document.createElement('b');b.textContent=h.rank;el.append(b);let a=document.createElement('i');a.className=h.rel;a.textContent=h.rel==='up'?'▲':h.rel==='down'?'▼':'=';el.append(a);strip.append(el)})}
- let badge=$('hlBadge'),card=$('hlCard');
- if(reveal&&s.result){if(HL.flipped!==s.round){HL.flipped=s.round;hlFlip()}hlShowCard(s.result);let up=s.result.rank>s.card.rank,eq=s.result.rank===s.card.rank;badge.className='hl-badge '+(eq?'eq':up?'up':'down');badge.replaceChildren();let bt=document.createElement('b');bt.textContent=eq?'= Равно':up?'▲ Выше':'▼ Ниже';let bs=document.createElement('small');bs.textContent=s.card.rank+' → '+s.result.rank;badge.append(bt,bs)}
- else{hlShowCard(s.card);badge.classList.add('hidden');if(HL.flipped!==-s.round){HL.flipped=-s.round;hlFlip()}}
+ hlSwap(reveal&&s.result?s.result:s.card);
  for(let [id,dir] of [['hlHi','hi'],['hlLo','lo']]){let b=$(id),o=s.odds?.[dir],ok=!!(o&&o.x>0&&o.chance>0);b.disabled=!ok||HL.busy||reveal||!!mine||(s.available===false&&!user?.admin);b.classList.toggle('picked',mine?.direction===dir);
-  b.querySelector('.hl-chance').textContent=o?'шанс '+Number(o.chance)+'%':'—';b.querySelector('.hl-x').textContent=o?(ok?Number(o.x).toFixed(2)+'x':'0x'):'—';
-  let v=b.querySelector('.hl-val'),k=ok?money((mine?mine.amount:hlStake())*o.x):'';if(v._k!==k){v._k=k;v.replaceChildren();if(ok){let t=document.createElement('span');t.textContent=k;let i=new Image;i.src=TON;i.alt='TON';v.append(t,i)}}}
+  b.querySelector('.hl-x').textContent=o?(ok?Number(o.x).toFixed(2)+'x':'—'):'—'}
  hlRenderLists(reveal);hlResult(s,mine,reveal);
- let l=s.last;if(l&&l.id!==HL.lastSeen){if(HL.lastSeen){api('/api/me').then(d=>setUser(d.user)).catch(()=>{})}HL.lastSeen=l.id}
+ let l=s.last;if(l&&l.id!==HL.lastSeen){if(HL.lastSeen){api('/api/me').then(d=>setUser(d.user)).catch(()=>{});if(l.won&&l.gift_name){try{loadInventory()}catch(e){}}}HL.lastSeen=l.id}
 }
-async function hlLoad(){HL.pollAt=Date.now();try{let d=await api('/api/hilo/room',{timeoutMs:5000});HL.off=d.now-Date.now();HL.st=d;if(d.available===false&&!user?.admin){toast('Игра временно недоступна');show('gamesPage');return}hlRender()}catch(e){}}
-function hlLoop(){if(!HL.active)return;let s=HL.st;if(s){let rn=Math.floor((Date.now()+HL.off)/s.room_ms),need=rn!==s.round||(hlPhase()>=s.bet_ms&&!s.result);if(need&&Date.now()-HL.pollAt>700)hlLoad();else if(Date.now()-HL.pollAt>2500)hlLoad();else hlRender()}HL.tick=setTimeout(hlLoop,250)}
-function hlEnter(){HL.active=true;HL.flipped=0;HL.lastSeen=0;clearTimeout(HL.tick);hlPaintMode();hlLoad().then(()=>hlLoop())}
+async function hlLoad(){HL.pollAt=Date.now();try{let d=await api('/api/hilo/room',{timeoutMs:5000});hlSync(d.now);HL.st=d;if(d.available===false&&!user?.admin){toast('Игра временно недоступна');show('gamesPage');return}hlRender()}catch(e){}}
+function hlLoop(){if(!HL.active)return;let s=HL.st;if(s){let rn=Math.floor((Date.now()+HL.off)/s.room_ms),need=rn!==s.round||(hlPhase()>=s.bet_ms&&!s.result);if(need&&Date.now()-HL.pollAt>450)hlLoad();else if(Date.now()-HL.pollAt>2500)hlLoad();else hlRender()}HL.tick=setTimeout(hlLoop,200)}
+function hlEnter(){HL.active=true;HL.shown=null;HL.want=null;HL.swapping=false;HL.offSet=false;HL.lastSeen=0;clearTimeout(HL.tick);hlPaintMode();hlLoad().then(()=>hlLoop())}
 function hlLeave(){if(HL){HL.active=false;clearTimeout(HL.tick)}}
 async function hlBet(dir){
  if(HL.busy||!HL.st)return;let s=HL.st,payload={direction:dir};
  if(HL.gift)payload.inventory_id=HL.gift.id;
  else{let bet=hlBetValue();if(bet<s.min_bet)return toast('Минимальная ставка '+money(s.min_bet)+' TON');if(bet>s.max_bet)return toast('Максимальная ставка '+money(s.max_bet)+' TON');if(bet>Number(user?.balance||0)){toast('Недостаточно средств');openDeposit();return}payload.bet=bet.toFixed(2)}
  HL.busy=true;hlRender();
- try{let d=await api('/api/hilo/room/bet',{method:'POST',body:JSON.stringify(payload),timeoutMs:8000});let usedGift=!!HL.gift;HL.off=d.room.now-Date.now();HL.st=d.room;setUser(d.user);if(d.new_level)showLevelNotice(d.new_level);if(usedGift){HL.gift=null;hlPaintMode();$('hlBet').value='1.00';loadInventory()}try{tg?.HapticFeedback?.impactOccurred?.('medium')}catch(e){}}
+ try{let d=await api('/api/hilo/room/bet',{method:'POST',body:JSON.stringify(payload),timeoutMs:8000});let usedGift=!!HL.gift;hlSync(d.room.now);HL.st=d.room;setUser(d.user);if(d.new_level)showLevelNotice(d.new_level);if(usedGift){HL.gift=null;hlPaintMode();$('hlBet').value='1.00';loadInventory()}try{tg?.HapticFeedback?.impactOccurred?.('medium')}catch(e){}}
  catch(e){toast(e.message);if(HL.gift)loadInventory().then(()=>{if(HL.gift&&!(inventoryItems||[]).some(x=>x.id===HL.gift.id)){HL.gift=null;hlPaintMode()}});await hlLoad()}
  finally{HL.busy=false;hlRender()}
 }
@@ -6173,5 +6184,32 @@ body.studio #crashPage .cr-action.cashout{background:linear-gradient(115deg,#ffd
 #hiloPage .hl-result{padding:12px 14px;gap:12px}
 #hiloPage .hl-res-tx b{font-size:15px;line-height:1.2}#hiloPage .hl-res-tx small{margin-top:2px;font-size:12px}
 #hiloPage .hl-result.lost .hl-res-tx b{color:#ff9aa6}
+</style>
+<style id="hilo-v4">
+/* Hi-Lo: спокойный интерфейс — две кнопки Hi/Lo с иксом, без шансов и лишних надписей */
+#hiloPage .hl-guess{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
+#hiloPage .hl-btn{display:flex;align-items:center;justify-content:space-between;min-height:62px;padding:0 18px;border-radius:18px;transition:transform .14s ease,opacity .25s ease,box-shadow .25s ease}
+#hiloPage .hl-btn .hl-lbl{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:900;order:0}
+#hiloPage .hl-btn .hl-lbl i{font-style:normal;font-size:15px;opacity:.9}
+#hiloPage .hl-btn .hl-x{font-size:20px;font-weight:900;order:1;opacity:.95}
+#hiloPage .hl-btn:disabled{opacity:.5;filter:none}
+#hiloPage .hl-btn.picked{outline:2px solid rgba(255,255,255,.85);box-shadow:0 0 18px rgba(255,255,255,.22)}
+#hiloPage .hl-stage{perspective:1000px}
+#hiloPage .hl-card{will-change:transform;backface-visibility:hidden}
+#hiloPage .hl-card.lost,#hiloPage .hl-card.cashed{filter:none}
+.hl-bar i{transition:width .2s linear}
+/* результат: проигрыш — тихая серая строка, выигрыш — мягкая зелёная карточка */
+#hiloPage .hl-result{display:flex;align-items:center;gap:12px;margin:0 4px 12px;padding:12px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);animation:hlResIn .3s ease-out both}
+#hiloPage .hl-result.hidden{display:none}
+#hiloPage .hl-result.lost{justify-content:center;padding:6px 10px;border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:700;letter-spacing:.2px}
+#hiloPage .hl-result.won{border-color:rgba(103,224,173,.35);background:linear-gradient(135deg,rgba(63,217,160,.14),rgba(63,217,160,.05))}
+#hiloPage .hl-result.won .hl-res-ic{width:40px;height:40px;border-radius:12px;background:rgba(63,217,160,.2);color:#67e0ad;font-size:20px;overflow:hidden}
+#hiloPage .hl-result.won .hl-res-ic img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.45))}
+#hiloPage .hl-result.won .hl-res-tx b{font-size:15px;color:#fff}
+#hiloPage .hl-result.won .hl-res-am{color:#67e0ad;font-size:15px;font-weight:900}
+#hiloPage .hl-result.won.gift{border-color:rgba(255,210,90,.4);background:linear-gradient(135deg,rgba(255,210,90,.16),rgba(63,217,160,.07))}
+#hiloPage .hl-result.won.gift .hl-res-ic{background:rgba(255,210,90,.18)}
+/* ставки в списках — без красного */
+.hl-bet-row.lost .hl-amt{color:var(--muted)!important}
 </style>
 </body></html>

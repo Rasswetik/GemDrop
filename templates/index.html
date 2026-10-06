@@ -3489,33 +3489,6 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 #hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 @media(max-width:390px){.relayer-grid{grid-template-columns:1fr}.gift-deposit-instruction{grid-template-columns:58px minmax(0,1fr)}.gift-deposit-orbit{width:58px;height:58px}.gift-deposit-orbit img{width:52px;height:52px}.gift-deposit-rate{grid-template-columns:46px minmax(0,1fr) auto}.gift-deposit-rate>img{width:46px;height:46px}}
 </style>
-<style id="desktop-mobile-shell">
-/* Desktop keeps the same mobile composition instead of stretching every game. */
-@media (min-width: 700px){
-  html,body{min-height:100%;background:var(--bg,#0c0e1f)!important}
-  body.studio{background:var(--bg,#0c0e1f)!important}
-  .app{
-    width:min(100%,568px)!important;
-    max-width:568px!important;
-    min-width:0!important;
-    margin:0 auto!important;
-    padding-left:18px!important;
-    padding-right:18px!important;
-  }
-  #nav.nav{
-    width:min(536px,calc(100vw - 32px))!important;
-    max-width:536px!important;
-    left:50%!important;
-    right:auto!important;
-    transform:translateX(-50%)!important;
-  }
-  .toast,.level-notice{max-width:min(520px,calc(100vw - 40px))!important}
-  .modal-card{max-width:min(460px,calc(100vw - 44px))}
-  .creator-gift-modal-sheet{width:min(540px,calc(100vw - 28px))!important}
-}
-</style>
-
-
 <style id="gift-deposit-modal-final-v5">
 #depositModal[data-method="gift"]{
   position:fixed!important;inset:0!important;z-index:10040!important;
@@ -3734,8 +3707,8 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="content" class="hidden">
 <section id="gamesPage" class="hidden"><h1 class="page-title games-title">Игры</h1><div class="games-grid">
 <button id="gameCardArena" class="game-card game-card-arena is-disabled" type="button" data-game="arenaPage" data-key="arena" aria-disabled="true" aria-label="Арена"><div class="gc-art gc-art-arena" aria-hidden="true"><svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="arenaCardFloor" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b222d"/><stop offset="1" stop-color="#0d1219"/></linearGradient></defs><rect width="320" height="180" fill="url(#arenaCardFloor)"/><path d="M160 90 0 0V180Z" fill="#e0bd48"/><path d="M160 90 0 0H154Z" fill="#4b6fd6"/><path d="M160 90 154 0H320V74Z" fill="#d86468"/><path d="M160 90 320 74V180H0V180Z" fill="#2a7e61"/><g fill="#f6f8fa" stroke="#ffffff" stroke-opacity=".55" stroke-width="2"><circle cx="65" cy="91" r="18"/><circle cx="218" cy="42" r="15"/><circle cx="232" cy="131" r="19"/></g><g font-family="inherit" font-size="13" font-weight="900" fill="#17202a" text-anchor="middle"><text x="65" y="96">A</text><text x="218" y="47">M</text><text x="232" y="136">N</text></g><g><circle r="8" fill="#f8fafc" stroke="#b9c4ce" stroke-width="2"><animate attributeName="cx" values="22;292;68;275;120;22" dur="3.6s" repeatCount="indefinite"/><animate attributeName="cy" values="24;45;158;118;22;24" dur="3.6s" repeatCount="indefinite"/></circle><circle r="2.8" fill="#77838f"><animate attributeName="cx" values="22;292;68;275;120;22" dur="3.6s" repeatCount="indefinite"/><animate attributeName="cy" values="24;45;158;118;22;24" dur="3.6s" repeatCount="indefinite"/></circle></g></svg></div><div class="gc-label"><b>Арена</b><span>PvP</span></div></button>
-<button id="gameCardMines" class="game-card game-card-mines" type="button" data-game="minesPage" data-key="mines" aria-label="Играть в Мины"><div class="gc-art gc-art-mines-v2" aria-hidden="true"><svg viewBox="0 0 640 360" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="gmBg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#15233d"/><stop offset=".55" stop-color="#0e1728"/><stop offset="1" stop-color="#081018"/></linearGradient><radialGradient id="gmGlow" cx="72%" cy="35%" r="58%"><stop stop-color="#388bd5" stop-opacity=".28"/><stop offset=".55" stop-color="#183f62" stop-opacity=".12"/><stop offset="1" stop-color="#07101a" stop-opacity="0"/></radialGradient><linearGradient id="gmTile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#172943"/><stop offset="1" stop-color="#0f1828"/></linearGradient><linearGradient id="gmSafe" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#164a48"/><stop offset="1" stop-color="#0d2a30"/></linearGradient><linearGradient id="gmMine" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5b2940"/><stop offset="1" stop-color="#2c1827"/></linearGradient><filter id="gmSoft"><feGaussianBlur stdDeviation="14"/></filter><filter id="gmShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".32"/></filter></defs><rect width="640" height="360" fill="url(#gmBg)"/><rect width="640" height="360" fill="url(#gmGlow)"/><path d="M0 300C120 245 220 310 340 254S540 158 680 205" fill="none" stroke="#55b6ff" stroke-opacity=".08" stroke-width="2" stroke-dasharray="9 13"/><g opacity=".55"><circle cx="390" cy="58" r="3" fill="#89d3ff"><animate attributeName="opacity" values=".2;.9;.2" dur="2.6s" repeatCount="indefinite"/></circle><circle cx="568" cy="82" r="2.3" fill="#76f1c5"><animate attributeName="opacity" values=".15;.8;.15" dur="3.3s" begin="-.9s" repeatCount="indefinite"/></circle><circle cx="500" cy="278" r="2.5" fill="#89d3ff"><animate attributeName="opacity" values=".2;.85;.2" dur="2.9s" begin="-1.4s" repeatCount="indefinite"/></circle></g><ellipse cx="495" cy="178" rx="175" ry="126" fill="#43cfa1" fill-opacity=".07" filter="url(#gmSoft)"><animate attributeName="fill-opacity" values=".04;.11;.04" dur="5.2s" repeatCount="indefinite"/></ellipse><g transform="translate(386 60) rotate(-5 108 108)" filter="url(#gmShadow)"><g fill="url(#gmTile)" stroke="#305177" stroke-width="2"><rect x="0" y="0" width="62" height="62" rx="14"/><rect x="72" y="0" width="62" height="62" rx="14"/><rect x="144" y="0" width="62" height="62" rx="14"/><rect x="216" y="0" width="62" height="62" rx="14"/><rect x="0" y="72" width="62" height="62" rx="14"/><rect x="72" y="72" width="62" height="62" rx="14"/><rect x="144" y="72" width="62" height="62" rx="14"/><rect x="216" y="72" width="62" height="62" rx="14"/><rect x="0" y="144" width="62" height="62" rx="14"/><rect x="72" y="144" width="62" height="62" rx="14"/><rect x="144" y="144" width="62" height="62" rx="14"/><rect x="216" y="144" width="62" height="62" rx="14"/></g><g fill="none" stroke="#55b6ff" stroke-width="4" stroke-linejoin="round" opacity=".86"><path d="M31 18 44 31 31 44 18 31Z"/><path d="M103 18 116 31 103 44 90 31Z"/><path d="M175 18 188 31 175 44 162 31Z"/><path d="M247 18 260 31 247 44 234 31Z"/><path d="M31 90 44 103 31 116 18 103Z"/><path d="M103 90 116 103 103 116 90 103Z"/><path d="M31 162 44 175 31 188 18 175Z"/><path d="M103 162 116 175 103 188 90 175Z"/><path d="M175 162 188 175 175 188 162 175Z"/><path d="M247 162 260 175 247 188 234 175Z"/></g><g><rect x="144" y="72" width="62" height="62" rx="14" fill="url(#gmMine)" stroke="#ff647f" stroke-width="2.3"/><circle cx="175" cy="103" r="13" fill="#ff5c79"><animate attributeName="r" values="11;14;11" dur="2.1s" repeatCount="indefinite"/></circle><circle cx="175" cy="103" r="5" fill="#ffb1bf" fill-opacity=".55"/></g><g><rect x="216" y="72" width="62" height="62" rx="14" fill="url(#gmSafe)" stroke="#48e5b2" stroke-width="2.3"/><circle cx="247" cy="103" r="13" fill="#67e8bd"/><circle cx="247" cy="103" r="21" fill="none" stroke="#67e8bd" stroke-opacity=".28"><animate attributeName="r" values="16;26;16" dur="2.5s" repeatCount="indefinite"/><animate attributeName="opacity" values=".55;.08;.55" dur="2.5s" repeatCount="indefinite"/></circle></g></g></svg></div><div class="gc-label"><b>Мины</b><span>Открывай клетки и забирай приз</span></div></button>
-<button id="gameCardUpgrade" class="game-card game-card-upgrade" type="button" data-game="upgradePage" data-key="upgrade" aria-label="Играть в Апгрейды"><div class="gc-art gc-art-upgrade-v2" aria-hidden="true"><svg viewBox="0 0 640 360" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="guBg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#17213a"/><stop offset=".5" stop-color="#101a28"/><stop offset="1" stop-color="#091019"/></linearGradient><radialGradient id="guGlow" cx="78%" cy="45%" r="55%"><stop stop-color="#32d4a0" stop-opacity=".25"/><stop offset=".42" stop-color="#237d75" stop-opacity=".11"/><stop offset="1" stop-color="#071019" stop-opacity="0"/></radialGradient><linearGradient id="guArc" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#80f7d0"/><stop offset=".55" stop-color="#36d39f"/><stop offset="1" stop-color="#4da7ff"/></linearGradient><linearGradient id="guGift" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7b5dff"/><stop offset="1" stop-color="#4a2fb1"/></linearGradient><filter id="guShadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="13" stdDeviation="12" flood-color="#000" flood-opacity=".34"/></filter><filter id="guGlowF" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter></defs><rect width="640" height="360" fill="url(#guBg)"/><rect width="640" height="360" fill="url(#guGlow)"/><path d="M300 268C360 240 414 190 458 118" fill="none" stroke="#5bdcaf" stroke-opacity=".17" stroke-width="2.5" stroke-dasharray="8 12"><animate attributeName="stroke-dashoffset" values="40;0" dur="2.8s" repeatCount="indefinite"/></path><g opacity=".65"><circle cx="390" cy="63" r="2.4" fill="#84f6d0"><animate attributeName="opacity" values=".15;.95;.15" dur="2.3s" repeatCount="indefinite"/></circle><circle cx="563" cy="62" r="3" fill="#70b8ff"><animate attributeName="opacity" values=".2;.85;.2" dur="3s" begin="-1s" repeatCount="indefinite"/></circle><circle cx="585" cy="255" r="2.5" fill="#84f6d0"><animate attributeName="opacity" values=".2;.9;.2" dur="2.7s" begin="-.7s" repeatCount="indefinite"/></circle></g><circle cx="500" cy="170" r="118" fill="#45d5a2" fill-opacity=".08" filter="url(#guGlowF)"><animate attributeName="r" values="105;125;105" dur="5.6s" repeatCount="indefinite"/></circle><g transform="translate(500 170)" filter="url(#guShadow)"><circle r="110" fill="#0c1420" stroke="#263a4a" stroke-width="16"/><circle r="110" fill="none" stroke="url(#guArc)" stroke-width="17" stroke-linecap="round" pathLength="100" stroke-dasharray="43 57" transform="rotate(-90)"><animateTransform attributeName="transform" type="rotate" values="-90;-70;-90" dur="4.8s" repeatCount="indefinite"/></circle><circle r="76" fill="#101b29" stroke="#ffffff" stroke-opacity=".06" stroke-width="2"/><g transform="translate(0 4)"><rect x="-30" y="-20" width="60" height="54" rx="10" fill="url(#guGift)"/><rect x="-34" y="-31" width="68" height="18" rx="8" fill="#957cff"/><path d="M0-31v65" stroke="#c8bbff" stroke-width="6" opacity=".78"/><path d="M-3-31c-20-6-23-24-10-26 12-2 19 15 13 26ZM3-31c20-6 23-24 10-26-12-2-19 15-13 26Z" fill="none" stroke="#c8bbff" stroke-width="6" stroke-linecap="round"/></g><g transform="translate(0 -125)"><path d="M0 0 12 21H-12Z" fill="#ffc85b"/><animateTransform attributeName="transform" type="rotate" values="0 0 125;1080 0 125" dur="5.2s" repeatCount="indefinite"/></g></g><g transform="translate(315 210) rotate(-9)" filter="url(#guShadow)"><rect x="-40" y="-54" width="80" height="108" rx="14" fill="#1b2943" stroke="#4776a2" stroke-width="2"/><path d="M0-12 18 6 0 24-18 6Z" fill="none" stroke="#59b9ff" stroke-width="5"/><text x="0" y="42" fill="#a8c7df" font-family="inherit" font-size="14" font-weight="800" text-anchor="middle">x1.00</text></g><g transform="translate(378 170)"><path d="M-18 0H18M7-11 18 0 7 11" fill="none" stroke="#77e8c0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="opacity" values=".35;1;.35" dur="1.6s" repeatCount="indefinite"/></path></g></svg></div><div class="gc-label"><b>Апгрейды</b><span>Улучшай подарок до цели</span></div></button>
+<button id="gameCardMines" class="game-card game-card-mines" type="button" data-game="minesPage" data-key="mines" aria-label="Играть в Мины"><div class="gc-art" aria-hidden="true"><div class="gc-mines-grid"><i class="gem" style="--d:0s"></i><i style="--d:1.1s"></i><i class="gem" style="--d:.9s"></i><i class="gem" style="--d:2.7s"></i><i style="--d:3.4s"></i><i class="gem" style="--d:1.8s"></i><i class="bomb" style="--d:3.3s"></i><i class="gem" style="--d:3.6s"></i><i class="gem" style="--d:4.5s"></i><i style="--d:2.2s"></i><i class="gem" style="--d:5.2s"></i><i style="--d:4.1s"></i></div></div><div class="gc-label"><b>Мины</b><span>Открывай клетки и забирай приз</span></div></button>
+<button id="gameCardUpgrade" class="game-card game-card-upgrade" type="button" data-game="upgradePage" data-key="upgrade" aria-label="Играть в Апгрейды"><div class="gc-art" aria-hidden="true"><div class="gc-ring"><svg viewBox="0 0 240 240"><defs><linearGradient id="gcRingGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf6cd"/><stop offset="1" stop-color="#27b98a"/></linearGradient></defs><circle class="gc-ring-track" cx="120" cy="120" r="100"/><circle class="gc-ring-win" cx="120" cy="120" r="100" pathLength="100" stroke-dasharray="38 62" transform="rotate(-90 120 120)"/></svg><div class="gc-ring-spin"><i></i></div><div class="gc-ring-center"><b>42%</b></div></div></div><div class="gc-label"><b>Апгрейды</b><span>Улучшай подарок до цели</span></div></button>
 <button id="gameCardCrash" class="game-card game-card-crash is-disabled" type="button" data-game="crashPage" data-key="crash" aria-disabled="true" aria-label="Crash"><div class="gc-art gc-art-crash" aria-hidden="true"><svg class="gc-crash-svg" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice"><ellipse cx="270" cy="188" rx="130" ry="70" fill="url(#gdSpaceGlow)"/><circle cx="292" cy="150" r="52" fill="url(#gdPlanet)"/><ellipse cx="292" cy="150" rx="74" ry="11" fill="none" stroke="#9a8bff" stroke-opacity=".5" stroke-width="2.2" transform="rotate(-18 292 150)"/><circle cx="150" cy="22" r="1.3" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="2.6s" begin="-0.4s" repeatCount="indefinite"/></circle><circle cx="204" cy="64" r="1" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="3.1s" begin="-1.2s" repeatCount="indefinite"/></circle><circle cx="286" cy="26" r="1.4" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="2.4s" begin="-0.8s" repeatCount="indefinite"/></circle><circle cx="250" cy="92" r="1" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="3.4s" begin="-2s" repeatCount="indefinite"/></circle><circle cx="120" cy="70" r="1" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="2.9s" begin="-1.6s" repeatCount="indefinite"/></circle><circle cx="310" cy="70" r="1.2" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="2.2s" begin="-0.2s" repeatCount="indefinite"/></circle><circle cx="60" cy="28" r="1.1" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="3.3s" begin="-0.9s" repeatCount="indefinite"/></circle><circle cx="180" cy="110" r="0.9" fill="#cfd8ff" opacity=".5"><animate attributeName="opacity" values=".15;.9;.15" dur="2.8s" begin="-1.4s" repeatCount="indefinite"/></circle><path d="M40 150Q150 138 262 46" fill="none" stroke="#8b7bff" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="5 7" opacity=".55"/><text x="22" y="40" font-size="23" font-weight="900" fill="#d7d0ff" opacity="0" font-family="inherit">1.00x<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.04;0.041;0.200;0.201;1" dur="4.8s" repeatCount="indefinite"/></text><text x="22" y="40" font-size="23" font-weight="900" fill="#d7d0ff" opacity="0" font-family="inherit">1.42x<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.2;0.201;0.380;0.381;1" dur="4.8s" repeatCount="indefinite"/></text><text x="22" y="40" font-size="23" font-weight="900" fill="#d7d0ff" opacity="0" font-family="inherit">2.17x<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.38;0.381;0.540;0.541;1" dur="4.8s" repeatCount="indefinite"/></text><text x="22" y="40" font-size="23" font-weight="900" fill="#d7d0ff" opacity="0" font-family="inherit">3.65x<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.54;0.541;0.700;0.701;1" dur="4.8s" repeatCount="indefinite"/></text><text x="22" y="40" font-size="23" font-weight="900" fill="#d7d0ff" opacity="0" font-family="inherit">6.80x<animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.7;0.701;0.840;0.841;1" dur="4.8s" repeatCount="indefinite"/></text><g><animateMotion dur="4.8s" repeatCount="indefinite" rotate="auto" path="M40 150Q150 138 262 46" keyTimes="0;1" keyPoints="0;1" calcMode="spline" keySplines=".35 .1 .6 1"/><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.05;.82;.84;1" dur="4.8s" repeatCount="indefinite"/><g transform="scale(.78)"><g class="rk cr-diamond-rocket">
 <g class="cr-diamond-flame" transform="translate(-24 0)"><g><animateTransform attributeName="transform" type="scale" values="1 1;1.13 .9;.95 1.08;1 1" dur=".2s" repeatCount="indefinite"/>
 <path d="M2-7.5C-10-8-25-5.5-40 0C-25 5.5-10 8 2 7.5C-2 4-2  -4 2-7.5Z" fill="url(#gdFlameO)"/><path d="M1-4.2C-8-4.4-18-2.8-29 0C-18 2.8-8 4.4 1 4.2C-2 2.4-2-2.4 1-4.2Z" fill="url(#gdFlameI)"/></g></g>
@@ -7124,30 +7097,288 @@ const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.ge
 })();
 </script>
 
-<style id="games-hub-final-v3">
-/* FINAL desktop games hub — intentionally after every legacy style block */
-@media(min-width:900px){
-  body.studio[data-page="gamesPage"] .app{max-width:1520px!important;width:100%!important;padding-left:34px!important;padding-right:34px!important}
-  body.studio[data-page="gamesPage"] #gamesPage{width:100%!important;max-width:none!important;margin:0!important}
-  body.studio[data-page="gamesPage"] #gamesPage .games-grid{width:100%!important;max-width:none!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:20px!important;margin:0!important}
-  body.studio[data-page="gamesPage"] #gamesPage .game-card{width:100%!important;min-width:0!important;min-height:0!important;height:auto!important;aspect-ratio:1.78/1!important;border-radius:28px!important}
-  body.studio[data-page="gamesPage"] #gamesPage .gc-label{left:25px!important;right:25px!important;bottom:21px!important;gap:4px!important}
-  body.studio[data-page="gamesPage"] #gamesPage .gc-label b{font-size:clamp(30px,2.45vw,40px)!important;line-height:1.02!important}
-  body.studio[data-page="gamesPage"] #gamesPage .gc-label span{font-size:14px!important;line-height:1.25!important;max-width:72%!important}
-}
-@media(min-width:1280px){
-  body.studio[data-page="gamesPage"] .app{max-width:1580px!important;padding-left:46px!important;padding-right:46px!important}
-  body.studio[data-page="gamesPage"] #gamesPage .games-grid{gap:22px!important}
-}
-@media(min-width:1600px){body.studio[data-page="gamesPage"] .app{max-width:1680px!important}}
+<style id="desktop-mobile-shell-final-v6">
+/* Desktop: every user-facing page keeps the phone composition.
+   Only the Games hub is allowed to become a two-column desktop grid. */
+@media (min-width:701px){
+  html,body{min-height:100%;background:var(--bg,#0c0e1f)!important}
 
-#gamesPage .game-card{position:relative;overflow:hidden;box-shadow:0 16px 38px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.04);transition:transform .22s cubic-bezier(.2,.8,.2,1),border-color .22s ease,box-shadow .22s ease!important}
-#gamesPage .game-card:after{background:linear-gradient(180deg,rgba(4,7,14,0) 36%,rgba(5,8,16,.22) 59%,rgba(5,7,14,.92) 100%)!important}
-@media(hover:hover) and (pointer:fine){#gamesPage .game-card:not(.is-disabled):hover{transform:translateY(-5px) scale(1.006)!important;border-color:rgba(93,190,255,.66)!important;box-shadow:0 24px 54px rgba(0,0,0,.34),0 0 0 1px rgba(93,190,255,.10),0 0 30px rgba(67,157,255,.10)!important}}
-#gamesPage .game-card-mines,#gamesPage .game-card-upgrade{background:#0c1320!important}
-#gamesPage .gc-art-mines-v2,#gamesPage .gc-art-upgrade-v2{inset:0!important;padding:0!important;overflow:hidden!important}
-#gamesPage .gc-art-mines-v2 svg,#gamesPage .gc-art-upgrade-v2 svg{display:block!important;width:100%!important;height:100%!important}
-#gamesPage .game-card-mines:before,#gamesPage .game-card-upgrade:before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;box-shadow:inset 0 1px rgba(255,255,255,.06),inset 0 0 0 1px rgba(255,255,255,.025)}
-@media(max-width:899px){#gamesPage .gc-art-mines-v2 svg,#gamesPage .gc-art-upgrade-v2 svg{transform:none}}
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .app{
+    width:100%!important;
+    max-width:568px!important;
+    min-width:0!important;
+    margin:0 auto!important;
+    padding:28px 18px calc(105px + env(safe-area-inset-bottom))!important;
+    min-height:calc(100dvh - 66px)!important;
+  }
+
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .studio-header{
+    width:100%!important;
+    max-width:568px!important;
+    height:66px!important;
+    min-height:66px!important;
+    margin:0 auto!important;
+    padding:0 20px!important;
+    position:sticky!important;
+    top:0!important;
+  }
+
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) #nav.nav{
+    top:auto!important;
+    bottom:calc(12px + max(env(safe-area-inset-bottom),var(--tg-safe-bottom,0px)))!important;
+    left:50%!important;
+    right:auto!important;
+    width:calc(100% - 28px)!important;
+    max-width:440px!important;
+    height:64px!important;
+    min-height:64px!important;
+    padding:5px!important;
+    gap:4px!important;
+    border:1px solid var(--line)!important;
+    border-radius:20px!important;
+    background:#1a1c2dec!important;
+    box-shadow:0 18px 50px #000a!important;
+    -webkit-backdrop-filter:blur(22px)!important;
+    backdrop-filter:blur(22px)!important;
+    transform:translateX(-50%)!important;
+  }
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) #nav.nav button{
+    flex:1 1 0!important;
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:center!important;
+    justify-content:center!important;
+    gap:4px!important;
+    height:52px!important;
+    min-height:52px!important;
+    padding:7px!important;
+    border-radius:14px!important;
+    font-size:10px!important;
+  }
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) #nav.nav button svg{width:19px!important;height:19px!important}
+
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .balance{
+    min-height:36px!important;
+    height:36px!important;
+    padding:7px 9px!important;
+    font-size:12px!important;
+    gap:5px!important;
+  }
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .balance img{width:17px!important;height:17px!important}
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .deposit-mini{height:36px!important;min-height:36px!important;border-radius:10px!important}
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .top-actions{gap:5px!important}
+
+  /* Mines = the exact one-column phone order. */
+  body.studio[data-page="minesPage"] #minesPage .mines-layout{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:14px!important;
+    max-width:none!important;
+    margin:0!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage .mines-play,
+  body.studio[data-page="minesPage"] #minesPage .mines-settings{
+    width:100%!important;
+    min-width:0!important;
+    padding:20px!important;
+    border-radius:20px!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage .mines-settings{margin-top:0!important}
+  body.studio[data-page="minesPage"] #minesPage .board{
+    width:100%!important;
+    max-width:430px!important;
+    gap:8px!important;
+    padding:10px!important;
+    margin-inline:auto!important;
+  }
+  body.studio[data-page="minesPage"] #minesPage .cell{border-radius:11px!important}
+  body.studio[data-page="minesPage"] #minesPage>.recent-wins-card{
+    width:100%!important;
+    max-width:none!important;
+    margin:16px 0 0!important;
+    padding:20px!important;
+  }
+
+  /* Upgrade = phone stack; kill the old 3-column desktop composition. */
+  body.studio[data-page="upgradePage"] #content>#upgradePage:not(.hidden),
+  body.studio[data-page="upgradePage"] #upgradePage:not(.hidden){
+    display:block!important;
+    grid-template-columns:none!important;
+    width:100%!important;
+    max-width:560px!important;
+    min-width:0!important;
+    margin:0 auto!important;
+    padding:0 0 40px!important;
+  }
+  body.studio[data-page="upgradePage"] #upgradePage:before{content:none!important;display:none!important}
+  body.studio[data-page="upgradePage"] #upgradePage .upgrade-inline{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:16px!important;
+  }
+
+  /* Arena / Hi-Lo = the same vertical order as phone. */
+  body.studio[data-page="arenaPage"] #arenaPage:not(.hidden){
+    width:100%!important;max-width:none!important;margin:0!important;padding-inline:0!important;
+  }
+  body.studio[data-page="arenaPage"] .arena-desktop-grid,
+  body.studio[data-page="hiloPage"] .hl-desktop-grid{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:12px!important;
+  }
+  body.studio[data-page="arenaPage"] .arena-main-col,
+  body.studio[data-page="arenaPage"] .arena-side-col,
+  body.studio[data-page="hiloPage"] .hl-main-col,
+  body.studio[data-page="hiloPage"] .hl-side-col{
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    position:static!important;
+    top:auto!important;
+    max-height:none!important;
+    overflow:visible!important;
+    padding-right:0!important;
+  }
+  body.studio[data-page="arenaPage"] .arena-side-col,
+  body.studio[data-page="hiloPage"] .hl-side-col{display:grid!important;gap:12px!important}
+  body.studio[data-page="arenaPage"] .arena-players-panel,
+  body.studio[data-page="arenaPage"] .arena-recent-panel,
+  body.studio[data-page="hiloPage"] #hiloPage .hl-bets-panel,
+  body.studio[data-page="hiloPage"] #hiloPage .hilo-wins-card{
+    max-height:none!important;
+    overflow:visible!important;
+  }
+  body.studio[data-page="hiloPage"] #hiloPage:not(.hidden){
+    width:100%!important;
+    max-width:480px!important;
+    margin:0 auto!important;
+    padding-bottom:96px!important;
+  }
+
+  /* Crash: undo its special desktop height and keep phone proportions. */
+  body.studio[data-page="crashPage"] #crashPage{
+    width:100%!important;
+    max-width:560px!important;
+    margin:0 auto!important;
+    padding-bottom:96px!important;
+  }
+  body.studio[data-page="crashPage"] #crashPage .cr-stage{
+    width:100%!important;
+    height:auto!important;
+    max-height:none!important;
+    aspect-ratio:16/11!important;
+  }
+  body.studio[data-page="crashPage"] #crashPage .cr-panel{padding:14px!important}
+  body.studio[data-page="crashPage"] #crashPage .cr-action{min-height:56px!important}
+
+  /* Craft / Profile: remove desktop-only multi-column enlargement. */
+  body.studio[data-page="craftPage"] #craftPage .craft-summary{
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:20px!important;
+  }
+  body.studio[data-page="craftPage"] #craftRecentWins{grid-template-columns:minmax(0,1fr)!important}
+
+  body.studio[data-page="profilePage"] #profilePage{
+    width:100%!important;
+    max-width:none!important;
+  }
+  body.studio[data-page="profilePage"] #profilePage .inventory{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:8px!important;
+  }
+  body.studio[data-page="profilePage"] #profilePage .gift{
+    grid-template-rows:92px minmax(26px,auto) auto!important;
+    padding:7px!important;
+    border-radius:14px!important;
+  }
+  body.studio[data-page="profilePage"] #profilePage .gift-art{
+    height:92px!important;
+    max-height:92px!important;
+  }
+  body.studio[data-page="profilePage"] #profilePage .gift strong{font-size:10px!important}
+  body.studio[data-page="profilePage"] #profilePage .gift>small{font-size:9px!important}
+
+  /* Desktop modals stay visually phone-sized too. */
+  body.studio:is(
+    [data-page="minesPage"],[data-page="upgradePage"],[data-page="rollPage"],
+    [data-page="arenaPage"],[data-page="crashPage"],[data-page="hiloPage"],
+    [data-page="craftPage"],[data-page="giveawayPage"],[data-page="profilePage"]
+  ) .modal-card{max-width:min(460px,calc(100vw - 44px))!important}
+
+  /* The only desktop exception: Games hub from the supplied reference. */
+  body.studio[data-page="gamesPage"] .app{
+    width:100%!important;
+    max-width:964px!important;
+    margin:0 auto!important;
+    padding-left:32px!important;
+    padding-right:32px!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage{
+    width:100%!important;
+    max-width:900px!important;
+    margin:0 auto!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage .games-grid{
+    width:100%!important;
+    max-width:900px!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:14px!important;
+    margin:0 auto!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage .game-card{
+    width:100%!important;
+    min-width:0!important;
+    min-height:0!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    border-radius:22px!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage .gc-label{
+    left:18px!important;right:18px!important;bottom:15px!important;gap:2px!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage .gc-label b{
+    font-size:28px!important;font-weight:800!important;line-height:1.05!important;
+  }
+  body.studio[data-page="gamesPage"] #gamesPage .gc-label span{
+    font-size:12.5px!important;line-height:1.25!important;max-width:none!important;
+  }
+}
 </style>
 </body></html>

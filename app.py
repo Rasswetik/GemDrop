@@ -4684,7 +4684,7 @@ def fragment_gift_from_url(value, fetch_meta=True, refresh=False, allow_missing_
     url = str(value or '').strip()
     match = FRAGMENT_GIFT_RE.fullmatch(url)
     if not match:
-        raise ValueError('Ссылка должна быть вида https://fragment.com/gift/slug-12345')
+        raise ValueError('Ссылка должна быть вида https://t.me/nft/PartySparkler-66376 или https://fragment.com/gift/PartySparkler-66376')
     raw_slug = match.group(1).strip('-')
     slug = raw_slug.lower()
     number_match = re.search(r'-(\d+)$', raw_slug)
@@ -13793,9 +13793,8 @@ def admin_add_inventory(user_id):
     nft_url = str(data.get('fragment_url') or data.get('telegram_url') or '').strip()
 
     if nft_url:
-        telegram_match = re.fullmatch(r'https://t\.me/nft/([A-Za-z0-9_-]+-\d+)/?', nft_url, re.I)
-        if telegram_match:
-            nft_url = 'https://fragment.com/gift/' + telegram_match.group(1)
+        # fragment_gift_from_url accepts both Fragment and public Telegram NFT links,
+        # e.g. https://t.me/nft/PartySparkler-66376.
         try:
             nft = fragment_gift_from_url(nft_url, True, refresh=True, allow_missing_price=True)
             portal_price, portal_source = _fragment_portal_fallback_price(
@@ -13809,6 +13808,9 @@ def admin_add_inventory(user_id):
         portal_price = max(0, int(portal_price or 0))
         if portal_price <= 0:
             return error('Portal не вернул цену для этого NFT. Подарок не добавлен.')
+        accepted_price = _gift_deposit_accept_cents(portal_price)
+        if accepted_price <= 0:
+            return error('Не удалось рассчитать стоимость NFT после вычета 15%.')
 
         external_url = str(nft.get('fragment_url') or '')
         gift_id = str(nft.get('gift_id') or '')
@@ -13836,16 +13838,18 @@ def admin_add_inventory(user_id):
                 fragment_number,fragment_model,fragment_backdrop,fragment_symbol,
                 price_source,animation_url,source_label,deposit_mirror)
                 VALUES(?,?,?,?,?,'admin_nft',?,?,?,?,?,?,?,?,0)""",
-                (user_id, gift_id, gift_name, image_url, portal_price, external_url,
-                 number, model, backdrop, symbol, str(portal_source or 'Portal'),
+                (user_id, gift_id, gift_name, image_url, accepted_price, external_url,
+                 number, model, backdrop, symbol, str(portal_source or 'Portal') + ' · −15%',
                  animation_url, 'Выдано администратором · Telegram NFT'))
             item_id = cur.lastrowid
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], user_id, 'gift_add_nft',
                         json.dumps({'inventory_id': item_id, 'gift': gift_name, 'url': external_url,
-                                    'price': portal_price, 'price_source': portal_source}, ensure_ascii=False)))
+                                    'portal_price': portal_price, 'price': accepted_price,
+                                    'discount_percent': 15, 'price_source': portal_source}, ensure_ascii=False)))
             log_event(db, user_id, 'admin_gift_add', gift_name=gift_name,
-                      fragment_number=number, price_ton=portal_price/100,
+                      fragment_number=number, price_ton=accepted_price/100,
+                      portal_price_ton=portal_price/100, discount_percent=15,
                       price_source=portal_source, admin_id=session['uid'])
             db.commit()
             row = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
@@ -13884,9 +13888,6 @@ def admin_add_inventory(user_id):
 def admin_user_nft_preview(user_id):
     data = request.get_json(silent=True) or {}
     url = str(data.get('url') or '').strip()
-    telegram_match = re.fullmatch(r'https://t\.me/nft/([A-Za-z0-9_-]+-\d+)/?', url, re.I)
-    if telegram_match:
-        url = 'https://fragment.com/gift/' + telegram_match.group(1)
     try:
         gift = fragment_gift_from_url(url, True, refresh=True, allow_missing_price=True)
         portal_price, portal_source = _fragment_portal_fallback_price(
@@ -13899,11 +13900,14 @@ def admin_user_nft_preview(user_id):
     portal_price = max(0, int(portal_price or 0))
     if portal_price <= 0:
         return error('Portal не вернул цену для этого NFT.')
+    accepted_price = _gift_deposit_accept_cents(portal_price)
     return jsonify(ok=True, gift=dict(
         name=gift.get('gift_name') or 'Telegram NFT',
         image_url=safe_image(gift.get('image_url')),
-        price_ton=portal_price/100,
-        price_source=portal_source or 'Portal',
+        portal_price_ton=portal_price/100,
+        price_ton=accepted_price/100,
+        discount_percent=15,
+        price_source=(portal_source or 'Portal') + ' · −15%',
         fragment_url=gift.get('fragment_url') or '',
         fragment_number=gift.get('fragment_number') or '',
         model=gift.get('fragment_model') or '',
@@ -14189,7 +14193,9 @@ def relayer_public_ready():
     return bool(cfg['enabled'] and cfg['api_id'] and cfg['api_hash'] and state.get('authorized'))
 
 
-GIFT_DEPOSIT_ACCEPT_RATE = Decimal('0.90')
+# Telegram/Fragment NFT intake is valued at 85% of the Portal quote.
+# Portal includes a marketplace markup, so a 10 TON Portal quote becomes 8.50 TON in GemDrop.
+GIFT_DEPOSIT_ACCEPT_RATE = Decimal('0.85')
 
 
 def _gift_deposit_accept_cents(portal_cents):
@@ -14577,7 +14583,7 @@ def _relayer_credit(info,baseline=False):
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),0,'unpriced',info.get('raw_json','{}'))); db.commit(); return 'unpriced'
         inventory_id=None
         if mode=='inventory':
-            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label,deposit_mirror) VALUES(?,?,?,?,?,'gift_deposit',?,?,?,?,?,?,?,?,0)",(uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),price,info.get('external_url',''),info.get('fragment_number',''),info.get('fragment_model',''),info.get('fragment_backdrop',''),info.get('fragment_symbol',''),str(info.get('price_source') or 'Fragment / Telegram'),info.get('animation_url',''),'Пополнение подарком · NFT в инвентаре')); inventory_id=cur.lastrowid
+            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label,deposit_mirror) VALUES(?,?,?,?,?,'gift_deposit',?,?,?,?,?,?,?,?,0)",(uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),price,info.get('external_url',''),info.get('fragment_number',''),info.get('fragment_model',''),info.get('fragment_backdrop',''),info.get('fragment_symbol',''),str(info.get('price_source') or 'Portal') + ' · −15%',info.get('animation_url',''),'Пополнение подарком · NFT в инвентаре')); inventory_id=cur.lastrowid
             record_transaction(db,uid,'gift_deposit_inventory',0,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
             event_status='delivered'
         else:

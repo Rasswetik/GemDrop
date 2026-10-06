@@ -622,6 +622,7 @@ def _initialize_schema():
             ('max_drop_override_set_at', 'TEXT'),
             ('tickets', 'INTEGER NOT NULL DEFAULT 0'),
             ('stars_withdrawal_until', 'TEXT'),
+            ('withdrawal_min_deposit_override', 'INTEGER'),
             ('withdrawal_wager_required', 'INTEGER NOT NULL DEFAULT 0'),
             ('withdrawal_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
@@ -2305,7 +2306,7 @@ def inventory_item(row):
                 fragment_number=optional('fragment_number'), fragment_model=optional('fragment_model'),
                 fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
                 price_source=optional('price_source'), animation_url=optional('animation_url'),
-                source_label=optional('source_label'),
+                source_label=('' if nft_match else optional('source_label')),
                 deposit_mirror=bool(int(optional('deposit_mirror', 0) or 0)),
                 promo_locked=locked, promo_code=row['promo_code'] or '',
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
@@ -7807,7 +7808,9 @@ def stars_withdrawal_message(until):
 
 
 def withdrawal_access_error(db, user_id):
-    account = db.execute('SELECT withdrawal_enabled,withdrawal_block_reason,stars_withdrawal_until FROM users WHERE id=?',
+    account = db.execute('''SELECT withdrawal_enabled,withdrawal_block_reason,stars_withdrawal_until,
+                                   withdrawal_min_deposit_override
+                            FROM users WHERE id=?''',
                          (user_id,)).fetchone()
     if not account:
         return 'Пользователь не найден.'
@@ -7817,7 +7820,9 @@ def withdrawal_access_error(db, user_id):
     stars_until = parse_datetime_utc(account['stars_withdrawal_until'])
     if stars_until and stars_until > datetime.now(timezone.utc):
         return stars_withdrawal_message(stars_until)
-    required = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
+    global_required = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
+    override = account['withdrawal_min_deposit_override']
+    required = global_required if override is None else max(0, int(override or 0))
     deposited = ton_connect_deposit_total(db, user_id)
     if deposited < required:
         return withdrawal_minimum_message(required, deposited)
@@ -12941,6 +12946,11 @@ def admin_user(user_id):
                              turnover=user['turnover_cents']/100,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or '',
+                             withdrawal_min_deposit_override=(None if user['withdrawal_min_deposit_override'] is None else int(user['withdrawal_min_deposit_override'])/100),
+                             withdrawal_min_deposit_global=withdrawal_settings()['min_ton_connect_deposit'],
+                             withdrawal_min_deposit_effective=((int(user['withdrawal_min_deposit_override'])/100)
+                                                               if user['withdrawal_min_deposit_override'] is not None
+                                                               else withdrawal_settings()['min_ton_connect_deposit']),
                              stars_withdrawal_until=(parse_datetime_utc(user['stars_withdrawal_until']).isoformat()
                                                      if parse_datetime_utc(user['stars_withdrawal_until']) and
                                                      parse_datetime_utc(user['stars_withdrawal_until']) > datetime.now(timezone.utc) else None),
@@ -13004,14 +13014,39 @@ def admin_user_withdrawal_access(user_id):
     reason = str(data.get('reason') or '').strip()[:240]
     if not enabled and not reason:
         reason = 'Вывод для вашего аккаунта временно недоступен. Обратитесь в поддержку.'
+    override_marker = object()
+    raw_override = data.get('min_ton_connect_deposit_override', override_marker)
+    override_cents = override_marker
+    if raw_override is not override_marker:
+        if raw_override in (None, ''):
+            override_cents = None
+        else:
+            try:
+                override_cents = parse_amount(raw_override)
+            except (ValueError, TypeError, InvalidOperation):
+                return error('Персональный минимум депозита: укажите сумму с точностью до 0.01 TON.')
+            if not 0 <= override_cents <= 100000000:
+                return error('Персональный минимум депозита: от 0 до 1 000 000 TON.')
     with connect() as db:
         db.execute('BEGIN IMMEDIATE')
         if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
             return error('Пользователь не найден.', 404)
-        db.execute('UPDATE users SET withdrawal_enabled=?,withdrawal_block_reason=? WHERE id=?',
-                   (1 if enabled else 0, '' if enabled else reason, user_id))
+        if override_cents is override_marker:
+            db.execute('UPDATE users SET withdrawal_enabled=?,withdrawal_block_reason=? WHERE id=?',
+                       (1 if enabled else 0, '' if enabled else reason, user_id))
+        else:
+            db.execute('''UPDATE users SET withdrawal_enabled=?,withdrawal_block_reason=?,
+                          withdrawal_min_deposit_override=? WHERE id=?''',
+                       (1 if enabled else 0, '' if enabled else reason, override_cents, user_id))
+        current = db.execute('SELECT withdrawal_min_deposit_override FROM users WHERE id=?', (user_id,)).fetchone()
+        current_override = current['withdrawal_min_deposit_override'] if current else None
+        global_min = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
+        effective_min = global_min if current_override is None else int(current_override or 0)
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], user_id, 'withdrawal_access', 'enabled' if enabled else reason))
+                   (session['uid'], user_id, 'withdrawal_access',
+                    json.dumps({'enabled': enabled, 'reason': '' if enabled else reason,
+                                'min_deposit_override': current_override,
+                                'effective_min_deposit': effective_min}, ensure_ascii=False)))
         log_event(db, user_id, 'withdrawal_access', enabled=enabled, reason='' if enabled else reason,
                   admin_id=session['uid'])
         db.commit()
@@ -13019,7 +13054,10 @@ def admin_user_withdrawal_access(user_id):
         notify_user_async(user_id, '✅ <b>Вывод подарков доступен</b>', miniapp_markup('Открыть', 'profile'), 'HTML')
     else:
         notify_user_async(user_id, f'⚠️ <b>Вывод временно недоступен</b>\n\n{escape(reason)}', miniapp_markup('Открыть', 'profile'), 'HTML')
-    return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason)
+    return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason,
+                   min_ton_connect_deposit_override=(None if current_override is None else int(current_override)/100),
+                   min_ton_connect_deposit_effective=effective_min/100,
+                   min_ton_connect_deposit_global=global_min/100)
 
 
 @app.post('/api/admin/users/<int:user_id>/stars-withdrawal-unlock')
@@ -13847,7 +13885,7 @@ def admin_add_inventory(user_id):
                 VALUES(?,?,?,?,?,'admin_nft',?,?,?,?,?,?,?,?,0)""",
                 (user_id, gift_id, gift_name, image_url, accepted_price, external_url,
                  number, model, backdrop, symbol, str(portal_source or 'Portal') + ' · −15%',
-                 animation_url, 'Выдано администратором · Telegram NFT'))
+                 animation_url, ''))
             item_id = cur.lastrowid
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], user_id, 'gift_add_nft',

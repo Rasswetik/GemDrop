@@ -3,7 +3,7 @@ services:
     name: gemdrop
     runtime: python
     plan: 0.5c-512mb
-    buildCommand: pip install -r requirements.txt
+    buildCommand: python fix_app_syntax.py && python -m py_compile app.py && pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 90
     healthCheckPath: /health
     envVars:

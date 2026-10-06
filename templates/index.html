@@ -3670,6 +3670,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <section id="arenaPage" class="hidden">
 <h1 class="page-title arena-title">Арена</h1>
 <div class="arena-summary"><span id="arenaRound">Арена #—</span><b id="arenaPool">0.00 TON</b><span id="arenaTimer">Ждём первую ставку</span></div>
+<div class="gd-split"><div class="gd-main">
 <div id="arenaStage" class="arena-stage" data-state="open">
   <div id="arenaWorld" class="arena-world">
   <div id="arenaSegments" class="arena-segments" aria-hidden="true"></div>
@@ -3681,6 +3682,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
   <div id="arenaExtend" class="arena-extend" aria-hidden="true">+10 сек</div>
   <div id="arenaEmpty" class="arena-empty"><b>Ждём первую ставку</b><span>Раунд стартует, как только первый игрок сделает ставку. Размер ставки определяет шанс на победу.</span></div>
 </div>
+</div><div class="gd-side">
 <div class="panel arena-bet-panel">
   <div class="arena-bet-head"><label id="arenaBetLabel" for="arenaBet">Ставка, TON</label></div>
   <div class="arena-bet-row"><div class="arena-bet-field"><img src="/static/img/ton.png" alt="TON"><input id="arenaBet" class="text-input" inputmode="decimal" autocomplete="off" value="1.00"><button id="arenaGiftBtn" class="arena-gift-btn" type="button" aria-label="Ставка подарком" title="Ставка подарком"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16v11H4zM3 9h18V5H3zM12 5v15M7.5 5C5.8 5 5 4.1 5 3.1c0-1.1.9-2 2-2 2.1 0 5 3.9 5 3.9M16.5 5c1.7 0 2.5-.9 2.5-1.9 0-1.1-.9-2-2-2-2.1 0-5 3.9-5 3.9"/></svg></button></div><button type="button" data-arena-bet="half">½</button><button type="button" data-arena-bet="double">×2</button><button type="button" data-arena-bet="max">MAX</button></div>
@@ -3688,6 +3690,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
   <div id="arenaNote" class="muted arena-note"></div>
 </div>
 <div class="panel arena-players-panel"><div class="panel-head"><h2>Игроки</h2><span id="arenaPlayersCount">0</span></div><div id="arenaPlayers" class="arena-player-list"><div class="empty">Пока нет ставок</div></div></div>
+</div></div>
 </section>
 <section id="crashPage" class="hidden">
 <h1 class="page-title">Crash</h1>
@@ -3731,6 +3734,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 </section>
 <section id="hiloPage" class="hidden">
 <div class="hl-head"><h1 class="page-title">Hi-Lo</h1><button id="hlInfoBtn" class="hl-info" type="button" aria-label="Правила">i</button></div>
+<div class="gd-split"><div class="gd-main">
 <div class="hl-top"><div id="hlStrip" class="hl-strip" aria-label="История карт"></div></div>
 <div class="hl-room"><span id="hlRoundNo">Раунд #—</span><b id="hlTimer">—</b></div><div class="hl-bar"><i id="hlBarFill"></i></div>
 <div class="hl-stage"><div id="hlCard" class="hl-card back" style="--h:262"><span id="hlRank" class="hl-rank">?</span><div class="hl-art"><img id="hlImg" class="hidden" alt=""><span id="hlQ" class="hl-q">?</span></div><b id="hlName" class="hl-name">Загрузка…</b></div></div>
@@ -3739,6 +3743,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <button id="hlHi" class="hl-btn hi" type="button" disabled><span class="hl-lbl"><i>▲</i>Hi</span><span class="hl-x">—</span></button>
 <button id="hlLo" class="hl-btn lo" type="button" disabled><span class="hl-lbl"><i>▼</i>Lo</span><span class="hl-x">—</span></button>
 </div>
+</div><div class="gd-side">
 <div class="panel cr-panel hl-panel">
 <div class="cr-field-head"><label for="hlBet">Ставка, TON</label><span id="hlBalance">Баланс 0.00</span></div>
 <div class="cr-bet-row"><div class="cr-bet-pair"><input id="hlBet" class="text-input" inputmode="decimal" autocomplete="off" value="1.00" aria-label="Сумма ставки"><button id="hlGiftBtn" class="cr-chip cr-gift-btn" type="button" aria-label="Ставка подарком" title="Ставка подарком"></button></div><button class="cr-chip" type="button" data-hlmul="0.5">½</button><button class="cr-chip" type="button" data-hlmul="2">×2</button><button class="cr-chip" type="button" data-hlmax="1">Макс</button></div>
@@ -3746,6 +3751,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 </div>
 <div class="panel hl-bets-panel"><div class="panel-head"><h2>Ставки раунда</h2><span id="hlBetsCount">0</span></div><div id="hlBets" class="hl-bets"><div class="empty">Пока нет ставок</div></div></div>
 <section class="recent-wins-card hilo-wins-card" aria-label="Последние победы в Hi-Lo"><h2>Последние победы · Hi-Lo</h2><div id="hiloTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Пока без выигрышей</span></div><div id="hiloWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section>
+</div></div>
 </section>
 <section id="upgradePage" class="hidden"><h1 class="page-title upgrade-title">Апгрейд</h1><div class="ug-card"><div class="ug-wheel" id="ugWheelBox"><svg class="ug-svg" viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="ugWinGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf6cd"/><stop offset="1" stop-color="#27b98a"/></linearGradient></defs><circle class="ug-track" cx="120" cy="120" r="104"/><circle id="ugWin" class="ug-win" cx="120" cy="120" r="104" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 120 120)"/></svg><div id="ugPointer" class="ug-pointer"><i></i></div><div class="ug-center" id="ugCenter"><div class="ug-gift" id="ugGift"></div><div class="ug-pct"><b id="upgradeChance">0</b><span>%</span></div><div class="ug-cap">ШАНС</div></div></div><p id="upgradePromoNote" class="ug-note hidden">При выигрыше цена цели идёт в отыгрыш исходного подарка. При проигрыше снимается одна жизнь; подарок сгорает только когда жизни закончатся.</p><div class="ug-actions"><button id="upgradeAction" class="ug-go" type="button" disabled>Крутить</button><button id="upgradeQuick" class="ug-quick" type="button" aria-label="Быстрый апгрейд" aria-pressed="false" title="Быстрый апгрейд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6Z"/></svg></button></div><p id="upgradeStatus" class="upgrade-status"></p></div><div class="ug-picks"><button id="ugMine" class="ug-pick mine" type="button" aria-label="Выбрать ставку"><small class="ug-pick-label">МОЯ СТАВКА</small><div class="pick-art" id="ugMineArt"><span>＋</span></div><b id="ugMineName"></b><span class="pick-price" id="ugMinePrice"></span><span class="ug-hint">Выберите подарок из своего инвентаря</span></button><button id="ugTarget" class="ug-pick target" type="button" aria-label="Выбрать целевой подарок"><small class="ug-pick-label">ЦЕЛЬ</small><div class="pick-art" id="ugTargetArt"><span>＋</span></div><b id="ugTargetName"></b><span class="pick-price" id="ugTargetPrice"></span><span class="ug-hint">Выберите подарок из инвентаря сервиса</span></button></div><section class="recent-wins-card upgrade-wins-card" aria-label="Последние победы в апгрейдах"><h2>Последние победы</h2><div id="upgradeTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="upgradeRecentWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section></section><section id="giveawayPage" class="hidden">
 
@@ -6766,13 +6772,14 @@ window.hlRender=function(){baseRender();let s=HL.st;if(!s)return;ensureFx();let 
 @media(prefers-reduced-motion:reduce){.pp-ico svg *,.pp-hero-ico svg *{animation:none!important}}
 </style><script>
 var PP_MODE='mines',PP_D=null;
-var PP_C={mines:['#4fd1b0','#a8f3e0'],upgrade:['#8b7cf6','#cfc6ff'],hilo:['#4fd18b','#f0707f'],arena:['#f0a35a','#ffd9a8']};
-var PP_NAME={mines:'Mines',upgrade:'Upgrade',hilo:'Hi-Lo',arena:'Арена'};
+var PP_C={mines:['#4fd1b0','#a8f3e0'],upgrade:['#8b7cf6','#cfc6ff'],hilo:['#4fd18b','#f0707f'],arena:['#f0a35a','#ffd9a8'],crash:['#ff8a5c','#ffd36e']};
+var PP_NAME={mines:'Mines',upgrade:'Upgrade',hilo:'Hi-Lo',arena:'Арена',crash:'Crash'};
 var PP_ICO={
 mines:'<svg viewBox="0 0 64 64"><g class="pi-float"><path d="M32 8 52 24 32 56 12 24Z" fill="var(--c1)" opacity=".88"/><path d="M12 24h40M32 8l-8 16 8 32 8-32Z" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6" stroke-linejoin="round"/></g><path class="pi-spark" d="M54 8v8M50 12h8" stroke="var(--c2)" stroke-width="2" stroke-linecap="round"/></svg>',
 upgrade:'<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="5"/><g class="pi-spin"><circle cx="32" cy="32" r="22" fill="none" stroke="var(--c1)" stroke-width="5" stroke-linecap="round" stroke-dasharray="52 90" transform="rotate(-90 32 32)"/></g><path class="pi-bob" d="M32 41V24m-8 8 8-8 8 8" fill="none" stroke="var(--c2)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 hilo:'<svg viewBox="0 0 64 64"><rect class="pi-card1" x="8" y="13" width="28" height="38" rx="5" fill="rgba(255,255,255,.06)" stroke="var(--c1)" stroke-width="2.4"/><rect class="pi-card2" x="28" y="13" width="28" height="38" rx="5" fill="rgba(16,18,30,.92)" stroke="var(--c2)" stroke-width="2.4"/><path class="pi-up" d="M42 22l-6.5 7.5h13z" fill="var(--c1)"/><path class="pi-down" d="M42 42l-6.5-7.5h13z" fill="var(--c2)"/></svg>',
 arena:'<svg viewBox="0 0 64 64"><g class="pi-sway"><path d="M15 14l30 30M49 14 19 44" stroke="var(--c1)" stroke-width="4" stroke-linecap="round"/><path d="M10 49l9-9M54 49l-9-9M20 53l-7-7M44 53l7-7" stroke="var(--c2)" stroke-width="4" stroke-linecap="round"/></g><circle class="pi-pulse" cx="32" cy="29" r="3.5" fill="var(--c2)"/></svg>'};
+PP_ICO.crash='<svg viewBox="0 0 64 64"><g class="pi-float"><path d="M32 6c9 7 12 17 10 30H22C20 23 23 13 32 6Z" fill="var(--c1)" opacity=".92"/><circle cx="32" cy="24" r="5" fill="#10121e" stroke="var(--c2)" stroke-width="2"/><path d="M22 30l-8 10 9-2ZM42 30l8 10-9-2Z" fill="var(--c2)" opacity=".8"/><path class="pi-flame" d="M27 38h10l-5 15Z" fill="var(--c2)"/></g><path class="pi-spark" d="M8 12v8M4 16h8M54 46v6M51 49h6" stroke="var(--c2)" stroke-width="2" stroke-linecap="round"/></svg>';
 function ppBuildTabs(){let t=$('ppTabs');if(!t||t.childElementCount)return;for(let m in PP_NAME){let b=document.createElement('button');b.type='button';b.dataset.m=m;b.setAttribute('role','tab');b.style.setProperty('--c1',PP_C[m][0]);b.style.setProperty('--c2',PP_C[m][1]);b.innerHTML='<span class="pp-ico">'+PP_ICO[m]+'</span><small>'+PP_NAME[m]+'</small>';b.onclick=()=>{if(m!==PP_MODE)ppSet(null,m,true)};t.append(b)}}
 function ppSet(d,m,animate){if(d)PP_D=d;d=PP_D;if(!d)return;PP_MODE=m;ppBuildTabs();document.querySelectorAll('#ppTabs button').forEach(b=>{let on=b.dataset.m===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on)});let st=$('ppStage'),fill=()=>{st.style.setProperty('--c1',PP_C[m][0]);st.style.setProperty('--c2',PP_C[m][1]);$('ppIco').style.setProperty('--c1',PP_C[m][0]);$('ppIco').innerHTML=PP_ICO[m];$('ppKicker').textContent=PP_NAME[m].toUpperCase();let s=d.stats||{},x=Number(s['max_'+m+'_x']||0),drop=d.drops?d.drops[m]:null,cells=[[m==='arena'?'Ставок':'Игр',s[m+'_count']||0],['Побед',s[m+'_wins']||0],['Макс. X',x>0?fmtX(x):'—'],['Лучший дроп',drop!=null?money(drop)+' TON':'—']],g=$('ppGrid');g.replaceChildren();for(let [k,v] of cells){let c=document.createElement('div'),a=document.createElement('small'),b=document.createElement('b');a.textContent=k;b.textContent=v;c.append(a,b);g.append(c)}st.classList.remove('swap')};if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()}
 var hlWinsReq=0;
@@ -7007,6 +7014,45 @@ const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.ge
  #depositModal[data-method="gift"] .gift-head{padding-bottom:7px!important}
 }
 </style>
+<style id="desktop-layout-v1">
+.gd-split{display:block}.gd-main,.gd-side{min-width:0}
+@keyframes piFlame{0%,100%{transform:scaleY(1);opacity:.95}50%{transform:scaleY(1.35);opacity:.7}}
+.pi-flame{transform-box:fill-box;transform-origin:50% 0;animation:piFlame .5s ease-in-out infinite}
+.pp-tabs{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+@media(max-width:360px){.pp-stage{grid-template-columns:1fr!important;justify-items:center;text-align:center}.pp-tabs{gap:5px!important}}
+/* sharp (non-blurred) windows */
+.withdrawal-card,#depositModal .deposit-card,.public-profile-card{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:#151827!important}
+.withdrawal-card{grid-template-columns:64px minmax(0,1fr)!important;align-items:center;gap:10px 14px!important;padding:14px!important;border-radius:16px!important;overflow:hidden}
+.withdrawal-card>img{width:64px!important;height:64px!important;padding:6px;border-radius:14px;background:#0e1019;object-fit:contain}
+.withdrawal-card>div{min-width:0;display:grid;gap:4px;overflow-wrap:anywhere;line-height:1.35}
+.withdrawal-actions{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))!important}
+#withdrawalsPage{max-width:760px;margin-inline:auto}
+.withdraw-tabs button{min-height:44px;white-space:nowrap}
+@media(max-width:380px){.withdrawal-card{grid-template-columns:52px minmax(0,1fr)!important}.withdrawal-card>img{width:52px!important;height:52px!important}.withdraw-tabs{grid-template-columns:1fr!important}}
+#depositModal .deposit-card{width:min(100%,440px)!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+#depositModal .deposit-card *{min-width:0;box-sizing:border-box}
+#depositModal .deposit-card img{max-width:100%}
+#depositModal .deposit-card input,#depositModal .deposit-card select{width:100%}
+/* user info card */
+.public-profile-card{width:min(100%,460px)!important;max-height:min(92dvh,780px)!important;overflow-y:auto!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-sizing:border-box}
+.public-profile-card *{min-width:0}
+.public-stats{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))!important;gap:8px!important}
+/* desktop: game on the left, bets + recent games on the right */
+@media(min-width:1000px){
+body.studio #arenaPage:not(.hidden),body.studio #hiloPage:not(.hidden),body.studio #minesPage:not(.hidden){max-width:1120px!important;width:100%!important;margin-inline:auto!important}
+body.studio #arenaPage .gd-split,body.studio #hiloPage .gd-split{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(330px,.85fr);gap:22px;align-items:start}
+body.studio .gd-side{display:grid;gap:14px;align-content:start}
+body.studio .gd-side>*{margin:0!important}
+body.studio #hiloPage .hl-stage{max-width:420px;margin-inline:auto}
+body.studio #minesPage:not(.hidden){display:grid;grid-template-columns:minmax(0,1.25fr) minmax(330px,.85fr);column-gap:22px;align-items:start}
+body.studio #minesPage>*{grid-column:1/-1}
+body.studio #minesPage .mines-layout{display:contents!important;max-width:none!important}
+body.studio #minesPage .mines-play{grid-column:1;grid-row:3/span 2}
+body.studio #minesPage .mines-settings{grid-column:2;grid-row:3;margin-top:0!important}
+body.studio #minesPage>.recent-wins-card{grid-column:2;grid-row:4;max-width:none!important;margin:16px 0 0!important}
+}
+</style>
+
 
 
 <script id="deposit-modal-close-fix-v3">

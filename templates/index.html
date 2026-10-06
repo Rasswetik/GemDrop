@@ -897,8 +897,7 @@ p,.muted,.caption,.notice,small{line-height:1.5}
 #upgradePage .upgrade-action{margin-top:7px}
 #adminPage .admin-menu{gap:20px}
 
-@media(max-height:710px){#upgradePage .upgrade-wheel-wrap{margin:15px auto}
-}
+@media(max-height:710px){#upgradePage .upgrade-wheel-wrap{margin:15px auto}}
 #upgradePage .upgrade-wins-card{border-color:#344f67;background:linear-gradient(155deg,#1c1e33,#141626)}
 #upgradePage .upgrade-wins-card h2{color:#5cabe0;font-size:12px;font-weight:760;letter-spacing:.035em;text-transform:none}
 .upgrade-win-row{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px;padding:12px;border-bottom:1px solid #2b3f50}
@@ -1797,8 +1796,7 @@ html.upgrade-spin-lock .app{transform:none!important}
 #craftPage .craft-win-chip img{display:block!important;flex:none!important;width:23px!important;height:23px!important;max-width:23px!important;max-height:23px!important;object-fit:contain!important}
 #craftPage .craft-win-chip div{min-width:0!important;overflow:hidden!important}
 #craftPage .craft-win-chip b{display:block!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#eef2f7!important;font-size:10.5px!important;font-weight:760!important}
-#craftPage .craft-win-arrow{display:grid!important;place-items:center!important;width:18px!important;color:#71879b!important;font-size:11px!important;font-weight:800!important}
-#winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+#craftPage .craft-win-arrow{display:grid!important;place-items:center!important;width:18px!important;color:#71879b!important;font-size:11px!important;font-weight:800!important}#winsAdminPage .wins-admin-panel{grid-template-columns:repeat(3,minmax(0,1fr))!important}
 #winsAdminPage .wins-admin-stat{border-color:rgba(255,255,255,.08)!important;background:rgba(255,255,255,.035)!important;border-radius:15px!important}
 #winsAdminPage .wins-admin-stat span{color:#8f9aa4!important;font-size:10px!important}
 #winsAdminPage .wins-admin-stat strong{color:#f1f3f6!important;font-size:22px!important}
@@ -2697,8 +2695,7 @@ body.studio .app{padding:28px 18px calc(105px + env(safe-area-inset-bottom))!imp
 body.studio .balance{padding:7px 9px!important;min-height:36px!important;font-size:12px!important;gap:5px}
 body.studio .balance img{width:17px!important;height:17px!important}
 body.studio .deposit-mini{height:36px!important;width:32px!important;border-radius:10px!important}
-body.studio .top-actions{gap:5px;flex-shrink:0}
-.mines-layout{grid-template-columns:minmax(0,1fr);gap:14px}
+body.studio .top-actions{gap:5px;flex-shrink:0}.mines-layout{grid-template-columns:minmax(0,1fr);gap:14px}
 .mines-play,.mines-settings{border-radius:20px;padding:20px}
 body.studio #minesPage .board{gap:8px;max-width:430px}
 body.studio #minesPage .cell{border-radius:11px!important}
@@ -3489,9 +3486,36 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 .bc-filter-wide{grid-column:1/-1}.bc-cells .bc-cell{min-height:78px;display:flex!important;align-items:center!important;justify-content:center!important;flex-direction:column!important;gap:4px!important;padding:7px!important;overflow:hidden}.bc-cells .bc-cell img{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important;margin:0 auto!important}.bc-cells .bc-cell img+span{display:none!important}.bc-cells .bc-cell>span:first-child{font-size:29px!important;line-height:1!important}.bc-cells .bc-cell small{width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:8px!important}
 .gift.deposit-mirror{position:relative;opacity:.94}.gift.deposit-mirror:after{content:'ПОПОЛНЕНИЕ';position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:7px;background:#245c87;color:#dff4ff;font-size:7px;font-weight:950;letter-spacing:.04em;box-shadow:0 3px 10px #0007}
 .pp-hero-ico{animation:profileHeroBreathe 3.2s ease-in-out infinite}.pp-stage{overflow:hidden}.pp-stage:after{content:'';position:absolute;inset:-35%;pointer-events:none;background:conic-gradient(from 0deg,transparent,rgba(85,190,255,.07),transparent 24%);animation:profileStageSweep 8s linear infinite}.pp-stage>*{position:relative;z-index:1}@keyframes profileHeroBreathe{50%{transform:translateY(-2px) scale(1.025);filter:drop-shadow(0 7px 15px rgba(70,176,245,.18))}}@keyframes profileStageSweep{to{transform:rotate(360deg)}}
-#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.hlg-tutorial-media{margin:12px 0 18px;border:1px solid #ffffff18;border-radius:18px;overflow:hidden;background:#101426;box-shadow:0 14px 34px #0005}.hlg-tutorial-media img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}\n#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 @media(max-width:390px){.relayer-grid{grid-template-columns:1fr}.gift-deposit-instruction{grid-template-columns:58px minmax(0,1fr)}.gift-deposit-orbit{width:58px;height:58px}.gift-deposit-orbit img{width:52px;height:52px}.gift-deposit-rate{grid-template-columns:46px minmax(0,1fr) auto}.gift-deposit-rate>img{width:46px;height:46px}}
-</style></head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
+</style>
+<style id="desktop-mobile-shell">
+/* Desktop keeps the same mobile composition instead of stretching every game. */
+@media (min-width: 700px){
+  html,body{min-height:100%;background:var(--bg,#0c0e1f)!important}
+  body.studio{background:var(--bg,#0c0e1f)!important}
+  .app{
+    width:min(100%,568px)!important;
+    max-width:568px!important;
+    min-width:0!important;
+    margin:0 auto!important;
+    padding-left:18px!important;
+    padding-right:18px!important;
+  }
+  #nav.nav{
+    width:min(536px,calc(100vw - 32px))!important;
+    max-width:536px!important;
+    left:50%!important;
+    right:auto!important;
+    transform:translateX(-50%)!important;
+  }
+  .toast,.level-notice{max-width:min(520px,calc(100vw - 40px))!important}
+  .modal-card{max-width:min(460px,calc(100vw - 44px))}
+  .creator-gift-modal-sheet{width:min(540px,calc(100vw - 28px))!important}
+}
+</style>
+
+</head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="gdSpace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0d22"/><stop offset=".6" stop-color="#171a40"/><stop offset="1" stop-color="#2a2358"/></linearGradient>
 <radialGradient id="gdSpaceGlow" cx=".5" cy="1.1" r=".9"><stop offset="0" stop-color="#6a58ff" stop-opacity=".45"/><stop offset="1" stop-color="#6a58ff" stop-opacity="0"/></radialGradient>
 <radialGradient id="gdPlanet" cx=".32" cy=".3" r=".85"><stop offset="0" stop-color="#8f86ff"/><stop offset=".55" stop-color="#4a3fb8"/><stop offset="1" stop-color="#1e1a52"/></radialGradient>
@@ -3570,8 +3594,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 </div>
 <div class="panel arena-players-panel"><div class="panel-head"><h2>Игроки</h2><span id="arenaPlayersCount">0</span></div><div id="arenaPlayers" class="arena-player-list"><div class="empty">Пока нет ставок</div></div></div>
 </section>
-<section id="crashPage" class="hidden">
-<h1 class="page-title">Crash</h1>
+<section id="crashPage" class="hidden"><h1 class="page-title">Crash</h1>
 <div id="crHistory" class="cr-history" aria-label="Последние раунды"></div>
 <div id="crStage" class="cr-stage" data-phase="betting">
 <div class="cr-sky" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
@@ -3954,10 +3977,10 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="depositGiftStep" class="deposit-payment-step gift-payment-step hidden">
   <button class="deposit-back" type="button" data-deposit-back aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button>
   <div class="deposit-head gift-head"><span class="deposit-head-icon gift-icon"><img src="/static/img/gift.png" alt="Gift" onerror="this.onerror=null;this.src='/static/img/gift.svg'"></span><div><span class="deposit-kicker">TELEGRAM · NFT</span><h2>Пополнение подарками</h2><p>Без ввода суммы и промокода</p></div></div>
-  <div class="gift-deposit-instruction"><div class="gift-deposit-orbit"><img src="/static/img/gift.png" alt="" onerror="this.onerror=null;this.src='/static/img/gift.svg'"></div><div><b>Чтобы пополнить баланс подарками, отправьте NFT <span id="giftRelayUsername">@Gemdrop_relay</span></b><small>После поступления relayer сам определит отправителя, коллекцию и номер NFT, сверит данные и добавит сам подарок в инвентарь.</small></div></div>
+  <div class="gift-deposit-instruction"><div class="gift-deposit-orbit"><img src="/static/img/gift.png" alt="" onerror="this.onerror=null;this.src='/static/img/gift.svg'"></div><div><b>Отправьте NFT на <span id="giftRelayUsername">@Gemdrop_relay</span></b><small>После отправки подарок автоматически появится в вашем инвентаре с названием, номером и изображением.</small></div></div>
   <button id="openGiftRelay" class="primary gift-relay-open" type="button">Открыть @Gemdrop_relay</button>
-  <div id="giftRelayStatus" class="gift-relay-status">Автопроверка relayer: проверяем…</div>
-  <div class="gift-rates-head"><div><b>Расценки подарков</b><small>Цена пополнения за 1 NFT</small></div><span id="giftRateCount">0</span></div>
+  <div id="giftRelayStatus" class="gift-relay-status hidden" aria-live="polite"></div>
+  <div class="gift-rates-head"><div><b>Все подарки</b><small>Название и текущая стоимость</small></div><span id="giftRateCount">0</span></div>
   <div id="giftDepositRates" class="gift-deposit-rates"><div class="empty">Загружаем каталог…</div></div>
 </div>
 </div></div>
@@ -3977,6 +4000,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules hlg">
 <div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">6 коротких шагов — и вы в игре</p></div>
+<div class="hlg-tutorial-media"><img id="hiloTutorialMedia" src="/static/tutorials/hilo_tutorial.gif?v=3" alt="Анимация обучения Hi-Lo" decoding="async" fetchpriority="high" onerror="this.onerror=null;this.src='/static/tutorials/hilo_tutorial.svg?v=3'"></div>
 
 <section class="hlg-step"><div class="hlg-art" id="hlgLadder"></div>
 <div class="hlg-tx"><h3><i>1</i>Карты — это подарки</h3><p>У каждой карты есть <b>ранг от 1 до 15</b>. Это подарки Telegram: чем выше ранг, тем дороже подарок.</p></div></section>
@@ -4332,8 +4356,29 @@ async function connectWallet(){if(tonSettings?.enabled===false){toast('TON Conne
 async function disconnectTonWallet(){if(busy)return;busy=true;try{if(tonUI?.connected)await tonUI.disconnect();wallet=null;walletBalanceTon=null;await forgetRememberedWallet();updateWallet();toast('Кошелек отвязан')}catch(e){toast('Не удалось отвязать кошелек')}finally{busy=false;updateWallet()}}
 function syncGiftDepositMethod(){let btn=$('chooseGiftDeposit');if(!btn)return;let name='@'+String(tonSettings?.relay_username||'Gemdrop_relay').replace(/^@/,'');let small=btn.querySelector('small');if(small)small.textContent='Передайте NFT '+name;btn.disabled=tonSettings?.gifts_enabled===false}
 function showDepositStep(name){$('depositMethodStep').classList.toggle('hidden',name!=='method');$('depositTonStep').classList.toggle('hidden',name!=='ton');$('depositStarsStep').classList.toggle('hidden',name!=='stars');$('depositGiftStep').classList.toggle('hidden',name!=='gift');$('depositModal').dataset.method=name}
-function renderGiftDepositCatalog(d){giftDepositCatalog=d.items||[];let root=$('giftDepositRates');root.replaceChildren();$('giftRateCount').textContent=giftDepositCatalog.length;let username='@'+String(d.relay_username||tonSettings?.relay_username||'Gemdrop_relay').replace(/^@/,'');$('giftRelayUsername').textContent=username;$('openGiftRelay').textContent='Открыть '+username;let status=$('giftRelayStatus');status.className='gift-relay-status '+(d.relayer_ready?'ok':'warn');status.textContent=d.relayer_ready?'Relayer подключён · поступления проверяются автоматически':'Relayer сейчас не подключён. Перед отправкой NFT проверьте статус у администратора.';if(!giftDepositCatalog.length){root.innerHTML='<div class="empty">Каталог цен пока пуст. Обновите Portal Market.</div>';return}for(let item of giftDepositCatalog){let row=document.createElement('div');row.className='gift-deposit-rate';let im=new Image;im.loading='lazy';im.src=item.image_url||'/static/img/gift.svg';im.alt=item.name||'Подарок';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};let meta=document.createElement('div');let n=document.createElement('strong');n.textContent=item.name||'Подарок';let sub=document.createElement('small');sub.textContent='Оценка Portal · подарок выдаётся в инвентарь';meta.append(n,sub);let price=document.createElement('div');price.className='gift-rate-price';let ti=new Image;ti.src=TON;ti.alt='TON';price.append(document.createTextNode(money(item.price_ton)),ti);row.append(im,meta,price);root.append(row)}}
-async function loadGiftDepositCatalog(){let root=$('giftDepositRates');if(root)root.innerHTML='<div class="empty">Загружаем каталог…</div>';try{let d=await api('/api/gift-deposits/catalog');renderGiftDepositCatalog(d);return d}catch(e){if(root)root.innerHTML='<div class="empty">'+escapeHtml(e.message)+'</div>';let status=$('giftRelayStatus');if(status){status.className='gift-relay-status warn';status.textContent=e.message}throw e}}
+function renderGiftDepositCatalog(d){
+  giftDepositCatalog=d.items||[];
+  let root=$('giftDepositRates');
+  root.replaceChildren();
+  $('giftRateCount').textContent=giftDepositCatalog.length;
+  let username='@'+String(d.relay_username||tonSettings?.relay_username||'Gemdrop_relay').replace(/^@/,'');
+  $('giftRelayUsername').textContent=username;
+  $('openGiftRelay').textContent='Открыть '+username;
+  let status=$('giftRelayStatus');
+  if(status){
+    status.className='gift-relay-status'+(d.relayer_ready?' hidden':' warn');
+    status.textContent=d.relayer_ready?'':'Пополнение подарками временно недоступно. Попробуйте немного позже.';
+  }
+  if(!giftDepositCatalog.length){root.innerHTML='<div class="empty">Список подарков пока пуст.</div>';return}
+  for(let item of giftDepositCatalog){
+    let row=document.createElement('div');row.className='gift-deposit-rate';
+    let im=new Image;im.loading='lazy';im.src=item.image_url||'/static/img/gift.svg';im.alt=item.name||'Подарок';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};
+    let meta=document.createElement('div'),n=document.createElement('strong');n.textContent=item.name||'Подарок';meta.append(n);
+    let price=document.createElement('div');price.className='gift-rate-price';let ti=new Image;ti.src=TON;ti.alt='TON';price.append(document.createTextNode(money(item.price_ton)),ti);
+    row.append(im,meta,price);root.append(row)
+  }
+}
+async function loadGiftDepositCatalog(){let root=$('giftDepositRates');if(root)root.innerHTML='<div class="empty">Загружаем каталог…</div>';try{let d=await api('/api/gift-deposits/catalog');renderGiftDepositCatalog(d);return d}catch(e){if(root)root.innerHTML='<div class="empty">'+escapeHtml(e.message)+'</div>';let status=$('giftRelayStatus');if(status){status.className='gift-relay-status warn';status.textContent='Не удалось загрузить подарки. Попробуйте ещё раз.'}throw e}}
 function openGiftRelayer(){let username=String(tonSettings?.relay_username||'Gemdrop_relay').replace(/^@/,'');let url='https://t.me/'+encodeURIComponent(username);if(tg?.openTelegramLink)tg.openTelegramLink(url);else if(tg?.openLink)tg.openLink(url);else window.open(url,'_blank','noopener')}
 async function openDeposit(){$('depositProgress').classList.add('hidden');$('starsDepositProgress').classList.add('hidden');$('starsDepositResult').classList.add('hidden');showDepositStep('method');$('depositModal').classList.remove('hidden');refreshDepositBonus();try{await loadTonSettingsPublic();updateStarsQuote()}catch(e){}}
 function closeDepositModal(){$('depositModal').classList.add('hidden');showDepositStep('method')}
@@ -4448,8 +4493,7 @@ async function openLevelsModal(){$('levelsModal').classList.remove('hidden');$('
 $('openLevels').onclick=openLevelsModal;$('levelNotice').onclick=()=>{$('levelNotice').classList.remove('show');$('levelNotice').classList.add('hidden');openLevelsModal()};$('closeLevels').onclick=()=>$('levelsModal').classList.add('hidden');$('closeLevelReward').onclick=()=>{$('levelRewardModal').classList.add('hidden');loadInventory()};
 async function showLevelNotice(level){let n=$('levelNotice');if(!n)return;let num=Number(level?.level??level)||'';n.className='level-notice';n.innerHTML='<span class="ln-badge"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.4 6.6 19.5l1.2-6L3.3 9.3l6.1-.7Z"/></svg></span><span class="ln-text"><b>Новый уровень'+(num?' '+num:'')+'</b><small>Нажмите, чтобы забрать награду</small></span><span class="ln-arrow">›</span>';void n.offsetWidth;n.classList.add('show');clearTimeout(levelNoticeTimer);levelNoticeTimer=setTimeout(()=>{n.classList.remove('show');setTimeout(()=>n.classList.add('hidden'),260)},6500);loadLevels(true).then(d=>{if(!d)return;let ok=d.levels.some(x=>x.unlocked&&!x.claimed&&x.reward.type!=='none');n.querySelector('b').textContent='Уровень '+d.level+' открыт';n.querySelector('small').textContent=ok?'Нажмите, чтобы забрать награду':'Нажмите, чтобы посмотреть прогресс'}).catch(()=>{})}
 function showClaimedLevel(claim){if(!claim?.code)return;let body=$('levelRewardBody');body.replaceChildren();let intro=document.createElement('p');intro.textContent='Ваш промокод за уровень:';let code=document.createElement('code');code.className='level-reward-code';code.textContent=claim.code;body.append(intro,code);$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden')}
-async function claimLevelReward(level){let button=[...$('levelsList').querySelectorAll('.level-card')][level-1];if(button)button.disabled=true;try{let d=await api(`/api/levels/${level}/claim`,{method:'POST',body:'{}'});setUser(d.user);let r=d.reward||{},body=$('levelRewardBody');body.replaceChildren();let title=document.createElement('p');title.textContent=d.message||'Награда уровня получена.';body.append(title);if(r.type==='tickets'){let amount=document.createElement('strong');amount.className='level-reward-code';amount.textContent='+'+Number(r.tickets||0).toLocaleString('ru-RU')+' 🎟';body.append(amount)}if(r.code){let code=document.createElement('code');code.className='level-reward-code';code.textContent=r.code;body.append(code);let note=document.createElement('small');note.style.display='block';note.style.marginTop='8px';note.textContent='Промокод уже добавлен в Бонусы → Промокоды.';body.append(note);myPromoVisible=3;await Promise.all([loadMyPromos(),refreshBonusBadge()])}if(r.gift?.image_url){let image=document.createElement('img');image.src=r.gift.image_url;image.alt=r.gift.name||'Подарок';image.style.cssText='width:110px;height:110px;object-fit:contain;display:block;margin:8px auto';body.append(image)}$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden');await Promise.allSettled([loadLevels(true),loadInventory()])}catch(e){toast(e.message);if(button)button.disabled=false}}
-function levelField(parent,label,value,onchange,type='text',options=null){let wrap=document.createElement('label');wrap.textContent=label;let input=document.createElement(options?'select':'input');input.className='text-input';if(options){options.forEach(([v,t])=>input.add(new Option(t,v)));input.value=value??options[0][0]}else{input.type=type;input.value=value??'';if(type==='number'){input.step='0.01';input.min='0'}}input[options?'onchange':'oninput']=()=>onchange(input.value);wrap.append(input);parent.append(wrap);return input}
+async function claimLevelReward(level){let button=[...$('levelsList').querySelectorAll('.level-card')][level-1];if(button)button.disabled=true;try{let d=await api(`/api/levels/${level}/claim`,{method:'POST',body:'{}'});setUser(d.user);let r=d.reward||{},body=$('levelRewardBody');body.replaceChildren();let title=document.createElement('p');title.textContent=d.message||'Награда уровня получена.';body.append(title);if(r.type==='tickets'){let amount=document.createElement('strong');amount.className='level-reward-code';amount.textContent='+'+Number(r.tickets||0).toLocaleString('ru-RU')+' 🎟';body.append(amount)}if(r.code){let code=document.createElement('code');code.className='level-reward-code';code.textContent=r.code;body.append(code);let note=document.createElement('small');note.style.display='block';note.style.marginTop='8px';note.textContent='Промокод уже добавлен в Бонусы → Промокоды.';body.append(note);myPromoVisible=3;await Promise.all([loadMyPromos(),refreshBonusBadge()])}if(r.gift?.image_url){let image=document.createElement('img');image.src=r.gift.image_url;image.alt=r.gift.name||'Подарок';image.style.cssText='width:110px;height:110px;object-fit:contain;display:block;margin:8px auto';body.append(image)}$('levelsModal').classList.add('hidden');$('levelRewardModal').classList.remove('hidden');await Promise.allSettled([loadLevels(true),loadInventory()])}catch(e){toast(e.message);if(button)button.disabled=false}}function levelField(parent,label,value,onchange,type='text',options=null){let wrap=document.createElement('label');wrap.textContent=label;let input=document.createElement(options?'select':'input');input.className='text-input';if(options){options.forEach(([v,t])=>input.add(new Option(t,v)));input.value=value??options[0][0]}else{input.type=type;input.value=value??'';if(type==='number'){input.step='0.01';input.min='0'}}input[options?'onchange':'oninput']=()=>onchange(input.value);wrap.append(input);parent.append(wrap);return input}
 function renderLevelMultiFields(fields,r){r.components=r.components||{};let specs=[['balance','Баланс TON'],['gift','Обычный подарок'],['wager_gift','Отыгрышный подарок'],['deposit_bonus','Бонус на пополнение']];for(let [kind,title] of specs){let toggle=document.createElement('label');toggle.className='multi-reward-line';let check=document.createElement('input');check.type='checkbox';check.checked=!!r.components[kind];let label=document.createElement('span');label.textContent=title;toggle.append(check,label);fields.append(toggle);check.onchange=()=>{if(check.checked)r.components[kind]=kind==='balance'?{amount_ton:'1.00'}:kind==='gift'?{gift_id:catalogItems[0]?.id||''}:kind==='wager_gift'?{gift_id:catalogItems[0]?.id||'',wager_multiplier:25,gift_expires_days:0}:{bonus_percent:30,bonus_fixed_ton:0,min_deposit_ton:0};else delete r.components[kind];renderLevelsAdmin()};if(!check.checked)continue;let component=r.components[kind];if(kind==='balance')levelField(fields,'Сумма TON',component.amount_ton??'1.00',v=>component.amount_ton=v,'number');if(kind==='gift'||kind==='wager_gift'){levelField(fields,'Подарок Portal',component.gift_id||catalogItems[0]?.id||'',v=>component.gift_id=v,'text',catalogItems.map(g=>[String(g.id),g.name]));if(kind==='wager_gift'){levelField(fields,'Отыгрыш X',component.wager_multiplier||25,v=>component.wager_multiplier=v,'number');levelField(fields,'Сгорание подарка, дней · 0 = выключено',component.gift_expires_days||0,v=>component.gift_expires_days=v,'number')}}if(kind==='deposit_bonus'){levelField(fields,'Бонус, %',component.bonus_percent||0,v=>component.bonus_percent=v,'number');levelField(fields,'Бонус, TON',component.bonus_fixed_ton||0,v=>component.bonus_fixed_ton=v,'number');levelField(fields,'Депозит от, TON',component.min_deposit_ton||0,v=>component.min_deposit_ton=v,'number')}}}
 function serializeLevelReward(r){return {...r,amount:r.amount_ton,bonus_fixed:r.bonus_fixed_ton,min_deposit:r.min_deposit_ton,components:Object.fromEntries(Object.entries(r.components||{}).map(([k,v])=>[k,{...v,amount:v.amount_ton,bonus_fixed:v.bonus_fixed_ton,min_deposit:v.min_deposit_ton}]))}}
 function renderLevelsAdmin(){
@@ -4981,7 +5025,7 @@ function arenaPaintZones(players,winnerId){let root=$('arenaSegments'),geo=arena
 function arenaMarkerPosition(players,index){let geo=arenaGeometry(players)[index];return geo?{left:geo.cent.x,top:geo.cent.y,chance:geo.chance}:{left:50,top:50,chance:0}}
 function arenaSyncMarkers(players,winnerId,geo){let root=$('arenaMarkers'),seen=new Set(),base=Math.max(18,Math.min(54,root.clientWidth*.11)),waitingFirst=players.length===1&&ARENA.state?.round?.state==='open';players.forEach((p,i)=>{let key=String(p.user_id),g=geo?.[i]||arenaGeometry(players)[i],pos=waitingFirst?{left:50,top:50}:g?.cent||{x:50,y:50},m=ARENA.markers.get(key),chance=Math.max(.05,Number(p.chance||0)),sectorSize=Math.max(12,root.clientWidth*Math.min(.17,.012*Math.sqrt(chance*10))),size=waitingFirst?Math.min(68,base*1.24):Math.max(14,Math.min(base,sectorSize));seen.add(key);if(!m){m=document.createElement('div');m.className='arena-marker';m.dataset.uid=key;avatar(m,p);if(arenaReduced())m.style.animation='none';root.append(m);ARENA.markers.set(key,m)}m.style.left=(waitingFirst?50:pos.x??pos.left)+'%';m.style.top=(waitingFirst?50:pos.y??pos.top)+'%';m.style.setProperty('--arena-avatar',size.toFixed(1)+'px');m.classList.toggle('first-waiting',waitingFirst);m.classList.toggle('mine',!!p.mine);m.classList.toggle('winner',!!winnerId&&Number(p.user_id)===Number(winnerId))});for(let [key,m] of [...ARENA.markers]){if(seen.has(key))continue;ARENA.markers.delete(key);m.classList.add('leaving');setTimeout(()=>m.remove(),300)}}
 function arenaSyncPlayers(players,winnerId){let root=$('arenaPlayers'),seen=new Set();$('arenaPlayersCount').textContent=players.length;root.querySelector('.empty')?.remove();players.forEach(p=>{let key=String(p.user_id),row=ARENA.rows.get(key);if(!row){row=document.createElement('div');row.className='arena-player';row.onclick=()=>openPublicProfile(p.user_id);let av=document.createElement('div');av.className='arena-player-avatar';avatar(av,p);let copy=document.createElement('div');copy.className='arena-player-copy';copy.append(document.createElement('b'),document.createElement('small'));let bet=document.createElement('div');bet.className='arena-player-bet';let amount=document.createElement('span');let icon=new Image;icon.src=TON;icon.alt='TON';bet.append(amount,icon);row.append(av,copy,bet);if(arenaReduced())row.style.animation='none';row.addEventListener('animationend',()=>{row.style.animation='none'},{once:true});root.append(row);ARENA.rows.set(key,row)}row.classList.toggle('winner',!!winnerId&&Number(p.user_id)===Number(winnerId));let b=row.querySelector('b'),sm=row.querySelector('small'),am=row.querySelector('.arena-player-bet span');let t=(p.mine?'Вы · ':'')+(p.name||'Игрок');if(b.textContent!==t)b.textContent=t;arenaPaintGifts(sm,p);arenaSetAmount(am,Number(p.bet||0),row);seen.add(key)});for(let [key,row] of [...ARENA.rows]){if(!seen.has(key)){ARENA.rows.delete(key);if(arenaReduced()){row.remove()}else{row.classList.add('leaving');setTimeout(()=>row.remove(),320)}}}{let want=players.map(p=>ARENA.rows.get(String(p.user_id))),cur=[...root.children].filter(x=>x.classList.contains('arena-player')&&!x.classList.contains('leaving')),same=want.length===cur.length&&want.every((r,i)=>r===cur[i]);if(!same){let before=new Map(cur.map(r=>[r,r.getBoundingClientRect().top]));want.forEach(r=>root.append(r));if(!arenaReduced())want.forEach(r=>{let b=before.get(r);if(b===undefined)return;let d=b-r.getBoundingClientRect().top;if(Math.abs(d)<1)return;r.style.animation='none';r.style.transition='none';r.style.transform='translateY('+d.toFixed(1)+'px)';void r.offsetHeight;r.style.transition='transform .5s cubic-bezier(.22,.8,.25,1)';r.style.transform='';setTimeout(()=>{r.style.transition=''},560)})}}if(!players.length&&!root.querySelector('.empty'))root.innerHTML='<div class="empty">Пока нет ставок</div>'}
-function arenaTimerText(){let s=ARENA.state;if(!s)return'';let r=s.round||{},players=s.players||[];if(r.state==='settled'){let landed=(ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id;return landed?(s.winner?'Победитель: '+s.winner.name:'Раунд завершён'):'Шайба летит…'}if(!Number(r.close_at||0))return'Ждём первую ставку';let remain=Math.max(0,Math.ceil((Number(r.close_at)-arenaServerNow())/1000));if(players.length<2)return'Возврат ставки через '+remain+' сек.';return'Старт через '+remain+' сек.'+(r.extended?' · продлено':'')}
+function arenaTimerText(){let s=ARENA.state;if(!s)return'';let r=s.round||{},players=s.players||[];if(r.state==='settled'){let landed=(ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id;return landed?(s.winner?'Победитель: '+s.winner.name:'Раунд завершён'):'Шайба летит…'}if(!Number(r.close_at||0))return players.length?'Ожидание игроков':'Ждём первую ставку';let remain=Math.max(0,Math.ceil((Number(r.close_at)-arenaServerNow())/1000));if(players.length<2)return'Возврат ставки через '+remain+' сек.';return'Старт через '+remain+' сек.'+(r.extended?' · продлено':'')}
 function arenaPaint(){let s=ARENA.state;if(!s)return;let r=s.round||{},players=s.players||[],stage=$('arenaStage'),settled=r.state==='settled',landed=settled&&((ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id),winnerId=landed?r.winner_user_id:0;stage.classList.toggle('has-players',players.length>0);stage.dataset.state=settled?'settling':'open';ARENA.lastWinnerId=winnerId;arenaTweenTargets(players,settled);arenaRenderSectors(players,winnerId);arenaSyncPlayers(players,winnerId);$('arenaRound').textContent='Арена #'+(r.id||'—');arenaSetAmount($('arenaPool'),Number(r.total_pool||0),null,' TON');$('arenaTimer').textContent=arenaTimerText();let joined=!!s.my_bet,mine=joined?Number(s.my_bet.bet||0):0,room=Math.max(0,Number(s.max_bet||300)-mine),full=joined&&room<.1,g=ARENA.gift;if(g&&(settled||full||Number(g.price_ton)>room+1e-9)){ARENA.gift=null;g=null}$('arenaJoin').disabled=ARENA.busy||settled||full;$('arenaJoin').textContent=settled?'Раунд завершён':full?'Максимальная ставка':g?(joined?'Добавить подарок':'Поставить подарком'):joined?'Добавить к ставке':'Войти в арену';$('arenaBet').disabled=settled||full||!!g;document.querySelectorAll('[data-arena-bet]').forEach(x=>x.disabled=settled||full||!!g);$('arenaGiftBtn').disabled=ARENA.busy||settled||full;$('arenaBetLabel').textContent=g?'Ставка подарком':joined?'Добавить к ставке, TON':'Ставка, TON';arenaPaintGiftBtn();$('arenaNote').textContent=''}
 function arenaWinnerPoint(){let s=ARENA.state,players=s?.players||[],idx=players.findIndex(p=>Number(p.user_id)===Number(s?.round?.winner_user_id));if(idx<0)return{left:50,top:50};let g=arenaGeometry(players)[idx];if(!g)return{left:50,top:50};let sd=Number(s.round.id||1)*7919+idx,rnd=()=>{sd=(sd*16807)%2147483647;return sd/2147483647},P=g.poly,tri=[];for(let i=1;i<P.length-1;i++){let a=P[0],b=P[i],c=P[i+1];tri.push({a,b,c,w:Math.abs((b.x-a.x)*(c.y-a.y)-(c.x-a.x)*(b.y-a.y))/2})}if(!tri.length)return{left:g.cent.x,top:g.cent.y};let tw=tri.reduce((x,t)=>x+t.w,0),r=rnd()*tw,t=tri.find(t=>(r-=t.w)<=0)||tri[tri.length-1],u=rnd(),v=rnd();if(u+v>1){u=1-u;v=1-v}let x=t.a.x+u*(t.b.x-t.a.x)+v*(t.c.x-t.a.x),y=t.a.y+u*(t.b.y-t.a.y)+v*(t.c.y-t.a.y);x=g.cent.x+(x-g.cent.x)*.8;y=g.cent.y+(y-g.cent.y)*.8;return{left:Math.max(ARENA_PUCK_MIN,Math.min(ARENA_PUCK_MAX,x)),top:Math.max(ARENA_PUCK_MIN,Math.min(ARENA_PUCK_MAX,y))}}
 const ARENA_PUCK_MIN=2.8,ARENA_PUCK_MAX=97.2;
@@ -5348,8 +5392,7 @@ body.studio[data-page=giveawayPage] #headerControls .top-actions{display:none!im
 #levelNotice .ln-badge svg{width:24px;height:24px;fill:#fff;stroke:#fff;stroke-width:1;stroke-linejoin:round}
 #levelNotice .ln-text{flex:1;min-width:0;display:grid;gap:2px}
 #levelNotice .ln-text b{font-size:15px;font-weight:800}
-#levelNotice .ln-text small{font-size:12px;color:#a9c3de}
-#levelNotice .ln-arrow{flex:none;font-size:26px;color:#7fb4e8;line-height:1}
+#levelNotice .ln-text small{font-size:12px;color:#a9c3de}#levelNotice .ln-arrow{flex:none;font-size:26px;color:#7fb4e8;line-height:1}
 .reward-task-desc{display:block;margin:2px 0 6px;color:#8c9ab3;font-size:12px}
 
 /* ===== v70: upgrade page redesign (wheel, picks, wide wins) ===== */
@@ -6248,8 +6291,7 @@ body.studio #crashPage .cr-action.cashout{background:linear-gradient(115deg,#ffd
 .game-card .gc-badge-hot{color:#3b0d08;background:linear-gradient(135deg,#ffc27a,#ff5a4f);box-shadow:0 4px 14px rgba(255,100,70,.45),inset 0 1px rgba(255,255,255,.5)}
 .game-card .gc-badge-top{color:#3a2800;background:linear-gradient(135deg,#ffeb99,#f2b632);box-shadow:0 4px 14px rgba(242,182,50,.42),inset 0 1px rgba(255,255,255,.55)}
 .game-card .gc-badge-beta{color:#1b1040;background:linear-gradient(135deg,#d4c3ff,#8b6cf0);box-shadow:0 4px 14px rgba(139,108,240,.42),inset 0 1px rgba(255,255,255,.5)}
-.game-card .gc-badge-soon{color:#cfd6f0;background:#2b3150;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
-.game-card .gc-badge-soon:after{display:none}
+.game-card .gc-badge-soon{color:#cfd6f0;background:#2b3150;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}.game-card .gc-badge-soon:after{display:none}
 .gm-layout{grid-column:1/-1;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .gm-layout .gm-move{width:38px;height:38px;border-radius:11px;border:1px solid #23263f;background:#0d0f1b;color:#cdd5ee;font-size:16px;font-weight:800;transition:transform .18s cubic-bezier(.2,.9,.25,1),background .2s ease}
 .gm-layout .gm-move:active{transform:scale(.92)}
@@ -6799,4 +6841,91 @@ window.hlGuideOpen=function(){if(!built){built=true;ladder();strip();document.ge
 const r=Number(window.HL&&HL.st&&HL.st.card&&HL.st.card.rank)||6,inp=document.getElementById('hlgRank');inp.value=r;paint();const card=document.querySelector('#hlInfoModal .modal-card');if(card)card.scrollTop=0}
 })();
 </script>
+
+<style id="gift-deposit-layout-fix-v3">
+/* Gift deposit has its own responsive dialog geometry; do not inherit the compact TON card height. */
+#depositModal[data-method="gift"]{
+  position:fixed!important;inset:0!important;display:grid!important;place-items:center!important;
+  padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))!important;
+  overflow:hidden!important;
+}
+#depositModal[data-method="gift"].hidden{display:none!important}
+#depositModal[data-method="gift"] .deposit-card{
+  position:relative!important;box-sizing:border-box!important;
+  width:min(520px,calc(100vw - 24px))!important;
+  height:min(760px,calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)))!important;
+  max-width:520px!important;max-height:none!important;
+  margin:auto!important;padding:15px 16px 16px!important;
+  display:flex!important;flex-direction:column!important;
+  overflow:hidden!important;border-radius:24px!important;
+}
+#depositModal[data-method="gift"] #depositGiftStep{
+  flex:1 1 auto!important;min-height:0!important;height:100%!important;
+  display:flex!important;flex-direction:column!important;gap:10px!important;overflow:hidden!important;padding-top:0!important;
+}
+#depositModal[data-method="gift"] #depositGiftStep.hidden{display:none!important}
+#depositModal[data-method="gift"] .deposit-back{
+  flex:0 0 auto!important;width:36px!important;height:34px!important;display:grid!important;place-items:center!important;
+  padding:0!important;margin:0 0 1px!important;border-radius:11px!important;background:rgba(255,255,255,.04)!important;
+}
+#depositModal[data-method="gift"] .deposit-back svg{width:19px!important;height:19px!important}
+#depositModal[data-method="gift"] .gift-head{flex:0 0 auto!important;margin:0!important;padding:0 44px 10px 0!important;border-bottom:1px solid rgba(255,255,255,.07)!important}
+#depositModal[data-method="gift"] .gift-head h2{font-size:21px!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction{
+  flex:0 0 auto!important;grid-template-columns:58px minmax(0,1fr)!important;gap:11px!important;
+  padding:11px 12px!important;border-radius:15px!important;
+}
+#depositModal[data-method="gift"] .gift-deposit-orbit{width:58px!important;height:58px!important;border-radius:16px!important}
+#depositModal[data-method="gift"] .gift-deposit-orbit img{width:52px!important;height:52px!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction b{font-size:13px!important;line-height:1.3!important}
+#depositModal[data-method="gift"] .gift-deposit-instruction small{margin-top:4px!important;font-size:10px!important;line-height:1.35!important}
+#depositModal[data-method="gift"] .gift-relay-open{flex:0 0 auto!important;width:100%!important;min-height:43px!important;margin:0!important;border-radius:13px!important}
+#depositModal[data-method="gift"] .gift-relay-status.hidden{display:none!important}
+#depositModal[data-method="gift"] .gift-relay-status{flex:0 0 auto!important;margin:0!important;padding:8px 10px!important;text-align:center!important}
+#depositModal[data-method="gift"] .gift-rates-head{flex:0 0 auto!important;margin:2px 2px 0!important;align-items:center!important}
+#depositModal[data-method="gift"] .gift-rates-head b{font-size:13px!important}
+#depositModal[data-method="gift"] .gift-rates-head small{font-size:9.5px!important}
+#depositModal[data-method="gift"] .gift-deposit-rates{
+  flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;overflow-x:hidden!important;
+  padding:0 2px max(2px,env(safe-area-inset-bottom)) 0!important;scrollbar-gutter:stable!important;
+}
+#depositModal[data-method="gift"] .gift-deposit-rate{grid-template-columns:50px minmax(0,1fr) auto!important;min-height:64px!important;padding:7px 9px!important}
+#depositModal[data-method="gift"] .gift-deposit-rate>img{width:50px!important;height:50px!important}
+#depositModal[data-method="gift"] .gift-deposit-rate strong{font-size:12px!important;white-space:normal!important;line-height:1.25!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important}
+#depositModal[data-method="gift"] #closeDeposit{
+  position:absolute!important;top:12px!important;right:12px!important;z-index:20!important;
+  width:38px!important;height:38px!important;min-height:38px!important;pointer-events:auto!important;touch-action:manipulation!important;
+  background:#202331!important;border:1px solid rgba(255,255,255,.12)!important;box-shadow:0 5px 18px rgba(0,0,0,.22)!important;
+}
+#depositModal[data-method="gift"] #closeDeposit:before{font-size:24px!important}
+.hlg-tutorial-media{position:relative!important;aspect-ratio:10/7!important;background:#0c1021!important}
+.hlg-tutorial-media img{width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;display:block!important}
+@media(max-width:390px){
+ #depositModal[data-method="gift"]{padding:8px!important}
+ #depositModal[data-method="gift"] .deposit-card{width:calc(100vw - 16px)!important;height:calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;padding:12px!important;border-radius:20px!important}
+ #depositModal[data-method="gift"] .gift-deposit-instruction{grid-template-columns:48px minmax(0,1fr)!important;padding:9px 10px!important}
+ #depositModal[data-method="gift"] .gift-deposit-orbit{width:48px!important;height:48px!important}
+ #depositModal[data-method="gift"] .gift-deposit-orbit img{width:43px!important;height:43px!important}
+ #depositModal[data-method="gift"] .gift-deposit-instruction small{font-size:9.5px!important}
+ #depositModal[data-method="gift"] .gift-deposit-rate{grid-template-columns:44px minmax(0,1fr) auto!important;min-height:58px!important}
+ #depositModal[data-method="gift"] .gift-deposit-rate>img{width:44px!important;height:44px!important}
+}
+@media(max-height:620px){
+ #depositModal[data-method="gift"] .deposit-card{height:calc(100dvh - 12px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;padding-top:10px!important;padding-bottom:10px!important}
+ #depositModal[data-method="gift"] .gift-deposit-instruction{grid-template-columns:44px minmax(0,1fr)!important;padding:8px 10px!important}
+ #depositModal[data-method="gift"] .gift-deposit-orbit{width:44px!important;height:44px!important}
+ #depositModal[data-method="gift"] .gift-deposit-orbit img{width:40px!important;height:40px!important}
+ #depositModal[data-method="gift"] .gift-deposit-instruction small{display:none!important}
+ #depositModal[data-method="gift"] .gift-head{padding-bottom:7px!important}
+}
+</style>
+
+
+<script id="deposit-modal-close-fix-v3">
+(()=>{const m=document.getElementById('depositModal');if(!m)return;
+ m.addEventListener('click',e=>{if(e.target===m)closeDepositModal()});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!m.classList.contains('hidden'))closeDepositModal()});
+})();
+</script>
+
 </body></html>

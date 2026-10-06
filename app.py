@@ -994,6 +994,13 @@ CREATOR_LEVELS = {
         custom_deposit=True,
         description='До 5 TON в день и до 3 отыгрышных подарков стоимостью 3–10 TON. Условие депозита задаёте сами: можно без депозита или с любым минимумом.',
     ),
+    'god': dict(
+        key='god', name='God', daily_budget_cents=1000, daily_code_limit=0,
+        activation_min_deposit_cents=0, wager_daily_limit=10, wager_min_x=17,
+        wager_gift_min_cents=300, wager_gift_max_cents=1500, wager_max_uses=20,
+        custom_deposit=True,
+        description='Высший уровень. До 10 TON в день и до 10 отыгрышных подарков стоимостью 3–15 TON с X от 17 и до 20 активаций. Депозит на выбор: без депозита или любой минимум. Выдаётся только администратором.',
+    ),
 }
 
 
@@ -1054,6 +1061,7 @@ def creator_record(user_id):
         demo_crash=dict(raw.get('demo_crash') or {}) if isinstance(raw.get('demo_crash'), dict) else {},
         demo_arena=dict(raw.get('demo_arena') or {}) if isinstance(raw.get('demo_arena'), dict) else {},
         youtube=dict(youtube),
+        youtube_pending=(dict(raw.get('youtube_pending')) if isinstance(raw.get('youtube_pending'), dict) else {}),
         creator_limit_reset_at=raw.get('creator_limit_reset_at'),
         creator_limit_credit=(dict(raw.get('creator_limit_credit')) if isinstance(raw.get('creator_limit_credit'), dict) else {}),
         created_at=raw.get('created_at'),
@@ -1085,6 +1093,8 @@ def save_creator_record(user_id, data):
             current[state_key] = {}
     if not isinstance(current.get('youtube'), dict):
         current['youtube'] = {}
+    if not isinstance(current.get('youtube_pending'), dict):
+        current['youtube_pending'] = {}
     current['updated_at'] = datetime.now(timezone.utc).isoformat()
     if not current.get('created_at'):
         current['created_at'] = current['updated_at']
@@ -8308,6 +8318,114 @@ def arena_bet():
 
 
 
+# ===================== Arena house bot (@gemdrop_amd) =====================
+# The admin account plays in the Arena like an ordinary player: in almost every round that a real
+# player has started it joins with a random TON stake or a random gift worth 0.10-15 TON. It never
+# sends any message anywhere. Stakes come from the account's own balance / inventory, so no money
+# or gifts are created out of thin air; if the account cannot afford a stake the round is skipped.
+ARENA_BOT_USERNAME = (os.environ.get('ARENA_BOT_USERNAME') or 'gemdrop_amd').strip().lstrip('@').lower()
+ARENA_BOT_MIN_CENTS = 10
+ARENA_BOT_MAX_CENTS = 1500
+ARENA_BOT_ROUND_CHANCE = 0.88
+ARENA_BOT_GIFT_CHANCE = 0.45
+
+
+def arena_bot_user_id(db):
+    row = db.execute('SELECT id FROM users WHERE LOWER(username)=?', (ARENA_BOT_USERNAME,)).fetchone()
+    return int(row['id']) if row else 0
+
+
+def arena_bot_roll_cents():
+    # Log-uniform: small stakes are common, 10-15 TON are rare.
+    value = ARENA_BOT_MIN_CENTS * (ARENA_BOT_MAX_CENTS / ARENA_BOT_MIN_CENTS) ** (secrets.randbelow(10 ** 6) / 10 ** 6)
+    value = int(value)
+    return value if value < 100 else value // 5 * 5
+
+
+def arena_bot_place_bet(db, uid, now):
+    """Place one random bet in the open, already started round. Returns True when a bet was placed."""
+    row = arena_advance(db, now)
+    close_at = int(row['close_at'] or 0)
+    if row['state'] != 'open' or close_at <= 0 or now >= close_at - ARENA_SNIPE_WINDOW_MS - 400:
+        return False
+    if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():
+        return False
+    if not db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id<>?', (row['id'], uid)).fetchone():
+        return False
+    item = None
+    if secrets.randbelow(100) < int(ARENA_BOT_GIFT_CHANCE * 100):
+        purge_expired_inventory(db, uid)
+        pool = db.execute('SELECT * FROM inventory WHERE user_id=? AND promo_locked=0 AND floor_price BETWEEN ? AND ?',
+                          (uid, ARENA_BOT_MIN_CENTS, ARENA_BOT_MAX_CENTS)).fetchall()
+        if pool:
+            item = pool[secrets.randbelow(len(pool))]
+    gifts, gift_amount = [], 0
+    if item is not None:
+        amount = int(item['floor_price'] or 0)
+        if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item['id'], uid)).rowcount:
+            return False
+        gifts = [dict(name=str(item['gift_name'] or 'Подарок')[:140], image_url=str(item['image_url'] or ''),
+                      price=amount, xp=bool(gift_counts_for_xp(item)), row=dict(item))]
+        gift_amount = amount
+    else:
+        amount = arena_bot_roll_cents()
+        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                          (amount, uid, amount)).rowcount:
+            return False
+    db.execute('INSERT INTO arena_bets(round_id,user_id,amount,gift_amount,gifts) VALUES(?,?,?,?,?)',
+               (row['id'], uid, amount, gift_amount, json.dumps(gifts, ensure_ascii=False, default=str)))
+    if gifts:
+        record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
+                           f'Arena #{row["id"]}: {gifts[0]["name"]} ({amount/100:.2f} TON)')
+        if gifts[0]['xp']:
+            increase_turnover(db, uid, amount)
+    else:
+        record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'], f'Arena #{row["id"]}: {amount/100:.2f} TON')
+        increase_turnover(db, uid, amount)
+    return True
+
+
+def arena_bot_loop():
+    time.sleep(9)
+    decided = {}   # round_id -> (will_join, delay_ms)
+    uid = 0
+    while True:
+        try:
+            if not game_available('arena', True):
+                time.sleep(3)
+                continue
+            now = int(time.time() * 1000)
+            with connect() as db:
+                uid = uid or arena_bot_user_id(db)
+                if not uid:
+                    time.sleep(30)
+                    continue
+                row = arena_latest(db)
+                if row and row['state'] == 'open' and int(row['close_at'] or 0) > 0:
+                    rid = int(row['id'])
+                    if rid not in decided:
+                        span = max(1000, ARENA_BETTING_MS - ARENA_SNIPE_WINDOW_MS - 3500)
+                        decided[rid] = (secrets.randbelow(100) < int(ARENA_BOT_ROUND_CHANCE * 100),
+                                        1200 + secrets.randbelow(span))
+                        for old in [k for k in decided if k < rid - 20]:
+                            decided.pop(old, None)
+                    will_join, delay = decided[rid]
+                    if will_join and now >= int(row['open_at'] or 0) + delay:
+                        decided[rid] = (False, delay)
+                        db.execute('BEGIN IMMEDIATE')
+                        try:
+                            ok = arena_bot_place_bet(db, uid, now)
+                            db.commit() if ok else db.rollback()
+                        except Exception:
+                            db.rollback()
+                            raise
+        except Exception:
+            app.logger.exception('Arena bot loop failed')
+            time.sleep(5)
+        time.sleep(0.7)
+
+
+
 # ================================== Crash ==================================
 CRASH_BETTING_MS = 5000      # countdown 5..1, bets are accepted
 CRASH_BOOM_MS = 3000         # boom.gif is shown after the crash
@@ -10907,22 +11025,30 @@ def admin_toggle_promocode(code):
 
 
 def youtube_channel_ref(value):
-    value = str(value or '').strip()
+    """Understands every common way of writing a channel: @handle, /channel/UC..., /c/name, /user/name,
+    m./music. hosts, links without https://, trailing /videos|/about|?si=..., percent-encoded handles."""
+    from urllib.parse import unquote
+    value = unquote(str(value or '').strip())
     if not value:
         raise ValueError('Вставьте ссылку на YouTube-канал.')
     if len(value) > 500:
         raise ValueError('Ссылка на YouTube слишком длинная.')
-    m = re.search(r'youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})', value, re.I)
-    if m:
-        return 'id', m.group(1)
-    m = re.search(r'youtube\.com/@([A-Za-z0-9._-]{3,100})', value, re.I)
-    if m:
-        return 'handle', m.group(1)
     if re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', value):
         return 'id', value
-    if re.fullmatch(r'@?[A-Za-z0-9._-]{3,100}', value):
+    if re.fullmatch(r'@?[\w.\-]{3,100}', value) and not re.search(r'youtu', value, re.I):
         return 'handle', value.lstrip('@')
-    raise ValueError('Используйте ссылку вида https://youtube.com/@channel или /channel/UC…')
+    m = re.search(r'(?:^|//|www\.|m\.|music\.)youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})', value, re.I)
+    if m:
+        return 'id', m.group(1)
+    m = re.search(r'youtube\.com/@([^/?#\s]{3,100})', value, re.I)
+    if m:
+        return 'handle', m.group(1)
+    m = re.search(r'youtube\.com/(c|user)/([^/?#\s]{2,100})', value, re.I)
+    if m:
+        return 'path', m.group(1).lower() + '/' + m.group(2)
+    if re.search(r'(youtu\.be/|youtube\.com/(watch|shorts|live|embed))', value, re.I):
+        raise ValueError('Это ссылка на видео. Вставьте ссылку именно на канал: https://youtube.com/@channel')
+    raise ValueError('Используйте ссылку вида https://youtube.com/@channel или https://youtube.com/channel/UC…')
 
 
 def youtube_api_get(path, params):
@@ -11002,13 +11128,13 @@ def youtube_public_subscribers(page):
 
 
 def youtube_public_channel_id(page):
+    """Only identifiers that describe THIS page's channel (never recommended/featured channels)."""
     patterns = [
+        r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']https?://(?:www\.)?youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})',
         r'"externalId":"(UC[A-Za-z0-9_-]{20,})"',
-        r'<meta[^>]+itemprop=["\']channelId["\'][^>]+content=["\'](UC[A-Za-z0-9_-]{20,})["\']',
+        r'<meta[^>]+itemprop=["\'](?:channelId|identifier)["\'][^>]+content=["\'](UC[A-Za-z0-9_-]{20,})["\']',
         r'<meta[^>]+content=["\'](UC[A-Za-z0-9_-]{20,})["\'][^>]+itemprop=["\']channelId["\']',
         r'feeds/videos\.xml\?channel_id=(UC[A-Za-z0-9_-]{20,})',
-        r'youtube\.com/channel/(UC[A-Za-z0-9_-]{20,})',
-        r'"channelId":"(UC[A-Za-z0-9_-]{20,})"',
     ]
     for pattern in patterns:
         match = re.search(pattern, page, re.I)
@@ -11082,8 +11208,9 @@ def youtube_public_gemdrop_videos(channel_id):
 
 def youtube_public_channel_snapshot(value):
     kind, ref = youtube_channel_ref(value)
-    page_url = ('https://www.youtube.com/channel/' + ref
-                if kind == 'id' else 'https://www.youtube.com/@' + ref)
+    page_url = ('https://www.youtube.com/channel/' + ref if kind == 'id' else
+                'https://www.youtube.com/' + ref if kind == 'path' else
+                'https://www.youtube.com/@' + ref)
     response = youtube_public_get(page_url, {'hl': 'en'})
     page = response.text or ''
     channel_id = ref if kind == 'id' else youtube_public_channel_id(page)
@@ -11109,12 +11236,18 @@ def youtube_public_channel_snapshot(value):
         updated_at=datetime.now(timezone.utc).isoformat(),
         source='public',
     )
-    snapshot['videos'] = youtube_public_gemdrop_videos(channel_id)
+    try:
+        snapshot['videos'] = youtube_public_gemdrop_videos(channel_id)
+    except RuntimeError:
+        # A channel without uploads (or a flaky RSS feed) must not block linking the channel itself.
+        snapshot['videos'] = []
     return snapshot
 
 
 def youtube_api_channel_snapshot(value):
     kind, ref = youtube_channel_ref(value)
+    if kind == 'path':
+        raise RuntimeError('Legacy /c/ and /user/ links are resolved from the public page.')
     params = {'part': 'snippet,statistics,contentDetails'}
     params['id' if kind == 'id' else 'forHandle'] = ref
     data = youtube_api_get('channels', params)
@@ -11140,7 +11273,10 @@ def youtube_api_channel_snapshot(value):
         updated_at=datetime.now(timezone.utc).isoformat(),
         source='api',
     )
-    snapshot['videos'] = youtube_api_gemdrop_videos(snapshot)
+    try:
+        snapshot['videos'] = youtube_api_gemdrop_videos(snapshot)
+    except RuntimeError:
+        snapshot['videos'] = []
     return snapshot
 
 
@@ -11257,12 +11393,12 @@ def admin_creator_level(user_id):
     data = request.get_json(silent=True) or {}
     raw_level = str(data.get('level') or '').strip().lower()
     if raw_level not in CREATOR_LEVELS:
-        return error('Выберите Base, Creator или Super Creator.')
+        return error('Выберите Base, Creator, Super Creator или God.')
     previous = creator_record(user_id)
     if not previous.get('active'):
         return error('Пользователь не является активным автором.', 404)
     old = creator_level_key(previous.get('creator_level'))
-    order = {'base': 0, 'creator': 1, 'super_creator': 2}
+    order = {'base': 0, 'creator': 1, 'super_creator': 2, 'god': 3}
     promoted = order.get(raw_level, 0) > order.get(old, 0)
     changes = {'creator_level': raw_level}
     if promoted:
@@ -11572,16 +11708,59 @@ def creator_state():
         demo_tickets=record['demo_tickets'],
         demo_inventory=record['demo_inventory'],
         youtube=record.get('youtube') or {},
+        youtube_pending=record.get('youtube_pending') or {},
         youtube_configured=True,
         youtube_mode=('api' if YOUTUBE_API_KEY else 'public'),
     )
 
 
 
+def youtube_taken_by_other(channel_id, uid):
+    """A channel can be linked (verified) by one creator only."""
+    with connect() as db:
+        rows = db.execute("SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%'").fetchall()
+    for row in rows:
+        try:
+            other = int(str(row['name']).split(':', 1)[1])
+            payload = json.loads(row['payload'] or '{}')
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+            continue
+        if other == int(uid) or not isinstance(payload, dict) or not payload.get('active'):
+            continue
+        yt = payload.get('youtube') if isinstance(payload.get('youtube'), dict) else {}
+        if yt.get('channel_id') == channel_id and yt.get('verified'):
+            return True
+    return False
+
+
+def youtube_code_present(channel_id, code):
+    """True when the verification code is written on the channel (About / description / links)."""
+    needle = str(code or '').strip().upper()
+    if not needle or not channel_id:
+        return False
+    try:
+        page = youtube_public_get('https://www.youtube.com/channel/' + channel_id, {'hl': 'en'}).text or ''
+        if needle in page.upper():
+            return True
+    except RuntimeError:
+        pass
+    if YOUTUBE_API_KEY:
+        try:
+            data = youtube_api_get('channels', {'part': 'snippet', 'id': channel_id})
+            items = data.get('items') or []
+            if items and needle in str((items[0].get('snippet') or {}).get('description') or '').upper():
+                return True
+        except RuntimeError:
+            pass
+    return False
+
+
 @app.post('/api/creator/youtube')
 @login_required
 @creator_required
 def creator_youtube_link():
+    """Step 1: resolve the channel and issue a one-time code. The channel is NOT linked yet."""
+    uid = int(session['uid'])
     data = request.get_json(silent=True) or {}
     try:
         snapshot = youtube_channel_snapshot(data.get('url'))
@@ -11589,7 +11768,43 @@ def creator_youtube_link():
         return error(str(exc))
     except RuntimeError as exc:
         return error(str(exc), 503)
-    record = save_creator_record(session['uid'], {'youtube': snapshot})
+    channel_id = snapshot.get('channel_id')
+    if youtube_taken_by_other(channel_id, uid):
+        return error('Этот YouTube-канал уже привязан к другому автору.', 409)
+    record = creator_record(uid)
+    current = record.get('youtube') or {}
+    if current.get('channel_id') == channel_id and current.get('verified'):
+        return jsonify(ok=True, youtube=current, pending={})
+    pending = record.get('youtube_pending') or {}
+    code = pending.get('verify_code') if pending.get('channel_id') == channel_id else ''
+    code = code or ('GD-' + secrets.token_hex(4).upper())
+    snapshot['verify_code'] = code
+    record = save_creator_record(uid, {'youtube_pending': snapshot})
+    return jsonify(ok=True, youtube=record.get('youtube') or {}, pending=record['youtube_pending'])
+
+
+@app.post('/api/creator/youtube/verify')
+@login_required
+@creator_required
+def creator_youtube_verify():
+    """Step 2: the code is found on the channel page => the channel belongs to this creator."""
+    uid = int(session['uid'])
+    pending = creator_record(uid).get('youtube_pending') or {}
+    channel_id = pending.get('channel_id')
+    code = pending.get('verify_code')
+    if not channel_id or not code:
+        return error('Сначала вставьте ссылку на канал и нажмите «Привязать».', 409)
+    if youtube_taken_by_other(channel_id, uid):
+        return error('Этот YouTube-канал уже привязан к другому автору.', 409)
+    if not youtube_code_present(channel_id, code):
+        return error(f'Код {code} не найден на канале. Добавьте его в описание канала '
+                     '(Настройки канала → Описание), сохраните и подождите минуту.', 409)
+    try:
+        snapshot = youtube_channel_snapshot('https://www.youtube.com/channel/' + channel_id)
+    except (ValueError, RuntimeError):
+        snapshot = {k: v for k, v in pending.items() if k != 'verify_code'}
+    snapshot.update(verified=True, verified_at=datetime.now(timezone.utc).isoformat())
+    record = save_creator_record(uid, {'youtube': snapshot, 'youtube_pending': {}})
     return jsonify(ok=True, youtube=record.get('youtube') or {})
 
 
@@ -11598,13 +11813,18 @@ def creator_youtube_link():
 @creator_required
 def creator_youtube_refresh():
     current = creator_record(session['uid']).get('youtube') or {}
-    ref = current.get('url') or current.get('channel_id')
+    ref = current.get('channel_id') or current.get('url')
     if not ref:
         return error('Сначала привяжите YouTube-канал.', 409)
     try:
         snapshot = youtube_channel_snapshot(ref)
     except (ValueError, RuntimeError) as exc:
         return error(str(exc), 503)
+    if current.get('channel_id') and snapshot.get('channel_id') != current.get('channel_id'):
+        return error('YouTube вернул другой канал. Данные не изменены.', 409)
+    snapshot['verified'] = bool(current.get('verified'))
+    if current.get('verified_at'):
+        snapshot['verified_at'] = current['verified_at']
     record = save_creator_record(session['uid'], {'youtube': snapshot})
     return jsonify(ok=True, youtube=record.get('youtube') or {})
 
@@ -11613,7 +11833,7 @@ def creator_youtube_refresh():
 @login_required
 @creator_required
 def creator_youtube_unlink():
-    save_creator_record(session['uid'], {'youtube': {}})
+    save_creator_record(session['uid'], {'youtube': {}, 'youtube_pending': {}})
     return jsonify(ok=True)
 
 
@@ -14332,6 +14552,7 @@ if BOT_TOKEN:
 if BOT_TOKEN and WEBAPP_URL.startswith('https://'):
     start_background(configure_bot, 660103)
 start_background(log_pruner_loop, 660104)
+start_background(arena_bot_loop, 661203)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="720" viewBox="0 0 720 720">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b1020"/><stop offset=".55" stop-color="#171a35"/><stop offset="1" stop-color="#0d1327"/></linearGradient>
+ <linearGradient id="p" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9b8cff"/><stop offset="1" stop-color="#5665e9"/></linearGradient>
+ <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#69efb3"/><stop offset="1" stop-color="#22aa6d"/></linearGradient>
+ <linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff96aa"/><stop offset="1" stop-color="#ce4665"/></linearGradient>
+ <filter id="sh"><feDropShadow dy="12" stdDeviation="14" flood-opacity=".35"/></filter>
+ <style>text{font-family:Inter,Arial,sans-serif}.scene{opacity:0}.t{fill:#fff;font-size:42px;font-weight:850}.s{fill:#abb5cf;font-size:21px;font-weight:600}.mini{fill:#9ba6c5;font-size:18px;font-weight:750}.card{filter:url(#sh)}</style>
+</defs>
+<rect width="720" height="720" rx="42" fill="url(#bg)"/><circle cx="616" cy="72" r="150" fill="#5868ff" opacity=".08"/><circle cx="70" cy="670" r="165" fill="#36d98d" opacity=".05"/>
+<text x="52" y="66" fill="#7ee4bd" font-size="18" font-weight="900" letter-spacing="3">GEMDROP · HI-LO</text><rect x="52" y="88" width="616" height="2" rx="1" fill="#ffffff18"/>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="0s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Карты — это подарки</text><text class="s" x="52" y="190">15 рангов: выше ранг → дороже подарок</text>
+ <g transform="translate(70 245)" class="card"><rect width="150" height="210" rx="26" fill="url(#p)"/><text x="75" y="130" text-anchor="middle" fill="#fff" font-size="76" font-weight="900">1</text><animateTransform attributeName="transform" type="translate" values="70 245;70 233;70 245" dur="2.6s" repeatCount="indefinite"/></g>
+ <g transform="translate(285 245)" class="card"><rect width="150" height="210" rx="26" fill="url(#p)"/><text x="75" y="130" text-anchor="middle" fill="#fff" font-size="76" font-weight="900">8</text></g>
+ <g transform="translate(500 245)" class="card"><rect width="150" height="210" rx="26" fill="url(#p)"/><text x="75" y="130" text-anchor="middle" fill="#fff" font-size="70" font-weight="900">15</text><animateTransform attributeName="transform" type="translate" values="500 245;500 257;500 245" dur="2.6s" repeatCount="indefinite"/></g>
+ <path d="M120 530H600" stroke="#ffffff2a" stroke-width="8" stroke-linecap="round"/><circle cx="120" cy="530" r="12" fill="#7f89aa"/><circle cx="360" cy="530" r="12" fill="#9b8cff"/><circle cx="600" cy="530" r="12" fill="#69efb3"/>
+ <text class="mini" x="85" y="590">Ранг 1</text><text class="mini" x="318" y="590">середина</text><text class="mini" x="555" y="590">Ранг 15</text>
+</g>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="3s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Раунд — 15 секунд</text><text class="s" x="52" y="190">10 секунд на ставку · 5 секунд на открытие</text>
+ <rect x="72" y="290" width="576" height="38" rx="19" fill="#202642"/><rect x="72" y="290" width="384" height="38" rx="19" fill="url(#g)"/><rect x="456" y="290" width="192" height="38" rx="19" fill="#776be9"/>
+ <rect x="72" y="290" width="0" height="38" rx="19" fill="#b8ffe0" opacity=".33"><animate attributeName="width" values="0;384;576" dur="3s" repeatCount="indefinite"/></rect>
+ <text x="264" y="382" text-anchor="middle" fill="#69efb3" font-size="24" font-weight="900">СТАВКИ · 10 С</text><text x="552" y="382" text-anchor="middle" fill="#b9b0ff" font-size="24" font-weight="900">ОТКРЫТИЕ · 5 С</text>
+ <g transform="translate(285 440)" class="card"><rect width="150" height="180" rx="25" fill="#242a49" stroke="#ffffff28"/><text x="75" y="112" text-anchor="middle" fill="#fff" font-size="68" font-weight="900">?</text><animateTransform attributeName="transform" additive="sum" type="scale" values="1 1;.12 1;1 1" dur="2.2s" repeatCount="indefinite"/></g>
+</g>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="6s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Выберите Hi или Lo</text><text class="s" x="52" y="190">Следующая карта будет выше или ниже?</text>
+ <g transform="translate(80 250)" class="card"><rect width="170" height="230" rx="28" fill="url(#p)"/><text x="85" y="142" text-anchor="middle" fill="#fff" font-size="84" font-weight="900">8</text></g>
+ <path d="M282 365H425" stroke="#ffffff36" stroke-width="5" stroke-dasharray="10 12"/><path d="M415 355l14 10-14 10" fill="none" stroke="#ffffff66" stroke-width="4"/>
+ <g transform="translate(470 250)" class="card"><rect width="170" height="230" rx="28" fill="url(#g)"/><text x="85" y="142" text-anchor="middle" fill="#fff" font-size="84" font-weight="900">12</text><animate attributeName="opacity" values="1;1;0;0;1" dur="3s" repeatCount="indefinite"/></g>
+ <g transform="translate(470 250)" class="card"><rect width="170" height="230" rx="28" fill="url(#r)"/><text x="85" y="142" text-anchor="middle" fill="#fff" font-size="84" font-weight="900">3</text><animate attributeName="opacity" values="0;0;1;1;0" dur="3s" repeatCount="indefinite"/></g>
+ <rect x="170" y="545" width="160" height="62" rx="31" fill="#38ce8a"/><text x="250" y="585" text-anchor="middle" fill="#071a13" font-size="25" font-weight="900">▲ HI</text>
+ <rect x="390" y="545" width="160" height="62" rx="31" fill="#ff6f8a"/><text x="470" y="585" text-anchor="middle" fill="#2b0910" font-size="25" font-weight="900">▼ LO</text>
+</g>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="9s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Шанс определяет икс</text><text class="s" x="52" y="190">Чем меньше шанс — тем больше множитель</text>
+ <rect x="62" y="300" width="170" height="120" rx="24" fill="#ffffff0d" stroke="#ffffff28"/><text x="147" y="344" text-anchor="middle" class="mini">ОТДАЧА</text><text x="147" y="392" text-anchor="middle" fill="#fff" font-size="38" font-weight="900">97%</text>
+ <text x="266" y="378" text-anchor="middle" fill="#8994b2" font-size="44" font-weight="900">÷</text>
+ <rect x="300" y="300" width="180" height="120" rx="24" fill="#36d98d16" stroke="#36d98d77"/><text x="390" y="344" text-anchor="middle" class="mini">ШАНС</text><text x="390" y="392" text-anchor="middle" fill="#69efb3" font-size="38" font-weight="900">64.3%</text>
+ <text x="514" y="378" text-anchor="middle" fill="#8994b2" font-size="44" font-weight="900">=</text>
+ <rect x="548" y="300" width="130" height="120" rx="24" fill="#ffd25a18" stroke="#ffd25a"/><text x="613" y="344" text-anchor="middle" fill="#cab674" font-size="18" font-weight="850">ИКС</text><text x="613" y="392" text-anchor="middle" fill="#ffd25a" font-size="34" font-weight="900">x1.51</text>
+ <text class="mini" x="52" y="510">Карта 6 → 9 из 14 карт выше → шанс 64.3%</text><text class="mini" x="52" y="548">Икс не опускается ниже x1.01</text>
+</g>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="12s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Победа — подарком</text><text class="s" x="52" y="190">Ближайший подарок по цене + остаток в TON</text>
+ <circle cx="145" cy="355" r="74" fill="#ffd25a"/><text x="145" y="378" text-anchor="middle" fill="#654600" font-size="58" font-weight="900">8</text><text x="145" y="465" text-anchor="middle" class="mini">СТАВКА · TON</text>
+ <path d="M245 355H390" stroke="#ffffff35" stroke-width="5" stroke-dasharray="9 11"/><text x="315" y="322" text-anchor="middle" fill="#69efb3" font-size="28" font-weight="900">× 1.51</text>
+ <g transform="translate(414 300)" class="card"><rect x="0" y="28" width="150" height="118" rx="18" fill="#786de7"/><rect x="-12" y="0" width="174" height="48" rx="14" fill="#a296ff"/><rect x="65" width="20" height="146" fill="#ffd25a"/><path d="M75 2c-32-38-62-9-30 4M75 2c32-38 62-9 30 4" fill="none" stroke="#ffd25a" stroke-width="10" stroke-linecap="round"/></g>
+ <text x="490" y="490" text-anchor="middle" fill="#cbc4ff" font-size="22" font-weight="900">≈ 12 TON</text><circle cx="620" cy="445" r="38" fill="#2dba7a"/><text x="620" y="457" text-anchor="middle" fill="#fff" font-size="34" font-weight="900">+</text><text x="620" y="510" text-anchor="middle" fill="#69efb3" font-size="17" font-weight="900">ОСТАТОК</text>
+</g>
+<g class="scene"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.78;.96;1" begin="15s" dur="18s" repeatCount="indefinite"/>
+ <text class="t" x="52" y="150">Крайние карты: x1.00</text><text class="s" x="52" y="190">На рангах 1 и 15 ставка просто возвращается</text>
+ <g transform="translate(90 280)" class="card"><rect width="170" height="230" rx="28" fill="url(#p)"/><text x="85" y="142" text-anchor="middle" fill="#fff" font-size="84" font-weight="900">1</text></g>
+ <g transform="translate(460 280)" class="card"><rect width="170" height="230" rx="28" fill="url(#p)"/><text x="85" y="142" text-anchor="middle" fill="#fff" font-size="76" font-weight="900">15</text></g>
+ <circle cx="360" cy="390" r="72" fill="#ffd25a17" stroke="#ffd25a" stroke-width="4"/><text x="360" y="406" text-anchor="middle" fill="#ffd25a" font-size="42" font-weight="900">x1.00</text>
+ <text x="175" y="558" text-anchor="middle" class="mini">ниже нельзя</text><text x="545" y="558" text-anchor="middle" class="mini">выше нельзя</text><text x="360" y="635" text-anchor="middle" fill="#fff" font-size="22" font-weight="800">0.10–300 TON · 1 ставка за раунд</text>
+</g>
+</svg>

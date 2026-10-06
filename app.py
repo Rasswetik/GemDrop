@@ -290,7 +290,16 @@ def _initialize_schema():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS hilo_room_bets_uq ON hilo_room_bets(round_no, user_id);
         CREATE INDEX IF NOT EXISTS hilo_room_bets_open ON hilo_room_bets(settled, round_no);
+        CREATE TABLE IF NOT EXISTS hilo_rounds (
+            no INTEGER PRIMARY KEY AUTOINCREMENT,
+            slot INTEGER NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         ''')
+        # Hi-Lo round numbers live in the DB: 1, 2, 3 ... in the order rounds were first played.
+        # Old bets get their numbers once, oldest first, so history stays consistent.
+        if not db.execute('SELECT 1 FROM hilo_rounds LIMIT 1').fetchone():
+            db.execute('INSERT OR IGNORE INTO hilo_rounds(slot) SELECT DISTINCT round_no FROM hilo_room_bets ORDER BY round_no')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
             name TEXT PRIMARY KEY, payload TEXT NOT NULL
@@ -8922,6 +8931,28 @@ def hilo_lock_user(db, uid):
 HILO_TIER_TARGETS = (3, 5, 7, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 500)
 HILO_ROOM_MS = 15000   # one shared round
 HILO_BET_MS = 10000    # first 10 s: bets open, last 5 s: reveal
+
+
+def hilo_round_no(db, slot):
+    """Round number from the DB (1, 2, 3 ...). Registers the time slot on first use.
+    Call it inside an open transaction so the registration is committed with it."""
+    slot = int(slot)
+    row = db.execute('SELECT no FROM hilo_rounds WHERE slot=?', (slot,)).fetchone()
+    if not row:
+        db.execute('INSERT OR IGNORE INTO hilo_rounds(slot) VALUES(?)', (slot,))
+        row = db.execute('SELECT no FROM hilo_rounds WHERE slot=?', (slot,)).fetchone()
+    return int(row['no']) if row else 0
+
+
+def hilo_round_numbers(db, slots):
+    """Read-only lookup slot -> round number for already played rounds."""
+    slots = sorted({int(x) for x in slots})
+    if not slots:
+        return {}
+    marks = ','.join('?' * len(slots))
+    return {int(r['slot']): int(r['no']) for r in db.execute(
+        f'SELECT slot,no FROM hilo_rounds WHERE slot IN ({marks})', tuple(slots)).fetchall()}
+
 _hilo_tier_cache = dict(at=0, gifts=[])
 
 
@@ -9003,25 +9034,28 @@ def hilo_room_payload(db, uid, n, phase, now):
     bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
                  amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
                  gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '') for r in rows]
+    recent_rows = db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.gift_name,b.gift_image,u.name,u.photo_url
+                                 FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1
+                                 ORDER BY b.id DESC LIMIT 15""").fetchall()
+    last = db.execute("""SELECT id,round_no,direction,amount,payout,gift_name FROM hilo_room_bets WHERE user_id=? AND settled=1
+                         ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
+    nums = hilo_round_numbers(db, [r['round_no'] for r in recent_rows] + ([last['round_no']] if last else []) + [n])
+    cur_no = nums.get(n, 0)
     recent = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', round=r['round_no'],
-                   direction=r['direction'], amount=r['amount'] / 100, payout=r['payout'] / 100,
+                   direction=r['direction'], amount=r['amount'] / 100, payout=r['payout'] / 100, no=nums.get(r['round_no'], 0),
                    gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', mine=r['user_id'] == uid)
-              for r in db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.gift_name,b.gift_image,u.name,u.photo_url
-                                   FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1
-                                   ORDER BY b.id DESC LIMIT 15""").fetchall()]
+              for r in recent_rows]
     upto = n + 1 if reveal else n
     seq = [hilo_room_rank(k) for k in range(upto - 10, upto)]
     history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
                for i, r in enumerate(seq[1:])]
-    last = db.execute("""SELECT id,round_no,direction,amount,payout FROM hilo_room_bets WHERE user_id=? AND settled=1
-                         ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
     me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
-    return dict(now=now, round=n, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
+    return dict(now=now, round=n, no=cur_no, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
                 result=card(hilo_room_rank(n + 1)) if reveal else None, odds=odds, bets=bets,
                 history=history, recent=recent,
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
                 balance=(me['balance'] / 100) if me else 0,
-                last=dict(id=last['id'], round=last['round_no'], direction=last['direction'], amount=last['amount'] / 100,
+                last=dict(id=last['id'], round=last['round_no'], no=nums.get(last['round_no'], 0), gift_name=last['gift_name'] or '', direction=last['direction'], amount=last['amount'] / 100,
                           payout=last['payout'] / 100) if last else None)
 
 
@@ -9033,6 +9067,7 @@ def hilo_room():
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        hilo_round_no(db, n)
         hilo_room_settle(db, n, phase)
         db.commit()
         return jsonify(hilo_room_payload(db, session['uid'], n, phase, now))
@@ -9072,6 +9107,7 @@ def hilo_room_bet():
     try:
         db.execute('BEGIN IMMEDIATE')
         hilo_lock_user(db, uid)
+        hilo_round_no(db, n)
         if db.execute('SELECT 1 FROM hilo_room_bets WHERE round_no=? AND user_id=?', (n, uid)).fetchone():
             db.rollback()
             return error('В этом раунде ставка уже сделана.', 409)

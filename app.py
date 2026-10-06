@@ -276,6 +276,18 @@ def _initialize_schema():
             finished_at TEXT
         );
         CREATE INDEX IF NOT EXISTS hilo_games_user ON hilo_games(user_id, id DESC);
+        CREATE TABLE IF NOT EXISTS hilo_room_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            round_no INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            direction TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            settled INTEGER NOT NULL DEFAULT 0,
+            payout INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS hilo_room_bets_uq ON hilo_room_bets(round_no, user_id);
+        CREATE INDEX IF NOT EXISTS hilo_room_bets_open ON hilo_room_bets(settled, round_no);
         ''')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
@@ -8786,7 +8798,7 @@ def crash_cashout():
 # Cards are Telegram gifts with a rank 1..13. Guess whether the next card is higher or lower;
 # equal ranks lose. Every correct guess multiplies the pot by RTP / P(win); cash out at any time
 # after the first correct guess. The next card is drawn on the server only when the guess arrives.
-HILO_RANKS = 13
+HILO_RANKS = 15
 HILO_MICRO = 1000000
 HILO_RTP_DEFAULT = 0.97
 HILO_MIN_STEP_MICRO = 1010000            # one correct guess never pays less than x1.01
@@ -8817,15 +8829,8 @@ def hilo_step_micro(rank, direction):
 
 def hilo_pick_card():
     rank = 1 + secrets.randbelow(HILO_RANKS)
-    name = image = ''
-    try:
-        pool = [g for g in read_catalog()['gifts'] if g.get('name') and safe_image(g.get('image_url'))]
-    except (OSError, ValueError, KeyError, TypeError):
-        pool = []
-    if pool:
-        gift = pool[secrets.randbelow(len(pool))]
-        name, image = str(gift['name'])[:140], safe_image(gift.get('image_url'))
-    return rank, name, image
+    g = hilo_tier_card(rank)
+    return rank, str(g.get('name') or '')[:140], g.get('image_url') or ''
 
 
 def hilo_history(row):
@@ -8909,6 +8914,162 @@ def hilo_settle_cashout(db, uid, game, want_gift):
 def hilo_lock_user(db, uid):
     if DATABASE_URL:
         db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
+
+
+HILO_TIER_TARGETS = (3, 5, 7, 10, 15, 20, 30, 40, 50, 75, 100, 150, 200, 300, 500)
+HILO_ROOM_MS = 15000   # one shared round
+HILO_BET_MS = 10000    # first 10 s: bets open, last 5 s: reveal
+_hilo_tier_cache = dict(at=0, gifts=[])
+
+
+def hilo_tier_gifts():
+    """15 gifts, one per rank: rank 1 is the ~3 TON gift, prices strictly grow up to rank 15."""
+    if time.time() - _hilo_tier_cache['at'] < 60 and _hilo_tier_cache['gifts']:
+        return _hilo_tier_cache['gifts']
+    try:
+        pool = [g for g in read_catalog()['gifts']
+                if g.get('name') and safe_image(g.get('image_url')) and not g.get('background_label')]
+    except (OSError, ValueError, KeyError, TypeError):
+        pool = []
+    priced = []
+    for g in pool:
+        try:
+            c = ton_to_cents(g['price_ton'])
+        except Exception:
+            continue
+        if c > 0:
+            priced.append((c, g))
+    priced.sort(key=lambda t: t[0])
+    out, last = [], 0
+    for target in HILO_TIER_TARGETS:
+        cand = [p for p in priced if p[0] > last]
+        if not cand:
+            break
+        best = min(cand, key=lambda p: abs(p[0] - target * 100))
+        last = best[0]
+        out.append(dict(name=str(best[1]['name'])[:140], image_url=safe_image(best[1].get('image_url')),
+                        price_ton=best[0] / 100))
+    if out:
+        _hilo_tier_cache.update(at=time.time(), gifts=out)
+    return out
+
+
+def hilo_tier_card(rank):
+    tiers = hilo_tier_gifts()
+    if not tiers:
+        return dict(name='', image_url='', price_ton=0)
+    return tiers[min(max(rank, 1), len(tiers)) - 1]
+
+
+@app.get('/api/hilo/tiers')
+@login_required
+def hilo_tiers():
+    return jsonify(tiers=[dict(rank=i + 1, **g) for i, g in enumerate(hilo_tier_gifts())])
+
+
+def hilo_room_rank(n):
+    import hmac as _hmac, hashlib as _hashlib
+    key = app.secret_key if isinstance(app.secret_key, bytes) else str(app.secret_key).encode()
+    return int.from_bytes(_hmac.new(key, f'hilo-room:{n}'.encode(), _hashlib.sha256).digest()[:4], 'big') % HILO_RANKS + 1
+
+
+def hilo_room_settle(db, n, phase):
+    rows = db.execute("""SELECT * FROM hilo_room_bets WHERE settled=0 AND (round_no<? OR (round_no=? AND ?>=?))""",
+                      (n, n, phase, HILO_BET_MS)).fetchall()
+    for r in rows:
+        base, res = hilo_room_rank(r['round_no']), hilo_room_rank(r['round_no'] + 1)
+        won = res > base if r['direction'] == 'hi' else res < base
+        step = hilo_step_micro(base, r['direction'])
+        payout = int(r['amount']) * step // HILO_MICRO if won and step else 0
+        if not db.execute('UPDATE hilo_room_bets SET settled=1,payout=? WHERE id=? AND settled=0', (payout, r['id'])).rowcount:
+            continue
+        if payout:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, r['user_id']))
+            record_transaction(db, r['user_id'], 'hilo_win', payout, 'hilo_room', r['id'], f'Hi-Lo общий раунд x{step / HILO_MICRO:.2f}')
+
+
+def hilo_room_payload(db, uid, n, phase, now):
+    base = hilo_room_rank(n)
+    reveal = phase >= HILO_BET_MS
+    card = lambda rk: dict(rank=rk, **hilo_tier_card(rk))
+    odds = {d: dict(x=hilo_step_micro(base, d) / HILO_MICRO, chance=round(hilo_wins(base, d) * 100 / HILO_RANKS, 1))
+            for d in ('hi', 'lo')}
+    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.settled,b.payout,u.name,u.photo_url
+                         FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.round_no=?
+                         ORDER BY b.amount DESC,b.id ASC LIMIT 60""", (n,)).fetchall()
+    bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
+                 amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid) for r in rows]
+    last = db.execute("""SELECT id,round_no,direction,amount,payout FROM hilo_room_bets WHERE user_id=? AND settled=1
+                         ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
+    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+    return dict(now=now, round=n, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
+                result=card(hilo_room_rank(n + 1)) if reveal else None, odds=odds, bets=bets,
+                history=[hilo_room_rank(k) for k in range(n - 7, n)], rtp=hilo_rtp(),
+                min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
+                balance=(me['balance'] / 100) if me else 0,
+                last=dict(id=last['id'], round=last['round_no'], direction=last['direction'], amount=last['amount'] / 100,
+                          payout=last['payout'] / 100) if last else None)
+
+
+@app.get('/api/hilo/room')
+@login_required
+def hilo_room():
+    now = int(time.time() * 1000)
+    n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_room_settle(db, n, phase)
+        db.commit()
+        return jsonify(hilo_room_payload(db, session['uid'], n, phase, now))
+    finally:
+        db.close()
+
+
+@app.post('/api/hilo/room/bet')
+@login_required
+def hilo_room_bet():
+    data = request.get_json(silent=True) or {}
+    direction = data.get('direction')
+    if direction not in ('hi', 'lo'):
+        return error('Выберите Hi или Lo.')
+    try:
+        bet = parse_amount(data.get('bet'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Укажите корректную ставку.')
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON.')
+    uid = session['uid']
+    now = int(time.time() * 1000)
+    n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
+    if phase >= HILO_BET_MS - 300:
+        return error('Приём ставок закрыт — дождитесь следующего раунда.', 409)
+    if not hilo_step_micro(hilo_room_rank(n), direction):
+        return error('С этой карты так ставить нельзя — выберите другое направление.', 409)
+    db = connect()
+    new_level = None
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        if db.execute('SELECT 1 FROM hilo_room_bets WHERE round_no=? AND user_id=?', (n, uid)).fetchone():
+            db.rollback()
+            return error('В этом раунде ставка уже сделана.', 409)
+        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+            db.rollback()
+            return error('Недостаточно средств.')
+        cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount) VALUES(?,?,?,?)', (n, uid, direction, bet))
+        record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
+        new_level = increase_turnover(db, uid, bet)
+        db.commit()
+    finally:
+        db.close()
+    if new_level:
+        notify_level_up_async(uid, new_level)
+    db = connect()
+    try:
+        return jsonify(ok=True, room=hilo_room_payload(db, uid, n, phase, now), user=profile(), new_level=new_level)
+    finally:
+        db.close()
 
 
 @app.get('/api/hilo/state')

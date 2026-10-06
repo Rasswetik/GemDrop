@@ -915,6 +915,14 @@ def auth():
     return jsonify(ok=True, user=profile())
 
 
+@app.post('/api/logout')
+def logout():
+    session.clear()
+    response = jsonify(ok=True)
+    response.delete_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'), path='/')
+    return response
+
+
 def web_login_hash(code):
     return hmac.new(app.secret_key.encode(), code.encode(), hashlib.sha256).hexdigest()
 

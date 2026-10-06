@@ -11752,9 +11752,16 @@ def admin_create_promocode():
 @admin_required
 def admin_promo_polls():
     notices=[]
+    now=datetime.now(timezone.utc)
     with connect() as db:
-        due=db.execute("SELECT id FROM promo_polls WHERE active=1 AND expires_at IS NOT NULL AND expires_at<=CURRENT_TIMESTAMP").fetchall()
-        for row in due:
+        # expires_at is intentionally stored as TEXT for SQLite/PostgreSQL compatibility.
+        # Do not compare it directly with CURRENT_TIMESTAMP in PostgreSQL: TEXT <= TIMESTAMPTZ
+        # raises UndefinedFunction. Parse the ISO value in Python instead.
+        active_rows=db.execute("SELECT id,expires_at FROM promo_polls WHERE active=1 AND expires_at IS NOT NULL").fetchall()
+        for row in active_rows:
+            expiry=parse_datetime_utc(row['expires_at'])
+            if not expiry or expiry>now:
+                continue
             summary=_promo_poll_close(db,row['id'],'expired')
             if summary:notices.append(summary)
         rows=db.execute('SELECT id FROM promo_polls ORDER BY created_at DESC LIMIT 100').fetchall()

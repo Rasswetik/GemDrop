@@ -252,6 +252,30 @@ def _initialize_schema():
         );
         CREATE INDEX IF NOT EXISTS arena_bets_round ON arena_bets(round_id, amount DESC);
         CREATE INDEX IF NOT EXISTS arena_bets_user ON arena_bets(user_id, round_id DESC);
+        CREATE TABLE IF NOT EXISTS hilo_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            bet INTEGER NOT NULL,
+            bet_type TEXT NOT NULL DEFAULT 'ton',
+            bet_inventory_id INTEGER,
+            bet_gift_id TEXT NOT NULL DEFAULT '',
+            bet_gift_name TEXT NOT NULL DEFAULT '',
+            bet_gift_image TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'active',
+            cur_rank INTEGER NOT NULL,
+            card_name TEXT NOT NULL DEFAULT '',
+            card_image TEXT NOT NULL DEFAULT '',
+            steps INTEGER NOT NULL DEFAULT 0,
+            mult_micro INTEGER NOT NULL DEFAULT 1000000,
+            history TEXT NOT NULL DEFAULT '[]',
+            payout INTEGER NOT NULL DEFAULT 0,
+            prize_name TEXT NOT NULL DEFAULT '',
+            prize_image TEXT NOT NULL DEFAULT '',
+            prize_price INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS hilo_games_user ON hilo_games(user_id, id DESC);
         ''')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS app_documents (
@@ -1655,7 +1679,7 @@ def enforce_available_modes():
     uid = session.get('uid')
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/transfers/send', '/api/deposit', '/api/stars'
+            '/api/transfers/send', '/api/deposit', '/api/stars', '/api/hilo/'
         )
         if any(path.startswith(prefix) for prefix in real_money_prefixes):
             return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
@@ -1671,10 +1695,14 @@ def enforce_available_modes():
     # Per-game switch from "Управление играми": on / off / admins only.
     # Finishing an already started round (open/cashout) always stays possible.
     game_key = ('arena' if path.startswith('/api/arena/') else
+                'hilo' if path.startswith('/api/hilo/') else
                 'crash' if path.startswith('/api/crash/') else
                 'upgrade' if path.startswith('/api/upgrade/') else
                 'mines' if path.startswith('/api/game/') else None)
-    if game_key and path not in ('/api/game/open', '/api/game/cashout') and not game_available(game_key):
+    # A Hi-Lo game that is already running can always be finished or cashed out.
+    finishing = ('/api/game/open', '/api/game/cashout', '/api/hilo/state', '/api/hilo/guess',
+                 '/api/hilo/cashout', '/api/hilo/prize')
+    if game_key and path not in finishing and not game_available(game_key):
         return error('Игра временно недоступна.', 403)
 
 
@@ -5701,6 +5729,11 @@ PUBLIC_BALANCE_KINDS = {
     'crash_gift_bet': 'Ставка подарком в Crash',
     'crash_gift_lost': 'Подарок проигран в Crash',
     'crash_gift_win': 'Подарок из Crash',
+    'hilo_bet': 'Ставка Hi-Lo',
+    'hilo_win': 'Выигрыш Hi-Lo',
+    'hilo_gift_bet': 'Ставка подарком в Hi-Lo',
+    'hilo_gift_win': 'Подарок из Hi-Lo',
+    'hilo_gift_lost': 'Подарок проигран в Hi-Lo',
     'game_win_ton': 'Выигрыш Mines',
     'gift_win': 'Подарок из Mines',
     'gift_bet': 'Ставка подарком',
@@ -7634,13 +7667,13 @@ def loader_catalog():
 
 
 # ======================= Game switches (on / off / admins only) =======================
-GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena')
-GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off'}
+GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off'}
 
 
 GAME_BADGES = ('new', 'hot', 'top', 'beta', 'soon')
-GAME_LAYOUT_DEFAULT_ORDER = ('arena', 'mines', 'upgrade', 'crash')
-GAME_LAYOUT_DEFAULT_BADGES = {'arena': 'new'}
+GAME_LAYOUT_DEFAULT_ORDER = ('hilo', 'arena', 'mines', 'upgrade', 'crash')
+GAME_LAYOUT_DEFAULT_BADGES = {'hilo': 'new', 'arena': 'new'}
 
 
 def game_layout():
@@ -8747,6 +8780,324 @@ def crash_cashout():
                        state=crash_state_payload(db, uid, crash_ms()), user=profile())
     finally:
         db.close()
+
+
+# ================================== Hi-Lo ==================================
+# Cards are Telegram gifts with a rank 1..13. Guess whether the next card is higher or lower;
+# equal ranks lose. Every correct guess multiplies the pot by RTP / P(win); cash out at any time
+# after the first correct guess. The next card is drawn on the server only when the guess arrives.
+HILO_RANKS = 13
+HILO_MICRO = 1000000
+HILO_RTP_DEFAULT = 0.97
+HILO_MIN_STEP_MICRO = 1010000            # one correct guess never pays less than x1.01
+HILO_MAX_MULT_MICRO = 500 * HILO_MICRO   # automatic cash-out at x500 ...
+HILO_MAX_PAYOUT_CENTS = 300000           # ... or at 3000 TON, whichever comes first
+
+
+def hilo_rtp():
+    try:
+        doc = read_document('game_settings') or {}
+        value = float(doc.get('hilo_rtp', HILO_RTP_DEFAULT))
+    except (TypeError, ValueError, OSError, json.JSONDecodeError):
+        value = HILO_RTP_DEFAULT
+    return min(0.999, max(0.90, value))
+
+
+def hilo_wins(rank, direction):
+    """How many of the 13 ranks win the guess (a tie always loses)."""
+    return (HILO_RANKS - rank) if direction == 'hi' else (rank - 1)
+
+
+def hilo_step_micro(rank, direction):
+    wins = hilo_wins(rank, direction)
+    if wins <= 0:
+        return 0
+    return max(HILO_MIN_STEP_MICRO, int(hilo_rtp() * HILO_RANKS * HILO_MICRO / wins))
+
+
+def hilo_pick_card():
+    rank = 1 + secrets.randbelow(HILO_RANKS)
+    name = image = ''
+    try:
+        pool = [g for g in read_catalog()['gifts'] if g.get('name') and safe_image(g.get('image_url'))]
+    except (OSError, ValueError, KeyError, TypeError):
+        pool = []
+    if pool:
+        gift = pool[secrets.randbelow(len(pool))]
+        name, image = str(gift['name'])[:140], safe_image(gift.get('image_url'))
+    return rank, name, image
+
+
+def hilo_history(row):
+    try:
+        data = json.loads(row['history'] or '[]')
+    except (TypeError, ValueError):
+        data = []
+    return data if isinstance(data, list) else []
+
+
+def hilo_game_view(row):
+    if not row:
+        return None
+    is_gift = (row['bet_type'] or 'ton') == 'gift'
+    rank = int(row['cur_rank'])
+    bet = int(row['bet'])
+    mult_micro = int(row['mult_micro'])
+    options = {}
+    if row['state'] == 'active':
+        for direction in ('hi', 'lo'):
+            wins = hilo_wins(rank, direction)
+            step = hilo_step_micro(rank, direction)
+            options[direction] = dict(wins=wins, chance=round(wins * 100 / HILO_RANKS, 1), x=step / HILO_MICRO,
+                                      payout=(bet * (mult_micro * step // HILO_MICRO) // HILO_MICRO) / 100 if step else 0)
+    prize = None
+    if row['prize_name']:
+        prize = crash_gift_view(row['prize_name'], row['prize_image'], row['prize_price'])
+    return dict(id=row['id'], state=row['state'], bet=bet / 100, bet_type='gift' if is_gift else 'ton',
+                bet_gift=crash_gift_view(row['bet_gift_name'], row['bet_gift_image'], bet) if is_gift else None,
+                rank=rank, card=crash_gift_view(row['card_name'], row['card_image'], 0), steps=int(row['steps']),
+                mult=mult_micro / HILO_MICRO, potential=(bet * mult_micro // HILO_MICRO) / 100,
+                can_cashout=row['state'] == 'active' and int(row['steps']) >= 1,
+                history=hilo_history(row)[-12:], payout=int(row['payout'] or 0) / 100, prize=prize, options=options)
+
+
+def hilo_state_payload(db, uid):
+    row = db.execute('SELECT * FROM hilo_games WHERE user_id=? ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
+    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+    return dict(game=hilo_game_view(row), ranks=HILO_RANKS, rtp=hilo_rtp(),
+                min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
+                min_nft=crash_min_prize_cents() / 100, available=game_available('hilo'),
+                balance=(me['balance'] / 100) if me else 0)
+
+
+def hilo_settle_cashout(db, uid, game, want_gift):
+    """Caller owns the transaction. Pays the game out; raises ValueError with a user-facing message."""
+    bet, mult = int(game['bet']), int(game['mult_micro'])
+    payout = bet * mult // HILO_MICRO
+    prize_info, remainder = None, 0
+    if want_gift:
+        prize_info = crash_prize_preview(payout)
+        if not prize_info:
+            raise ValueError('Сумма ещё ниже самого дешёвого подарка — заберите TON.')
+        remainder = max(0, payout - prize_info['price_cents'])
+        moved = db.execute("""UPDATE hilo_games SET state='cashed',payout=?,prize_name=?,prize_image=?,prize_price=?,
+                              finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'""",
+                           (payout, prize_info['name'][:140], prize_info['image_url'], prize_info['price_cents'], game['id']))
+    else:
+        moved = db.execute("UPDATE hilo_games SET state='cashed',payout=?,finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'",
+                           (payout, game['id']))
+    if not moved.rowcount:
+        raise ValueError('Игра уже завершена.')
+    label = f'Hi-Lo x{mult / HILO_MICRO:.2f}'
+    prize = None
+    if prize_info:
+        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
+                      VALUES(?,?,?,?,?,'game',?)""",
+                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id']))
+        if remainder:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, uid))
+            record_transaction(db, uid, 'hilo_win', remainder, 'hilo_game', game['id'],
+                               f'{label}: остаток после подарка {prize_info["name"]}')
+        record_transaction(db, uid, 'hilo_gift_win', 0, 'hilo_game', game['id'], f'{prize_info["name"]} · {label}')
+        prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
+    else:
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+        record_transaction(db, uid, 'hilo_win', payout, 'hilo_game', game['id'], label)
+    return payout, prize, remainder
+
+
+def hilo_lock_user(db, uid):
+    if DATABASE_URL:
+        db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
+
+
+@app.get('/api/hilo/state')
+@login_required
+def hilo_state():
+    db = connect()
+    try:
+        return jsonify(hilo_state_payload(db, session['uid']))
+    finally:
+        db.close()
+
+
+@app.get('/api/hilo/prize')
+@login_required
+def hilo_prize():
+    try:
+        amount = int(round(float(request.args.get('amount', '0')) * 100))
+    except (TypeError, ValueError):
+        return error('Неверная сумма.')
+    return jsonify(prize=crash_prize_preview(max(0, amount)), min_nft=crash_min_prize_cents() / 100)
+
+
+@app.post('/api/hilo/start')
+@login_required
+def hilo_start():
+    data = request.get_json(silent=True) or {}
+    inventory_id = data.get('inventory_id')
+    try:
+        inventory_id = int(inventory_id) if inventory_id not in (None, '') else None
+    except (TypeError, ValueError):
+        return error('Некорректный подарок для ставки.')
+    bet = 0
+    if inventory_id is None:
+        try:
+            bet = parse_amount(data.get('bet'))
+        except (ValueError, InvalidOperation, TypeError):
+            return error('Укажите корректную ставку.')
+        if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+            return error('Ставка от 0.10 до 300 TON.')
+    uid = session['uid']
+    rank, card_name, card_image = hilo_pick_card()
+    db = connect()
+    new_level = None
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        if db.execute("SELECT 1 FROM hilo_games WHERE user_id=? AND state='active'", (uid,)).fetchone():
+            db.rollback()
+            return error('Игра уже идёт. Завершите её или заберите выигрыш.', 409)
+        if inventory_id is not None:
+            purge_expired_inventory(db, uid)
+            lock = ' FOR UPDATE' if DATABASE_URL else ''
+            item = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?' + lock, (inventory_id, uid)).fetchone()
+            if not item:
+                db.rollback()
+                return error('Подарок не найден в инвентаре.', 404)
+            if item['promo_locked']:
+                db.rollback()
+                return error('Отыгрышные подарки в Hi-Lo недоступны.')
+            bet = int(item['floor_price'] or 0)
+            if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+                db.rollback()
+                return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
+            xp_allowed = gift_counts_for_xp(item)
+            if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
+                db.rollback()
+                return error('Подарок уже используется.', 409)
+            cursor = db.execute("""INSERT INTO hilo_games(user_id,bet,bet_type,bet_inventory_id,bet_gift_id,bet_gift_name,
+                                   bet_gift_image,cur_rank,card_name,card_image,history)
+                                   VALUES(?,?,'gift',?,?,?,?,?,?,?,?)""",
+                                (uid, bet, inventory_id, str(item['gift_id'] or ''), str(item['gift_name'] or '')[:140],
+                                 str(item['image_url'] or ''), rank, card_name, card_image,
+                                 json.dumps([dict(r=rank, rel=None)])))
+            record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_game', cursor.lastrowid, str(item['gift_name'] or '')[:140])
+            if xp_allowed:
+                new_level = increase_turnover(db, uid, bet)
+        else:
+            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+                db.rollback()
+                return error('Недостаточно средств.')
+            cursor = db.execute("""INSERT INTO hilo_games(user_id,bet,cur_rank,card_name,card_image,history)
+                                   VALUES(?,?,?,?,?,?)""",
+                                (uid, bet, rank, card_name, card_image, json.dumps([dict(r=rank, rel=None)])))
+            record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_game', cursor.lastrowid, 'Hi-Lo')
+            new_level = increase_turnover(db, uid, bet)
+        db.commit()
+    finally:
+        db.close()
+    if new_level:
+        notify_level_up_async(uid, new_level)
+    db = connect()
+    try:
+        return jsonify(ok=True, state=hilo_state_payload(db, uid), user=profile(), new_level=new_level)
+    finally:
+        db.close()
+
+
+@app.post('/api/hilo/guess')
+@login_required
+def hilo_guess():
+    data = request.get_json(silent=True) or {}
+    direction = data.get('direction')
+    if direction not in ('hi', 'lo'):
+        return error('Выберите Hi или Lo.')
+    uid = session['uid']
+    new_rank, card_name, card_image = hilo_pick_card()
+    result = {}
+    settled = None
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        game = db.execute("SELECT * FROM hilo_games WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+        if not game:
+            db.rollback()
+            return error('Нет активной игры.', 409)
+        rank = int(game['cur_rank'])
+        step = hilo_step_micro(rank, direction)
+        if not step:
+            db.rollback()
+            return error('С этой карты так ставить нельзя — выберите другое направление.', 409)
+        won = new_rank > rank if direction == 'hi' else new_rank < rank
+        rel = 'up' if new_rank > rank else 'down' if new_rank < rank else 'eq'
+        history = hilo_history(game) + [dict(r=new_rank, rel=rel)]
+        result = dict(rank=new_rank, relation=rel, win=won, card=crash_gift_view(card_name, card_image, 0))
+        if won:
+            mult = int(game['mult_micro']) * step // HILO_MICRO
+            moved = db.execute("""UPDATE hilo_games SET cur_rank=?,card_name=?,card_image=?,steps=steps+1,mult_micro=?,history=?
+                                  WHERE id=? AND state='active'""",
+                               (new_rank, card_name, card_image, mult, json.dumps(history[-40:]), game['id']))
+            if not moved.rowcount:
+                db.rollback()
+                return error('Игра уже завершена.', 409)
+            if mult >= HILO_MAX_MULT_MICRO or int(game['bet']) * mult // HILO_MICRO >= HILO_MAX_PAYOUT_CENTS:
+                fresh = db.execute('SELECT * FROM hilo_games WHERE id=?', (game['id'],)).fetchone()
+                payout, prize, remainder = hilo_settle_cashout(db, uid, fresh, False)
+                settled = dict(payout=payout / 100, prize=prize, remainder=remainder / 100, auto=True)
+        else:
+            moved = db.execute("""UPDATE hilo_games SET state='lost',cur_rank=?,card_name=?,card_image=?,history=?,
+                                  finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'""",
+                               (new_rank, card_name, card_image, json.dumps(history[-40:]), game['id']))
+            if not moved.rowcount:
+                db.rollback()
+                return error('Игра уже завершена.', 409)
+            if (game['bet_type'] or 'ton') == 'gift':
+                record_transaction(db, uid, 'hilo_gift_lost', 0, 'hilo_game', game['id'], str(game['bet_gift_name'] or '')[:140])
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return error(str(exc), 409)
+    finally:
+        db.close()
+    db = connect()
+    try:
+        return jsonify(ok=True, result=result, settled=settled, state=hilo_state_payload(db, uid), user=profile())
+    finally:
+        db.close()
+
+
+@app.post('/api/hilo/cashout')
+@login_required
+def hilo_cashout():
+    uid = session['uid']
+    want_gift = bool((request.get_json(silent=True) or {}).get('gift'))
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        game = db.execute("SELECT * FROM hilo_games WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+        if not game:
+            db.rollback()
+            return error('Нет активной игры.', 409)
+        if int(game['steps']) < 1:
+            db.rollback()
+            return error('Заберите выигрыш после первого верного ответа.', 409)
+        payout, prize, remainder = hilo_settle_cashout(db, uid, game, want_gift)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        return error(str(exc), 409)
+    finally:
+        db.close()
+    db = connect()
+    try:
+        return jsonify(ok=True, multiplier=int(game['mult_micro']) / HILO_MICRO, payout=payout / 100, prize=prize,
+                       remainder=remainder / 100, state=hilo_state_payload(db, uid), user=profile())
+    finally:
+        db.close()
+
 
 
 @app.get('/api/ui/settings')
@@ -12232,7 +12583,7 @@ def admin_transactions():
 @admin_required
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
 
 
@@ -12246,6 +12597,7 @@ def admin_rtp_set():
         upgrade_percent = float(data.get('upgrade_rtp',upgrade_rtp_basis_points()/100))
         loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
         crash_percent = float(data.get('crash_rtp', crash_rtp()*100))
+        hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
     if not math.isfinite(percent) or not 97 <= percent <= 99.9:
@@ -12258,16 +12610,19 @@ def admin_rtp_set():
         return error('RTP апгрейда должен быть от 1 до 100%.')
     if not math.isfinite(crash_percent) or not 80 <= crash_percent <= 99.9:
         return error('RTP Crash должен быть от 80 до 99.9%.')
+    if not math.isfinite(hilo_percent) or not 90 <= hilo_percent <= 99.9:
+        return error('RTP Hi-Lo должен быть от 90 до 99.9%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка RTP от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
                                     'upgrade_rtp_bp':round(upgrade_percent*100),
                                     'loss_rtp_max_boost':round(loss_boost,2),
                                     'crash_rtp': crash_percent/100,
+                                    'hilo_rtp': hilo_percent/100,
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
 
 

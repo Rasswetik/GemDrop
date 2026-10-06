@@ -997,7 +997,8 @@ def login_required(fn):
 
 
 def admin_required(fn):
-    @wraps(fn)    def decorated(*args, **kwargs):
+    @wraps(fn)
+    def decorated(*args, **kwargs):
         user = current_user()
         if not user or user['id'] not in ADMIN_IDS:
             return error('Нет доступа.', 403)
@@ -1996,7 +1997,8 @@ def read_catalog(include_hidden=False):
 
 def repair_legacy_upgrade_wagers():
     """Restore wager gifts incorrectly changed into upgrade targets by older releases."""
-    try:catalog=read_catalog(include_hidden=True).get('gifts',[])    except (OSError,ValueError,TypeError):catalog=[]
+    try:catalog=read_catalog(include_hidden=True).get('gifts',[])
+    except (OSError,ValueError,TypeError):catalog=[]
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -2995,7 +2997,8 @@ def spin_roll(roll_id):
             ticket-=weight
         entry=roll['entries'][index]
         new_boost=entry['boost'] if entry['kind']=='boost' else 1
-        updated=db.execute('UPDATE users SET balance=balance-?,roll_boost=? WHERE id=? AND balance>=?',                           (roll['price'],new_boost,session['uid'],roll['price']))
+        updated=db.execute('UPDATE users SET balance=balance-?,roll_boost=? WHERE id=? AND balance>=?',
+                           (roll['price'],new_boost,session['uid'],roll['price']))
         if not updated.rowcount: return error('Недостаточно TON.')
         spin_id=secrets.token_hex(16)
         if entry['kind']=='gift':
@@ -3993,6 +3996,7 @@ def incoming_transfer():
     return jsonify(transfer=dict(id=row['id'],amount=row['amount']/100,
                   old_balance=row['recipient_before']/100,new_balance=(row['recipient_before']+row['amount'])/100,
                   sender=dict(name=row['name'],username=row['username'],photo_url=row['photo_url'])))
+
 
 @app.post('/api/transfers/<transfer_id>/seen')
 @login_required
@@ -4993,6 +4997,7 @@ def normalize_reward_task(data, current=None):
 def reward_task_period(task):
     return datetime.now(timezone.utc).strftime('%Y-%m-%d') if task['category'] == 'daily' else 'once'
 
+
 def reward_task_progress(db, task, user_id):
     metric = task['metric']
     if metric == 'level':
@@ -5992,7 +5997,8 @@ def public_user_profile(user_id):
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 
 
-@app.get('/api/users/<int:user_id>/balance-history')@login_required
+@app.get('/api/users/<int:user_id>/balance-history')
+@login_required
 def public_user_balance_history(user_id):
     try:
         offset = max(0, min(100000, int(request.args.get('offset', 0))))
@@ -6991,7 +6997,8 @@ def admin_add_emoji():
     if not re.fullmatch(r'[0-9]{5,30}', eid):
         return error('Введите корректный ID эмодзи.')
     try:
-        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [eid]}) or []        if not stickers:
+        stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [eid]}) or []
+        if not stickers:
             return error('Telegram не нашёл эмодзи с таким ID.')
         item = dict(id=eid, emoji=stickers[0].get('emoji') or '⭐')
         remember_emojis([item])
@@ -7990,7 +7997,8 @@ def game_layout():
 def is_admin_session():
     try:
         return int(session.get('uid') or 0) in ADMIN_IDS
-    except (TypeError, ValueError):        return False
+    except (TypeError, ValueError):
+        return False
 
 
 def game_modes():
@@ -8989,7 +8997,8 @@ def crash_state_payload(db, uid, now):
     for r in rows:
         is_gift = (r['bet_type'] or 'ton') in ('gift', 'promo_gift')
         bets.append(dict(user_id=r['user_id'], name=r['name'], photo_url=r['photo_url'], bet=r['bet'] / 100,
-                         bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',                         bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
+                         bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',
+                         bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
                          state=('active' if phase != 'crashed' and r['state'] == 'active' else r['state']),
                          cashout=(r['cashout_x100'] or 0) / 100, payout=(r['payout'] or 0) / 100,
                          prize=(crash_gift_view(r['prize_name'], r['prize_image'], r['prize_price'])
@@ -9988,7 +9997,8 @@ def save_admin_section_settings():
         for key, value in (layout.get('badges') or {}).items():
             if key not in GAME_KEYS:
                 continue
-            if value in ('', None):                continue
+            if value in ('', None):
+                continue
             if value not in GAME_BADGES:
                 return error('Значок: new, hot, top, beta или soon.')
             badges[key] = value
@@ -10987,7 +10997,8 @@ def admin_publish_post():
             if text:
                 rich_html += '\n' + rich_custom_emoji_html(text)
             payload = dict(base_payload, rich_message={'html': rich_html, 'media': media})
-            if reply_markup:                payload['reply_markup'] = reply_markup
+            if reply_markup:
+                payload['reply_markup'] = reply_markup
             transport_used = 'rich_message'
             sent = remember_sent(telegram_api('sendRichMessage', payload, files=files or None, timeout=(3, 30)))
         elif total_media == 1:
@@ -11986,7 +11997,8 @@ def creator_create_bonus():
     if kind not in ('freebet', 'promocode'):
         return error('Выберите Freebet или промокод.')
     if reward_type not in ('balance', 'wager_gift'):
-        return error('Авторам доступны TON или отыгрышный подарок.')    code = str(data.get('code') or '').strip().upper()
+        return error('Авторам доступны TON или отыгрышный подарок.')
+    code = str(data.get('code') or '').strip().upper()
     if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
         return error('Код: 3–32 символа, только A-Z, 0-9, _ и -. Можно оставить поле пустым — код сгенерируется автоматически.')
     try:
@@ -12985,7 +12997,8 @@ def _activity_upgrade(r):
         else:
             lines.append(f'Проигрыш: потеряна жизнь, осталось {int(result.get("wager_attempts_remaining") or 0)} '
                          f'из {int(result.get("wager_attempts_total") or 1)}')
-        return _ev(title='Upgrade · отыгрыш (проигрыш)', lines=lines, tone='loss', **base)    if won:
+        return _ev(title='Upgrade · отыгрыш (проигрыш)', lines=lines, tone='loss', **base)
+    if won:
         lines = [stake, goal, f'Выигран подарок: {tgt_name} ({_money(tgt_price)})']
         if from_ton:
             lines.append(f'Списано с баланса за ставку: {_money(src_price)}')
@@ -13638,16 +13651,10 @@ def relayer_settings():
     ton = ton_settings()
     api_id = str(os.environ.get('TELEGRAM_API_ID') or doc.get('api_id') or '').strip()
     api_hash = str(os.environ.get('TELEGRAM_API_HASH') or doc.get('api_hash') or '').strip()
-    # Gift delivery is the active/default flow. The TON conversion mode is kept
-    # as a mutually-exclusive fallback for later, never both at the same time.
-    delivery_mode = str(doc.get('delivery_mode') or 'inventory').strip().lower()
-    if delivery_mode not in {'inventory', 'balance'}:
-        delivery_mode = 'inventory'
     return dict(
         enabled=bool(doc.get('enabled', True)), api_id=api_id, api_hash=api_hash,
         relay_username=str(doc.get('relay_username') or ton.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay',
-        delivery_mode=delivery_mode, credit_balance=(delivery_mode == 'balance'),
-        keep_inventory=(delivery_mode == 'inventory'),
+        credit_balance=bool(doc.get('credit_balance', True)), keep_inventory=bool(doc.get('keep_inventory', True)),
     )
 
 
@@ -13733,7 +13740,7 @@ def admin_relayer_status():
     # Never return phone_code_hash or any future secret fields to the browser.
     auth = {key: auth_raw.get(key) for key in ('status','attempt_id','qr_url','updated_at') if auth_raw.get(key) not in (None,'')}
     with connect() as db: rows = db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
-    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], delivery_mode=cfg['delivery_mode'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], state=state, auth=auth,
+    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], state=state, auth=auth,
                    events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=r['image_url'],external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,status=r['status'],created_at=r['created_at'],credited_at=r['credited_at']) for r in rows])
 
 
@@ -13745,9 +13752,7 @@ def admin_relayer_settings():
     if api_id and not api_id.isdigit(): return error('API ID должен быть числом.')
     if api_hash and not re.fullmatch(r'[A-Za-z0-9]{20,80}', api_hash): return error('Проверьте API hash Telegram.')
     username = str(data.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay'
-    delivery_mode=str(data.get('delivery_mode') or 'inventory').strip().lower()
-    if delivery_mode not in {'inventory','balance'}: delivery_mode='inventory'
-    save_document('relayer_settings', dict(enabled=bool(data.get('enabled',True)),api_id=api_id,api_hash=api_hash,relay_username=username,delivery_mode=delivery_mode,updated_at=datetime.now(timezone.utc).isoformat(),admin_id=session['uid']))
+    save_document('relayer_settings', dict(enabled=bool(data.get('enabled',True)),api_id=api_id,api_hash=api_hash,relay_username=username,credit_balance=bool(data.get('credit_balance',True)),keep_inventory=bool(data.get('keep_inventory',True)),updated_at=datetime.now(timezone.utc).isoformat(),admin_id=session['uid']))
     ton_doc = read_document('ton_settings') or {}; ton_doc.update({'gifts_enabled':bool(data.get('gifts_enabled',True)),'relay_username':username,'updated_at':datetime.now(timezone.utc).isoformat(),'admin_id':session['uid']}); save_document('ton_settings',ton_doc)
     return jsonify(ok=True)
 
@@ -13884,23 +13889,8 @@ def _relayer_json(value):
     except Exception:return '{}'
 
 def _relayer_entry_info(entry):
-    gift=getattr(entry,'gift',None) or entry
-    slug=str(getattr(gift,'slug','') or getattr(entry,'slug','') or '').strip()
-    title=str(getattr(gift,'title','') or getattr(gift,'name','') or getattr(entry,'title','') or '').strip()
-    number=str(getattr(gift,'num','') or getattr(gift,'number','') or getattr(entry,'gift_num','') or getattr(entry,'num','') or '').strip()
-    slug_match=re.match(r'^(.+?)-(\\d+)$',slug) if slug else None
-    if slug_match:
-        if not number: number=slug_match.group(2)
-        if not title or title.casefold()=='telegram nft':
-            title=re.sub(r'(?<=[a-z0-9])(?=[A-Z])',' ',slug_match.group(1)).replace('_',' ').strip()
-    title=title or 'Telegram NFT'
-    gift_id=str(getattr(gift,'id','') or getattr(entry,'gift_id','') or '')
-    saved_id=str(getattr(entry,'saved_id','') or getattr(entry,'msg_id','') or getattr(entry,'id','') or '')
-    sender=_relayer_peer_user_id(getattr(entry,'from_id',None) or getattr(entry,'sender_id',None))
-    date=getattr(entry,'date',None)
-    telegram_url=('https://t.me/nft/'+slug) if slug else ''
-    key=saved_id or slug or f'{gift_id}:{sender}:{date}'
-    return dict(external_key='tg:'+str(key),sender_user_id=sender,gift_id=gift_id,gift_name=title,slug=slug,fragment_number=number,external_url=telegram_url,telegram_url=telegram_url,raw_json=_relayer_json(entry))
+    gift=getattr(entry,'gift',None) or entry; slug=str(getattr(gift,'slug','') or getattr(entry,'slug','') or ''); title=str(getattr(gift,'title','') or getattr(gift,'name','') or getattr(entry,'title','') or 'Telegram NFT'); number=str(getattr(gift,'num','') or getattr(gift,'number','') or getattr(entry,'gift_num','') or getattr(entry,'num','') or ''); gift_id=str(getattr(gift,'id','') or getattr(entry,'gift_id','') or ''); saved_id=str(getattr(entry,'saved_id','') or getattr(entry,'msg_id','') or getattr(entry,'id','') or ''); sender=_relayer_peer_user_id(getattr(entry,'from_id',None) or getattr(entry,'sender_id',None)); date=getattr(entry,'date',None); external=('https://t.me/nft/'+slug) if slug else ''; key=saved_id or slug or f'{gift_id}:{sender}:{date}'
+    return dict(external_key='tg:'+str(key),sender_user_id=sender,gift_id=gift_id,gift_name=title,slug=slug,fragment_number=number,external_url=external,raw_json=_relayer_json(entry))
 
 def _relayer_norm(value): return re.sub(r'[^a-z0-9]+','',str(value or '').casefold())
 
@@ -13932,11 +13922,7 @@ def _relayer_resolve_gift(info):
     if fragment:
         image=safe_image(fragment.get('image_url')) or image; name=str(fragment.get('gift_name') or name)
         info['fragment_number']=str(fragment.get('fragment_number') or info.get('fragment_number') or '')
-        # Never replace the public Telegram NFT link with Fragment. Fragment is
-        # used to resolve exact metadata/PNG/traits and price only.
-        info['telegram_url']=str(info.get('telegram_url') or info.get('external_url') or '')
-        info['fragment_lookup_url']=str(fragment.get('fragment_url') or '')
-        info['external_url']=info['telegram_url']
+        info['external_url']=str(fragment.get('fragment_url') or info.get('external_url') or '')
         info['fragment_model']=str(fragment.get('fragment_model') or '')
         info['fragment_backdrop']=str(fragment.get('fragment_backdrop') or '')
         info['fragment_symbol']=str(fragment.get('fragment_symbol') or '')
@@ -13967,41 +13953,20 @@ def _relayer_credit(info,baseline=False):
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'baseline',info.get('raw_json','{}'))); db.commit(); return 'baseline'
         if not user_row:
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'unmatched',info.get('raw_json','{}'))); db.commit(); return 'unmatched'
-        price=max(0,int(info.get('floor_price') or 0))
-        mode=cfg.get('delivery_mode') or 'inventory'
-        # Inventory mode does not depend on a price lookup: the actual NFT is the
-        # deposit. A missing Portal/Fragment quote must never swallow the gift.
-        if mode=='balance' and price<=0:
+        price=int(info.get('floor_price') or 0)
+        if price<=0:
             db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),0,'unpriced',info.get('raw_json','{}'))); db.commit(); return 'unpriced'
-        inventory_id=None
-        if mode=='inventory':
-            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label,deposit_mirror) VALUES(?,?,?,?,?,'gift_deposit',?,?,?,?,?,?,?,?,0)",(uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),price,info.get('external_url',''),info.get('fragment_number',''),info.get('fragment_model',''),info.get('fragment_backdrop',''),info.get('fragment_symbol',''),str(info.get('price_source') or 'Fragment / Telegram'),info.get('animation_url',''),'Пополнение подарком · NFT в инвентаре')); inventory_id=cur.lastrowid
-            record_transaction(db,uid,'gift_deposit_inventory',0,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
-            event_status='delivered'
-        else:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?',(price,uid))
-            record_transaction(db,uid,'gift_deposit',price,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
-            event_status='credited'
-        db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}'))); db.commit()
+        inventory_id=None; mirror=1 if cfg['credit_balance'] else 0
+        if cfg['keep_inventory']:
+            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label,deposit_mirror) VALUES(?,?,?,?,?,'gift_deposit',?,?,?,?,?,?,?,?,?)",(uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),price,info.get('external_url',''),info.get('fragment_number',''),info.get('fragment_model',''),info.get('fragment_backdrop',''),info.get('fragment_symbol',''),str(info.get('price_source') or 'Portal · deposit'),info.get('animation_url',''),('Пополнение подарком · стоимость уже зачислена' if mirror else 'Пополнение подарком'),mirror)); inventory_id=cur.lastrowid
+        if cfg['credit_balance']:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?',(price,uid)); record_transaction(db,uid,'gift_deposit',price,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
+        db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,'credited',info.get('raw_json','{}'))); db.commit()
     finally: db.close()
-
-    gift_name=escape(str(info.get('gift_name') or 'Telegram NFT'))
-    number=str(info.get('fragment_number') or '').strip()
-    display_name=gift_name + (f' #{escape(number)}' if number else '')
-    telegram_link=str(info.get('telegram_url') or info.get('external_url') or '')
-    if re.match(r'^https://t\\.me/nft/[A-Za-z0-9_-]+$',telegram_link,re.I):
-        gift_line=f'<a href="{escape(telegram_link, quote=True)}"><b>{display_name}</b></a>'
-    else:
-        gift_line=f'<b>{display_name}</b>'
-    if mode=='inventory':
-        text=f'🎁 <b>Ваш подарок был доставлен</b>\\n\\n{gift_line}\\nПодарок добавлен в ваш инвентарь GemDrop.'
-        if price>0: text+=f'\\nОценочная стоимость: <b>{price/100:.2f} TON</b>'
-        text+='\\n\\nНажмите на название подарка, чтобы открыть сам NFT в Telegram.'
-        markup=miniapp_markup('🎁 Открыть инвентарь','profile')
-    else:
-        text=f'✅ <b>Подарок конвертирован в баланс</b>\\n\\n{gift_line}\\nЗачислено: <b>{price/100:.2f} TON</b>'
-        markup=miniapp_markup('Открыть GemDrop','profile')
-    try: notify_user_async(uid,text,markup,'HTML')
+    link=str(info.get('external_url') or ''); number=(' #'+str(info.get('fragment_number'))) if info.get('fragment_number') else ''; text=f'🎁 <b>Пополнение подарком зачислено</b>\n\n<b>{escape(info.get("gift_name") or "Telegram NFT")}{escape(number)}</b>\nСтоимость: <b>{price/100:.2f} TON</b>'
+    if cfg['keep_inventory']: text+='\nNFT добавлен в ваш инвентарь.'+(' Его стоимость уже учтена на балансе.' if cfg['credit_balance'] else '')
+    if link:text+='\n\n'+escape(link)
+    try: notify_user_async(uid,text,miniapp_markup('Открыть GemDrop','profile'),'HTML')
     except Exception: app.logger.exception('Gift deposit notification failed')
     return 'credited'
 
@@ -15032,7 +14997,8 @@ def telegram_webhook():
             try:
                 total_amount = int(pre_checkout.get('total_amount'))
             except (TypeError, ValueError):
-                total_amount = -1            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
+                total_amount = -1
+            if re.fullmatch(r'[A-Za-z0-9]{8,40}', order_id):
                 with connect() as db:
                     order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=? AND user_id=?',
                                        (order_id, uid)).fetchone()

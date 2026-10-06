@@ -3607,7 +3607,6 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div class="panel cr-panel hl-panel">
 <div class="cr-field-head"><label for="hlBet">Ставка, TON</label><span id="hlBalance">Баланс 0.00</span></div>
 <div class="cr-bet-row"><div class="cr-bet-pair"><input id="hlBet" class="text-input" inputmode="decimal" autocomplete="off" value="1.00" aria-label="Сумма ставки"><button id="hlGiftBtn" class="cr-chip cr-gift-btn" type="button" aria-label="Ставка подарком" title="Ставка подарком"></button></div><button class="cr-chip" type="button" data-hlmul="0.5">½</button><button class="cr-chip" type="button" data-hlmul="2">×2</button><button class="cr-chip" type="button" data-hlmax="1">Макс</button></div>
-<div class="hl-prize-note"><span class="hl-gico" id="hlNoteIco"></span><span>Выигрыш приходит <b>подарком Telegram</b>, остаток — на баланс</span></div>
 <div id="hlNote" class="cr-note hidden" aria-live="polite"></div>
 </div>
 <div class="panel hl-bets-panel"><div class="panel-head"><h2>Ставки раунда</h2><span id="hlBetsCount">0</span></div><div id="hlBets" class="hl-bets"><div class="empty">Пока нет ставок</div></div></div>
@@ -3859,7 +3858,16 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <button id="topRewardModalClose" class="primary top-reward-close" type="button">Закрыть</button>
 </div></div><div id="rollPoolModal" class="modal hidden"><div class="modal-card roll-pool-card"><div class="roll-pool-head"><div><h2>Призовой пул</h2><p id="rollPoolDescription">Содержимое Roll и шансы выпадения</p></div><button id="rollPoolX" class="roll-pool-x" type="button" aria-label="Закрыть">×</button></div><div id="rollPoolGrid" class="roll-pool-grid"></div><div class="roll-pool-foot"><button id="rollPoolClose" class="primary" type="button">Готово</button></div></div></div><div id="rollWinModal" class="modal hidden"><div class="modal-card roll-win-card"><h2 id="rollWinHeading">Результат</h2><img id="rollWinImage" class="hidden" alt=""><p id="rollWinName" class="modal-name"></p><button id="rollWinClose" class="primary">Продолжить</button></div></div>
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
-<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules"><h2>Hi-Lo</h2><p>Карты — подарки Telegram, ранг от 1 до 15: чем выше ранг, тем дороже подарок (ранг 1 — около 3 TON). Раунд общий и идёт каждые 15 секунд: 10 секунд приём ставок, затем открывается следующая карта.</p><p>Угадайте, будет ли следующая карта <b>выше (Hi)</b> или <b>ниже (Lo)</b>. Одинаковый ранг — проигрыш.</p><p>Если выпала карта <b>15</b>, выше быть уже не может — ставка на Hi в этом раунде засчитывается как <b>x1.00</b> (ставка возвращается). Так же и ставка на Lo при карте 1.</p><p>Выигрыш в TON приходит <b>подарком NFT</b>: вы получаете подарок, ближайший по цене к выигрышу (не дороже), а остаток суммы зачисляется на баланс. Если выигрыш меньше самого дешёвого подарка, придёт TON. Возврат x1.00 всегда приходит в TON.</p><p>Выигрыш = ставка × множитель кнопки: чем меньше шанс, тем он больше.</p><p>Выплата приходит на баланс автоматически после раунда. Если вы ставили подарком и выиграли, подарок возвращается в инвентарь, а выигрыш в TON начисляется сверху.</p><p id="hlRulesRtp" class="hl-rules-sub" style="display:none"></p><button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
+<div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules"><div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">Угадайте, будет ли следующая карта выше или ниже</p></div>
+<div class="hl-rl-list">
+<div class="hl-rl-item"><i>1</i><div><b>Карты</b><span>Карты — подарки Telegram с рангом от 1 до 15. Чем выше ранг, тем дороже подарок.</span></div></div>
+<div class="hl-rl-item"><i>2</i><div><b>Раунд — 15 секунд</b><span>Общий для всех игроков: 10 секунд идёт приём ставок, затем открывается следующая карта.</span></div></div>
+<div class="hl-rl-item"><i>3</i><div><b>Ваш выбор</b><span><em class="up">▲ Hi</em> — карта выше, <em class="down">▼ Lo</em> — ниже. Новая карта никогда не равна текущей.</span></div></div>
+<div class="hl-rl-item"><i>4</i><div><b>Выигрыш</b><span>Ставка × икс на кнопке: чем меньше шанс, тем икс больше. Выигрыш приходит подарком, ближайшим по цене (не дороже), а разница зачисляется на баланс.</span></div></div>
+</div>
+<div class="hl-rl-ex"><b>Пример</b><span>Ставка подарком на 8 TON, икс 1.5 → выигрыш 12 TON: вы получаете подарок до 12 TON и компенсацию разницы. Подарок, которым вы ставили, забирается.</span></div>
+<div class="hl-rl-note"><b>Крайние карты.</b> На карте 15 выше быть не может, а на карте 1 — ниже: такая ставка возвращается (x1.00). Если выигрыш дешевле самого дешёвого подарка, он придёт в TON.</div>
+<p id="hlRulesRtp" class="hl-rules-sub" style="display:none"></p><button id="hlInfoClose" class="primary" type="button">Понятно</button></div></div>
 <div id="crGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="crGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="crGiftGrid" class="cr-gift-grid"></div><div id="crGiftFoot" class="cr-gift-foot hidden"><button id="crGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="crGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="arGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Ставка подарком</h2><p>Стоимость подарка идёт в банк арены</p></div><button id="arGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="arGiftGrid" class="cr-gift-grid"></div><div id="arGiftFoot" class="cr-gift-foot hidden"><button id="arGiftConfirm" class="primary" type="button">Выбрать</button></div><button id="arGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="giftBetModal" class="modal hidden"><div class="modal-card"><h2>Ставка подарком</h2><div class="gift-bet-ton"><button id="useTonBet">Использовать TON</button></div><div id="giftBetList" class="gift-bet-list"></div><button id="closeGiftBet" class="modal-close-small">Закрыть</button></div></div>
@@ -6292,4 +6300,119 @@ body.studio #crashPage .cr-action.cashout{background:linear-gradient(115deg,#ffd
 #hiloPage .hl-q .hl-gico{width:44px;height:44px}
 .gc-hl-em .hl-gico{width:1em;height:1em}
 </style>
+<style id="hilo-anim-v3">
+#hlInfoModal .hl-rules{max-width:400px;max-height:88vh;overflow:auto;padding:22px 18px 18px}
+.hl-rl-head{text-align:center;margin-bottom:14px}.hl-rl-head h2{margin:8px 0 4px;font-size:22px}
+.hl-rl-badge{display:inline-block;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#1c1f35;background:linear-gradient(115deg,#ffd978,#feca58)}
+#hlInfoModal .hl-rl-lead{margin:0;color:#8f9ab8;font-size:13px}
+.hl-rl-list{display:grid;gap:8px}
+.hl-rl-item{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;padding:11px 12px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}
+.hl-rl-item>i{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-style:normal;font-weight:900;font-size:14px;color:#fff;background:linear-gradient(145deg,#6c5ce7,#3b82f6)}
+.hl-rl-item b{display:block;font-size:14px;margin-bottom:2px;color:#fff}.hl-rl-item span{display:block;font-size:13px;line-height:1.4;color:#b9c1da}
+.hl-rl-item em{font-style:normal;font-weight:900}.hl-rl-item em.up{color:#3ddc84}.hl-rl-item em.down{color:#ff6f8a}
+.hl-rl-ex{margin:10px 0 0;padding:11px 12px;border-radius:14px;background:rgba(255,210,90,.08);border:1px solid rgba(255,210,90,.28)}
+.hl-rl-ex b{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#ffd25a;margin-bottom:3px}.hl-rl-ex span{font-size:13px;line-height:1.4;color:#e6dcc0}
+.hl-rl-note{margin:10px 2px 14px;font-size:12px;line-height:1.45;color:#8f9ab8}.hl-rl-note b{color:#cfd5e8}
+#hiloPage .hl-stage{position:relative;perspective:1000px;animation:hlFloat 5.5s ease-in-out infinite}
+#hiloPage .hl-aura{position:absolute;left:8%;right:8%;top:6%;bottom:6%;border-radius:40px;background:radial-gradient(circle at 50% 55%,hsl(var(--h,262) 80% 55%/.45),transparent 68%);filter:blur(26px);opacity:.75;transition:background .5s;animation:hlAura 3.2s ease-in-out infinite;pointer-events:none;z-index:0}
+@keyframes hlFloat{50%{transform:translateY(-4px)}}
+@keyframes hlAura{50%{opacity:.4;transform:scale(1.06)}}
+#hiloPage .hl-card{transform-style:preserve-3d}
+#hiloPage .hl-shine{position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.5) 50%,transparent 65%);transform:translateX(-130%);z-index:3}
+#hiloPage .hl-shine.go{animation:hlShine .9s ease-out}
+@keyframes hlShine{to{transform:translateX(130%)}}
+#hiloPage .hl-stage.tense .hl-card{animation:hlTense .28s linear infinite}
+@keyframes hlTense{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px) rotate(-.3deg)}75%{transform:translateX(1.5px) rotate(.3deg)}}
+#hiloPage .hl-card.win{animation:hlWinRing 1.1s ease-out 2}
+#hiloPage .hl-card.lose{animation:hlLoseFlash .7s ease-out 1}
+@keyframes hlWinRing{0%{box-shadow:0 0 0 3px #3ddc84,0 0 0 0 #3ddc8499,0 18px 50px #3ddc8466}100%{box-shadow:0 0 0 3px #3ddc84,0 0 0 30px #3ddc8400,0 18px 50px #3ddc8466}}
+@keyframes hlLoseFlash{0%{filter:brightness(1.7) saturate(1.5)}100%{filter:none}}
+#hiloPage .hl-rv{position:absolute;left:50%;top:44%;z-index:5;padding:10px 20px;border-radius:16px;font-size:22px;font-weight:900;letter-spacing:.04em;white-space:nowrap;background:#0b0d1ee6;border:2px solid currentColor;pointer-events:none;transform:translate(-50%,-50%) rotate(-5deg);animation:hlRv .55s cubic-bezier(.2,1.5,.35,1) both}
+#hiloPage .hl-rv.up{color:#5ee28f}#hiloPage .hl-rv.down{color:#ff6f8a}#hiloPage .hl-rv.eq{color:#ffd25a}
+@keyframes hlRv{from{opacity:0;transform:translate(-50%,-50%) rotate(-5deg) scale(.3)}to{opacity:1;transform:translate(-50%,-50%) rotate(-5deg) scale(1)}}
+#hiloPage .hl-fx{position:absolute;inset:0;pointer-events:none;z-index:6;overflow:visible}
+#hiloPage .hl-fx i{position:absolute;left:50%;top:46%;width:9px;height:14px;border-radius:2px;will-change:transform,opacity}
+#hiloPage #hlTimer.urgent{color:#ff7a59;animation:hlTick 1s ease-in-out infinite}
+@keyframes hlTick{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+#hiloPage .hl-bar i.urgent{background:linear-gradient(90deg,#ff7a59,#ff4d7d);box-shadow:0 0 12px #ff4d7d99}
+#hiloPage .hl-bar i.reveal{background-size:200% 100%;animation:hlBarRun 1.1s linear infinite}
+@keyframes hlBarRun{to{background-position:-200% 0}}
+#hiloPage .hl-chip.new{animation:hlChipIn .5s cubic-bezier(.2,1.4,.3,1) both}
+@keyframes hlChipIn{from{opacity:0;transform:translateX(24px) scale(.6) rotate(8deg)}to{opacity:1;transform:none}}
+#hiloPage .hl-bet-row.hl-new{animation:hlRowIn .35s ease-out both}
+@keyframes hlRowIn{from{opacity:0;transform:translateX(-14px);background:rgba(255,255,255,.14)}to{opacity:1;transform:none}}
+#hiloPage .hl-btn:not(:disabled) .hl-lbl i{display:inline-block;animation:hlArrow 1.3s ease-in-out infinite}
+#hiloPage .hl-btn.lo:not(:disabled) .hl-lbl i{animation-delay:-.65s}
+@keyframes hlArrow{50%{transform:translateY(-3px)}}
+#hiloPage .hl-btn.hi:not(:disabled):active,#hiloPage .hl-btn.lo:not(:disabled):active{transform:scale(.95)}
+#hiloPage .hl-btn.picked{animation:hlPick 1.4s ease-in-out infinite}
+@keyframes hlPick{50%{box-shadow:0 0 0 3px #fff,0 0 30px rgba(255,255,255,.55)}}
+#hiloPage .hl-result.won{position:relative;overflow:hidden}
+#hiloPage .hl-result.won:after{content:'';position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.22) 50%,transparent 65%);transform:translateX(-130%);animation:hlShine 1.1s .25s ease-out forwards;pointer-events:none}
+#hiloPage .hl-result.won.gift .hl-res-ic{animation:hlGiftDrop .8s cubic-bezier(.2,1.6,.35,1) .1s both}
+@keyframes hlGiftDrop{0%{transform:translateY(-26px) scale(.4) rotate(-25deg);opacity:0}100%{transform:none;opacity:1}}
+#hiloPage .hl-res-am{text-align:right;line-height:1.15}#hiloPage .hl-res-am small{display:block;font-size:10px;font-weight:700;color:var(--muted)}
+@media(prefers-reduced-motion:reduce){#hiloPage .hl-stage,#hiloPage .hl-aura,#hiloPage .hl-stage.tense .hl-card,#hiloPage .hl-card.win,#hiloPage .hl-card.lose,#hiloPage .hl-chip.new,#hiloPage .hl-bet-row.hl-new,#hiloPage .hl-btn i,#hiloPage .hl-btn.picked,#hiloPage #hlTimer.urgent,#hiloPage .hl-bar i.reveal{animation:none!important}#hiloPage .hl-result.won:after{display:none}}
+</style>
+<script id="hilo-anim-v3-js">
+(function(){
+const calm=()=>!!(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches);
+const cut=v=>Math.floor(v*100+1e-6)/100;
+const stageEl=()=>document.querySelector('#hiloPage .hl-stage');
+const hap=k=>{try{tg?.HapticFeedback?.notificationOccurred?.(k)}catch(e){}};
+function ensureFx(){let st=stageEl(),card=$('hlCard');if(!st||!card)return;if(!card.querySelector('.hl-shine')){let sh=document.createElement('span');sh.className='hl-shine';card.append(sh)}if(!st.querySelector('.hl-aura')){let au=document.createElement('div');au.className='hl-aura';st.prepend(au)}if(!st.querySelector('.hl-fx')){let fx=document.createElement('div');fx.className='hl-fx';st.append(fx)}}
+function shine(){let sh=document.querySelector('#hlCard .hl-shine');if(!sh||calm())return;sh.classList.remove('go');void sh.offsetWidth;sh.classList.add('go')}
+function clearOutcome(){let card=$('hlCard');card?.classList.remove('win','lose');stageEl()?.querySelectorAll('.hl-rv').forEach(n=>n.remove())}
+function burst(){let fx=stageEl()?.querySelector('.hl-fx');if(!fx||calm())return;let cols=['#3ddc84','#ffd25a','#7cf6cd','#8fb4ff','#ff9ad5','#fff'];
+ for(let k=0;k<26;k++){let p=document.createElement('i');p.style.background=cols[k%cols.length];fx.append(p);let a=Math.random()*Math.PI*2,d=70+Math.random()*130,dx=Math.cos(a)*d,dy=Math.sin(a)*d-50,rot=(Math.random()-.5)*900;
+  p.animate([{transform:'translate(-50%,-50%) scale(1)',opacity:1},{transform:`translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px)) rotate(${rot}deg) scale(1)`,opacity:1,offset:.55},{transform:`translate(calc(-50% + ${dx*1.1}px),calc(-50% + ${dy+90}px)) rotate(${rot*1.3}deg) scale(.6)`,opacity:0}],{duration:1000+Math.random()*500,easing:'cubic-bezier(.2,.7,.3,1)',fill:'forwards'}).onfinish=()=>p.remove()}}
+function shake(){let card=$('hlCard');if(!card||!card.animate||calm())return;card.animate([{transform:'translateX(0)'},{transform:'translateX(-12px) rotate(-1.5deg)'},{transform:'translateX(10px) rotate(1deg)'},{transform:'translateX(-7px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:420,easing:'ease-out'})}
+function relOf(s){return s.result.rank>s.card.rank?'up':s.result.rank<s.card.rank?'down':'eq'}
+function outcome(silent){let s=HL.st;if(!s||!s.result||hlPhase()<s.bet_ms)return;let st=stageEl(),card=$('hlCard');if(!st||!card||HL.outRound===s.round)return;HL.outRound=s.round;
+ let rel=relOf(s),b=document.createElement('div');b.className='hl-rv '+rel;b.textContent=rel==='up'?'▲ ВЫШЕ':rel==='down'?'▼ НИЖЕ':'= РАВНО';st.append(b);
+ let mine=hlMine();if(!mine)return;let push=!!s.odds?.[mine.direction]?.push,won=push||(rel!=='eq'&&(mine.direction==='hi'?rel==='up':rel==='down'));
+ card.classList.add(won?'win':'lose');if(silent||HL.fxRound===s.round)return;HL.fxRound=s.round;
+ if(won){burst();hap('success')}else{shake();hap('error')}}
+/* переворот карты: старая уходит ребром, новая раскрывается с «пружиной» */
+window.hlSwap=function(c){let key=c.rank+'|'+(c.name||'');if(HL.want&&HL.want.key===key)return;HL.want={key,c};if(!HL.swapping)window.hlRunSwap()};
+window.hlRunSwap=function(){let card=$('hlCard'),t=HL.want;if(!t||t.key===HL.shown)return;ensureFx();
+ let quiet=!card.animate||calm(),first=HL.shown==null;
+ if(first||quiet){hlShowCard(t.c);HL.shown=t.key;if(!quiet)card.animate([{opacity:0,transform:'scale(.9) translateY(14px)'},{opacity:1,transform:'none'}],{duration:380,easing:'cubic-bezier(.2,1.3,.3,1)'});outcome(true);return}
+ HL.swapping=true;
+ let a=card.animate([{transform:'perspective(900px) rotateY(0deg) translateY(0) scale(1)',filter:'brightness(1)'},{transform:'perspective(900px) rotateY(90deg) translateY(-12px) scale(1.04)',filter:'brightness(1.5)'}],{duration:230,easing:'cubic-bezier(.5,0,.9,.5)',fill:'forwards'});
+ a.onfinish=()=>{let t2=HL.want;clearOutcome();hlShowCard(t2.c);HL.shown=t2.key;
+  let b=card.animate([{transform:'perspective(900px) rotateY(-90deg) translateY(-12px) scale(1.04)',filter:'brightness(1.5)'},{transform:'perspective(900px) rotateY(8deg) translateY(0) scale(1.02)',filter:'brightness(1.1)',offset:.72},{transform:'perspective(900px) rotateY(0deg) scale(1)',filter:'brightness(1)'}],{duration:520,easing:'cubic-bezier(.2,.8,.3,1)'});
+  a.cancel();shine();
+  b.onfinish=()=>{HL.swapping=false;outcome(false);if(HL.want&&HL.want.key!==HL.shown)window.hlRunSwap()}}};
+/* результат: подарок + остаток на баланс, число «накручивается» */
+function countUp(node,to,pre,suf){if(calm()||!(to>0)){node.textContent=pre+money(to)+suf;return}let t0=performance.now(),dur=750;(function f(n){let k=Math.min(1,(n-t0)/dur),e=1-Math.pow(1-k,3);node.textContent=pre+money(to*e)+suf;if(k<1&&node.isConnected)requestAnimationFrame(f)})(t0)}
+window.hlResult=function(s,mine,reveal){let el=$('hlResult'),r=null,minNft=Number(s.min_nft||0);
+ if(mine&&reveal&&s.result){let push=!!s.odds?.[mine.direction]?.push,eq=s.result.rank===s.card.rank,won=push||(!eq&&(mine.direction==='hi'?s.result.rank>s.card.rank:s.result.rank<s.card.rank)),x=s.odds?.[mine.direction]?.x||0,total=cut(mine.amount*x);
+  r={won,push,amount:mine.amount,gift:mine.gift_name,img:mine.gift_image,x,no:s.no,win:mine.settled?mine.payout:total,pname:mine.prize_name,pimg:mine.prize_image,pprice:mine.prize_price,
+     nft:won&&!push&&!mine.settled&&total>0&&total>=minNft,total}}
+ else if(!mine&&s.last&&s.last.round===s.round-1){let l=s.last;r={won:!!l.won,amount:l.amount,gift:l.gift_name,img:l.gift_image,x:0,no:l.no,win:l.payout,pname:l.prize_name,pimg:l.prize_image,pprice:l.prize_price,nft:false,total:l.payout}}
+ let key=r?[r.no,r.won,r.win,r.pname||'',r.nft?1:0].join():'';if(el._k===key)return;el._k=key;el.replaceChildren();
+ if(!r){el.className='hl-result hidden';return}
+ let rn=r.no>0?'Раунд #'+r.no:'',gname=r.gift?giftDisplayName({name:r.gift}):'';
+ if(!r.won){el.className='hl-result lost';let t=document.createElement('span');t.textContent=[rn,'−'+(r.gift?gname:money(r.amount)+' TON')].filter(Boolean).join(' · ');el.append(t);return}
+ let asGift=!!(r.pname||r.nft),keptGift=!!r.gift&&!asGift;el.className='hl-result won'+(asGift||keptGift?' gift':'');
+ let ic=document.createElement('span');ic.className='hl-res-ic';let src=r.pname&&r.pimg?r.pimg:(keptGift?r.img:'');
+ if(src){let im=new Image;im.src=src;im.alt='';im.onerror=()=>{im.remove();ic.innerHTML='<span class="hl-gico">'+CR_GIFT_ICON+'</span>'};ic.append(im)}else if(asGift||keptGift)ic.innerHTML='<span class="hl-gico">'+CR_GIFT_ICON+'</span>';else ic.textContent=r.push?'↺':'✓';
+ let tx=document.createElement('div');tx.className='hl-res-tx';let b=document.createElement('b');b.textContent=asGift?'Выигрыш подарком':keptGift?'Подарок вернулся':r.push?'Возврат ставки':'Выигрыш';
+ let sm=document.createElement('small');sm.textContent=[rn,r.pname?giftDisplayName({name:r.pname}):(keptGift?gname:''),(!r.gift&&r.x&&!r.push?'x'+Number(r.x).toFixed(2):'')].filter(Boolean).join(' · ');tx.append(b,sm);
+ let am=document.createElement('span');am.className='hl-res-am';let main=document.createElement('b');am.append(main);
+ if(r.pname)countUp(main,r.pprice,'',' TON');else if(r.nft)countUp(main,r.total,'',' TON');else if(r.push)main.textContent=money(r.win)+' TON';else countUp(main,r.win,'+',' TON');
+ el.append(ic,tx,am)};
+/* обёртка над рендером: таймер, новые раунды, история, строки ставок */
+const baseRender=window.hlRender;
+window.hlRender=function(){baseRender();let s=HL.st;if(!s)return;ensureFx();let st=stageEl(),card=$('hlCard');if(!st||!card)return;
+ st.style.setProperty('--h',card.style.getPropertyValue('--h')||262);
+ let ph=hlPhase(),reveal=ph>=s.bet_ms,left=Math.ceil((s.bet_ms-ph)/1000),urgent=!reveal&&left<=3;
+ $('hlTimer').classList.toggle('urgent',urgent);$('hlBarFill').classList.toggle('urgent',urgent);st.classList.toggle('tense',urgent&&left<=2);
+ if(HL.seenRound!==s.round){let had=HL.seenRound!=null;HL.seenRound=s.round;if(had&&!HL.swapping){clearOutcome();shine();if(!calm()&&card.animate)card.animate([{transform:'scale(.94)'},{transform:'scale(1.03)',offset:.6},{transform:'none'}],{duration:420,easing:'cubic-bezier(.2,1.3,.3,1)'})}}
+ let strip=$('hlStrip');if(strip._k!==HL.chipK){let had=HL.chipK!=null;HL.chipK=strip._k;if(had&&strip.lastElementChild&&!calm())strip.lastElementChild.classList.add('new')}
+ let box=$('hlBets');if(box._k!==HL.boxK){HL.boxK=box._k;let rows=[...box.querySelectorAll('.hl-bet-row')],old=HL.rowSet;if(old)rows.forEach(r=>{if(!old.has(r.textContent))r.classList.add('hl-new')});HL.rowSet=new Set(rows.map(r=>r.textContent))}
+ if(reveal&&s.result&&!HL.swapping&&HL.shown===s.result.rank+'|'+(s.result.name||''))outcome(ph-s.bet_ms>1200)};
+})();
+</script>
 </body></html>

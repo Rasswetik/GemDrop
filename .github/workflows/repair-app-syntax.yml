@@ -1,4 +1,4 @@
-name: Repair app.py syntax
+name: Verify GemDrop
 
 on:
   push:
@@ -6,33 +6,34 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Repair broken Relayr regex
-        run: python fix_app_syntax.py
-      - name: Repair PostgreSQL runtime compatibility
-        run: python fix_postgres_runtime.py
-      - name: Repair NFT profile artwork
-        run: python fix_profile_nft_images.py
-      - name: Repair Upgrade compensation
-        run: python fix_upgrade_compensation.py
-      - name: Add admin Telegram/Fragment NFT inventory grants
-        run: python fix_admin_nft_inventory.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Verify Python syntax
         run: python -m py_compile app.py
-      - name: Commit repaired files
+      - name: Verify critical integration wiring
         run: |
-          if git diff --quiet -- app.py templates/index.html; then
-            echo "app.py and index.html already valid"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.py templates/index.html
-          git commit -m "Repair Upgrade compensation flow"
-          git push
+          python - <<'PY'
+          from pathlib import Path
+          app = Path("app.py").read_text(encoding="utf-8")
+          html = Path("templates/index.html").read_text(encoding="utf-8")
+          checks = {
+              "portal reserve": "PORTAL_WITHDRAW_RESERVE=Decimal('0.30')" in app,
+              "Portal Partner withdrawal": "/partners/nfts/withdraw" in app,
+              "Relayer Partner token": "portal_partner_auth" in app,
+              "broadcast queue": "def _bc_process_batch" in app,
+              "broadcast staging": "staged_user_id" in app,
+              "manual withdrawal state": "manual_required" in app,
+              "Portal runtime panel": "portalPartnerBalance" in html,
+              "Mini App actions": "Открыть приложение" in html,
+          }
+          print(checks)
+          assert all(checks.values()), checks
+          PY

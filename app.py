@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '97-postgres-withdrawal-id-fix'
+BUILD_ID = '98-withdrawal-idempotency-and-log-types'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -8043,6 +8043,22 @@ def request_withdrawal(item_id):
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+
+        # Mobile clients can retry the same POST if the first response is lost.
+        # Treat an already-created withdrawal for this inventory item as success:
+        # never charge the fee twice and never tell the player the gift vanished.
+        existing=db.execute("""SELECT id,status FROM withdrawals
+                               WHERE user_id=? AND inventory_id=? AND status IN ('pending','approved')
+                               ORDER BY id DESC LIMIT 1""",(session['uid'],item_id)).fetchone()
+        if existing:
+            db.rollback()
+            existing_id=int(existing['id'])
+            state=str(existing['status'] or 'pending')
+            return jsonify(ok=True,fee=0.30,withdrawal_id=existing_id,
+                           auto_status='completed' if state=='approved' else 'queued',
+                           manual_required=False,duplicate=True,
+                           message='Заявка на вывод уже создана.' if state=='pending' else 'Подарок уже выведен.')
+
         purge_expired_inventory(db,session['uid'])
         access_error=withdrawal_access_error(db,session['uid'])
         if access_error:
@@ -8063,19 +8079,36 @@ def request_withdrawal(item_id):
                     item['fragment_backdrop'] or '',item['fragment_symbol'] or '',item['price_source'] or '',item['animation_url'] or '',fee))
         withdrawal_id=int(cur.lastrowid)
         if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid'])).rowcount:
+            db.rollback()
             return error('Не удалось зарезервировать подарок.',409)
         record_transaction(db,session['uid'],'withdrawal_fee',-fee,'inventory',item_id,'Комиссия вывода подарка 0.30 TON')
         record_transaction(db,session['uid'],'withdrawal_request',0,'inventory',item_id,item['gift_name'])
         db.commit()
     finally:
         db.close()
+
+    # From this point the withdrawal is already durably committed. Auxiliary
+    # logging/provider startup must never turn a successful reservation into HTTP 500.
     row=_relayer_withdrawal_target(withdrawal_id)
     if not relayer_settings().get('auto_withdraw_enabled',True):
-        if row:_relayer_auto_log(withdrawal_id,row,'disabled',error_text='Автовывод отключён. Требуется ручной вывод.')
+        if row:
+            try:
+                _relayer_auto_log(withdrawal_id,row,'disabled',error_text='Автовывод отключён. Требуется ручной вывод.')
+            except Exception:
+                app.logger.exception('Could not write disabled auto-withdraw status for #%s',withdrawal_id)
         return jsonify(ok=True,fee=0.30,withdrawal_id=withdrawal_id,auto_status='disabled',manual_required=True,
                        message='Автовывод отключён. Заявка сохранена для ручного вывода.')
-    if row:_relayer_auto_log(withdrawal_id,row,'queued')
-    Thread(target=_auto_withdrawal_thread,args=(withdrawal_id,),daemon=True).start()
+
+    if row:
+        try:
+            _relayer_auto_log(withdrawal_id,row,'queued')
+        except Exception:
+            app.logger.exception('Could not write queued auto-withdraw status for #%s',withdrawal_id)
+    try:
+        Thread(target=_auto_withdrawal_thread,args=(withdrawal_id,),daemon=True).start()
+    except Exception:
+        app.logger.exception('Could not start auto-withdraw worker for #%s',withdrawal_id)
+
     return jsonify(ok=True,fee=0.30,withdrawal_id=withdrawal_id,auto_status='queued',manual_required=False,
                    message='Заявка принята. Проверяем Relayer и Portal Market.')
 
@@ -14929,12 +14962,12 @@ def _relayer_auto_log(withdrawal_id,row,status,info=None,transfer_stars=0,error_
     with connect() as db:
         db.execute("""INSERT INTO relayer_withdrawal_logs(withdrawal_id,user_id,inventory_id,external_key,gift_slug,gift_name,
                       fragment_number,status,transfer_stars,attempts,error,updated_at,completed_at)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CASE WHEN ?='completed' THEN CAST(CURRENT_TIMESTAMP AS TEXT) ELSE NULL END)
                       ON CONFLICT(withdrawal_id) DO UPDATE SET external_key=excluded.external_key,gift_slug=excluded.gift_slug,
                       status=excluded.status,transfer_stars=excluded.transfer_stars,
                       attempts=relayer_withdrawal_logs.attempts+CASE WHEN excluded.status='sending' THEN 1 ELSE 0 END,
                       error=excluded.error,updated_at=CURRENT_TIMESTAMP,
-                      completed_at=CASE WHEN excluded.status='completed' THEN CURRENT_TIMESTAMP ELSE relayer_withdrawal_logs.completed_at END""",
+                      completed_at=CASE WHEN excluded.status='completed' THEN CAST(CURRENT_TIMESTAMP AS TEXT) ELSE relayer_withdrawal_logs.completed_at END""",
                    (withdrawal_id,int(row['user_id']),int(row.get('inventory_id') or 0),
                     str(info.get('external_key') or row.get('deposit_external_key') or ''),str(info.get('slug') or ''),
                     str(row.get('gift_name') or ''),str(row.get('fragment_number') or ''),status,
@@ -16023,13 +16056,13 @@ def _portal_auto_log(withdrawal_id,row,status,stage='',nft=None,source='',purcha
         db.execute("""INSERT INTO portal_withdrawal_logs(withdrawal_id,user_id,requested_name,requested_number,nft_id,nft_name,
                       source,purchase_price,balance_before,withdrawal_fee,withdrawal_ids,status,stage,attempts,error,updated_at,completed_at)
                       VALUES(?,?,?,?,?,?,?,?,?,'0.30',?,?,?,?,?,CURRENT_TIMESTAMP,
-                      CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                      CASE WHEN ?='completed' THEN CAST(CURRENT_TIMESTAMP AS TEXT) ELSE NULL END)
                       ON CONFLICT(withdrawal_id) DO UPDATE SET nft_id=excluded.nft_id,nft_name=excluded.nft_name,
                       source=excluded.source,purchase_price=excluded.purchase_price,balance_before=excluded.balance_before,
                       withdrawal_ids=excluded.withdrawal_ids,status=excluded.status,stage=excluded.stage,
                       attempts=portal_withdrawal_logs.attempts+CASE WHEN excluded.stage IN ('lookup','buy','withdraw','status') THEN 1 ELSE 0 END,
                       error=excluded.error,updated_at=CURRENT_TIMESTAMP,
-                      completed_at=CASE WHEN excluded.status='completed' THEN CURRENT_TIMESTAMP ELSE portal_withdrawal_logs.completed_at END""",
+                      completed_at=CASE WHEN excluded.status='completed' THEN CAST(CURRENT_TIMESTAMP AS TEXT) ELSE portal_withdrawal_logs.completed_at END""",
                    (withdrawal_id,int(row['user_id']),str(row.get('gift_name') or ''),str(row.get('fragment_number') or ''),
                     nft_id,nft_name,src,price,bal,ids,status,str(stage or ''),inc,str(error_text or '')[:500],status))
         db.commit()

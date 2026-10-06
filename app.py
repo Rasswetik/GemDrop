@@ -14115,7 +14115,7 @@ def _relayer_credit(info,baseline=False):
     gift_name=escape(str(info.get('gift_name') or 'Telegram NFT'))
     number=str(info.get('fragment_number') or '').strip()
     raw_name=str(info.get('gift_name') or 'Telegram NFT')
-    already_numbered=bool(number and re.search(r'(?:#|\\b)'+re.escape(number)+r'\\b',raw_name))
+    already_numbered=bool(number and re.search(r'(?:#|\b)'+re.escape(number)+r'\b',raw_name))
     display_name=gift_name + (f' #{escape(number)}' if number and not already_numbered else '')
     telegram_link=str(info.get('telegram_url') or info.get('external_url') or '')
     if re.match(r'^https://t\.me/nft/[A-Za-z0-9_-]+$',telegram_link,re.I):

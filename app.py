@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '93-gift-deposit-relayer-broadcast'
+BUILD_ID = '94-promo-polls-relayer-balance'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -406,6 +406,18 @@ def _initialize_schema():
             viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id,code)
         );
+        CREATE TABLE IF NOT EXISTS promo_polls (
+            id TEXT PRIMARY KEY, title TEXT NOT NULL,
+            max_votes INTEGER NOT NULL DEFAULT 0, uses_count INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1, expires_at TEXT,
+            created_by INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            closed_at TEXT, result_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS promo_poll_votes (
+            poll_id TEXT NOT NULL, user_id INTEGER NOT NULL, code TEXT NOT NULL,
+            option_name TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(poll_id,user_id)
+        );
         CREATE TABLE IF NOT EXISTS freebets (
             code TEXT PRIMARY KEY, promo_code TEXT NOT NULL UNIQUE,
             max_uses INTEGER NOT NULL DEFAULT 1, uses_count INTEGER NOT NULL DEFAULT 0,
@@ -687,6 +699,8 @@ def _initialize_schema():
             ('expires_at', 'TEXT'), ('gift_expires_days', 'INTEGER NOT NULL DEFAULT 0'),
             ('activation_min_deposit', 'INTEGER NOT NULL DEFAULT 0'),
             ('author_user_id', 'INTEGER NOT NULL DEFAULT 0'),
+            ('poll_id', "TEXT NOT NULL DEFAULT ''"),
+            ('poll_option_name', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
@@ -818,6 +832,8 @@ def _initialize_schema():
         db.execute('CREATE INDEX IF NOT EXISTS notifications_user ON user_notifications(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS notifications_delivery ON user_notifications(delivery_state,delivery_next_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS promo_codes_poll ON promo_codes(poll_id,created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS promo_poll_votes_poll ON promo_poll_votes(poll_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebets_active ON freebets(active,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebet_burn_prizes_code ON freebet_burn_prizes(freebet_code,claimed_by,id)')
@@ -10840,6 +10856,56 @@ def view_personal_promocode(code):
     return jsonify(ok=True)
 
 
+
+def _promo_poll_counts(db, poll_id):
+    rows=db.execute("""SELECT option_name,COUNT(*) AS votes FROM promo_poll_votes
+                       WHERE poll_id=? GROUP BY option_name ORDER BY votes DESC,option_name""",(poll_id,)).fetchall()
+    total=sum(int(r['votes'] or 0) for r in rows)
+    return total,[dict(name=r['option_name'],votes=int(r['votes'] or 0),
+                       percent=(round(int(r['votes'] or 0)*100/total,1) if total else 0)) for r in rows]
+
+
+def _promo_poll_summary(db, poll_id):
+    poll=db.execute('SELECT * FROM promo_polls WHERE id=?',(poll_id,)).fetchone()
+    if not poll:return None
+    total,results=_promo_poll_counts(db,poll_id)
+    options=db.execute('SELECT code,poll_option_name FROM promo_codes WHERE poll_id=? ORDER BY created_at,code',(poll_id,)).fetchall()
+    by_name={x['name']:x for x in results}
+    full=[]
+    for row in options:
+        item=by_name.get(row['poll_option_name'],{'name':row['poll_option_name'],'votes':0,'percent':0})
+        full.append(dict(code=row['code'],name=row['poll_option_name'],votes=item['votes'],percent=item['percent']))
+    full.sort(key=lambda x:(-x['votes'],x['name'].casefold()))
+    return dict(id=poll['id'],title=poll['title'],active=bool(poll['active']),max_votes=int(poll['max_votes'] or 0),
+                uses_count=total,expires_at=poll['expires_at'],created_by=int(poll['created_by'] or 0),
+                created_at=poll['created_at'],closed_at=poll['closed_at'],results=full)
+
+
+def _promo_poll_close(db,poll_id,reason='manual'):
+    summary=_promo_poll_summary(db,poll_id)
+    if not summary:return None
+    if summary['active']:
+        payload=json.dumps({'reason':reason,'results':summary['results'],'uses_count':summary['uses_count']},ensure_ascii=False)
+        db.execute("UPDATE promo_polls SET active=0,closed_at=CURRENT_TIMESTAMP,result_json=? WHERE id=?",(payload,poll_id))
+        db.execute("UPDATE promo_codes SET active=0 WHERE poll_id=?",(poll_id,))
+        summary['active']=False
+    summary['reason']=reason
+    return summary
+
+
+def _notify_promo_poll_result(summary):
+    if not summary or not summary.get('created_by'):return
+    winner=summary.get('results',[{}])[0] if summary.get('results') else {}
+    lines=[f"📊 <b>Опрос «{escape(str(summary.get('title') or 'Опрос'))}» завершён</b>",
+           f"Всего голосов: <b>{int(summary.get('uses_count') or 0)}</b>"]
+    for item in summary.get('results') or []:
+        lines.append(f"• {escape(str(item.get('name') or 'Вариант'))}: <b>{int(item.get('votes') or 0)}</b> · {float(item.get('percent') or 0):g}%")
+    if winner:
+        lines.append(f"\nЛидер: <b>{escape(str(winner.get('name') or '—'))}</b>")
+    try: notify_user_async(int(summary['created_by']),'\n'.join(lines),None,'HTML')
+    except Exception: app.logger.exception('Poll result notification failed')
+
+
 @app.post('/api/promocodes/redeem')
 @login_required
 def redeem_promocode():
@@ -10860,6 +10926,26 @@ def redeem_promocode():
             return error('Этот промокод предназначен другому пользователю.', 403)
         if promo_is_expired(promo):
             return error('Срок действия промокода истёк.', 409)
+        poll_id=str(promo['poll_id'] or '')
+        poll=None
+        poll_notify=None
+        if poll_id:
+            poll=db.execute('SELECT * FROM promo_polls WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),(poll_id,)).fetchone()
+            if not poll or not poll['active']:
+                return error('Этот опрос уже завершён.',409)
+            if poll['expires_at'] and parse_iso(poll['expires_at']) <= datetime.now(timezone.utc):
+                poll_notify=_promo_poll_close(db,poll_id,'expired')
+                db.commit()
+                _notify_promo_poll_result(poll_notify)
+                return error('Этот опрос уже завершён.',409)
+            previous_vote=db.execute('SELECT option_name FROM promo_poll_votes WHERE poll_id=? AND user_id=?',(poll_id,session['uid'])).fetchone()
+            if previous_vote:
+                return error(f"Вы уже проголосовали за «{previous_vote['option_name']}». В этом опросе можно выбрать только один вариант.",409)
+            if int(poll['max_votes'] or 0)>0 and int(poll['uses_count'] or 0)>=int(poll['max_votes']):
+                poll_notify=_promo_poll_close(db,poll_id,'limit')
+                db.commit()
+                _notify_promo_poll_result(poll_notify)
+                return error('Лимит голосов этого опроса уже достигнут.',409)
         prior=db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?',(code,session['uid'])).fetchone()
         if prior:return error('Вы уже активировали этот промокод.',409)
         if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
@@ -10997,9 +11083,25 @@ def redeem_promocode():
         db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
                    (code, session['uid'],redemption_type, int(promo['amount'] or 0), inventory_id))
         db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
-        log_event(db,session['uid'],'promo_redeem',code=code,reward_type=promo['reward_type'],reward=reward)
+        poll_result=None
+        if poll_id:
+            option_name=str(promo['poll_option_name'] or code)
+            db.execute('INSERT INTO promo_poll_votes(poll_id,user_id,code,option_name) VALUES(?,?,?,?)',
+                       (poll_id,session['uid'],code,option_name))
+            db.execute('UPDATE promo_polls SET uses_count=uses_count+1 WHERE id=?',(poll_id,))
+            total,counts=_promo_poll_counts(db,poll_id)
+            mine=next((x for x in counts if x['name']==option_name),{'votes':1,'percent':100})
+            poll_result=dict(id=poll_id,title=poll['title'],option_name=option_name,total_votes=total,
+                             same_opinion_percent=mine['percent'],results=counts,closed=False)
+            max_votes=int(poll['max_votes'] or 0)
+            if max_votes>0 and total>=max_votes:
+                poll_notify=_promo_poll_close(db,poll_id,'limit')
+                poll_result['closed']=True
+        log_event(db,session['uid'],'promo_redeem',code=code,reward_type=promo['reward_type'],reward=reward,
+                  poll_id=poll_id,poll_option=(str(promo['poll_option_name'] or '') if poll_id else ''))
         db.commit()
-        return jsonify(ok=True, reward=reward, user=profile())
+        if poll_notify:_notify_promo_poll_result(poll_notify)
+        return jsonify(ok=True, reward=reward, user=profile(), poll=poll_result)
     finally:
         db.close()
 
@@ -11630,6 +11732,110 @@ def admin_create_promocode():
     if assigned_user_id:
         notify_promo_async(assigned_user_id, code, 'bonuses')
     return jsonify(ok=True, code=code)
+
+
+
+@app.get('/api/admin/promo-polls')
+@admin_required
+def admin_promo_polls():
+    notices=[]
+    with connect() as db:
+        due=db.execute("SELECT id FROM promo_polls WHERE active=1 AND expires_at IS NOT NULL AND expires_at<=CURRENT_TIMESTAMP").fetchall()
+        for row in due:
+            summary=_promo_poll_close(db,row['id'],'expired')
+            if summary:notices.append(summary)
+        rows=db.execute('SELECT id FROM promo_polls ORDER BY created_at DESC LIMIT 100').fetchall()
+        items=[_promo_poll_summary(db,row['id']) for row in rows]
+        db.commit()
+    for summary in notices:_notify_promo_poll_result(summary)
+    return jsonify(items=[x for x in items if x])
+
+
+@app.post('/api/admin/promo-polls')
+@admin_required
+def admin_create_promo_poll():
+    data=request.get_json(silent=True) or {}
+    title=str(data.get('title') or '').strip()[:120]
+    options=data.get('options') if isinstance(data.get('options'),list) else []
+    if not title:return error('Введите название опроса.')
+    if not 2<=len(options)<=10:return error('В опросе должно быть от 2 до 10 вариантов.')
+    try:
+        max_votes=int(data.get('max_votes') or 0); expires_days=int(data.get('expires_in_days') or 0)
+    except (TypeError,ValueError):return error('Проверьте лимит голосов и срок.')
+    if not 0<=max_votes<=1000000:return error('Лимит голосов: от 0 до 1 000 000.')
+    if not 0<=expires_days<=3650:return error('Срок опроса: от 0 до 3650 дней.')
+    poll_id='POLL-'+secrets.token_hex(6).upper()
+    expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
+    prepared=[];seen_codes=set();seen_names=set()
+    catalog=read_catalog(include_hidden=True).get('gifts',[])
+    for raw in options:
+        if not isinstance(raw,dict):return error('Проверьте варианты опроса.')
+        name=str(raw.get('name') or '').strip()[:80]
+        code=str(raw.get('code') or '').strip().upper() or generated_promo_code()
+        reward_type=str(raw.get('reward_type') or 'balance')
+        if not name:return error('У каждого варианта должно быть название.')
+        if name.casefold() in seen_names:return error('Названия вариантов не должны повторяться.')
+        if not re.fullmatch(r'[A-Z0-9_-]{3,32}',code):return error(f'Некорректный код варианта «{name}».')
+        if code in seen_codes:return error('Коды вариантов не должны повторяться.')
+        seen_names.add(name.casefold());seen_codes.add(code)
+        amount=0;gift_id='';gift_name='';gift_image='';gift_price=0;wager=0.0;gift_days=0
+        if reward_type=='balance':
+            try: amount=parse_amount(raw.get('amount'))
+            except Exception:return error(f'Укажите TON-награду для «{name}».')
+            if not 1<=amount<=100000000:return error(f'Некорректная TON-награда для «{name}».')
+        elif reward_type=='tickets':
+            try: amount=int(raw.get('tickets') or raw.get('amount') or 0)
+            except Exception:return error(f'Укажите билеты для «{name}».')
+            if not 1<=amount<=1000000:return error(f'Некорректное число билетов для «{name}».')
+        elif reward_type in ('gift','wager_gift'):
+            gift_id=str(raw.get('gift_id') or '')
+            gift=next((g for g in catalog if str(g.get('id'))==gift_id),None)
+            if not gift:return error(f'Подарок для «{name}» не найден в Portal.')
+            gift_name=str(gift.get('name') or 'Подарок')[:140]
+            gift_image=safe_image(gift.get('image_url') or gift.get('portal_image_url'))
+            try: gift_price=ton_to_cents(gift.get('price_ton') or 0)
+            except Exception: gift_price=0
+            if gift_price<=0:return error(f'У подарка для «{name}» нет актуальной цены.')
+            if reward_type=='wager_gift':
+                try:wager=float(raw.get('wager_multiplier') or 0);gift_days=int(raw.get('gift_expires_days') or 0)
+                except Exception:return error(f'Проверьте X отыгрыша для «{name}».')
+                if not 1<=wager<=1000:return error(f'X отыгрыша для «{name}» должен быть 1–1000.')
+        else:return error('В опросах доступны TON, билеты, подарок и отыгрышный подарок.')
+        prepared.append((code,name,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager,gift_days))
+    try:
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for code,*_ in prepared:
+                if db.execute('SELECT 1 FROM promo_codes WHERE code=?',(code,)).fetchone():
+                    return error(f'Промокод {code} уже существует.',409)
+            db.execute('INSERT INTO promo_polls(id,title,max_votes,expires_at,created_by) VALUES(?,?,?,?,?)',
+                       (poll_id,title,max_votes,expires_at,session['uid']))
+            for code,name,reward_type,amount,gid,gname,gimg,gprice,wager,gift_days in prepared:
+                db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,
+                           wager_multiplier,max_uses,created_by,reward_json,source_label,description,expires_at,
+                           gift_expires_days,poll_id,poll_option_name)
+                           VALUES(?,?,?,?,?,?,?,?,0,?,'{}','Опрос','',?,?,?,?)""",
+                           (code,reward_type,amount,gid,gname,gimg,gprice,wager,session['uid'],expires_at,gift_days,poll_id,name))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'],session['uid'],'promo_poll_create',poll_id+':'+title))
+            db.commit()
+    except Exception as exc:
+        if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():return error('Один из кодов уже существует.',409)
+        raise
+    with connect() as db:
+        created=_promo_poll_summary(db,poll_id)
+    return jsonify(ok=True,poll=created)
+
+
+@app.post('/api/admin/promo-polls/<poll_id>/close')
+@admin_required
+def admin_close_promo_poll(poll_id):
+    with connect() as db:
+        summary=_promo_poll_close(db,str(poll_id),'manual')
+        if not summary:return error('Опрос не найден.',404)
+        db.commit()
+    _notify_promo_poll_result(summary)
+    return jsonify(ok=True,poll=summary)
 
 
 @app.post('/api/admin/promocodes/<code>/toggle')
@@ -14049,6 +14255,48 @@ def _relayer_account_dict(me):
     if not me: return {}
     return dict(id=int(getattr(me,'id',0) or 0), username=str(getattr(me,'username','') or ''), first_name=str(getattr(me,'first_name','') or ''), last_name=str(getattr(me,'last_name','') or ''))
 
+def _relayer_stars_value(value):
+    try:
+        if value is None:return 0
+        if isinstance(value,(int,float,Decimal)):return max(0,int(value))
+        amount=getattr(value,'amount',None)
+        return max(0,int(amount or 0))
+    except (TypeError,ValueError):return 0
+
+
+async def _relayer_live_stats_async():
+    client=_relayer_client()
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            return dict(ok=False,status='login_required',stars_balance=0,saved_gifts_count=0)
+        me=await client.get_me()
+        gifts=await _relayer_saved_gifts(client)
+        stars=0
+        try:
+            _,functions,_,_,_,_=_relayer_imports()
+            payments=getattr(functions,'payments',None)
+            cls=getattr(payments,'GetStarsStatusRequest',None) if payments else None
+            if cls:
+                peer=await client.get_input_entity('me')
+                sig=inspect.signature(cls.__init__);kwargs={}
+                for name,param in sig.parameters.items():
+                    if name=='self':continue
+                    if name=='peer':kwargs[name]=peer
+                    elif param.default is inspect._empty:kwargs[name]=False
+                status=await client(cls(**kwargs))
+                stars=_relayer_stars_value(getattr(status,'balance',0))
+        except Exception:
+            app.logger.exception('Relayer Stars balance fetch failed')
+        state=_relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),
+                             stars_balance=stars,saved_gifts_count=len(gifts),
+                             balance_checked_at=datetime.now(timezone.utc).isoformat(),error='')
+        return dict(ok=True,status='online',stars_balance=stars,saved_gifts_count=len(gifts),account=state.get('account') or {})
+    finally:
+        try:await client.disconnect()
+        except Exception:pass
+
+
 
 @app.get('/api/admin/relayer/status')
 @admin_required
@@ -14056,9 +14304,24 @@ def admin_relayer_status():
     cfg = relayer_settings(); state = read_document('relayer_state') or {}; auth_raw = read_document('relayer_auth') or {}
     # Never return phone_code_hash or any future secret fields to the browser.
     auth = {key: auth_raw.get(key) for key in ('status','attempt_id','qr_url','updated_at') if auth_raw.get(key) not in (None,'')}
-    with connect() as db: rows = db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
-    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], delivery_mode=cfg['delivery_mode'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], state=state, auth=auth,
-                   events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=r['image_url'],external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,status=r['status'],created_at=r['created_at'],credited_at=r['credited_at']) for r in rows])
+    with connect() as db:
+        rows = db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
+        withdrawals=db.execute("""SELECT l.*,u.name AS user_name,u.username AS username FROM relayer_withdrawal_logs l
+                                  LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC LIMIT 25""").fetchall()
+    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], delivery_mode=cfg['delivery_mode'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], auto_withdraw_enabled=cfg.get('auto_withdraw_enabled',True), state=state, auth=auth,
+                   stars_balance=int(state.get('stars_balance') or 0),saved_gifts_count=int(state.get('saved_gifts_count') or state.get('last_seen') or 0),balance_checked_at=state.get('balance_checked_at'),
+                   events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=(r['image_url'] or (f"https://nft.fragment.com/gift/{re.sub(r'[^A-Za-z0-9_-]+','',str(r['external_url']).rsplit('/',1)[-1]).lower()}.webp" if '/nft/' in str(r['external_url'] or '') else '')),external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,status=r['status'],created_at=r['created_at'],credited_at=r['credited_at']) for r in rows],
+                   auto_withdrawals=[dict(id=r['id'],withdrawal_id=r['withdrawal_id'],user_id=r['user_id'],user_name=r['user_name'] or '',username=r['username'] or '',gift_name=r['gift_name'],fragment_number=r['fragment_number'],status=r['status'],transfer_stars=int(r['transfer_stars'] or 0),error=r['error'] or '',created_at=r['created_at']) for r in withdrawals])
+
+
+@app.post('/api/admin/relayer/check-balance')
+@admin_required
+def admin_relayer_check_balance():
+    try:return jsonify(**_relayer_run(_relayer_live_stats_async()))
+    except Exception as exc:
+        app.logger.exception('Relayer balance check failed')
+        _relayer_state(status='error',error=str(exc)[:180])
+        return error('Не удалось проверить баланс Relayer: '+str(exc),409)
 
 
 @app.post('/api/admin/relayer/settings')
@@ -14275,6 +14538,9 @@ def _relayer_resolve_gift(info):
             price, price_source = int(portal_exact), str(portal_source or 'Portal')
         elif not price and int(fragment.get('floor_price') or 0)>0:
             price, price_source = int(fragment.get('floor_price') or 0), str(fragment.get('price_source') or 'Fragment')
+    if not image and info.get('slug'):
+        slug_safe=re.sub(r'[^A-Za-z0-9_-]+','',str(info.get('slug') or '')).lower()
+        if slug_safe:image=f'https://nft.fragment.com/gift/{slug_safe}.webp'
     info.update(gift_id=gid,gift_name=name,image_url=image,floor_price=max(0,int(price)),price_source=price_source)
     return info
 
@@ -14357,9 +14623,22 @@ async def _relayer_scan_async(force=False):
         await client.connect()
         if not await client.is_user_authorized(): _relayer_state(authorized=False,status='login_required'); return dict(ok=False,status='login_required',processed=0)
         me=await client.get_me(); gifts=await _relayer_saved_gifts(client); state=read_document('relayer_state') or {}; baseline=not bool(state.get('baseline_ready')); processed=credited=0
+        stars_balance=int(state.get('stars_balance') or 0)
+        try:
+            _,functions,_,_,_,_=_relayer_imports();payments=getattr(functions,'payments',None)
+            cls=getattr(payments,'GetStarsStatusRequest',None) if payments else None
+            if cls:
+                peer=await client.get_input_entity('me');sig=inspect.signature(cls.__init__);kwargs={}
+                for name,param in sig.parameters.items():
+                    if name=='self':continue
+                    if name=='peer':kwargs[name]=peer
+                    elif param.default is inspect._empty:kwargs[name]=False
+                stars_balance=_relayer_stars_value(getattr(await client(cls(**kwargs)),'balance',0))
+        except Exception:
+            app.logger.exception('Relayer Stars balance refresh failed')
         for entry in gifts:
             info=_relayer_resolve_gift(_relayer_entry_info(entry)); result=_relayer_credit(info,baseline=baseline); processed+=0 if result=='duplicate' else 1; credited+=1 if result=='credited' else 0
-        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),last_processed=processed,last_credited=credited,error=''); return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline)
+        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),saved_gifts_count=len(gifts),stars_balance=stars_balance,balance_checked_at=datetime.now(timezone.utc).isoformat(),last_processed=processed,last_credited=credited,error=''); return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline,stars_balance=stars_balance,saved_gifts_count=len(gifts))
     finally: await client.disconnect()
 
 @app.post('/api/admin/relayer/scan')

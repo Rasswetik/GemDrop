@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '98-withdrawal-idempotency-and-log-types'
+BUILD_ID = '99-portal-resume-after-connect'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -15951,9 +15951,9 @@ PORTAL_WITHDRAW_RESERVE=Decimal('0.30')
 portal_withdraw_lock=__import__('threading').Lock()
 
 def portal_partner_token():
-    # Backward-compatible fallback lets installations migrate from the old shared key
-    # without breaking withdrawals, while new admin saves no longer overwrite catalog auth.
-    raw=str(saved_portal_partner_key() or saved_portal_key() or '').strip()
+    # Prefer a dedicated deployment secret, then the admin-saved Partner token.
+    # The legacy shared key remains a migration fallback only when it is not TMA auth.
+    raw=str(os.environ.get('PORTAL_PARTNER_TOKEN') or saved_portal_partner_key() or saved_portal_key() or '').strip()
     if not raw:return ''
     if raw.casefold().startswith('tma ') or ('hash=' in raw and 'auth_date=' in raw):return ''
     for prefix in ('partners ','bearer '):
@@ -16201,7 +16201,7 @@ def _portal_resume_pending(limit=8):
     if not portal_partner_token():return
     with connect() as db:
         rows=db.execute("""SELECT p.withdrawal_id FROM portal_withdrawal_logs p JOIN withdrawals w ON w.id=p.withdrawal_id
-                           WHERE w.status='pending' AND p.status IN ('portal_waiting_recipient','portal_bought','portal_withdrawing')
+                           WHERE w.status='pending' AND p.status IN ('portal_not_configured','portal_waiting_recipient','portal_bought','portal_withdrawing')
                            ORDER BY p.updated_at ASC LIMIT ?""",(max(1,min(20,int(limit))),)).fetchall()
     for x in rows:
         try:_portal_fallback_withdraw(int(x['withdrawal_id']))
@@ -16240,6 +16240,11 @@ def admin_portal_partner():
         if len(token)>8000 or '\n' in token or '\r' in token:return error('Некорректный Partner token Portal.')
         store_portal_partner_key(token);append_portal_log('Partner token Portal Market аккаунта Relayer обновлён.')
     data=_portal_runtime_data()
+    if token and not data.get('error'):
+        # Any withdrawals that were waiting only for Partner API configuration
+        # must continue automatically as soon as the connection becomes valid.
+        Thread(target=_portal_resume_pending,args=(20,),daemon=True).start()
+        append_portal_log('Partner API подключён. Возобновляем ожидающие автовыводы Portal.')
     return jsonify(ok=not bool(data.get('error')),**data)
 
 

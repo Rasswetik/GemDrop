@@ -1,5 +1,7 @@
 import hashlib
 import hmac
+import asyncio
+import inspect
 import json
 import math
 import os
@@ -51,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '92-hilo-top-drop-profile'
+BUILD_ID = '93-gift-deposit-relayer-broadcast'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -446,6 +448,16 @@ def _initialize_schema():
             telegram_payment_charge_id TEXT UNIQUE, credited_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS relayer_gift_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, external_key TEXT NOT NULL UNIQUE,
+            sender_user_id INTEGER NOT NULL DEFAULT 0, sender_name TEXT NOT NULL DEFAULT '',
+            gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
+            image_url TEXT NOT NULL DEFAULT '', external_url TEXT NOT NULL DEFAULT '',
+            fragment_number TEXT NOT NULL DEFAULT '', floor_price INTEGER NOT NULL DEFAULT 0,
+            inventory_id INTEGER, status TEXT NOT NULL DEFAULT 'seen',
+            raw_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            credited_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS roll_spins (
             id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, roll_id TEXT NOT NULL,
             price INTEGER NOT NULL, outcome TEXT NOT NULL, gift_name TEXT NOT NULL DEFAULT '',
@@ -638,6 +650,7 @@ def _initialize_schema():
         ensure_columns('user_notifications', [('giveaway_id', 'INTEGER')])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('source_label', "TEXT NOT NULL DEFAULT ''")])
+        ensure_columns('inventory', [('deposit_mirror', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('giveaways', [('archived', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('user_notifications', [('delivery_state', "TEXT NOT NULL DEFAULT 'none'"),
                        ('delivery_attempts','INTEGER NOT NULL DEFAULT 0'),('delivery_next_at','INTEGER NOT NULL DEFAULT 0')])
@@ -728,6 +741,7 @@ def _initialize_schema():
         ensure_postgres_bigint('upgrade_spins', ['user_id', 'source_price', 'target_price'])
         ensure_postgres_bigint('upgrade_promo_pity', ['user_id'])
         ensure_postgres_bigint('user_notifications', ['user_id'])
+        ensure_postgres_bigint('relayer_gift_events', ['sender_user_id', 'floor_price', 'inventory_id'])
         # Indexes are intentionally created after additive migrations. Creating an index on a
         # column that did not exist on an older Render disk was the source of the HTTP 500 startup failure.
         db.executescript("""
@@ -737,6 +751,21 @@ def _initialize_schema():
             state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
             next_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS broadcasts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL,
+            text TEXT NOT NULL DEFAULT '', photos TEXT NOT NULL DEFAULT '[]', buttons TEXT NOT NULL DEFAULT '[]',
+            total INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0,
+            failed INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'running', created_at INTEGER NOT NULL, finished_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS broadcast_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, broadcast_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+            state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+            error TEXT NOT NULL DEFAULT '', next_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS broadcast_items_pending ON broadcast_items(state, next_at, id);
+        CREATE INDEX IF NOT EXISTS broadcast_items_bc ON broadcast_items(broadcast_id, state);
+        CREATE INDEX IF NOT EXISTS relayer_gift_events_sender ON relayer_gift_events(sender_user_id,id DESC);
         CREATE TABLE IF NOT EXISTS creator_chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id BIGINT NOT NULL,
@@ -2203,6 +2232,7 @@ def inventory_item(row):
                 fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
                 price_source=optional('price_source'), animation_url=optional('animation_url'),
                 source_label=optional('source_label'),
+                deposit_mirror=bool(int(optional('deposit_mirror', 0) or 0)),
                 promo_locked=locked, promo_code=row['promo_code'] or '',
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                 wager_target=target/100, wager_progress=progress/100,
@@ -3756,6 +3786,7 @@ def upgrade_spin():
             source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
                               (source_id,session['uid'])).fetchone()
             if not source:return error('Подарок недоступен для апгрейда.',409)
+            if int(source['deposit_mirror'] or 0): return error('NFT-пополнение уже зачислено на баланс и недоступно для апгрейда.',409)
             source_price=int(source['floor_price'] or 0)
             if source_price>MAX_UPGRADE_BET_CENTS:return error('Максимальная стоимость ставки — 1 000 TON.')
             if source['promo_locked'] and int(source['promo_wager_progress'] or 0)>=int(source['promo_wager_target'] or 0):
@@ -4045,6 +4076,8 @@ def start():
                               (inventory_id, session['uid'])).fetchone()
             if not item:
                 return error('Подарок не найден в инвентаре.', 404)
+            if int(item['deposit_mirror'] or 0):
+                return error('NFT-пополнение уже зачислено на баланс и недоступно для ставки.', 409)
             bet = int(item['floor_price'] or 0)
             if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
                 return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.')
@@ -6094,6 +6127,8 @@ def sell_inventory(item_id):
             return error('Подарок не найден или срок его действия истёк.', 404)
         if item['promo_locked']:
             return error('Промо-подарок нельзя продать до завершения отыгрыша.', 409)
+        if int(item['deposit_mirror'] or 0):
+            return error('Стоимость этого NFT уже зачислена на баланс при пополнении. Повторная продажа отключена.', 409)
         amount = max(0, int(item['floor_price']))
         deleted = db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',
                              (item_id, session['uid']))
@@ -7069,14 +7104,18 @@ def _broadcast_filter_values(data):
         raise ValueError('Возраст аккаунта: от 0 до 3650 дней.')
     try:
         user_id = int(filters.get('user_id') or 0)
+        exclude_user_id = int(filters.get('exclude_user_id') or 0)
     except (TypeError, ValueError):
         raise ValueError('Некорректный пользователь.')
+    recipient = str(filters.get('recipient') or '').strip()[:80]
     return dict(
         min_balance=money('min_balance'),
         min_turnover=money('min_turnover'),
         min_deposit=money('min_deposit'),
         min_account_days=age_days,
         user_id=max(0, user_id),
+        exclude_user_id=max(0, exclude_user_id),
+        recipient=recipient,
     )
 
 
@@ -7085,6 +7124,15 @@ def broadcast_recipients(db, raw_filters):
     where, params = ['1=1'], []
     if filters['user_id']:
         where.append('u.id=?'); params.append(filters['user_id'])
+    elif filters['recipient']:
+        term = filters['recipient'].lstrip('@').strip()
+        if term.isdigit():
+            where.append('u.id=?'); params.append(int(term))
+        else:
+            like = '%' + term.lower() + '%'
+            where.append('(LOWER(u.username) LIKE ? OR LOWER(u.name) LIKE ?)'); params.extend([like, like])
+    if filters['exclude_user_id']:
+        where.append('u.id<>?'); params.append(filters['exclude_user_id'])
     if filters['min_balance']:
         where.append('u.balance>=?'); params.append(filters['min_balance'])
     if filters['min_turnover']:
@@ -7119,32 +7167,204 @@ def admin_broadcast_preview():
     return jsonify(count=len(rows), users=users, filters=filters)
 
 
+def _bc_call(method, payload, files=None):
+    """Telegram call that keeps the error code: returns (True, result) or (False, dict(code, description, retry))."""
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/{method}'
+    try:
+        if files:
+            data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)) for k, v in payload.items()}
+            response = requests.post(url, data=data, files=files, timeout=(3, 40))
+        else:
+            response = requests.post(url, json=payload, timeout=(3, 15))
+        data = response.json()
+    except (requests.RequestException, ValueError):
+        return False, dict(code=0, description='network', retry=0)
+    if data.get('ok'):
+        return True, data.get('result')
+    return False, dict(code=int(data.get('error_code') or response.status_code), description=str(data.get('description') or '')[:200],
+                       retry=int((data.get('parameters') or {}).get('retry_after') or 0))
+
+
+def _bc_send_one(b, user_id):
+    text, chat = b['text'] or '', int(user_id)
+    try:
+        markup = {'inline_keyboard': json.loads(b['buttons'] or '[]')} or None
+        ids = json.loads(b['photos'] or '[]')
+    except (TypeError, ValueError):
+        markup, ids = None, []
+    if markup and not markup['inline_keyboard']:
+        markup = None
+    visible = len(re.sub(r'<[^>]+>', '', text))
+    def message(body):
+        payload = dict(chat_id=chat, text=body or '👇', parse_mode='HTML', link_preview_options={'is_disabled': True})
+        if markup:
+            payload['reply_markup'] = markup
+        return _bc_call('sendMessage', payload)
+    if not ids:
+        return message(text)
+    if len(ids) == 1:
+        caption_ok = bool(text) and visible <= 1024
+        payload = dict(chat_id=chat, photo=ids[0])
+        if caption_ok:
+            payload.update(caption=text, parse_mode='HTML')
+        if markup and (caption_ok or not text):
+            payload['reply_markup'] = markup
+        ok, res = _bc_call('sendPhoto', payload)
+        if ok and text and not caption_ok:
+            ok, res = message(text)
+        return ok, res
+    caption_ok = bool(text) and visible <= 1024 and not markup
+    media = [dict(type='photo', media=f) for f in ids]
+    if caption_ok:
+        media[0].update(caption=text, parse_mode='HTML')
+    ok, res = _bc_call('sendMediaGroup', dict(chat_id=chat, media=media))
+    if ok and (markup or (text and not caption_ok)):
+        ok, res = message(text)
+    return ok, res
+
+
+def _bc_process_batch():
+    if not BOT_TOKEN:
+        return False
+    now = int(time.time())
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute("UPDATE broadcast_items SET state='pending' WHERE state='sending' AND next_at<?", (now - 90,))
+        rows = db.execute("""SELECT i.id,i.user_id,i.attempts,i.broadcast_id FROM broadcast_items i
+                             JOIN broadcasts b ON b.id=i.broadcast_id
+                             WHERE i.state='pending' AND i.next_at<=? AND b.state='running' ORDER BY i.id LIMIT 20"""
+                          + (' FOR UPDATE OF i SKIP LOCKED' if DATABASE_URL else ''), (now,)).fetchall()
+        for r in rows:
+            db.execute("UPDATE broadcast_items SET state='sending',next_at=? WHERE id=?", (now, r['id']))
+        db.commit()
+    cache = {}
+    for r in rows:
+        with connect() as db:
+            if r['broadcast_id'] not in cache:
+                cache[r['broadcast_id']] = db.execute('SELECT * FROM broadcasts WHERE id=?', (r['broadcast_id'],)).fetchone()
+        b = cache[r['broadcast_id']]
+        ok, res = _bc_send_one(b, r['user_id'])
+        attempts, state, error, col, delay = int(r['attempts']) + 1, 'sent', '', 'sent', 0
+        if not ok:
+            code, desc = res['code'], res['description']
+            error = desc
+            if code == 429:
+                time.sleep(min(max(res['retry'], 1), 30)); state, col, attempts, delay = 'pending', '', int(r['attempts']), 1
+            elif code == 403 or re.search(r'blocked|deactivated|chat not found|user not found', desc, re.I):
+                state, col = 'blocked', 'blocked'
+            elif code == 0 or code >= 500:
+                state, col, delay = ('pending', '', 10 * attempts) if attempts < 3 else ('failed', 'failed', 0)
+            else:
+                state, col = 'failed', 'failed'
+        with connect() as db:
+            db.execute('UPDATE broadcast_items SET state=?,attempts=?,error=?,next_at=? WHERE id=?',
+                       (state, attempts, error[:200], int(time.time()) + delay, r['id']))
+            if col in ('sent', 'blocked', 'failed'):
+                db.execute(f'UPDATE broadcasts SET {col}={col}+1 WHERE id=?', (r['broadcast_id'],))
+        time.sleep(.04)
+    with connect() as db:
+        db.execute("""UPDATE broadcasts SET state='done',finished_at=? WHERE state='running' AND NOT EXISTS
+                      (SELECT 1 FROM broadcast_items x WHERE x.broadcast_id=broadcasts.id AND x.state IN ('pending','sending'))""",
+                   (int(time.time()),))
+    return bool(rows)
+
+
+def broadcast_worker_loop():
+    time.sleep(4)
+    while True:
+        busy = False
+        try:
+            busy = _bc_process_batch()
+        except Exception:
+            app.logger.exception('Broadcast worker failed')
+        time.sleep(.05 if busy else 2)
+
+
 @app.post('/api/admin/broadcast/send')
 @admin_required
 def admin_broadcast_send():
-    data = request.get_json(silent=True) or {}
+    multipart = bool(request.files) or str(request.content_type or '').startswith('multipart/form-data')
+    data = request.form if multipart else (request.get_json(silent=True) or {})
     raw_text = str(data.get('text') or '').strip()
-    if not raw_text:
-        return error('Введите текст рассылки.')
+    try:
+        raw_buttons = json.loads(data.get('buttons') or '[]') if multipart else (data.get('buttons') or [])
+        raw_filters = json.loads(data.get('filters') or '{}') if multipart else (data.get('filters') or {})
+    except (TypeError, ValueError):
+        return error('Некорректные кнопки или фильтры.')
+    files = [f for f in (request.files.getlist('photos') if multipart else []) if f and getattr(f, 'filename', '')]
+    if not raw_text and not files:
+        return error('Введите текст или добавьте фото.')
     if len(raw_text) > 4096:
         return error('Текст рассылки должен быть не длиннее 4096 символов.')
+    if len(files) > 10:
+        return error('Можно прикрепить не более 10 фото.')
+    test = str(data.get('test') or '').lower() in ('1', 'true', 'on', 'yes')
+    if test:
+        raw_filters = {'user_id': session['uid']}
     try:
-        buttons = normalize_post_buttons(data.get('buttons') or [])
+        buttons = normalize_post_buttons(raw_buttons)
         text, _ = resolve_post_custom_emojis(raw_text, buttons)
         with connect() as db:
-            rows, filters = broadcast_recipients(db, data.get('filters') or {})
-            if not rows:
-                return error('По этим фильтрам нет получателей.', 409)
-            markup = {'inline_keyboard': buttons} if buttons else None
-            for row in rows:
-                notify_user_async(int(row['id']), text, markup, 'HTML', db=db)
-            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                       (session['uid'], session['uid'], 'broadcast',
-                        json.dumps(dict(count=len(rows), filters=filters), ensure_ascii=False)[:1000]))
-            db.commit()
+            rows, filters = broadcast_recipients(db, raw_filters)
+        if not rows:
+            return error('По этим фильтрам нет получателей.', 409)
     except (ValueError, RuntimeError) as exc:
         return error(str(exc), 409)
-    return jsonify(ok=True, queued=len(rows))
+    # Photos are uploaded once to the admin's own chat to obtain reusable Telegram file_ids,
+    # then the temporary message is removed. Every recipient gets the same file_id.
+    file_ids = []
+    for f in files:
+        blob = f.read()
+        if not (f.mimetype or '').startswith('image/') or not blob:
+            return error('Прикрепляйте только изображения (JPG, PNG, WEBP).')
+        if len(blob) > 8 * 1024 * 1024:
+            return error('Одно фото — не более 8 МБ.')
+        ok, res = _bc_call('sendPhoto', dict(chat_id=int(session['uid']), disable_notification=True),
+                           files={'photo': (f.filename or 'photo.jpg', blob, f.mimetype)})
+        if not ok:
+            return error('Telegram не принял фото: ' + res['description'] + '. Админ должен запустить бота (/start).', 409)
+        file_ids.append(res['photo'][-1]['file_id'])
+        _bc_call('deleteMessage', dict(chat_id=int(session['uid']), message_id=res['message_id']))
+    with connect() as db:
+        cur = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,created_at) VALUES(?,?,?,?,?,?)',
+                         (session['uid'], text, json.dumps(file_ids), json.dumps(buttons), len(rows), int(time.time())))
+        bid = cur.lastrowid
+        for row in rows:
+            db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bid, int(row['id'])))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'broadcast',
+                    json.dumps(dict(id=bid, count=len(rows), photos=len(file_ids), test=test, filters=filters), ensure_ascii=False)[:1000]))
+        db.commit()
+    NOTIFY_WAKE.set()
+    return jsonify(ok=True, id=bid, queued=len(rows))
+
+
+@app.get('/api/admin/broadcast/status')
+@admin_required
+def admin_broadcast_status():
+    with connect() as db:
+        rows = db.execute('SELECT * FROM broadcasts ORDER BY id DESC LIMIT 8').fetchall()
+    items = []
+    for r in rows:
+        done = int(r['sent']) + int(r['failed']) + int(r['blocked'])
+        try:
+            photos = len(json.loads(r['photos'] or '[]'))
+        except (TypeError, ValueError):
+            photos = 0
+        items.append(dict(id=r['id'], state=r['state'], total=r['total'], sent=r['sent'], failed=r['failed'], blocked=r['blocked'],
+                          pending=max(0, int(r['total']) - done), photos=photos, created_at=r['created_at'],
+                          preview=re.sub(r'<[^>]+>', '', r['text'] or '')[:70]))
+    return jsonify(items=items)
+
+
+@app.post('/api/admin/broadcast/<int:bid>/cancel')
+@admin_required
+def admin_broadcast_cancel(bid):
+    with connect() as db:
+        db.execute("UPDATE broadcasts SET state='cancelled',finished_at=? WHERE id=? AND state='running'", (int(time.time()), bid))
+        db.execute("UPDATE broadcast_items SET state='cancelled' WHERE broadcast_id=? AND state IN ('pending','sending')", (bid,))
+        db.commit()
+    return jsonify(ok=True)
 
 
 @app.route('/api/admin/post/draft', methods=['GET', 'POST'])
@@ -7554,6 +7774,8 @@ def request_withdrawal(item_id):
             return error('Подарок не найден или уже отправлен на вывод.', 404)
         if item['promo_locked']:
             return error('Промо-подарок нельзя вывести до завершения отыгрыша.', 409)
+        if int(item['deposit_mirror'] or 0):
+            return error('Этот NFT уже учтён как пополнение TON и хранится в инвентаре как подтверждение.', 409)
         db.execute('''INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,external_url)
                       VALUES(?,?,?,?,?,?,?,?,'pending',?)''',
                    (session['uid'], item['id'], item['gift_id'], item['gift_name'], item['image_url'],
@@ -8307,6 +8529,9 @@ def arena_bet():
             if not item:
                 db.rollback()
                 return error('Подарок не найден в инвентаре.', 404)
+            if int(item['deposit_mirror'] or 0):
+                db.rollback()
+                return error('NFT-пополнение уже зачислено на баланс и недоступно для ставки.', 409)
             if item['promo_locked']:
                 db.rollback()
                 return error('Отыгрышные подарки в арене недоступны.', 409)
@@ -9464,6 +9689,9 @@ def hilo_room_bet():
             if not item:
                 db.rollback()
                 return error('Подарок не найден в инвентаре.', 404)
+            if int(item['deposit_mirror'] or 0):
+                db.rollback()
+                return error('NFT-пополнение уже зачислено на баланс и недоступно для ставки.', 409)
             if item['promo_locked']:
                 db.rollback()
                 return error('Отыгрышные подарки в Hi-Lo недоступны.')
@@ -9555,6 +9783,9 @@ def hilo_start():
             if not item:
                 db.rollback()
                 return error('Подарок не найден в инвентаре.', 404)
+            if int(item['deposit_mirror'] or 0):
+                db.rollback()
+                return error('NFT-пополнение уже зачислено на баланс и недоступно для ставки.', 409)
             if item['promo_locked']:
                 db.rollback()
                 return error('Отыгрышные подарки в Hi-Lo недоступны.')
@@ -13340,6 +13571,8 @@ def ton_settings():
         referral_percent=ref_percent,
         stars_enabled=bool(doc.get('stars_enabled', True)),
         stars_per_ton=stars_per_ton,
+        gifts_enabled=bool(doc.get('gifts_enabled', True)),
+        relay_username=str(doc.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay',
         stars_withdraw_days=21,
     )
 
@@ -13351,6 +13584,8 @@ def ton_settings_public():
     return jsonify(enabled=settings['enabled'], recipient_wallet=settings['recipient_wallet'],
                    site_name=settings['site_name'], referral_percent=settings['referral_percent'],
                    stars_enabled=settings['stars_enabled'], stars_per_ton=settings['stars_per_ton'],
+                   gifts_enabled=settings['gifts_enabled'], relay_username=settings['relay_username'],
+                   gift_relayer_ready=relayer_public_ready(),
                    stars_withdraw_days=settings['stars_withdraw_days'])
 
 
@@ -13370,6 +13605,8 @@ def admin_ton_settings_set():
     icon_url = str(data.get('icon_url') or '').strip()
     enabled = bool(data.get('enabled', True))
     stars_enabled = bool(data.get('stars_enabled', True))
+    gifts_enabled = bool(data.get('gifts_enabled', True))
+    relay_username = str(data.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay'
     try:
         referral_pct = float(data.get('referral_percent', 10))
         stars_per_ton = int(data.get('stars_per_ton', 100))
@@ -13390,6 +13627,7 @@ def admin_ton_settings_set():
     save_document('ton_settings', dict(enabled=enabled, recipient_wallet=recipient, site_name=site_name,
                                        site_url=site_url, icon_url=icon_url, referral_percent=referral_pct,
                                        stars_enabled=stars_enabled, stars_per_ton=stars_per_ton,
+                                       gifts_enabled=gifts_enabled, relay_username=relay_username,
                                        updated_at=datetime.now(timezone.utc).isoformat(),
                                        admin_id=session['uid']))
     with connect() as db:
@@ -13397,8 +13635,435 @@ def admin_ton_settings_set():
                    (session['uid'], session['uid'], 'ton_settings',
                     json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient,
                                 'referral_percent': referral_pct, 'stars_enabled': stars_enabled,
-                                'stars_per_ton': stars_per_ton}, ensure_ascii=False)))
+                                'stars_per_ton': stars_per_ton, 'gifts_enabled': gifts_enabled,
+                                'relay_username': relay_username}, ensure_ascii=False)))
     return jsonify(ok=True, **ton_settings())
+
+
+
+# --- Telegram NFT relayer ---------------------------------------------------
+RELAYER_SESSION_BASENAME = str(DATA / 'gemdrop_relayer')
+RELAYER_SCAN_SECONDS = max(5, int(os.environ.get('RELAYER_SCAN_SECONDS', '12') or 12))
+
+
+def relayer_settings():
+    doc = read_document('relayer_settings') or {}
+    ton = ton_settings()
+    api_id = str(os.environ.get('TELEGRAM_API_ID') or doc.get('api_id') or '').strip()
+    api_hash = str(os.environ.get('TELEGRAM_API_HASH') or doc.get('api_hash') or '').strip()
+    # Gift delivery is the active/default flow. The TON conversion mode is kept
+    # as a mutually-exclusive fallback for later, never both at the same time.
+    delivery_mode = str(doc.get('delivery_mode') or 'inventory').strip().lower()
+    if delivery_mode not in {'inventory', 'balance'}:
+        delivery_mode = 'inventory'
+    return dict(
+        enabled=bool(doc.get('enabled', True)), api_id=api_id, api_hash=api_hash,
+        relay_username=str(doc.get('relay_username') or ton.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay',
+        delivery_mode=delivery_mode, credit_balance=(delivery_mode == 'balance'),
+        keep_inventory=(delivery_mode == 'inventory'),
+    )
+
+
+def relayer_public_ready():
+    cfg = relayer_settings(); state = read_document('relayer_state') or {}
+    return bool(cfg['enabled'] and cfg['api_id'] and cfg['api_hash'] and state.get('authorized'))
+
+
+def relayer_public_catalog():
+    items, seen = [], set()
+    for gift in read_catalog().get('gifts', []):
+        try: price = ton_to_cents(gift.get('price_ton') or 0)
+        except (ValueError, TypeError, InvalidOperation): price = 0
+        if price <= 0: continue
+        gid, name = str(gift.get('id') or ''), str(gift.get('name') or 'Подарок').strip() or 'Подарок'
+        key = (gid, name.casefold())
+        if key in seen: continue
+        seen.add(key)
+        items.append(dict(id=gid, name=name, image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')), price_ton=price/100))
+    items.sort(key=lambda x: (float(x['price_ton']), x['name'].casefold()))
+    return items
+
+
+@app.get('/api/gift-deposits/catalog')
+@login_required
+def gift_deposit_catalog():
+    settings = ton_settings()
+    if not settings['gifts_enabled']: return error('Пополнение подарками временно отключено.', 503)
+    return jsonify(items=relayer_public_catalog(), relay_username=settings['relay_username'], relayer_ready=relayer_public_ready())
+
+
+def _relayer_state(**patch):
+    old = read_document('relayer_state') or {}
+    if not isinstance(old, dict): old = {}
+    old.update(patch); old['updated_at'] = datetime.now(timezone.utc).isoformat(); save_document('relayer_state', old); return old
+
+
+def _relayer_imports():
+    try:
+        from telethon import TelegramClient, functions
+        from telethon.sessions import StringSession
+        from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
+        return TelegramClient, functions, StringSession, SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
+    except Exception as exc:
+        raise RuntimeError('Для relayer установите Telethon: pip install "telethon>=1.45,<2"') from exc
+
+
+def _relayer_client():
+    TelegramClient, _, StringSession, _, _, _ = _relayer_imports(); cfg = relayer_settings()
+    if not cfg['api_id'] or not cfg['api_hash']: raise RuntimeError('Укажите TELEGRAM_API_ID и TELEGRAM_API_HASH или сохраните их в настройках relayer.')
+    try: api_id = int(cfg['api_id'])
+    except (TypeError, ValueError): raise RuntimeError('TELEGRAM_API_ID должен быть числом.')
+    session_doc = read_document('relayer_session') or {}
+    session_value = str(session_doc.get('value') or '') if isinstance(session_doc, dict) else ''
+    return TelegramClient(StringSession(session_value), api_id, cfg['api_hash'], device_model='GemDrop Relayer', system_version='GemDrop', app_version=BUILD_ID, auto_reconnect=True)
+
+
+def _relayer_save_session(client):
+    try:
+        value = client.session.save()
+        if value:
+            save_document('relayer_session', {'value': value, 'updated_at': datetime.now(timezone.utc).isoformat()})
+    except Exception:
+        app.logger.exception('Could not persist relayer Telegram session')
+
+
+def _relayer_clear_session():
+    with connect() as db:
+        db.execute("DELETE FROM app_documents WHERE name='relayer_session'")
+
+
+def _relayer_run(coro): return asyncio.run(coro)
+
+def _relayer_account_dict(me):
+    if not me: return {}
+    return dict(id=int(getattr(me,'id',0) or 0), username=str(getattr(me,'username','') or ''), first_name=str(getattr(me,'first_name','') or ''), last_name=str(getattr(me,'last_name','') or ''))
+
+
+@app.get('/api/admin/relayer/status')
+@admin_required
+def admin_relayer_status():
+    cfg = relayer_settings(); state = read_document('relayer_state') or {}; auth_raw = read_document('relayer_auth') or {}
+    # Never return phone_code_hash or any future secret fields to the browser.
+    auth = {key: auth_raw.get(key) for key in ('status','attempt_id','qr_url','updated_at') if auth_raw.get(key) not in (None,'')}
+    with connect() as db: rows = db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
+    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], delivery_mode=cfg['delivery_mode'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], state=state, auth=auth,
+                   events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=r['image_url'],external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,status=r['status'],created_at=r['created_at'],credited_at=r['credited_at']) for r in rows])
+
+
+@app.post('/api/admin/relayer/settings')
+@admin_required
+def admin_relayer_settings():
+    data = request.get_json(silent=True) or {}; previous = read_document('relayer_settings') or {}
+    api_id = str(data.get('api_id') or previous.get('api_id') or '').strip(); api_hash = str(data.get('api_hash') or '').strip() or str(previous.get('api_hash') or '').strip()
+    if api_id and not api_id.isdigit(): return error('API ID должен быть числом.')
+    if api_hash and not re.fullmatch(r'[A-Za-z0-9]{20,80}', api_hash): return error('Проверьте API hash Telegram.')
+    username = str(data.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay'
+    delivery_mode=str(data.get('delivery_mode') or 'inventory').strip().lower()
+    if delivery_mode not in {'inventory','balance'}: delivery_mode='inventory'
+    save_document('relayer_settings', dict(enabled=bool(data.get('enabled',True)),api_id=api_id,api_hash=api_hash,relay_username=username,delivery_mode=delivery_mode,updated_at=datetime.now(timezone.utc).isoformat(),admin_id=session['uid']))
+    ton_doc = read_document('ton_settings') or {}; ton_doc.update({'gifts_enabled':bool(data.get('gifts_enabled',True)),'relay_username':username,'updated_at':datetime.now(timezone.utc).isoformat(),'admin_id':session['uid']}); save_document('ton_settings',ton_doc)
+    return jsonify(ok=True)
+
+
+async def _relayer_phone_start(phone):
+    client=_relayer_client()
+    try:
+        await client.connect()
+        if await client.is_user_authorized():
+            me=await client.get_me(); _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me)); return dict(ok=True,authorized=True)
+        sent=await client.send_code_request(phone)
+        save_document('relayer_auth',{'status':'code_sent','phone':phone,'phone_code_hash':str(getattr(sent,'phone_code_hash','') or ''),'updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=False,status='code_sent'); return dict(ok=True,status='code_sent')
+    finally:
+        _relayer_save_session(client)
+        await client.disconnect()
+
+@app.post('/api/admin/relayer/login/phone')
+@admin_required
+def admin_relayer_phone():
+    phone=re.sub(r'[^0-9+]','',str((request.get_json(silent=True) or {}).get('phone') or ''))
+    if not re.fullmatch(r'\+?[0-9]{8,16}',phone): return error('Введите номер в международном формате, например +79990000000.')
+    try: return jsonify(**_relayer_run(_relayer_phone_start(phone)))
+    except (RuntimeError,ValueError) as exc: return error(str(exc),409)
+
+
+async def _relayer_code_submit(code):
+    _,_,_,SessionPasswordNeededError,PhoneCodeInvalidError,PhoneCodeExpiredError=_relayer_imports(); auth=read_document('relayer_auth') or {}; phone,phone_hash=str(auth.get('phone') or ''),str(auth.get('phone_code_hash') or '')
+    if not phone or not phone_hash: raise RuntimeError('Сначала запросите код входа.')
+    client=_relayer_client()
+    try:
+        await client.connect()
+        try: await client.sign_in(phone=phone,code=code,phone_code_hash=phone_hash)
+        except SessionPasswordNeededError:
+            save_document('relayer_auth',dict(auth,status='need_password')); _relayer_state(authorized=False,status='need_password'); return dict(ok=True,status='need_password')
+        except PhoneCodeInvalidError: raise RuntimeError('Неверный код Telegram.')
+        except PhoneCodeExpiredError: raise RuntimeError('Код Telegram истёк. Запросите новый.')
+        me=await client.get_me(); save_document('relayer_auth',{'status':'authorized','updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me)); return dict(ok=True,status='authorized',account=_relayer_account_dict(me))
+    finally:
+        _relayer_save_session(client)
+        await client.disconnect()
+
+@app.post('/api/admin/relayer/login/code')
+@admin_required
+def admin_relayer_code():
+    code=re.sub(r'\D','',str((request.get_json(silent=True) or {}).get('code') or ''))
+    if not 3<=len(code)<=8: return error('Введите код из Telegram.')
+    try: return jsonify(**_relayer_run(_relayer_code_submit(code)))
+    except (RuntimeError,ValueError) as exc: return error(str(exc),409)
+
+
+async def _relayer_password_submit(password):
+    client=_relayer_client()
+    try:
+        await client.connect(); await client.sign_in(password=password); me=await client.get_me(); save_document('relayer_auth',{'status':'authorized','updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me)); return dict(ok=True,status='authorized',account=_relayer_account_dict(me))
+    finally:
+        _relayer_save_session(client)
+        await client.disconnect()
+
+@app.post('/api/admin/relayer/login/password')
+@admin_required
+def admin_relayer_password():
+    password=str((request.get_json(silent=True) or {}).get('password') or '')
+    if not password: return error('Введите пароль 2FA.')
+    try: return jsonify(**_relayer_run(_relayer_password_submit(password)))
+    except Exception: app.logger.exception('Relayer 2FA login failed'); return error('Не удалось войти по 2FA. Проверьте пароль.',409)
+
+
+async def _relayer_qr_wait(attempt_id):
+    _,_,_,SessionPasswordNeededError,_,_=_relayer_imports(); client=_relayer_client()
+    try:
+        await client.connect()
+        if await client.is_user_authorized():
+            me=await client.get_me(); _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me)); return
+        qr=await client.qr_login(); save_document('relayer_auth',{'status':'qr_wait','attempt_id':attempt_id,'qr_url':str(qr.url),'updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=False,status='qr_wait')
+        try: await qr.wait(timeout=90)
+        except SessionPasswordNeededError:
+            save_document('relayer_auth',{'status':'need_password','attempt_id':attempt_id,'updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=False,status='need_password'); return
+        me=await client.get_me(); save_document('relayer_auth',{'status':'authorized','updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me))
+    except Exception as exc:
+        app.logger.exception('Relayer QR login failed'); save_document('relayer_auth',{'status':'qr_error','attempt_id':attempt_id,'error':str(exc)[:180],'updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=False,status='login_error')
+    finally:
+        _relayer_save_session(client)
+        try: await client.disconnect()
+        except Exception: pass
+
+def _relayer_qr_thread(attempt_id): _relayer_run(_relayer_qr_wait(attempt_id))
+
+@app.post('/api/admin/relayer/login/qr')
+@admin_required
+def admin_relayer_qr():
+    try:
+        _relayer_imports(); cfg=relayer_settings()
+        if not cfg['api_id'] or not cfg['api_hash']: return error('Сначала сохраните API ID и API hash Telegram.',409)
+        attempt_id=secrets.token_hex(8); save_document('relayer_auth',{'status':'qr_starting','attempt_id':attempt_id,'updated_at':datetime.now(timezone.utc).isoformat()}); Thread(target=_relayer_qr_thread,args=(attempt_id,),daemon=True).start(); deadline=time.time()+6
+        while time.time()<deadline:
+            state=read_document('relayer_auth') or {}
+            if state.get('attempt_id')==attempt_id and state.get('status')!='qr_starting': return jsonify(ok=True,**state)
+            time.sleep(.15)
+        return jsonify(ok=True,status='qr_starting',attempt_id=attempt_id)
+    except RuntimeError as exc: return error(str(exc),409)
+
+
+async def _relayer_logout():
+    client=_relayer_client()
+    try:
+        await client.connect()
+        if await client.is_user_authorized(): await client.log_out()
+    finally:
+        try: await client.disconnect()
+        except Exception: pass
+
+@app.post('/api/admin/relayer/logout')
+@admin_required
+def admin_relayer_logout():
+    try: _relayer_run(_relayer_logout())
+    except Exception: app.logger.exception('Relayer logout failed')
+    _relayer_clear_session(); save_document('relayer_auth',{'status':'logged_out','updated_at':datetime.now(timezone.utc).isoformat()}); _relayer_state(authorized=False,status='logged_out',account={}); return jsonify(ok=True)
+
+
+def _relayer_peer_user_id(peer):
+    if peer is None: return 0
+    if isinstance(peer,int): return int(peer)
+    for name in ('user_id','id'):
+        try:
+            value=int(getattr(peer,name,0) or 0)
+            if value:return value
+        except (TypeError,ValueError):pass
+    return 0
+
+def _relayer_json(value):
+    try:
+        if hasattr(value,'to_dict'): value=value.to_dict()
+        return json.dumps(value,ensure_ascii=False,default=str)[:15000]
+    except Exception:return '{}'
+
+def _relayer_entry_info(entry):
+    gift=getattr(entry,'gift',None) or entry
+    slug=str(getattr(gift,'slug','') or getattr(entry,'slug','') or '').strip()
+    title=str(getattr(gift,'title','') or getattr(gift,'name','') or getattr(entry,'title','') or '').strip()
+    number=str(getattr(gift,'num','') or getattr(gift,'number','') or getattr(entry,'gift_num','') or getattr(entry,'num','') or '').strip()
+    slug_match=re.match(r'^(.+?)-(\\d+)$',slug) if slug else None
+    if slug_match:
+        if not number: number=slug_match.group(2)
+        if not title or title.casefold()=='telegram nft':
+            title=re.sub(r'(?<=[a-z0-9])(?=[A-Z])',' ',slug_match.group(1)).replace('_',' ').strip()
+    title=title or 'Telegram NFT'
+    gift_id=str(getattr(gift,'id','') or getattr(entry,'gift_id','') or '')
+    saved_id=str(getattr(entry,'saved_id','') or getattr(entry,'msg_id','') or getattr(entry,'id','') or '')
+    sender=_relayer_peer_user_id(getattr(entry,'from_id',None) or getattr(entry,'sender_id',None))
+    date=getattr(entry,'date',None)
+    telegram_url=('https://t.me/nft/'+slug) if slug else ''
+    key=saved_id or slug or f'{gift_id}:{sender}:{date}'
+    return dict(external_key='tg:'+str(key),sender_user_id=sender,gift_id=gift_id,gift_name=title,slug=slug,fragment_number=number,external_url=telegram_url,telegram_url=telegram_url,raw_json=_relayer_json(entry))
+
+def _relayer_norm(value): return re.sub(r'[^a-z0-9]+','',str(value or '').casefold())
+
+def _relayer_resolve_gift(info):
+    # Portal is the authoritative rate card. For collectible NFTs, resolve the
+    # exact Fragment/Telegram metadata first so Black/Onyx/model prices can use
+    # the matching Portal trait floor instead of a generic collection price.
+    info = dict(info or {})
+    catalog=read_catalog(include_hidden=True).get('gifts',[]); candidates=[]
+    for g in catalog:
+        gid,name=str(g.get('id') or ''),str(g.get('name') or ''); score=100 if info.get('gift_id') and gid==info['gift_id'] else 0; n1,n2=_relayer_norm(name),_relayer_norm(info.get('gift_name')); n3=_relayer_norm(re.sub(r'-\d+$','',str(info.get('slug') or ''),flags=re.I))
+        if n1 and n2 and (n1==n2 or n1 in n2 or n2 in n1):score+=60
+        if n1 and n3 and (n1==n3 or n1 in n3 or n3 in n1):score+=50
+        if score:candidates.append((score,g))
+    gift=max(candidates,key=lambda x:x[0])[1] if candidates else None; fragment=None
+    if info.get('slug'):
+        try: fragment=fragment_gift_from_url('https://fragment.com/gift/'+info['slug'],True,allow_missing_price=True)
+        except Exception: fragment=None
+
+    catalog_price=0
+    if gift:
+        try: catalog_price=ton_to_cents(gift.get('price_ton') or 0)
+        except Exception: catalog_price=0
+        image=safe_image(gift.get('image_url') or gift.get('portal_image_url')); name=str(info.get('gift_name') or gift.get('name') or 'Telegram NFT'); gid=str(gift.get('id') or info.get('gift_id') or info.get('slug') or '')
+    else:
+        image,name,gid='',str(info.get('gift_name') or 'Telegram NFT'),str(info.get('gift_id') or info.get('slug') or '')
+
+    price=max(0,int(catalog_price or 0)); price_source='Portal · каталог' if price else ''
+    if fragment:
+        image=safe_image(fragment.get('image_url')) or image; name=str(fragment.get('gift_name') or name)
+        info['fragment_number']=str(fragment.get('fragment_number') or info.get('fragment_number') or '')
+        # Never replace the public Telegram NFT link with Fragment. Fragment is
+        # used to resolve exact metadata/PNG/traits and price only.
+        info['telegram_url']=str(info.get('telegram_url') or info.get('external_url') or '')
+        info['fragment_lookup_url']=str(fragment.get('fragment_url') or '')
+        info['external_url']=info['telegram_url']
+        info['fragment_model']=str(fragment.get('fragment_model') or '')
+        info['fragment_backdrop']=str(fragment.get('fragment_backdrop') or '')
+        info['fragment_symbol']=str(fragment.get('fragment_symbol') or '')
+        info['animation_url']=safe_image(fragment.get('animation_url'))
+        try:
+            portal_exact, portal_source = _fragment_portal_fallback_price(
+                fragment.get('collection_name') or re.sub(r'\s*#\s*\d+.*$', '', name).strip(),
+                info['fragment_model'], info['fragment_backdrop'])
+        except Exception:
+            portal_exact, portal_source = 0, ''
+        if portal_exact:
+            price, price_source = int(portal_exact), str(portal_source or 'Portal')
+        elif not price and int(fragment.get('floor_price') or 0)>0:
+            price, price_source = int(fragment.get('floor_price') or 0), str(fragment.get('price_source') or 'Fragment')
+    info.update(gift_id=gid,gift_name=name,image_url=image,floor_price=max(0,int(price)),price_source=price_source)
+    return info
+
+
+def _relayer_credit(info,baseline=False):
+    cfg=relayer_settings(); db=connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute('SELECT 1 FROM relayer_gift_events WHERE external_key=?',(info['external_key'],)).fetchone(): db.rollback(); return 'duplicate'
+        uid=int(info.get('sender_user_id') or 0); user_row=db.execute('SELECT id,name,username FROM users WHERE id=?',(uid,)).fetchone() if uid else None
+        if not info.get('slug'):
+            db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),0,'not_nft',info.get('raw_json','{}'))); db.commit(); return 'not_nft'
+        if baseline:
+            db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'baseline',info.get('raw_json','{}'))); db.commit(); return 'baseline'
+        if not user_row:
+            db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),int(info.get('floor_price') or 0),'unmatched',info.get('raw_json','{}'))); db.commit(); return 'unmatched'
+        price=max(0,int(info.get('floor_price') or 0))
+        mode=cfg.get('delivery_mode') or 'inventory'
+        # Inventory mode does not depend on a price lookup: the actual NFT is the
+        # deposit. A missing Portal/Fragment quote must never swallow the gift.
+        if mode=='balance' and price<=0:
+            db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,status,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),0,'unpriced',info.get('raw_json','{}'))); db.commit(); return 'unpriced'
+        inventory_id=None
+        if mode=='inventory':
+            cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label,deposit_mirror) VALUES(?,?,?,?,?,'gift_deposit',?,?,?,?,?,?,?,?,0)",(uid,info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),price,info.get('external_url',''),info.get('fragment_number',''),info.get('fragment_model',''),info.get('fragment_backdrop',''),info.get('fragment_symbol',''),str(info.get('price_source') or 'Fragment / Telegram'),info.get('animation_url',''),'Пополнение подарком · NFT в инвентаре')); inventory_id=cur.lastrowid
+            record_transaction(db,uid,'gift_deposit_inventory',0,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
+            event_status='delivered'
+        else:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?',(price,uid))
+            record_transaction(db,uid,'gift_deposit',price,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
+            event_status='credited'
+        db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}'))); db.commit()
+    finally: db.close()
+
+    gift_name=escape(str(info.get('gift_name') or 'Telegram NFT'))
+    number=str(info.get('fragment_number') or '').strip()
+    display_name=gift_name + (f' #{escape(number)}' if number else '')
+    telegram_link=str(info.get('telegram_url') or info.get('external_url') or '')
+    if re.match(r'^https://t\\.me/nft/[A-Za-z0-9_-]+$',telegram_link,re.I):
+        gift_line=f'<a href="{escape(telegram_link, quote=True)}"><b>{display_name}</b></a>'
+    else:
+        gift_line=f'<b>{display_name}</b>'
+    if mode=='inventory':
+        text=f'🎁 <b>Ваш подарок был доставлен</b>\\n\\n{gift_line}\\nПодарок добавлен в ваш инвентарь GemDrop.'
+        if price>0: text+=f'\\nОценочная стоимость: <b>{price/100:.2f} TON</b>'
+        text+='\\n\\nНажмите на название подарка, чтобы открыть сам NFT в Telegram.'
+        markup=miniapp_markup('🎁 Открыть инвентарь','profile')
+    else:
+        text=f'✅ <b>Подарок конвертирован в баланс</b>\\n\\n{gift_line}\\nЗачислено: <b>{price/100:.2f} TON</b>'
+        markup=miniapp_markup('Открыть GemDrop','profile')
+    try: notify_user_async(uid,text,markup,'HTML')
+    except Exception: app.logger.exception('Gift deposit notification failed')
+    return 'credited'
+
+
+async def _relayer_saved_gifts(client):
+    _,functions,_,_,_,_=_relayer_imports(); payments=getattr(functions,'payments',None); cls=getattr(payments,'GetSavedStarGiftsRequest',None) if payments else None
+    if cls is None and payments: cls=getattr(payments,'GetSavedGiftsRequest',None)
+    if cls is None: raise RuntimeError('В установленной версии Telethon нет API Saved Star Gifts. Обновите Telethon.')
+    peer=await client.get_input_entity('me'); values=dict(peer=peer,offset='',limit=100,exclude_unsaved=False,exclude_saved=False,exclude_unlimited=False,exclude_limited=False,exclude_unique=False,sort_by_value=False,ascending=False); sig=inspect.signature(cls.__init__); kwargs={}
+    for name,param in sig.parameters.items():
+        if name=='self':continue
+        if name in values:kwargs[name]=values[name]
+        elif param.default is inspect._empty:
+            if name.startswith(('exclude_','sort_','ascending','descending')):kwargs[name]=False
+            elif name=='limit':kwargs[name]=100
+            elif name=='offset':kwargs[name]=''
+            elif name=='peer':kwargs[name]=peer
+            else:kwargs[name]=False
+    result=await client(cls(**kwargs)); return list(getattr(result,'gifts',None) or getattr(result,'saved_gifts',None) or [])
+
+
+async def _relayer_scan_async(force=False):
+    cfg=relayer_settings()
+    if not cfg['enabled'] and not force:return dict(ok=False,status='disabled',processed=0)
+    client=_relayer_client()
+    try:
+        await client.connect()
+        if not await client.is_user_authorized(): _relayer_state(authorized=False,status='login_required'); return dict(ok=False,status='login_required',processed=0)
+        me=await client.get_me(); gifts=await _relayer_saved_gifts(client); state=read_document('relayer_state') or {}; baseline=not bool(state.get('baseline_ready')); processed=credited=0
+        for entry in gifts:
+            info=_relayer_resolve_gift(_relayer_entry_info(entry)); result=_relayer_credit(info,baseline=baseline); processed+=0 if result=='duplicate' else 1; credited+=1 if result=='credited' else 0
+        _relayer_state(authorized=True,status='online',account=_relayer_account_dict(me),baseline_ready=True,last_scan=datetime.now(timezone.utc).isoformat(),last_seen=len(gifts),last_processed=processed,last_credited=credited,error=''); return dict(ok=True,status='online',processed=processed,credited=credited,baseline=baseline)
+    finally: await client.disconnect()
+
+@app.post('/api/admin/relayer/scan')
+@admin_required
+def admin_relayer_scan():
+    try:return jsonify(**_relayer_run(_relayer_scan_async(force=True)))
+    except Exception as exc: app.logger.exception('Manual relayer scan failed'); _relayer_state(status='error',error=str(exc)[:180]); return error(str(exc),409)
+
+
+def relayer_auto_loop():
+    time.sleep(5)
+    while True:
+        try:
+            cfg=relayer_settings()
+            if cfg['enabled'] and cfg['api_id'] and cfg['api_hash']:_relayer_run(_relayer_scan_async())
+        except Exception as exc: app.logger.exception('Relayer scan failed'); _relayer_state(status='error',error=str(exc)[:180])
+        time.sleep(RELAYER_SCAN_SECONDS)
 
 
 def toncenter_headers():
@@ -14743,6 +15408,8 @@ if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
 # transaction/migration locks (660105/660106 above).
 start_background(portal_auto_loop, 660101)
 start_background(daily_top_settlement_loop, 661201)
+start_background(broadcast_worker_loop, 661203)
+start_background(relayer_auto_loop, 661204)
 if BOT_TOKEN:
     start_background(creator_daily_limit_refill_loop, 661202)
     start_background(activity_notification_loop, 660102)

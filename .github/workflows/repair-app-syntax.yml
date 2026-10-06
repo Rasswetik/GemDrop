@@ -19,16 +19,18 @@ jobs:
         run: python fix_postgres_runtime.py
       - name: Repair NFT profile artwork
         run: python fix_profile_nft_images.py
+      - name: Repair Upgrade compensation
+        run: python fix_upgrade_compensation.py
       - name: Verify Python syntax
         run: python -m py_compile app.py
-      - name: Commit repaired app.py
+      - name: Commit repaired files
         run: |
-          if git diff --quiet -- app.py; then
-            echo "app.py already valid"
+          if git diff --quiet -- app.py templates/index.html; then
+            echo "app.py and index.html already valid"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.py
-          git commit -m "Repair app.py syntax before Render deploy"
+          git add app.py templates/index.html
+          git commit -m "Repair Upgrade compensation flow"
           git push

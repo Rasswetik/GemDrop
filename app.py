@@ -15735,9 +15735,287 @@ def append_portal_log(message, level='info'):
         if not isinstance(logs, list):
             logs = []
         logs.append({'ts': datetime.now(timezone.utc).isoformat(), 'level': level, 'message': str(message)[:500]})
-        save_document('portal_logs', logs[-100:])
+        save_document('portal_logs', logs[-200:])
     except Exception:
         app.logger.exception('Could not persist Portal log')
+
+
+
+PORTAL_PARTNER_BASE='https://portal-market.com'
+PORTAL_WITHDRAW_RESERVE=Decimal('0.30')
+portal_withdraw_lock=__import__('threading').Lock()
+
+def portal_partner_token():
+    raw=str(saved_portal_key() or '').strip()
+    if not raw:return ''
+    if raw.casefold().startswith('tma ') or ('hash=' in raw and 'auth_date=' in raw):return ''
+    for prefix in ('partners ','bearer '):
+        if raw.casefold().startswith(prefix):raw=raw[len(prefix):].strip();break
+    return raw if raw and len(raw)<=8000 and '\n' not in raw and '\r' not in raw else ''
+
+def _portal_decimal(value,default='0'):
+    try:
+        out=Decimal(str(value if value not in (None,'') else default))
+        return out if out.is_finite() and out>=0 else Decimal(default)
+    except (InvalidOperation,TypeError,ValueError):return Decimal(default)
+
+def _portal_decimal_text(value):
+    text=format(_portal_decimal(value).quantize(Decimal('0.000000001'),rounding=ROUND_HALF_UP),'f').rstrip('0').rstrip('.')
+    return text or '0'
+
+def _portal_error_message(data,status=0):
+    if isinstance(data,dict):
+        for key in ('message','error','detail','details','reason'):
+            if isinstance(data.get(key),str) and data[key].strip():return data[key].strip()[:350]
+    if isinstance(data,str) and data.strip():return data.strip()[:350]
+    return f'Portal HTTP {status}' if status else 'Portal Market не вернул описание ошибки.'
+
+def _portal_partner_request(method,path,params=None,payload=None):
+    token=portal_partner_token()
+    if not token:raise RuntimeError('Partner token Portal Market не настроен.')
+    headers={'Accept':'application/json','Authorization':'partners '+token,'User-Agent':'GemDrop/'+BUILD_ID}
+    if payload is not None:headers['Content-Type']='application/json'
+    last=None
+    for attempt in range(3):
+        try:
+            r=requests.request(method,PORTAL_PARTNER_BASE+path,params=params,json=payload,headers=headers,timeout=(3.5,12))
+            if r.status_code==429 and attempt<2:
+                try:delay=min(3,max(.5,float(r.headers.get('Retry-After') or 1)))
+                except (TypeError,ValueError):delay=1
+                time.sleep(delay);continue
+            if r.status_code>=500 and attempt<2:time.sleep(.6*(attempt+1));continue
+            if r.status_code==204:return {}
+            try:data=r.json()
+            except ValueError:data=r.text or {}
+            if r.status_code>=400:raise RuntimeError(_portal_error_message(data,r.status_code))
+            return data if isinstance(data,dict) else {}
+        except requests.RequestException as exc:
+            last=exc
+            if attempt<2:time.sleep(.6*(attempt+1));continue
+    raise RuntimeError('Portal Market не ответил: '+str(last or 'network error')[:240])
+
+def _portal_requested_collection(row):
+    name=str(row.get('gift_name') or 'Подарок').strip();backdrop=str(row.get('fragment_backdrop') or '').strip()
+    m=re.search(r'\s*\((Black|Onyx(?: Black)?)\)\s*$',name,re.I)
+    if m:backdrop=backdrop or m.group(1);name=name[:m.start()].strip()
+    name=re.sub(r'\s*#\s*\d+\s*$','',name).strip()
+    if not name:
+        slug=_relayer_slug_from_url(row.get('external_url'));name=re.sub(r'-\d+$','',slug).replace('_',' ').strip() or 'Подарок'
+    return name,backdrop
+
+def _portal_norm(value):return re.sub(r'[^a-z0-9]+','',str(value or '').casefold())
+
+def _portal_matches(items,name):
+    target=_portal_norm(name);out=[]
+    for x in items or []:
+        if not isinstance(x,dict):continue
+        live=_portal_norm(x.get('name'))
+        if target and live and (target==live or target in live or live in target):out.append(x)
+    return out
+
+def _portal_owned_candidate(row):
+    name,backdrop=_portal_requested_collection(row)
+    params={'search':name,'limit':100,'exclude_bundled':'true','sort_by':'external_collection_number asc'}
+    if backdrop:params['filter_by_backdrops']=backdrop
+    data=_portal_partner_request('GET','/partners/nfts/owned',params=params)
+    items=_portal_matches(data.get('nfts') or [],name)
+    return (items[0] if items else None),int(data.get('total_count') or len(items))
+
+def _portal_market_candidate(row):
+    name,backdrop=_portal_requested_collection(row)
+    params={'search':name,'limit':40,'exclude_bundled':'true','status':'listed','sort_by':'price asc'}
+    if backdrop:params['filter_by_backdrops']=backdrop
+    data=_portal_partner_request('GET','/partners/nfts/search',params=params)
+    items=[x for x in _portal_matches(data.get('results') or [],name) if _portal_decimal(x.get('price'))>0]
+    items.sort(key=lambda x:_portal_decimal(x.get('price')))
+    return items[0] if items else None
+
+def _portal_wallet_info():
+    data=_portal_partner_request('GET','/partners/users/wallets/')
+    return dict(balance=_portal_decimal(data.get('balance')),frozen=_portal_decimal(data.get('frozen_funds')),
+                premarket=_portal_decimal(data.get('premarket_funds')))
+
+def _portal_log_row(withdrawal_id):
+    with connect() as db:row=db.execute('SELECT * FROM portal_withdrawal_logs WHERE withdrawal_id=?',(withdrawal_id,)).fetchone()
+    return dict(row) if row else None
+
+def _portal_auto_log(withdrawal_id,row,status,stage='',nft=None,source='',purchase_price=None,balance_before=None,withdrawal_ids=None,error_text=''):
+    old=_portal_log_row(withdrawal_id) or {};nft=nft or {};inc=1 if stage in ('lookup','buy','withdraw','status') else 0
+    nft_id=str(nft.get('id') or old.get('nft_id') or '');nft_name=str(nft.get('name') or old.get('nft_name') or '')
+    src=str(source or old.get('source') or '');price=_portal_decimal_text(purchase_price if purchase_price is not None else old.get('purchase_price') or 0)
+    bal=_portal_decimal_text(balance_before if balance_before is not None else old.get('balance_before') or 0)
+    ids=json.dumps(withdrawal_ids,ensure_ascii=False) if withdrawal_ids is not None else str(old.get('withdrawal_ids') or '')
+    with connect() as db:
+        db.execute("""INSERT INTO portal_withdrawal_logs(withdrawal_id,user_id,requested_name,requested_number,nft_id,nft_name,
+                      source,purchase_price,balance_before,withdrawal_fee,withdrawal_ids,status,stage,attempts,error,updated_at,completed_at)
+                      VALUES(?,?,?,?,?,?,?,?,?,'0.30',?,?,?,?,?,CURRENT_TIMESTAMP,
+                      CASE WHEN ?='completed' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                      ON CONFLICT(withdrawal_id) DO UPDATE SET nft_id=excluded.nft_id,nft_name=excluded.nft_name,
+                      source=excluded.source,purchase_price=excluded.purchase_price,balance_before=excluded.balance_before,
+                      withdrawal_ids=excluded.withdrawal_ids,status=excluded.status,stage=excluded.stage,
+                      attempts=portal_withdrawal_logs.attempts+CASE WHEN excluded.stage IN ('lookup','buy','withdraw','status') THEN 1 ELSE 0 END,
+                      error=excluded.error,updated_at=CURRENT_TIMESTAMP,
+                      completed_at=CASE WHEN excluded.status='completed' THEN CURRENT_TIMESTAMP ELSE portal_withdrawal_logs.completed_at END""",
+                   (withdrawal_id,int(row['user_id']),str(row.get('gift_name') or ''),str(row.get('fragment_number') or ''),
+                    nft_id,nft_name,src,price,bal,ids,status,str(stage or ''),inc,str(error_text or '')[:500],status))
+        db.commit()
+    return _portal_log_row(withdrawal_id)
+
+def _portal_manual(withdrawal_id,row,status,message,stage='error',**kwargs):
+    _portal_auto_log(withdrawal_id,row,status,stage=stage,error_text=message,**kwargs)
+    append_portal_log(f'Вывод #{withdrawal_id}: {message} Нужен ручной вывод.','error')
+    return dict(ok=False,status=status,error=message,manual_required=True,provider='portal')
+
+def _portal_finish(withdrawal_id,row,nft,ids):
+    changed=False
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT id FROM withdrawals WHERE id=? AND status='pending'",(withdrawal_id,)).fetchone():
+            db.execute("UPDATE withdrawals SET status='approved',admin_id=0,processed_at=CURRENT_TIMESTAMP WHERE id=?",(withdrawal_id,))
+            record_transaction(db,int(row['user_id']),'withdrawal_portal',0,'withdrawal',withdrawal_id,str(row.get('gift_name') or 'NFT'))
+            log_event(db,int(row['user_id']),'withdrawal_auto_completed',withdrawal_id=withdrawal_id,
+                      gift_name=row.get('gift_name') or '',provider='portal_market',portal_nft_id=str(nft.get('id') or ''))
+            changed=True
+        db.commit()
+    _portal_auto_log(withdrawal_id,row,'completed',stage='done',nft=nft,withdrawal_ids=ids)
+    append_portal_log(f'Вывод #{withdrawal_id}: Portal Market подтвердил отправку пользователю {row["user_id"]}.')
+    if changed:
+        notify_user_async(int(row['user_id']),
+            f'✅ <b>Ваш подарок выведен через Portal Market</b>\n\n🎁 {escape(str(row.get("gift_name") or "Подарок"))}\n\n'
+            'Если подарок не появился сразу, отправьте любое сообщение боту @GiftsToPortals.',
+            miniapp_markup('Открыть GemDrop','profile'),'HTML')
+    return dict(ok=True,status='completed',provider='portal',manual_required=False)
+
+def _portal_check_status(withdrawal_id,row,log,nft):
+    try:ids=json.loads(str(log.get('withdrawal_ids') or '[]'))
+    except Exception:ids=[]
+    ids=[int(x) for x in ids if str(x).isdigit()]
+    if not ids:return _portal_manual(withdrawal_id,row,'portal_withdraw_failed','Portal не вернул ID операции вывода.','status',nft=nft)
+    _portal_auto_log(withdrawal_id,row,'portal_withdrawing',stage='status',nft=nft,withdrawal_ids=ids)
+    data=_portal_partner_request('GET','/partners/nfts/withdrawals/statuses',params={'ids':','.join(map(str,ids))})
+    states=data.get('statuses') or []
+    if states and all(str(x.get('status') or '')=='completed' for x in states if isinstance(x,dict)):
+        return _portal_finish(withdrawal_id,row,nft,ids)
+    bad=next((x for x in states if isinstance(x,dict) and str(x.get('status') or '') in ('errored','recovered','unknown')),None)
+    if bad:
+        st=str(bad.get('status') or 'unknown');detail=str(bad.get('details') or st)
+        mapped={'errored':'portal_withdraw_failed','recovered':'portal_recovered','unknown':'portal_unknown'}.get(st,'portal_error')
+        return _portal_manual(withdrawal_id,row,mapped,'Portal не завершил вывод: '+detail+'.','status',nft=nft,withdrawal_ids=ids)
+    return dict(ok=True,status='portal_withdrawing',provider='portal',manual_required=False)
+
+def _portal_fallback_withdraw(withdrawal_id,row=None):
+    row=row or _relayer_withdrawal_target(withdrawal_id)
+    if not row or str(row.get('status') or '')!='pending':return dict(ok=False,status='not_pending')
+    if not portal_partner_token():return _portal_manual(withdrawal_id,row,'portal_not_configured','Partner token Portal Market не настроен.','config')
+    with portal_withdraw_lock:
+        old=_portal_log_row(withdrawal_id) or {}
+        nft={'id':old.get('nft_id') or '','name':old.get('nft_name') or ''}
+        if old.get('status')=='portal_withdrawing' and old.get('withdrawal_ids'):
+            try:return _portal_check_status(withdrawal_id,row,old,nft)
+            except Exception as exc:return _portal_manual(withdrawal_id,row,'portal_error','Ошибка проверки Portal: '+str(exc)[:300],'status',nft=nft)
+        try:user=_portal_partner_request('GET','/partners/users/'+str(int(row['user_id'])))
+        except Exception as exc:return _portal_manual(withdrawal_id,row,'portal_error','Не удалось проверить получателя Portal: '+str(exc)[:300],'recipient',nft=nft)
+        if not bool(user.get('exists')):
+            first=old.get('status')!='portal_waiting_recipient'
+            _portal_auto_log(withdrawal_id,row,'portal_waiting_recipient',stage='recipient',nft=nft,
+                             error_text='Получателю нужно написать @GiftsToPortals.')
+            if first:
+                append_portal_log(f'Вывод #{withdrawal_id}: ждём активацию Portal пользователем {row["user_id"]}.')
+                notify_user_async(int(row['user_id']),
+                    '🎁 <b>Для вывода через Portal Market нужен один шаг</b>\n\n'
+                    'Отправьте любое сообщение боту @GiftsToPortals. После этого GemDrop автоматически продолжит вывод.',
+                    miniapp_markup('Открыть GemDrop','profile'),'HTML')
+            return dict(ok=True,status='portal_waiting_recipient',provider='portal',manual_required=False)
+        source=str(old.get('source') or '');price=_portal_decimal(old.get('purchase_price') or 0)
+        try:
+            wallet=_portal_wallet_info()
+            if not nft.get('id'):
+                _portal_auto_log(withdrawal_id,row,'portal_lookup',stage='lookup')
+                candidate,_=_portal_owned_candidate(row);source='owned' if candidate else 'market'
+                if not candidate:candidate=_portal_market_candidate(row)
+                if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found','В Portal Market нет подходящего подарка этой коллекции.','lookup')
+                nft=candidate;price=Decimal('0') if source=='owned' else _portal_decimal(nft.get('price'))
+                append_portal_log(f'Вывод #{withdrawal_id}: найден {nft.get("name") or row.get("gift_name")} · {price} TON · {source}.')
+            need=price+PORTAL_WITHDRAW_RESERVE
+            if wallet['balance']<need:
+                return _portal_manual(withdrawal_id,row,'portal_insufficient_balance',
+                    f'Недостаточно TON на Portal: баланс {_portal_decimal_text(wallet["balance"])}, нужно {_portal_decimal_text(need)} '
+                    f'({_portal_decimal_text(price)} за подарок + 0.30 TON резерв на вывод).',
+                    'balance',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
+            if source=='owned' and str(nft.get('status') or '').casefold()=='listed':
+                _portal_partner_request('POST','/partners/nfts/'+str(nft['id'])+'/unlist')
+            if source=='market':
+                _portal_auto_log(withdrawal_id,row,'portal_buying',stage='buy',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
+                buy=_portal_partner_request('POST','/partners/nfts',payload={'nft_details':[{'id':str(nft['id']),'price':_portal_decimal_text(price)}]})
+                owned=_portal_partner_request('GET','/partners/nfts/owned',params={'ids':str(nft['id']),'limit':5})
+                confirmed=next((x for x in (owned.get('nfts') or []) if str(x.get('id'))==str(nft['id'])),None)
+                if not confirmed or int(buy.get('total_purchased') or 0)<1:
+                    reason='';results=buy.get('purchase_results') or []
+                    if results and isinstance(results[0],dict):reason=str(results[0].get('error_message') or results[0].get('reason') or '')
+                    return _portal_manual(withdrawal_id,row,'portal_buy_failed','Portal не подтвердил покупку'+(': '+reason[:200] if reason else '')+'.',
+                                          'buy',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
+                nft=confirmed;append_portal_log(f'Вывод #{withdrawal_id}: подарок куплен за {_portal_decimal_text(price)} TON.')
+            _portal_auto_log(withdrawal_id,row,'portal_bought',stage='bought',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
+        except Exception as exc:
+            return _portal_manual(withdrawal_id,row,'portal_buy_failed' if source=='market' else 'portal_error',
+                                  'Ошибка Portal Market: '+str(exc)[:300],'buy',nft=nft,source=source,purchase_price=price)
+        try:
+            result=_portal_partner_request('POST','/partners/nfts/withdraw',
+                payload={'gift_ids':[str(nft['id'])],'recipient_id':int(row['user_id']),'unsafe_transfer':False})
+            ids=result.get('withdrawals_ids') or []
+            if not ids:return _portal_manual(withdrawal_id,row,'portal_withdraw_failed','Portal не вернул ID операции вывода.','withdraw',nft=nft)
+            _portal_auto_log(withdrawal_id,row,'portal_withdrawing',stage='status',nft=nft,source=source,purchase_price=price,
+                             balance_before=wallet['balance'],withdrawal_ids=ids)
+            append_portal_log(f'Вывод #{withdrawal_id}: создан Portal withdrawal ID {",".join(map(str,ids))}.')
+            return _portal_check_status(withdrawal_id,row,_portal_log_row(withdrawal_id),nft)
+        except Exception as exc:
+            return _portal_manual(withdrawal_id,row,'portal_withdraw_failed','Portal не смог запустить вывод: '+str(exc)[:300],
+                                  'withdraw',nft=nft,source=source,purchase_price=price,balance_before=wallet['balance'])
+
+def _portal_resume_pending(limit=8):
+    if not portal_partner_token():return
+    with connect() as db:
+        rows=db.execute("""SELECT p.withdrawal_id FROM portal_withdrawal_logs p JOIN withdrawals w ON w.id=p.withdrawal_id
+                           WHERE w.status='pending' AND p.status IN ('portal_waiting_recipient','portal_bought','portal_withdrawing')
+                           ORDER BY p.updated_at ASC LIMIT ?""",(max(1,min(20,int(limit))),)).fetchall()
+    for x in rows:
+        try:_portal_fallback_withdraw(int(x['withdrawal_id']))
+        except Exception:app.logger.exception('Portal resume failed for withdrawal %s',x['withdrawal_id'])
+
+def _portal_runtime_data():
+    out=dict(configured=bool(portal_partner_token()),reserve_ton=0.30,balance_ton=None,spendable_ton=None,
+             frozen_ton=None,premarket_ton=None,owned_count=None,error='')
+    if out['configured']:
+        try:
+            wallet=_portal_wallet_info();owned=_portal_partner_request('GET','/partners/nfts/owned',params={'limit':1})
+            out.update(balance_ton=float(wallet['balance']),spendable_ton=float(max(Decimal('0'),wallet['balance']-PORTAL_WITHDRAW_RESERVE)),
+                       frozen_ton=float(wallet['frozen']),premarket_ton=float(wallet['premarket']),
+                       owned_count=int(owned.get('total_count') or len(owned.get('nfts') or [])))
+        except Exception as exc:out['error']=str(exc)[:350]
+    with connect() as db:
+        rows=db.execute("""SELECT p.*,u.name AS user_name,u.username FROM portal_withdrawal_logs p
+                           LEFT JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 30""").fetchall()
+    out['withdrawals']=[dict(withdrawal_id=x['withdrawal_id'],user_id=x['user_id'],user_name=x['user_name'] or '',
+        username=x['username'] or '',requested_name=x['requested_name'],requested_number=x['requested_number'],
+        nft_id=x['nft_id'],nft_name=x['nft_name'],source=x['source'],purchase_price=x['purchase_price'],
+        balance_before=x['balance_before'],withdrawal_ids=x['withdrawal_ids'],status=x['status'],stage=x['stage'],
+        attempts=int(x['attempts'] or 0),error=x['error'] or '',created_at=x['created_at'],updated_at=x['updated_at'],
+        completed_at=x['completed_at']) for x in rows]
+    return out
+
+@app.get('/api/admin/portal/runtime')
+@admin_required
+def admin_portal_runtime():return jsonify(**_portal_runtime_data())
+
+@app.post('/api/admin/portal/partner')
+@admin_required
+def admin_portal_partner():
+    token=str((request.get_json(silent=True) or {}).get('token') or '').strip()
+    if token:
+        if len(token)>8000 or '\n' in token or '\r' in token:return error('Некорректный Partner token Portal.')
+        store_portal_key(token);append_portal_log('Partner token Portal Market обновлён.')
+    data=_portal_runtime_data()
+    return jsonify(ok=not bool(data.get('error')),**data)
 
 
 portal_job_lock = __import__('threading').Lock()
@@ -15855,7 +16133,7 @@ def portal_job_status():
 @admin_required
 def portal_logs():
     logs = read_document('portal_logs') or []
-    return jsonify(logs=logs[-100:] if isinstance(logs, list) else [])
+    return jsonify(logs=logs[-200:] if isinstance(logs, list) else [])
 
 
 @app.post('/api/admin/portal/images/refresh')

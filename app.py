@@ -66,6 +66,13 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                   SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')),
                   MAX_CONTENT_LENGTH=2 * 1024 * 1024)
 
+@app.get('/static/img/start.png')
+def start_png_alias():
+    # Keep the public asset name requested by the admin UI without duplicating a binary in the repo.
+    return send_file(BASE / 'static' / 'img' / 'star.png', mimetype='image/png', max_age=86400)
+
+
+
 
 class DatabaseRow(dict):
     def __getitem__(self, key):
@@ -10933,11 +10940,17 @@ def redeem_promocode():
             poll=db.execute('SELECT * FROM promo_polls WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),(poll_id,)).fetchone()
             if not poll or not poll['active']:
                 return error('Этот опрос уже завершён.',409)
-            if poll['expires_at'] and parse_iso(poll['expires_at']) <= datetime.now(timezone.utc):
-                poll_notify=_promo_poll_close(db,poll_id,'expired')
-                db.commit()
-                _notify_promo_poll_result(poll_notify)
-                return error('Этот опрос уже завершён.',409)
+            if poll['expires_at']:
+                try:
+                    poll_expiry=datetime.fromisoformat(str(poll['expires_at']).replace('Z','+00:00'))
+                    if poll_expiry.tzinfo is None:poll_expiry=poll_expiry.replace(tzinfo=timezone.utc)
+                except (TypeError,ValueError):
+                    poll_expiry=None
+                if poll_expiry and poll_expiry <= datetime.now(timezone.utc):
+                    poll_notify=_promo_poll_close(db,poll_id,'expired')
+                    db.commit()
+                    _notify_promo_poll_result(poll_notify)
+                    return error('Этот опрос уже завершён.',409)
             previous_vote=db.execute('SELECT option_name FROM promo_poll_votes WHERE poll_id=? AND user_id=?',(poll_id,session['uid'])).fetchone()
             if previous_vote:
                 return error(f"Вы уже проголосовали за «{previous_vote['option_name']}». В этом опросе можно выбрать только один вариант.",409)

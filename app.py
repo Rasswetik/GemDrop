@@ -13508,17 +13508,22 @@ def admin_withdrawals():
     where = "w.status='pending'" if view == 'pending' else "w.status IN ('approved','rejected')"
     with connect() as db:
         rows = db.execute(f'''SELECT w.*,u.name AS user_name,u.username,
-                                     au.name AS admin_name,au.username AS admin_username
+                                     au.name AS admin_name,au.username AS admin_username,
+                                     rl.status AS auto_status,rl.transfer_stars AS auto_transfer_stars,
+                                     rl.error AS auto_error
                               FROM withdrawals w
                               JOIN users u ON u.id=w.user_id
                               LEFT JOIN users au ON au.id=w.admin_id
+                              LEFT JOIN relayer_withdrawal_logs rl ON rl.withdrawal_id=w.id
                               WHERE {where}
                               ORDER BY w.id DESC LIMIT 300''').fetchall()
     return jsonify(items=[dict(id=x['id'], user_id=x['user_id'], user_name=x['user_name'],
                                username=x['username'], gift_name=x['gift_name'], image_url=x['image_url'],
                                price_ton=x['floor_price']/100, status=x['status'], admin_id=x['admin_id'],
                                admin_name=x['admin_name'], admin_username=x['admin_username'],
-                               created_at=x['created_at'], processed_at=x['processed_at'],external_url=x['external_url'] or '') for x in rows])
+                               created_at=x['created_at'], processed_at=x['processed_at'],external_url=x['external_url'] or '',
+                               auto_status=x.get('auto_status') or '',auto_transfer_stars=int(x.get('auto_transfer_stars') or 0),
+                               auto_error=x.get('auto_error') or '') for x in rows])
 
 @app.post('/api/admin/withdrawals/<int:withdrawal_id>/approve')
 @admin_required
@@ -13553,10 +13558,12 @@ def reject_withdrawal(withdrawal_id):
                          (withdrawal_id,)).fetchone()
         if not row:
             return error('Заявка не найдена или уже обработана.', 404)
-        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,external_url)
-                      VALUES(?,?,?,?,?,?,?,?)''',
-                   (row['user_id'], row['gift_id'], row['gift_name'], row['image_url'],
-                    row['floor_price'], row['source'], row['round_id'], row['external_url'] or ''))
+        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,external_url,
+                                              fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (row['user_id'],row['gift_id'],row['gift_name'],row['image_url'],row['floor_price'],row['source'],
+                    row['round_id'],row['external_url'] or '',row['fragment_number'] or '',row['fragment_model'] or '',
+                    row['fragment_backdrop'] or '',row['fragment_symbol'] or '',row['price_source'] or '',row['animation_url'] or ''))
         db.execute("UPDATE withdrawals SET status='rejected',admin_id=?,processed_at=CURRENT_TIMESTAMP WHERE id=?",
                    (session['uid'], withdrawal_id))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
@@ -13840,12 +13847,38 @@ def _relayer_account_dict(me):
 @app.get('/api/admin/relayer/status')
 @admin_required
 def admin_relayer_status():
-    cfg = relayer_settings(); state = read_document('relayer_state') or {}; auth_raw = read_document('relayer_auth') or {}
-    # Never return phone_code_hash or any future secret fields to the browser.
-    auth = {key: auth_raw.get(key) for key in ('status','attempt_id','qr_url','updated_at') if auth_raw.get(key) not in (None,'')}
-    with connect() as db: rows = db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
-    return jsonify(enabled=cfg['enabled'], configured=bool(cfg['api_id'] and cfg['api_hash']), api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']), relay_username=cfg['relay_username'], delivery_mode=cfg['delivery_mode'], credit_balance=cfg['credit_balance'], keep_inventory=cfg['keep_inventory'], state=state, auth=auth,
-                   events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=r['image_url'],external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,status=r['status'],created_at=r['created_at'],credited_at=r['credited_at']) for r in rows])
+    cfg=relayer_settings(); state=read_document('relayer_state') or {}; auth_raw=read_document('relayer_auth') or {}
+    auth={key:auth_raw.get(key) for key in ('status','attempt_id','qr_url','updated_at') if auth_raw.get(key) not in (None,'')}
+    with connect() as db:
+        rows=db.execute('SELECT * FROM relayer_gift_events ORDER BY id DESC LIMIT 25').fetchall()
+        auto_rows=db.execute("""SELECT l.*,w.status AS withdrawal_status,w.processed_at,
+                                       u.name AS user_name,u.username
+                                FROM relayer_withdrawal_logs l
+                                LEFT JOIN withdrawals w ON w.id=l.withdrawal_id
+                                LEFT JOIN users u ON u.id=l.user_id
+                                ORDER BY l.id DESC LIMIT 25""").fetchall()
+    return jsonify(
+        enabled=cfg['enabled'],configured=bool(cfg['api_id'] and cfg['api_hash']),
+        api_id=(cfg['api_id'][:3]+'…'+cfg['api_id'][-2:] if len(cfg['api_id'])>5 else cfg['api_id']),
+        relay_username=cfg['relay_username'],delivery_mode=cfg['delivery_mode'],
+        credit_balance=cfg['credit_balance'],keep_inventory=cfg['keep_inventory'],
+        auto_withdraw_enabled=cfg.get('auto_withdraw_enabled',True),
+        stars_balance=int(state.get('stars_balance') or 0),saved_gifts_count=int(state.get('last_seen') or 0),
+        state=state,auth=auth,
+        events=[dict(id=r['id'],sender_user_id=r['sender_user_id'],sender_name=r['sender_name'],
+                     gift_name=r['gift_name'],fragment_number=r['fragment_number'],image_url=r['image_url'],
+                     external_url=r['external_url'],price_ton=int(r['floor_price'] or 0)/100,
+                     portal_price_ton=int(r.get('portal_price') or 0)/100,status=r['status'],
+                     created_at=r['created_at'],credited_at=r['credited_at']) for r in rows],
+        auto_withdrawals=[dict(id=r['id'],withdrawal_id=r['withdrawal_id'],user_id=r['user_id'],
+                     user_name=r.get('user_name') or '',username=r.get('username') or '',
+                     gift_name=r['gift_name'],fragment_number=r['fragment_number'],gift_slug=r['gift_slug'],
+                     status=r['status'],transfer_stars=int(r['transfer_stars'] or 0),
+                     attempts=int(r['attempts'] or 0),error=r['error'] or '',
+                     created_at=r['created_at'],updated_at=r['updated_at'],
+                     completed_at=r['completed_at'],withdrawal_status=r.get('withdrawal_status') or '')
+                     for r in auto_rows]
+    )
 
 
 @app.post('/api/admin/relayer/settings')

@@ -154,6 +154,9 @@ class PostgreSQL:
     def commit(self):
         self.connection.commit()
 
+    def rollback(self):
+        self.connection.rollback()
+
     def close(self):
         if self.closed:
             return
@@ -1611,8 +1614,12 @@ def increase_turnover(db, user_id, amount, withdrawal_wager=True):
     if withdrawal_wager:
         db.execute("""UPDATE users
                       SET turnover_cents=turnover_cents+?,
-                          withdrawal_wager_progress=MIN(withdrawal_wager_required,withdrawal_wager_progress+?)
-                      WHERE id=?""", (amount, amount, user_id))
+                          withdrawal_wager_progress=CASE
+                              WHEN withdrawal_wager_progress+? < withdrawal_wager_required
+                              THEN withdrawal_wager_progress+?
+                              ELSE withdrawal_wager_required
+                          END
+                      WHERE id=?""", (amount, amount, amount, user_id))
     else:
         db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(amount,user_id))
     current = level_number(db, new_turnover)
@@ -2259,10 +2266,19 @@ def inventory_item(row):
             image_url=safe_image(unlock_payload.get('image_url')),
             price_ton=int(unlock_payload.get('floor_price') or 0) / 100,
         )
+    external_url = str(optional('external_url') or '')
+    image_url = safe_image(row['image_url'])
+    nft_match = re.search(r'/(?:nft|gift)/([A-Za-z0-9_-]+-\d+)(?:/|$|[?#])', external_url, re.I)
+    if nft_match:
+        exact_nft_image = f"https://nft.fragment.com/gift/{nft_match.group(1).lower()}.webp"
+        # Relayr deposits should always prefer the exact collectible artwork,
+        # not a generic collection image from the Portal catalog.
+        if str(row['source'] or '') == 'gift_deposit' or not image_url:
+            image_url = exact_nft_image
     return dict(id=row['id'], gift_id=row['gift_id'], name=row['gift_name'],
-                image_url=row['image_url'], price_ton=row['floor_price']/100,
+                image_url=image_url, price_ton=row['floor_price']/100,
                 source=row['source'], created_at=row['created_at'],
-                external_url=optional('external_url'), fragment_url=optional('external_url'),
+                external_url=external_url, fragment_url=external_url,
                 fragment_number=optional('fragment_number'), fragment_model=optional('fragment_model'),
                 fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
                 price_source=optional('price_source'), animation_url=optional('animation_url'),

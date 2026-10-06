@@ -997,7 +997,8 @@ p,.muted,.caption,.notice,small{line-height:1.5}
 #profilePage #inventoryGrid .promo-ribbon{top:4px;right:4px;padding:3px 4px;font-size:8px}
 
 @media(max-width:360px){#profilePage #inventoryGrid.inventory{gap:6px}
-#profilePage #inventoryGrid .gift{padding:5px}#profilePage #inventoryGrid .gift-art{height:86px;padding:5px}
+#profilePage #inventoryGrid .gift{padding:5px}
+#profilePage #inventoryGrid .gift-art{height:86px;padding:5px}
 #profilePage #inventoryGrid .gift strong{font-size:10px}
 }
 .recent-wins-card .top-drop-empty{color:#aeb9c6;font-size:11px}
@@ -1996,7 +1997,8 @@ button:not(:disabled){cursor:pointer}
 .comp-final-art{display:grid;place-items:center;min-height:132px;border-radius:18px;background:radial-gradient(circle,rgba(71,176,245,.16),rgba(255,255,255,.035) 68%)}
 .comp-final-art img{width:124px;height:124px;object-fit:contain;filter:drop-shadow(0 10px 14px rgba(0,0,0,.35))}
 .comp-final-art b{font-size:32px;font-weight:950;letter-spacing:-.06em;color:#ffffff}
-.comp-final-art b+img{width:30px;height:30px;margin-left:6px}.comp-final-art:has(b){display:flex;gap:7px}
+.comp-final-art b+img{width:30px;height:30px;margin-left:6px}
+.comp-final-art:has(b){display:flex;gap:7px}
 .comp-final-text{display:grid;gap:7px;min-width:0}
 .comp-final-text strong{font-size:18px;line-height:1.15;color:#f9fafc}
 .comp-final-text span{font-size:13px;color:#b9c6d4;line-height:1.45}
@@ -2995,7 +2997,8 @@ body.studio.modal-open #nav{visibility:hidden!important;pointer-events:none!impo
 .notifications-card .picker-close{width:36px;height:36px;border-radius:10px;background:#1e2135;color:#b6c3d1;font-size:24px}
 .notification-list{min-height:0;overflow:auto}
 .notification-row{padding:12px 0;border-bottom:1px solid #2b2f4c}
-.notification-row p{margin:0 0 6px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}.notification-row.unread p{color:#47b0f5}
+.notification-row p{margin:0 0 6px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.notification-row.unread p{color:#47b0f5}
 .notification-row time,.history-row time{color:#8599aa;font-size:11px}
 .history-filter{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
 .history-filter .text-input{min-width:0;margin:0;font-size:16px}
@@ -3486,36 +3489,9 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 .bc-filter-wide{grid-column:1/-1}.bc-cells .bc-cell{min-height:78px;display:flex!important;align-items:center!important;justify-content:center!important;flex-direction:column!important;gap:4px!important;padding:7px!important;overflow:hidden}.bc-cells .bc-cell img{width:42px!important;height:42px!important;max-width:42px!important;max-height:42px!important;object-fit:contain!important;margin:0 auto!important}.bc-cells .bc-cell img+span{display:none!important}.bc-cells .bc-cell>span:first-child{font-size:29px!important;line-height:1!important}.bc-cells .bc-cell small{width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-size:8px!important}
 .gift.deposit-mirror{position:relative;opacity:.94}.gift.deposit-mirror:after{content:'ПОПОЛНЕНИЕ';position:absolute;left:7px;top:7px;padding:4px 6px;border-radius:7px;background:#245c87;color:#dff4ff;font-size:7px;font-weight:950;letter-spacing:.04em;box-shadow:0 3px 10px #0007}
 .pp-hero-ico{animation:profileHeroBreathe 3.2s ease-in-out infinite}.pp-stage{overflow:hidden}.pp-stage:after{content:'';position:absolute;inset:-35%;pointer-events:none;background:conic-gradient(from 0deg,transparent,rgba(85,190,255,.07),transparent 24%);animation:profileStageSweep 8s linear infinite}.pp-stage>*{position:relative;z-index:1}@keyframes profileHeroBreathe{50%{transform:translateY(-2px) scale(1.025);filter:drop-shadow(0 7px 15px rgba(70,176,245,.18))}}@keyframes profileStageSweep{to{transform:rotate(360deg)}}
-.hlg-tutorial-media{margin:12px 0 18px;border:1px solid #ffffff18;border-radius:18px;overflow:hidden;background:#101426;box-shadow:0 14px 34px #0005}.hlg-tutorial-media img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}\n#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+#hlInfoModal:not(.hidden) .hlg-step{animation:hlgStepIn .42s cubic-bezier(.2,.8,.2,1) both}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(2){animation-delay:.06s}#hlInfoModal:not(.hidden) .hlg-step:nth-of-type(3){animation-delay:.12s}@keyframes hlgStepIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
 @media(max-width:390px){.relayer-grid{grid-template-columns:1fr}.gift-deposit-instruction{grid-template-columns:58px minmax(0,1fr)}.gift-deposit-orbit{width:58px;height:58px}.gift-deposit-orbit img{width:52px;height:52px}.gift-deposit-rate{grid-template-columns:46px minmax(0,1fr) auto}.gift-deposit-rate>img{width:46px;height:46px}}
-</style>
-<style id="desktop-mobile-shell">
-/* Desktop keeps the same mobile composition instead of stretching every game. */
-@media (min-width: 700px){
-  html,body{min-height:100%;background:var(--bg,#0c0e1f)!important}
-  body.studio{background:var(--bg,#0c0e1f)!important}
-  .app{
-    width:min(100%,568px)!important;
-    max-width:568px!important;
-    min-width:0!important;
-    margin:0 auto!important;
-    padding-left:18px!important;
-    padding-right:18px!important;
-  }
-  #nav.nav{
-    width:min(536px,calc(100vw - 32px))!important;
-    max-width:536px!important;
-    left:50%!important;
-    right:auto!important;
-    transform:translateX(-50%)!important;
-  }
-  .toast,.level-notice{max-width:min(520px,calc(100vw - 40px))!important}
-  .modal-card{max-width:min(460px,calc(100vw - 44px))}
-  .creator-gift-modal-sheet{width:min(540px,calc(100vw - 28px))!important}
-}
-</style>
-
-</head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
+</style></head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="gdSpace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0d22"/><stop offset=".6" stop-color="#171a40"/><stop offset="1" stop-color="#2a2358"/></linearGradient>
 <radialGradient id="gdSpaceGlow" cx=".5" cy="1.1" r=".9"><stop offset="0" stop-color="#6a58ff" stop-opacity=".45"/><stop offset="1" stop-color="#6a58ff" stop-opacity="0"/></radialGradient>
 <radialGradient id="gdPlanet" cx=".32" cy=".3" r=".85"><stop offset="0" stop-color="#8f86ff"/><stop offset=".55" stop-color="#4a3fb8"/><stop offset="1" stop-color="#1e1a52"/></radialGradient>
@@ -3994,13 +3970,13 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div id="topRewardModalGram" class="top-reward-modal-gram hidden"><strong id="topRewardModalGramAmount">0</strong><img src="/static/img/ton.png" alt="GRAM"></div>
 <h2 id="topRewardModalName">Награда за ТОП дня</h2>
 <div id="topRewardModalNumber" class="top-reward-modal-number hidden"></div>
-<div id="topRewardModalPrice" class="top-reward-modal-price hidden"></div><div id="topRewardModalTraits" class="top-reward-modal-traits"></div>
+<div id="topRewardModalPrice" class="top-reward-modal-price hidden"></div>
+<div id="topRewardModalTraits" class="top-reward-modal-traits"></div>
 <button id="topRewardModalClose" class="primary top-reward-close" type="button">Закрыть</button>
 </div></div><div id="rollPoolModal" class="modal hidden"><div class="modal-card roll-pool-card"><div class="roll-pool-head"><div><h2>Призовой пул</h2><p id="rollPoolDescription">Содержимое Roll и шансы выпадения</p></div><button id="rollPoolX" class="roll-pool-x" type="button" aria-label="Закрыть">×</button></div><div id="rollPoolGrid" class="roll-pool-grid"></div><div class="roll-pool-foot"><button id="rollPoolClose" class="primary" type="button">Готово</button></div></div></div><div id="rollWinModal" class="modal hidden"><div class="modal-card roll-win-card"><h2 id="rollWinHeading">Результат</h2><img id="rollWinImage" class="hidden" alt=""><p id="rollWinName" class="modal-name"></p><button id="rollWinClose" class="primary">Продолжить</button></div></div>
 <div id="hlGiftModal" class="modal hidden"><div class="modal-card cr-gift-card"><div class="cr-gift-head"><div><h2>Выберите подарок</h2><p>Подарки из вашего инвентаря</p></div><button id="hlGiftClose" class="picker-close" type="button" aria-label="Закрыть">×</button></div><div id="hlGiftGrid" class="cr-gift-grid"></div><div id="hlGiftFoot" class="cr-gift-foot hidden"><button id="hlGiftConfirm" class="primary" type="button">Подтвердить</button></div><button id="hlGiftTon" class="cr-gift-ton hidden" type="button">Вернуться к ставке TON</button></div></div>
 <div id="hlInfoModal" class="modal hidden"><div class="modal-card hl-rules hlg">
 <div class="hl-rl-head"><span class="hl-rl-badge">Hi-Lo</span><h2>Как играть</h2><p class="hl-rl-lead">6 коротких шагов — и вы в игре</p></div>
-<div class="hlg-tutorial-media"><img src="/static/tutorials/hilo_tutorial.svg" alt="Анимация обучения Hi-Lo"></div>
 
 <section class="hlg-step"><div class="hlg-art" id="hlgLadder"></div>
 <div class="hlg-tx"><h3><i>1</i>Карты — это подарки</h3><p>У каждой карты есть <b>ранг от 1 до 15</b>. Это подарки Telegram: чем выше ранг, тем дороже подарок.</p></div></section>
@@ -4994,6 +4970,7 @@ function arenaCornerAt(pos){let p=((pos%400)+400)%400;if(Math.abs(p-0)<.01)retur
 function arenaSectorPolygon(startPct,endPct){if(endPct-startPct>=99.999)return[{x:0,y:0},{x:100,y:0},{x:100,y:100},{x:0,y:100}];let a=startPct*3.6,b=endPct*3.6,p1=arenaRaySquare(a),p2=arenaRaySquare(b),s1=arenaPerimeterPos(p1),s2=arenaPerimeterPos(p2);while(s2<=s1+.0001)s2+=400;let pts=[{x:50,y:50},p1];for(let c=Math.floor(s1/100)*100+100;c<s2-.001;c+=100){let q=arenaCornerAt(c);if(q)pts.push(q)}pts.push(p2);return pts}
 function arenaPolygonCentroid(pts){let area=0,cx=0,cy=0;for(let i=0;i<pts.length;i++){let a=pts[i],b=pts[(i+1)%pts.length],cross=a.x*b.y-b.x*a.y;area+=cross;cx+=(a.x+b.x)*cross;cy+=(a.y+b.y)*cross}area*=.5;if(Math.abs(area)<.001)return{x:50,y:50};return{x:cx/(6*area),y:cy/(6*area)}}
 function arenaGeometry(players){let cursor=0;return(players||[]).map((p,i)=>{let chance=Math.max(.001,Number(p.chance||0)),start=cursor,end=Math.min(100,cursor+chance),poly=arenaSectorPolygon(start,end),cent=arenaPolygonCentroid(poly);cursor=end;return{index:i,start,end,chance,poly,cent,color:ARENA_COLORS[i%ARENA_COLORS.length]}})}
+
 ARENA.shown=new Map();ARENA.tw=null;ARENA.twRaf=0;ARENA.lastWinnerId=0;
 function arenaSameMap(a,b){if(a.size!==b.size)return false;for(let [k,v] of b){if(!a.has(k)||Math.abs(a.get(k)-v)>.01)return false}return true}
 function arenaRenderSectors(players,winnerId){let ap=(players||[]).map(p=>{let k=String(p.user_id);return{...p,chance:ARENA.shown.has(k)?ARENA.shown.get(k):Number(p.chance||0)}}),sum=ap.reduce((s,p)=>s+p.chance,0);if(sum>0&&Math.abs(sum-100)>.01)ap.forEach(p=>p.chance=p.chance*100/sum);let geo=arenaPaintZones(ap,winnerId);arenaSyncMarkers(ap,winnerId,geo)}
@@ -5004,7 +4981,7 @@ function arenaPaintZones(players,winnerId){let root=$('arenaSegments'),geo=arena
 function arenaMarkerPosition(players,index){let geo=arenaGeometry(players)[index];return geo?{left:geo.cent.x,top:geo.cent.y,chance:geo.chance}:{left:50,top:50,chance:0}}
 function arenaSyncMarkers(players,winnerId,geo){let root=$('arenaMarkers'),seen=new Set(),base=Math.max(18,Math.min(54,root.clientWidth*.11)),waitingFirst=players.length===1&&ARENA.state?.round?.state==='open';players.forEach((p,i)=>{let key=String(p.user_id),g=geo?.[i]||arenaGeometry(players)[i],pos=waitingFirst?{left:50,top:50}:g?.cent||{x:50,y:50},m=ARENA.markers.get(key),chance=Math.max(.05,Number(p.chance||0)),sectorSize=Math.max(12,root.clientWidth*Math.min(.17,.012*Math.sqrt(chance*10))),size=waitingFirst?Math.min(68,base*1.24):Math.max(14,Math.min(base,sectorSize));seen.add(key);if(!m){m=document.createElement('div');m.className='arena-marker';m.dataset.uid=key;avatar(m,p);if(arenaReduced())m.style.animation='none';root.append(m);ARENA.markers.set(key,m)}m.style.left=(waitingFirst?50:pos.x??pos.left)+'%';m.style.top=(waitingFirst?50:pos.y??pos.top)+'%';m.style.setProperty('--arena-avatar',size.toFixed(1)+'px');m.classList.toggle('first-waiting',waitingFirst);m.classList.toggle('mine',!!p.mine);m.classList.toggle('winner',!!winnerId&&Number(p.user_id)===Number(winnerId))});for(let [key,m] of [...ARENA.markers]){if(seen.has(key))continue;ARENA.markers.delete(key);m.classList.add('leaving');setTimeout(()=>m.remove(),300)}}
 function arenaSyncPlayers(players,winnerId){let root=$('arenaPlayers'),seen=new Set();$('arenaPlayersCount').textContent=players.length;root.querySelector('.empty')?.remove();players.forEach(p=>{let key=String(p.user_id),row=ARENA.rows.get(key);if(!row){row=document.createElement('div');row.className='arena-player';row.onclick=()=>openPublicProfile(p.user_id);let av=document.createElement('div');av.className='arena-player-avatar';avatar(av,p);let copy=document.createElement('div');copy.className='arena-player-copy';copy.append(document.createElement('b'),document.createElement('small'));let bet=document.createElement('div');bet.className='arena-player-bet';let amount=document.createElement('span');let icon=new Image;icon.src=TON;icon.alt='TON';bet.append(amount,icon);row.append(av,copy,bet);if(arenaReduced())row.style.animation='none';row.addEventListener('animationend',()=>{row.style.animation='none'},{once:true});root.append(row);ARENA.rows.set(key,row)}row.classList.toggle('winner',!!winnerId&&Number(p.user_id)===Number(winnerId));let b=row.querySelector('b'),sm=row.querySelector('small'),am=row.querySelector('.arena-player-bet span');let t=(p.mine?'Вы · ':'')+(p.name||'Игрок');if(b.textContent!==t)b.textContent=t;arenaPaintGifts(sm,p);arenaSetAmount(am,Number(p.bet||0),row);seen.add(key)});for(let [key,row] of [...ARENA.rows]){if(!seen.has(key)){ARENA.rows.delete(key);if(arenaReduced()){row.remove()}else{row.classList.add('leaving');setTimeout(()=>row.remove(),320)}}}{let want=players.map(p=>ARENA.rows.get(String(p.user_id))),cur=[...root.children].filter(x=>x.classList.contains('arena-player')&&!x.classList.contains('leaving')),same=want.length===cur.length&&want.every((r,i)=>r===cur[i]);if(!same){let before=new Map(cur.map(r=>[r,r.getBoundingClientRect().top]));want.forEach(r=>root.append(r));if(!arenaReduced())want.forEach(r=>{let b=before.get(r);if(b===undefined)return;let d=b-r.getBoundingClientRect().top;if(Math.abs(d)<1)return;r.style.animation='none';r.style.transition='none';r.style.transform='translateY('+d.toFixed(1)+'px)';void r.offsetHeight;r.style.transition='transform .5s cubic-bezier(.22,.8,.25,1)';r.style.transform='';setTimeout(()=>{r.style.transition=''},560)})}}if(!players.length&&!root.querySelector('.empty'))root.innerHTML='<div class="empty">Пока нет ставок</div>'}
-function arenaTimerText(){let s=ARENA.state;if(!s)return'';let r=s.round||{},players=s.players||[];if(r.state==='settled'){let landed=(ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id;return landed?(s.winner?'Победитель: '+s.winner.name:'Раунд завершён'):'Шайба летит…'}if(!Number(r.close_at||0))return players.length?'Ожидание игроков':'Ждём первую ставку';let remain=Math.max(0,Math.ceil((Number(r.close_at)-arenaServerNow())/1000));if(players.length<2)return'Возврат ставки через '+remain+' сек.';return'Старт через '+remain+' сек.'+(r.extended?' · продлено':'')}
+function arenaTimerText(){let s=ARENA.state;if(!s)return'';let r=s.round||{},players=s.players||[];if(r.state==='settled'){let landed=(ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id;return landed?(s.winner?'Победитель: '+s.winner.name:'Раунд завершён'):'Шайба летит…'}if(!Number(r.close_at||0))return'Ждём первую ставку';let remain=Math.max(0,Math.ceil((Number(r.close_at)-arenaServerNow())/1000));if(players.length<2)return'Возврат ставки через '+remain+' сек.';return'Старт через '+remain+' сек.'+(r.extended?' · продлено':'')}
 function arenaPaint(){let s=ARENA.state;if(!s)return;let r=s.round||{},players=s.players||[],stage=$('arenaStage'),settled=r.state==='settled',landed=settled&&((ARENA.spin&&ARENA.spin.done)||ARENA.lastResult===r.id),winnerId=landed?r.winner_user_id:0;stage.classList.toggle('has-players',players.length>0);stage.dataset.state=settled?'settling':'open';ARENA.lastWinnerId=winnerId;arenaTweenTargets(players,settled);arenaRenderSectors(players,winnerId);arenaSyncPlayers(players,winnerId);$('arenaRound').textContent='Арена #'+(r.id||'—');arenaSetAmount($('arenaPool'),Number(r.total_pool||0),null,' TON');$('arenaTimer').textContent=arenaTimerText();let joined=!!s.my_bet,mine=joined?Number(s.my_bet.bet||0):0,room=Math.max(0,Number(s.max_bet||300)-mine),full=joined&&room<.1,g=ARENA.gift;if(g&&(settled||full||Number(g.price_ton)>room+1e-9)){ARENA.gift=null;g=null}$('arenaJoin').disabled=ARENA.busy||settled||full;$('arenaJoin').textContent=settled?'Раунд завершён':full?'Максимальная ставка':g?(joined?'Добавить подарок':'Поставить подарком'):joined?'Добавить к ставке':'Войти в арену';$('arenaBet').disabled=settled||full||!!g;document.querySelectorAll('[data-arena-bet]').forEach(x=>x.disabled=settled||full||!!g);$('arenaGiftBtn').disabled=ARENA.busy||settled||full;$('arenaBetLabel').textContent=g?'Ставка подарком':joined?'Добавить к ставке, TON':'Ставка, TON';arenaPaintGiftBtn();$('arenaNote').textContent=''}
 function arenaWinnerPoint(){let s=ARENA.state,players=s?.players||[],idx=players.findIndex(p=>Number(p.user_id)===Number(s?.round?.winner_user_id));if(idx<0)return{left:50,top:50};let g=arenaGeometry(players)[idx];if(!g)return{left:50,top:50};let sd=Number(s.round.id||1)*7919+idx,rnd=()=>{sd=(sd*16807)%2147483647;return sd/2147483647},P=g.poly,tri=[];for(let i=1;i<P.length-1;i++){let a=P[0],b=P[i],c=P[i+1];tri.push({a,b,c,w:Math.abs((b.x-a.x)*(c.y-a.y)-(c.x-a.x)*(b.y-a.y))/2})}if(!tri.length)return{left:g.cent.x,top:g.cent.y};let tw=tri.reduce((x,t)=>x+t.w,0),r=rnd()*tw,t=tri.find(t=>(r-=t.w)<=0)||tri[tri.length-1],u=rnd(),v=rnd();if(u+v>1){u=1-u;v=1-v}let x=t.a.x+u*(t.b.x-t.a.x)+v*(t.c.x-t.a.x),y=t.a.y+u*(t.b.y-t.a.y)+v*(t.c.y-t.a.y);x=g.cent.x+(x-g.cent.x)*.8;y=g.cent.y+(y-g.cent.y)*.8;return{left:Math.max(ARENA_PUCK_MIN,Math.min(ARENA_PUCK_MAX,x)),top:Math.max(ARENA_PUCK_MIN,Math.min(ARENA_PUCK_MAX,y))}}
 const ARENA_PUCK_MIN=2.8,ARENA_PUCK_MAX=97.2;
@@ -5992,7 +5969,8 @@ body.studio #crashPage .cr-action.cashout{background:linear-gradient(115deg,#ffd
 .cr-gift-head p{margin:4px 0 0;color:#7f8aa8;font-size:12px}
 .cr-gift-head .picker-close{flex:none;position:static}
 .cr-gift-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;max-height:min(52dvh,420px);padding:2px;overflow-y:auto;overscroll-behavior:contain}
-.cr-gift-item{position:relative;display:grid;grid-template-rows:auto auto auto;align-content:start;gap:6px;min-width:0;padding:7px 5px 8px;border:1px solid #ffffff17;border-radius:14px;background:linear-gradient(150deg,#23384a,#1a1c2f);color:#f2f4f7;text-align:center;overflow:hidden;transition:transform .15s ease,border-color .2s ease,box-shadow .2s ease}.cr-gift-item:active{transform:scale(.97)}
+.cr-gift-item{position:relative;display:grid;grid-template-rows:auto auto auto;align-content:start;gap:6px;min-width:0;padding:7px 5px 8px;border:1px solid #ffffff17;border-radius:14px;background:linear-gradient(150deg,#23384a,#1a1c2f);color:#f2f4f7;text-align:center;overflow:hidden;transition:transform .15s ease,border-color .2s ease,box-shadow .2s ease}
+.cr-gift-item:active{transform:scale(.97)}
 .cr-gift-item.portal-bg-black{background:linear-gradient(155deg,#06070c,#11131f 72%)}
 .cr-gift-item.portal-bg-onyx-black{background:linear-gradient(155deg,#121420,#202339 55%,#10121d)}
 .cr-gift-art{display:grid;place-items:center;aspect-ratio:1;width:100%;border-radius:11px;background:radial-gradient(circle at 50% 38%,#4bafef22,#ffffff08 72%)}

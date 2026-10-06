@@ -13571,10 +13571,71 @@ def admin_deposit(user_id):
 @admin_required
 def admin_add_inventory(user_id):
     data = request.get_json(silent=True) or {}
-    gift_id = str(data.get('gift_id', ''))
+    nft_url = str(data.get('fragment_url') or data.get('telegram_url') or '').strip()
+
+    if nft_url:
+        telegram_match = re.fullmatch(r'https://t\.me/nft/([A-Za-z0-9_-]+-\d+)/?', nft_url, re.I)
+        if telegram_match:
+            nft_url = 'https://fragment.com/gift/' + telegram_match.group(1)
+        try:
+            nft = fragment_gift_from_url(nft_url, True, refresh=True, allow_missing_price=True)
+            portal_price, portal_source = _fragment_portal_fallback_price(
+                nft.get('collection_name') or re.sub(r'\s*#\s*\d+.*$', '', str(nft.get('gift_name') or '')).strip(),
+                nft.get('fragment_model') or '',
+                nft.get('fragment_backdrop') or ''
+            )
+        except (ValueError, TypeError, requests.RequestException) as exc:
+            return error(str(exc) or 'Не удалось получить данные NFT.')
+
+        portal_price = max(0, int(portal_price or 0))
+        if portal_price <= 0:
+            return error('Portal не вернул цену для этого NFT. Подарок не добавлен.')
+
+        external_url = str(nft.get('fragment_url') or '')
+        gift_id = str(nft.get('gift_id') or '')
+        gift_name = str(nft.get('gift_name') or 'Telegram NFT')[:140]
+        image_url = safe_image(nft.get('image_url'))
+        number = str(nft.get('fragment_number') or '')
+        model = str(nft.get('fragment_model') or '')
+        backdrop = str(nft.get('fragment_backdrop') or '')
+        symbol = str(nft.get('fragment_symbol') or '')
+        animation_url = safe_image(nft.get('animation_url'))
+
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+                db.rollback()
+                return error('Пользователь не найден.', 404)
+            if external_url and db.execute(
+                'SELECT 1 FROM inventory WHERE user_id=? AND external_url=? LIMIT 1',
+                (user_id, external_url)).fetchone():
+                db.rollback()
+                return error('Этот конкретный NFT уже есть у пользователя.', 409)
+
+            cur = db.execute("""INSERT INTO inventory(
+                user_id,gift_id,gift_name,image_url,floor_price,source,external_url,
+                fragment_number,fragment_model,fragment_backdrop,fragment_symbol,
+                price_source,animation_url,source_label,deposit_mirror)
+                VALUES(?,?,?,?,?,'admin_nft',?,?,?,?,?,?,?,?,0)""",
+                (user_id, gift_id, gift_name, image_url, portal_price, external_url,
+                 number, model, backdrop, symbol, str(portal_source or 'Portal'),
+                 animation_url, 'Выдано администратором · Telegram NFT'))
+            item_id = cur.lastrowid
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], user_id, 'gift_add_nft',
+                        json.dumps({'inventory_id': item_id, 'gift': gift_name, 'url': external_url,
+                                    'price': portal_price, 'price_source': portal_source}, ensure_ascii=False)))
+            log_event(db, user_id, 'admin_gift_add', gift_name=gift_name,
+                      fragment_number=number, price_ton=portal_price/100,
+                      price_source=portal_source, admin_id=session['uid'])
+            db.commit()
+            row = db.execute('SELECT * FROM inventory WHERE id=?', (item_id,)).fetchone()
+        return jsonify(ok=True, item=inventory_item(row), source='nft')
+
+    gift_id = str(data.get('gift_id', '')).strip()
     try:
         gift = next((gift for gift in read_catalog()['gifts'] if str(gift.get('id')) == gift_id), None)
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         gift = None
     if not gift:
         return error('Выберите подарок из каталога Portal.')
@@ -13582,16 +13643,54 @@ def admin_add_inventory(user_id):
         price = parse_amount(gift['price_ton']) if gift.get('price_ton') is not None else 0
     except (KeyError, ValueError, TypeError, InvalidOperation):
         price = 0
+    if price <= 0:
+        return error('Portal не вернул цену этого подарка.')
     with connect() as db:
         if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
             return error('Пользователь не найден.', 404)
-        db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source)
-                      VALUES(?,?,?,?,?,'admin')''',
-                   (user_id, gift_id, str(gift['name']), safe_image(gift.get('image_url')), price))
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,price_source,source_label)
+                            VALUES(?,?,?,?,?,'admin',?,'Выдано администратором')""",
+                         (user_id, gift_id, str(gift['name']),
+                          safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+                          price, str(gift.get('price_source') or 'Portal')))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_add', gift_id))
-        log_event(db,user_id,'admin_gift_add',gift_name=str(gift['name']))
-    return jsonify(ok=True)
+        log_event(db,user_id,'admin_gift_add',gift_name=str(gift['name']),price_ton=price/100,admin_id=session['uid'])
+        row = db.execute('SELECT * FROM inventory WHERE id=?', (cur.lastrowid,)).fetchone()
+    return jsonify(ok=True, item=inventory_item(row), source='catalog')
+
+
+@app.post('/api/admin/users/<int:user_id>/inventory/nft-preview')
+@admin_required
+def admin_user_nft_preview(user_id):
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url') or '').strip()
+    telegram_match = re.fullmatch(r'https://t\.me/nft/([A-Za-z0-9_-]+-\d+)/?', url, re.I)
+    if telegram_match:
+        url = 'https://fragment.com/gift/' + telegram_match.group(1)
+    try:
+        gift = fragment_gift_from_url(url, True, refresh=True, allow_missing_price=True)
+        portal_price, portal_source = _fragment_portal_fallback_price(
+            gift.get('collection_name') or re.sub(r'\s*#\s*\d+.*$', '', str(gift.get('gift_name') or '')).strip(),
+            gift.get('fragment_model') or '',
+            gift.get('fragment_backdrop') or ''
+        )
+    except (ValueError, TypeError, requests.RequestException) as exc:
+        return error(str(exc) or 'Не удалось получить данные NFT.')
+    portal_price = max(0, int(portal_price or 0))
+    if portal_price <= 0:
+        return error('Portal не вернул цену для этого NFT.')
+    return jsonify(ok=True, gift=dict(
+        name=gift.get('gift_name') or 'Telegram NFT',
+        image_url=safe_image(gift.get('image_url')),
+        price_ton=portal_price/100,
+        price_source=portal_source or 'Portal',
+        fragment_url=gift.get('fragment_url') or '',
+        fragment_number=gift.get('fragment_number') or '',
+        model=gift.get('fragment_model') or '',
+        backdrop=gift.get('fragment_backdrop') or '',
+        symbol=gift.get('fragment_symbol') or ''
+    ))
 
 
 @app.delete('/api/admin/users/<int:user_id>/inventory/<int:item_id>')

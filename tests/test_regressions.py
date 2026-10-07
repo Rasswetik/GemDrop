@@ -1016,5 +1016,33 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(spin['fairness']['commitment_valid'])
 
 
+    def test_shared_hilo_room_is_precommitted_and_replayable(self):
+        slot = 987654321
+        with m.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            base, result, row = m.hilo_room_ranks(db, slot)
+            committed = m.fairness_public(row, False)
+            db.commit()
+        self.assertEqual(committed['state'], 'committed')
+        self.assertNotIn('server_seed', committed)
+        self.assertNotEqual(base, result)
+        with m.connect() as db:
+            row = m.fairness_mark_settled(db, 'hilo_room', slot)
+            revealed = m.fairness_public(row, True)
+        self.assertTrue(revealed['commitment_valid'])
+        draw, _, _ = m.fairness_draw(revealed, revealed['outcome']['upper'], 0)
+        candidate = draw + 1
+        replay = candidate if candidate < base else candidate + 1
+        self.assertEqual(replay, result)
+
+    def test_proof_of_fairness_ui_is_wired_to_active_modes(self):
+        page = self.client.get('/').get_data(as_text=True)
+        self.assertIn('id="fairnessBtn"', page)
+        self.assertIn('id="fairnessModal"', page)
+        self.assertIn('/api/fairness/prepare', page)
+        self.assertIn('client_seed:fairClientSeed()', page)
+        self.assertIn("p.game==='hilo_room'", page)
+
+
 if __name__ == '__main__':
     unittest.main()

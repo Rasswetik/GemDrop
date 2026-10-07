@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '100-proof-of-fairness'
+BUILD_ID = '101-proof-of-fairness-ui'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -2537,7 +2537,7 @@ def parse_amount(value):
 
 
 
-FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'arena'}
+FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll'}
 FAIRNESS_ALGORITHM = 'HMAC-SHA256/rejection-v1'
 
 
@@ -2678,7 +2678,7 @@ def fairness_complete_action(db, row, game_ref, cursor, outcome):
 def fairness_prepare():
     data = request.get_json(silent=True) or {}
     game = str(data.get('game') or '').strip().lower()
-    if game != 'upgrade':
+    if game not in ('upgrade', 'roll'):
         return error('Для этого режима proof создаётся вместе с раундом.', 400)
     with connect() as db:
         db.execute("""DELETE FROM fairness_records
@@ -3267,6 +3267,7 @@ def admin_save_rolls():
 @app.post('/api/rolls/<roll_id>/spin')
 @login_required
 def spin_roll(roll_id):
+    data=request.get_json(silent=True) or {}
     db=connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -3279,7 +3280,10 @@ def spin_roll(roll_id):
         if player['balance']<roll['price']: return error('Недостаточно TON. Пополните баланс.')
         boost=max(1,min(3,float(player['roll_boost'] or 1)))
         weights=[max(1,round(e['weight']*(boost if e['kind']=='gift' else 1))) for e in roll['entries']]
-        ticket=secrets.randbelow(sum(weights))
+        proof=fairness_resolve_action(db,'roll',session['uid'],data)
+        fair_upper=sum(weights)
+        fair_ticket,fair_cursor,fair_digest=fairness_draw(proof,fair_upper,0)
+        ticket=fair_ticket
         index=0
         for index,weight in enumerate(weights):
             if ticket<weight: break
@@ -3295,6 +3299,9 @@ def spin_roll(roll_id):
                        (session['uid'],entry['gift_id'],entry['name'],entry['image_url'],entry['price'],'roll'))
         db.execute('INSERT INTO roll_spins(id,user_id,roll_id,price,outcome,gift_name) VALUES(?,?,?,?,?,?)',
                    (spin_id,session['uid'],roll_id,roll['price'],entry['kind'],entry['name'] if entry['kind']=='gift' else ''))
+        proof=fairness_complete_action(db,proof,spin_id,fair_cursor,{
+            'ticket':fair_ticket,'upper':fair_upper,'digest':fair_digest,'index':index,
+            'weights':weights,'entry_id':entry['id'],'kind':entry['kind']})
         record_transaction(db,session['uid'],'roll_spin',-roll['price'],'roll',spin_id,roll['name'])
         if entry['kind']=='gift':
             record_transaction(db,session['uid'],'roll_gift',0,'roll',spin_id,entry['name'])
@@ -3306,7 +3313,8 @@ def spin_roll(roll_id):
             notify_level_up_async(session['uid'], new_level)
         return jsonify(spin_id=spin_id,entry_id=entry['id'],index=index,kind=entry['kind'],
                        name=entry['name'],image_url=entry.get('image_url',''),boost=new_boost,
-                       applied_boost=boost,new_level=new_level,user=profile())
+                       applied_boost=boost,new_level=new_level,user=profile(),
+                       fairness=fairness_public(proof,True))
     finally:
         db.close()
 
@@ -9953,6 +9961,7 @@ def hilo_round_no(db, slot):
     if not row:
         db.execute('INSERT OR IGNORE INTO hilo_rounds(slot) VALUES(?)', (slot,))
         row = db.execute('SELECT no FROM hilo_rounds WHERE slot=?', (slot,)).fetchone()
+    hilo_room_proof(db, slot)
     return int(row['no']) if row else 0
 
 
@@ -9964,6 +9973,67 @@ def hilo_round_numbers(db, slots):
     marks = ','.join('?' * len(slots))
     return {int(r['slot']): int(r['no']) for r in db.execute(
         f'SELECT slot,no FROM hilo_rounds WHERE slot IN ({marks})', tuple(slots)).fetchall()}
+
+
+def hilo_room_proof(db, slot):
+    """Create/read the shared-room commitment before bets are accepted."""
+    slot = int(slot)
+    row = fairness_get(db, game='hilo_room', game_ref=str(slot))
+    if row:
+        return row
+    previous = fairness_get(db, game='hilo_room', game_ref=str(slot - 1))
+    base = 0
+    if previous:
+        try:
+            prior = json.loads(previous['outcome_json'] or '{}')
+            base = int(prior.get('result_rank') or 0)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            base = 0
+    if not (1 <= base <= HILO_RANKS):
+        base = hilo_room_rank(slot)
+    proof = fairness_make('hilo_room', 0, f'hilo-room:{slot}', nonce=slot)
+    ticket, cursor, digest = fairness_draw(proof, HILO_RANKS - 1, 0)
+    candidate = int(ticket) + 1
+    result = candidate if candidate < base else candidate + 1
+    fairness_store(db, proof, str(slot), cursor, {
+        'base_rank': int(base), 'result_rank': int(result),
+        'ticket': int(ticket), 'upper': HILO_RANKS - 1, 'digest': digest
+    })
+    return fairness_get(db, proof_id=proof['id'])
+
+
+def hilo_room_ranks(db, slot):
+    row = hilo_room_proof(db, slot)
+    try:
+        outcome = json.loads(row['outcome_json'] or '{}')
+        base, result = int(outcome.get('base_rank') or 0), int(outcome.get('result_rank') or 0)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        base = result = 0
+    if not (1 <= base <= HILO_RANKS and 1 <= result <= HILO_RANKS and base != result):
+        raise RuntimeError('Некорректный Proof of Fairness общего Hi-Lo.')
+    return base, result, row
+
+
+def hilo_room_visible_rank(db, slot):
+    """Read historical visible ranks without creating retroactive commitments."""
+    slot = int(slot)
+    row = fairness_get(db, game='hilo_room', game_ref=str(slot))
+    if row:
+        try:
+            rank = int(json.loads(row['outcome_json'] or '{}').get('base_rank') or 0)
+            if 1 <= rank <= HILO_RANKS:
+                return rank
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    previous = fairness_get(db, game='hilo_room', game_ref=str(slot - 1))
+    if previous:
+        try:
+            rank = int(json.loads(previous['outcome_json'] or '{}').get('result_rank') or 0)
+            if 1 <= rank <= HILO_RANKS:
+                return rank
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return hilo_room_rank(slot)
 
 _hilo_tier_cache = dict(at=0, gifts=[])
 
@@ -10074,7 +10144,8 @@ def hilo_room_settle(db, n, phase):
     rows = db.execute("""SELECT * FROM hilo_room_bets WHERE settled=0 AND (round_no<? OR (round_no=? AND ?>=?))""",
                       (n, n, phase, HILO_BET_MS)).fetchall()
     for r in rows:
-        base, res = hilo_room_rank(r['round_no']), hilo_room_rank(r['round_no'] + 1)
+        base, res, _proof = hilo_room_ranks(db, r['round_no'])
+        fairness_mark_settled(db, 'hilo_room', r['round_no'])
         push = hilo_room_is_push(base, r['direction'])
         won = True if push else (res > base if r['direction'] == 'hi' else res < base)
         step = hilo_room_step_micro(base, r['direction'])
@@ -10120,7 +10191,7 @@ def hilo_room_settle(db, n, phase):
 
 
 def hilo_room_payload(db, uid, n, phase, now):
-    base = hilo_room_rank(n)
+    base, result_rank, _fair_row = hilo_room_ranks(db, n)
     reveal = phase >= HILO_BET_MS
     card = lambda rk: dict(rank=rk, **hilo_tier_card(rk))
     odds = {d: dict(x=hilo_room_step_micro(base, d) / HILO_MICRO,
@@ -10153,15 +10224,16 @@ def hilo_room_payload(db, uid, n, phase, now):
                    prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
               for r in recent_rows]
     upto = n + 1 if reveal else n
-    seq = [hilo_room_rank(k) for k in range(upto - 25, upto)]
+    seq = [hilo_room_visible_rank(db, k) for k in range(upto - 25, upto)]
     history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
                for i, r in enumerate(seq[1:])]
     me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
     return dict(now=now, round=n, no=cur_no, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
-                result=card(hilo_room_rank(n + 1)) if reveal else None, odds=odds, bets=bets,
+                result=card(result_rank) if reveal else None, odds=odds, bets=bets,
                 history=history, recent=recent,
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
                 balance=(me['balance'] / 100) if me else 0,
+                fairness=fairness_view(db, 'hilo_room', n, reveal),
                 last=dict(id=last['id'], round=last['round_no'], no=nums.get(last['round_no'], 0), gift_name=last['gift_name'] or '', gift_image=last['gift_image'] or '',
                           won=bool(last['won'] or last['payout'] > 0), direction=last['direction'], amount=last['amount'] / 100,
                           payout=last['payout'] / 100, prize_name=last['prize_name'] or '', prize_image=last['prize_image'] or '',
@@ -10211,6 +10283,8 @@ def hilo_room():
         db.execute('BEGIN IMMEDIATE')
         hilo_round_no(db, n)
         hilo_room_settle(db, n, phase)
+        if phase >= HILO_BET_MS:
+            fairness_mark_settled(db, 'hilo_room', n)
         db.commit()
         return jsonify(hilo_room_payload(db, session['uid'], n, phase, now))
     finally:

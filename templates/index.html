@@ -3836,6 +3836,50 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
   #transferModal .transfer-source{gap:6px!important;margin-top:2px!important}
 }
 </style>
+
+<style id="arena-mobile-nft-fix">
+#arenaPage .arena-bet-field{min-width:0}
+#arenaPage .arena-bet-field input{width:100%;min-width:0;box-sizing:border-box}
+#arenaPage .arena-player-copy{min-width:0}
+#arenaPage .arena-player-bet{white-space:nowrap;flex:none}
+@media(max-width:520px){
+  #arenaPage{overflow-x:hidden}
+  #arenaPage .arena-bet-panel{padding:12px!important;overflow:hidden}
+  #arenaPage .arena-bet-row{grid-template-columns:minmax(0,1fr) 42px 42px 50px!important;gap:6px!important;align-items:stretch}
+  #arenaPage .arena-bet-field{width:100%;min-width:0;overflow:hidden}
+  #arenaPage .arena-bet-field input{height:44px!important;padding-left:36px!important;padding-right:46px!important;font-size:16px!important}
+  #arenaPage .arena-bet-field>img[data-game-balance-icon]{width:18px!important;height:18px!important;left:10px!important}
+  #arenaPage .arena-gift-btn{right:4px!important;width:36px!important;height:36px!important;border-radius:9px!important}
+  #arenaPage .arena-gift-btn img{width:28px!important;height:28px!important;max-width:28px!important;max-height:28px!important}
+  #arenaPage .arena-bet-row>button{min-width:0!important;padding:0 4px!important;font-size:12px!important}
+  #arenaPage .arena-player{grid-template-columns:36px minmax(0,1fr) auto!important;gap:8px!important;align-items:start!important;padding:9px 2px!important;overflow:hidden}
+  #arenaPage .arena-player-avatar{width:36px!important;height:36px!important}
+  #arenaPage .arena-player-copy{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:4px!important;min-width:0!important;overflow:hidden}
+  #arenaPage .arena-player-copy>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #arenaPage .arena-player-copy small.arena-gifts{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(58px,1fr))!important;gap:4px!important;width:100%!important;max-width:100%!important;margin:0!important;overflow:hidden!important;line-height:1!important}
+  #arenaPage .arena-chip{display:grid!important;grid-template-columns:22px minmax(0,1fr)!important;align-items:center!important;gap:3px!important;width:100%!important;min-width:0!important;max-width:100%!important;height:30px!important;padding:2px 5px!important;border-radius:9px!important;overflow:hidden!important}
+  #arenaPage .arena-chip img{width:22px!important;height:22px!important;max-width:22px!important;max-height:22px!important;margin:0!important;object-fit:contain!important}
+  #arenaPage .arena-chip.ton{grid-template-columns:17px minmax(0,1fr)!important}
+  #arenaPage .arena-chip.ton img{width:16px!important;height:16px!important;max-width:16px!important;max-height:16px!important;margin:0!important}
+  #arenaPage .arena-chip b{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:10px!important}
+  #arenaPage .arena-player-bet{align-self:start!important;gap:3px!important;padding-top:2px!important;font-size:12px!important}
+  #arenaPage .arena-player-bet img{width:14px!important;height:14px!important}
+  #arGiftModal .cr-gift-card{width:min(100%,420px)!important;max-height:88dvh!important;overflow:hidden!important;padding:16px 12px 12px!important}
+  #arGiftModal #arGiftGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important;max-height:56dvh!important;padding:2px 1px 6px!important}
+  #arGiftModal .cr-gift-item{min-width:0!important;overflow:hidden!important;padding:7px 5px 8px!important}
+  #arGiftModal .cr-gift-art{width:100%!important;min-width:0!important;overflow:hidden!important}
+  #arGiftModal .cr-gift-art img{width:84%!important;height:84%!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important}
+  #arGiftModal .cr-gift-item strong{min-width:0!important;overflow-wrap:anywhere!important}
+  #arGiftModal .cr-gift-foot{position:sticky!important;bottom:0!important;z-index:3!important;padding-top:8px!important;background:linear-gradient(180deg,transparent,#151725 28%)!important}
+}
+@media(max-width:350px){
+  #arenaPage .arena-bet-row{grid-template-columns:minmax(0,1fr) 38px 38px 46px!important;gap:5px!important}
+  #arenaPage .arena-player{grid-template-columns:32px minmax(0,1fr) auto!important;gap:6px!important}
+  #arenaPage .arena-player-avatar{width:32px!important;height:32px!important}
+  #arenaPage .arena-player-copy small.arena-gifts{grid-template-columns:repeat(auto-fit,minmax(52px,1fr))!important}
+  #arGiftModal #arGiftGrid{gap:6px!important}
+}
+</style>
 </head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="gdSpace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0d22"/><stop offset=".6" stop-color="#171a40"/><stop offset="1" stop-color="#2a2358"/></linearGradient>
 <radialGradient id="gdSpaceGlow" cx=".5" cy="1.1" r=".9"><stop offset="0" stop-color="#6a58ff" stop-opacity=".45"/><stop offset="1" stop-color="#6a58ff" stop-opacity="0"/></radialGradient>

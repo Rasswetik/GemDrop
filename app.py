@@ -1701,6 +1701,8 @@ def profile():
                 balance=main_balance / 100,
                 bonus_balance=bonus_balance / 100,
                 playable_balance=(main_balance + bonus_balance) / 100,
+                active_game_balance=(main_balance if main_balance > 0 else bonus_balance) / 100,
+                active_game_balance_type=('main' if main_balance > 0 else 'bonus'),
                 tickets=(creator['demo_tickets'] if demo else int(user['tickets'] or 0)),
                 turnover=(creator['demo_turnover_cents']/100 if demo else user['turnover_cents']/100),
                 withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
@@ -1732,11 +1734,12 @@ def admin_display():
 
 
 def spend_game_balance(db, user_id, amount):
-    """Spend one balance source per game bet.
+    """Spend a game bet from exactly one balance ledger.
 
-    Main balance has priority. If it cannot cover the whole bet, the bet is taken
-    entirely from bonus balance. We intentionally never mix sources inside one
-    bet because the payout must return to the same source that funded the bet.
+    Main and bonus funds never mix. While the player has even 0.01 TON on the
+    main balance, games may use only the main balance. Bonus becomes eligible
+    only after the main balance reaches zero. This guarantees that every round
+    has one unambiguous source and every payout/gift can inherit that source.
     """
     amount = max(0, int(amount or 0))
     lock = ' FOR UPDATE' if DATABASE_URL else ''
@@ -1745,7 +1748,9 @@ def spend_game_balance(db, user_id, amount):
         return None
     main = max(0, int(row['balance'] or 0))
     bonus = max(0, int(row['bonus_balance'] or 0))
-    if main >= amount:
+    if main > 0:
+        if main < amount:
+            return None
         changed = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                              (amount, user_id, amount))
         return (amount, 0) if changed.rowcount else None
@@ -1754,6 +1759,15 @@ def spend_game_balance(db, user_id, amount):
                              (amount, user_id, amount))
         return (0, amount) if changed.rowcount else None
     return None
+
+
+def active_game_balance_cents(db, user_id):
+    row = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (int(user_id),)).fetchone()
+    if not row:
+        return 0, 'main'
+    main = max(0, int(row['balance'] or 0))
+    bonus = max(0, int(row['bonus_balance'] or 0))
+    return (main, 'main') if main > 0 else (bonus, 'bonus')
 
 
 def credit_game_balance(db, user_id, amount, bonus_origin=False):
@@ -1880,13 +1894,20 @@ def level_number(db, turnover):
     return int(row['n'] or 1)
 
 
-def increase_turnover(db, user_id, amount, withdrawal_wager=True):
+def increase_turnover(db, user_id, amount, withdrawal_wager=True, xp_factor=1.0):
     if amount <= 0:
+        return None
+    try:
+        factor = max(0.0, min(1.0, float(xp_factor)))
+    except (TypeError, ValueError):
+        factor = 1.0
+    xp_amount = max(0, int(round(int(amount) * factor)))
+    if xp_amount <= 0:
         return None
     user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
     previous_turnover = int(user['turnover_cents'] or 0)
     previous = level_number(db, previous_turnover)
-    new_turnover = previous_turnover + amount
+    new_turnover = previous_turnover + xp_amount
     if withdrawal_wager:
         db.execute("""UPDATE users
                       SET turnover_cents=turnover_cents+?,
@@ -1895,9 +1916,9 @@ def increase_turnover(db, user_id, amount, withdrawal_wager=True):
                               THEN withdrawal_wager_progress+?
                               ELSE withdrawal_wager_required
                           END
-                      WHERE id=?""", (amount, amount, amount, user_id))
+                      WHERE id=?""", (xp_amount, amount, amount, user_id))
     else:
-        db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(amount,user_id))
+        db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(xp_amount,user_id))
     current = level_number(db, new_turnover)
     return current if current > previous else None
 
@@ -4847,6 +4868,7 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
         winner=db.execute("""SELECT r.user_id FROM rounds r
                              JOIN users u ON u.id=r.user_id
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
+                               AND COALESCE(r.bonus_used,0)=0
                                AND COALESCE(u.withdrawal_enabled,1)=1
                                AND COALESCE(r.settled_at,r.created_at)>=? AND COALESCE(r.settled_at,r.created_at)<?
                              ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC
@@ -4854,14 +4876,14 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
     elif mode=='hilo':
         _, hl_id = wins_feed_cutoff(db,'hilo')
         winner=db.execute("""SELECT b.user_id FROM hilo_room_bets b JOIN users u ON u.id=b.user_id
-                             WHERE b.settled=1 AND b.id>? AND COALESCE(u.withdrawal_enabled,1)=1
+                             WHERE b.settled=1 AND b.id>? AND COALESCE(b.bonus_used,0)=0 AND COALESCE(u.withdrawal_enabled,1)=1
                                AND b.created_at>=? AND b.created_at<?
                                AND b.payout+b.prize_price>CASE WHEN b.gift_name='' THEN b.amount ELSE 0 END
                              ORDER BY b.payout+b.prize_price DESC,b.id DESC LIMIT 1""",(hl_id,start_db,end_db)).fetchone()
     else:
         winner=db.execute("""SELECT s.user_id FROM upgrade_spins s
                              JOIN users u ON u.id=s.user_id
-                             WHERE s.won=1 AND COALESCE(u.withdrawal_enabled,1)=1
+                             WHERE s.won=1 AND COALESCE(s.bonus_used,0)=0 AND COALESCE(u.withdrawal_enabled,1)=1
                                AND s.created_at>=? AND s.created_at<?
                                AND REPLACE(s.result_json,' ','') NOT LIKE '%"reward_type":"wager_progress"%'
                              ORDER BY s.target_price DESC,s.created_at DESC,s.id DESC LIMIT 1""",(start_db,end_db)).fetchone()
@@ -4957,7 +4979,7 @@ def upgrade_recent_wins():
         cutoff, _ = wins_feed_cutoff(db, 'upgrade')
         rows = db.execute('''SELECT s.id,s.user_id,s.source_name,s.source_image,s.source_price,
                                    s.target_name,s.target_image,s.target_price,s.chance_bp,
-                                   s.result_json,s.created_at,u.name,u.username,u.photo_url,u.withdrawal_enabled
+                                   s.result_json,s.created_at,s.bonus_used,u.name,u.username,u.photo_url,u.withdrawal_enabled
                             FROM upgrade_spins s JOIN users u ON u.id=s.user_id
                             WHERE s.won=1 AND s.created_at>?
                             ORDER BY s.created_at DESC,s.id DESC''', (cutoff,)).fetchall()
@@ -4985,8 +5007,8 @@ def upgrade_recent_wins():
                                 price_ton=target_price),
                     chance=max(0,min(100,chance)),
                     reward_type=str(result.get('reward_type') or 'gift'),
-                    created_at=row['created_at'],
-                    _top_eligible=bool(row['withdrawal_enabled']))
+                    created_at=row['created_at'],bonus_origin=bool(int(row['bonus_used'] or 0)),
+                    _top_eligible=bool(row['withdrawal_enabled']) and not bool(int(row['bonus_used'] or 0)))
     items=[]
     for row in rows:
         try:
@@ -5170,7 +5192,9 @@ def upgrade_spin():
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
-        result['new_level']=increase_turnover(db,session['uid'],source_price,withdrawal_wager=bool(amount_text)) if xp_allowed else None
+        result['new_level']=increase_turnover(db,session['uid'],source_price,
+                                              withdrawal_wager=bool(amount_text) and not bonus_origin,
+                                              xp_factor=(0.2 if bonus_origin else 1.0)) if xp_allowed else None
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
         promo_code = ((result.get('compensation') or {}).get('promo') or {}).get('code')
@@ -5440,7 +5464,9 @@ def start():
                   loss_rtp_boost=round(promo_loss_boost,2) if bet_type=='promo_gift' else None,
                   game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         # Promo-wager gifts do not count toward site turnover or levels.
-        new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(db,session['uid'],bet,withdrawal_wager=(bet_type=='ton'))
+        new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(
+            db,session['uid'],bet,withdrawal_wager=(bet_type=='ton' and not bonus_used),
+            xp_factor=(0.2 if bonus_used else 1.0))
         db.commit()
         if new_level:
             notify_level_up_async(session['uid'], new_level)
@@ -5578,14 +5604,14 @@ def recent_wins():
             app.logger.exception('Daily top reward settlement failed while loading Mines wins')
         cutoff, max_round_id = wins_feed_cutoff(db, 'mines')
         selection = """SELECT r.id,r.bet,r.mines,r.opened,r.payout,r.win_total,r.win_multiplier,
-                                    r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,
+                                    r.win_gift_name,r.win_gift_image,r.win_gift_price,r.created_at,r.bonus_used,
                                     u.id AS user_id,u.name,u.username,u.photo_url,u.withdrawal_enabled
                              FROM rounds r JOIN users u ON u.id=r.user_id
                              WHERE r.state='won' AND COALESCE(r.bet_type,'ton')<>'promo_gift'
                                AND (r.id>? OR r.settled_at>?)"""
         rows = db.execute(selection+' ORDER BY COALESCE(r.settled_at,r.created_at) DESC,r.id DESC',
                           (max_round_id,cutoff)).fetchall()
-        top = db.execute(selection+''' AND COALESCE(u.withdrawal_enabled,1)=1
+        top = db.execute(selection+''' AND COALESCE(r.bonus_used,0)=0 AND COALESCE(u.withdrawal_enabled,1)=1
                            AND COALESCE(r.settled_at,r.created_at)>=?
                            ORDER BY COALESCE(NULLIF(r.win_total,0),NULLIF(r.win_gift_price,0),r.payout) DESC,r.id DESC LIMIT 1''',
                          (max_round_id,cutoff,_daily_top_db_string(daily_top_candidate_start('mines')))).fetchone()
@@ -5605,7 +5631,8 @@ def recent_wins():
             amount=(total or 0)/100, gift=(dict(name=row['win_gift_name'], image_url=row['win_gift_image'],
                                                price_ton=(row['win_gift_price'] or 0)/100)
                                            if row['win_gift_name'] else None),
-            created_at=row['created_at'], _top_eligible=bool(row['withdrawal_enabled']))
+            created_at=row['created_at'], bonus_origin=bool(int(row['bonus_used'] or 0)),
+            _top_eligible=bool(row['withdrawal_enabled']) and not bool(int(row['bonus_used'] or 0)))
     items=[]
     for row in rows:
         try:items.append(mines_win_item(row))
@@ -9946,7 +9973,8 @@ def limbo_play():
                             VALUES(?,?,?,?,?,?,?,?)""", (uid, bet, chance * 100, mult_x100, roll, int(won), payout, bonus_used))
         bet_id = int(cur.lastrowid)
         record_transaction(db, uid, 'limbo_bet', -bet, 'limbo', bet_id, 'Limbo · шанс %d%%' % chance)
-        new_level = increase_turnover(db, uid, bet)
+        new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(bonus_used),
+                                      xp_factor=(0.2 if bonus_used else 1.0))
         if payout:
             credit_game_balance(db, uid, payout, bool(bonus_used))
             record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
@@ -10075,7 +10103,14 @@ def arena_refund_round(db, row, players):
         gifts = arena_gift_list(player['gifts'])
         gift_amount = min(amount, max(0, int(player['gift_amount'] or 0)))
         ton = amount - gift_amount
-        xp_back = ton + sum(int(g.get('price') or 0) for g in gifts if g.get('xp'))
+        # Roll back exactly the XP that was granted (bonus-origin stakes grant 20%).
+        bonus_gift_amount = sum(max(0, int(g.get('price') or 0)) for g in gifts
+                                if bool(int((g.get('row') or {}).get('bonus_origin') or 0)))
+        bonus_ton_total = max(0, int(player['bonus_used'] or 0) - bonus_gift_amount)
+        main_ton_total = max(0, ton - bonus_ton_total)
+        xp_back = main_ton_total + int(round(bonus_ton_total * 0.2)) \
+                  + sum(int(g.get('xp_cents') if g.get('xp_cents') is not None else g.get('price') or 0)
+                        for g in gifts if g.get('xp'))
         if ton:
             # bonus_used also includes the value of bonus-origin gifts. Remove that
             # part before deciding which TON balance receives a cancelled stake back.
@@ -10559,13 +10594,25 @@ def arena_bet():
                 db.rollback()
                 return error('Подарок уже используется.', 409)
             snapshot = dict(name=str(item['gift_name'] or 'Подарок')[:140], image_url=str(item['image_url'] or ''),
-                            price=amount, xp=bool(gift_counts_for_xp(item)), row=dict(item))
+                            price=amount, xp=bool(gift_counts_for_xp(item)),
+                            xp_cents=(int(round(amount * (0.2 if inventory_is_bonus(item) else 1.0))) if gift_counts_for_xp(item) else 0),
+                            row=dict(item))
         else:
             spent = spend_game_balance(db, uid, amount)
             if not spent:
                 db.rollback()
                 return error('Недостаточно TON.', 409)
             bonus_used = int(spent[1])
+        if existing and existing_amount > 0:
+            old_bonus = max(0, int(existing['bonus_used'] or 0))
+            old_source = 'bonus' if old_bonus == existing_amount else 'main' if old_bonus == 0 else 'mixed'
+            new_source = 'bonus' if bonus_used == amount else 'main'
+            if old_source == 'mixed' or old_source != new_source:
+                if not gift_mode:
+                    # spend_game_balance already deducted the new TON stake; put it back before rejecting.
+                    credit_game_balance(db, uid, amount, bool(bonus_used))
+                db.rollback()
+                return error('В одном раунде Арены нельзя смешивать основной и бонусный баланс.', 409)
         gifts = arena_gift_list(existing['gifts']) if existing else []
         gift_amount = int(existing['gift_amount'] or 0) if existing else 0
         if gift_mode:
@@ -10591,11 +10638,13 @@ def arena_bet():
             record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {snapshot["name"]} ({amount/100:.2f} TON)')
             if snapshot['xp']:
-                increase_turnover(db, uid, amount, withdrawal_wager=False)
+                increase_turnover(db, uid, amount, withdrawal_wager=False,
+                                  xp_factor=(0.2 if bonus_used else 1.0))
         else:
             record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {amount/100:.2f} TON')
-            increase_turnover(db, uid, amount)
+            increase_turnover(db, uid, amount, withdrawal_wager=not bool(bonus_used),
+                              xp_factor=(0.2 if bonus_used else 1.0))
         db.commit()
         return jsonify(ok=True, state=arena_state_payload(db, uid, now), user=profile())
     finally:
@@ -11213,7 +11262,8 @@ def crash_bet():
                             str(item['gift_name'] or '')[:140], str(item['image_url'] or ''), bet if inventory_is_bonus(item) else 0))
                 record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
                 if xp_allowed:
-                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=False)
+                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                                                      xp_factor=(0.2 if inventory_is_bonus(item) else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
             if not spent:
@@ -11221,7 +11271,8 @@ def crash_bet():
                 return error('Недостаточно средств.')
             db.execute('INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bonus_used) VALUES(?,?,?,?,?)', (row['id'], uid, bet, auto, int(spent[1])))
             record_transaction(db, uid, 'crash_bet', -bet, 'crash_round', row['id'], 'Crash')
-            new_level = increase_turnover(db, uid, bet)
+            new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(spent[1]),
+                                              xp_factor=(0.2 if spent[1] else 1.0))
         db.commit()
     finally:
         db.close()
@@ -11777,12 +11828,12 @@ def hilo_recent_wins():
             app.logger.exception('Daily top reward settlement failed while loading Hi-Lo wins')
         _, max_id = wins_feed_cutoff(db, 'hilo')
         sel = """SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.gift_name,b.gift_image,
-                        b.prize_name,b.prize_image,b.prize_price,b.created_at,u.name,u.username,u.photo_url
+                        b.prize_name,b.prize_image,b.prize_price,b.created_at,b.bonus_used,u.name,u.username,u.photo_url,u.withdrawal_enabled
                  FROM hilo_room_bets b JOIN users u ON u.id=b.user_id
                  WHERE b.settled=1 AND b.id>?
                    AND b.payout+b.prize_price>CASE WHEN b.gift_name='' THEN b.amount ELSE 0 END"""
         rows = db.execute(sel+' ORDER BY b.id DESC LIMIT 50', (max_id,)).fetchall()
-        top = db.execute(sel+""" AND COALESCE(u.withdrawal_enabled,1)=1 AND b.created_at>=?
+        top = db.execute(sel+""" AND COALESCE(b.bonus_used,0)=0 AND COALESCE(u.withdrawal_enabled,1)=1 AND b.created_at>=?
                           ORDER BY b.payout+b.prize_price DESC,b.id DESC LIMIT 1""",
                          (max_id, _daily_top_db_string(daily_top_candidate_start('hilo')))).fetchone()
     def item(r):
@@ -11790,6 +11841,7 @@ def hilo_recent_wins():
         total = int(r['payout'] or 0) + int(r['prize_price'] or 0)
         return dict(id=r['id'], user_id=r['user_id'], name=r['name'], username=r['username'], photo_url=r['photo_url'],
                     direction=r['direction'], bet=r['amount']/100, amount=total/100,
+                    bonus_origin=bool(int(r['bonus_used'] or 0)),
                     multiplier=round(hilo_room_step_micro(base, r['direction'])/HILO_MICRO, 4),
                     gift=(dict(name=r['prize_name'], image_url=r['prize_image'], price_ton=(r['prize_price'] or 0)/100)
                           if r['prize_name'] else None), created_at=r['created_at'])
@@ -11975,7 +12027,8 @@ def hilo_room_bet():
                              (n, uid, direction, bet, gname, gimage, gsnap, bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_room', cur.lastrowid, gname)
             if xp_allowed:
-                new_level = increase_turnover(db, uid, bet)
+                new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                                                  xp_factor=(0.2 if bonus_used else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
             if not spent:
@@ -11984,7 +12037,8 @@ def hilo_room_bet():
             cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,want_gift,bonus_used) VALUES(?,?,?,?,?,?)',
                              (n, uid, direction, bet, want_gift, int(spent[1])))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
-            new_level = increase_turnover(db, uid, bet)
+            new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(spent[1]),
+                                              xp_factor=(0.2 if spent[1] else 1.0))
         db.commit()
     finally:
         db.close()
@@ -12079,7 +12133,8 @@ def hilo_start():
                                  json.dumps([dict(r=rank, rel=None)]), bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_game', cursor.lastrowid, str(item['gift_name'] or '')[:140])
             if xp_allowed:
-                new_level = increase_turnover(db, uid, bet)
+                new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                                                  xp_factor=(0.2 if bonus_used else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
             if not spent:
@@ -12089,7 +12144,8 @@ def hilo_start():
                                    VALUES(?,?,?,?,?,?,?)""",
                                 (uid, bet, rank, card_name, card_image, json.dumps([dict(r=rank, rel=None)]), int(spent[1])))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_game', cursor.lastrowid, 'Hi-Lo')
-            new_level = increase_turnover(db, uid, bet)
+            new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(spent[1]),
+                                              xp_factor=(0.2 if spent[1] else 1.0))
         game_id = int(cursor.lastrowid)
         fairness_store(db, proof, str(game_id), fair_cursor, {'ranks': [rank]})
         db.commit()
@@ -15366,19 +15422,23 @@ def creator_demo_inventory_remove(item_id):
 @admin_required
 def admin_users():
     term = request.args.get('q', '').strip()[:80]
+    needle = term.casefold()
     with connect() as db:
-        if term:
-            users = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,COUNT(i.id) AS gifts
-                                  FROM users u LEFT JOIN inventory i ON i.user_id=u.id
-                                  WHERE CAST(u.id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?
-                                  GROUP BY u.id ORDER BY u.id DESC LIMIT 50''',
-                               (f'%{term}%', f'%{term}%', f'%{term}%')).fetchall()
-        else:
-            users = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,COUNT(i.id) AS gifts
-                                  FROM users u LEFT JOIN inventory i ON i.user_id=u.id
-                                  GROUP BY u.id ORDER BY u.id DESC LIMIT 50''').fetchall()
-    return jsonify(users=[dict(id=u['id'], name=u['name'], username=u['username'], photo_url=u['photo_url'] or '',
-                               balance=u['balance']/100, gifts=u['gifts']) for u in users])
+        rows = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,u.bonus_balance,u.ref_balance,
+                                    COUNT(i.id) AS gifts,COALESCE(SUM(i.floor_price),0) AS inventory_value
+                             FROM users u LEFT JOIN inventory i ON i.user_id=u.id
+                             GROUP BY u.id,u.name,u.username,u.photo_url,u.balance,u.bonus_balance,u.ref_balance''').fetchall()
+    users=[]
+    for u in rows:
+        hay = f"{u['id']} {u['name'] or ''} {u['username'] or ''}".casefold()
+        if needle and needle not in hay:
+            continue
+        wealth = max(0,int(u['balance'] or 0))+max(0,int(u['bonus_balance'] or 0))+max(0,int(u['ref_balance'] or 0))+max(0,int(u['inventory_value'] or 0))
+        users.append(dict(id=u['id'], name=u['name'], username=u['username'], photo_url=u['photo_url'] or '',
+                          balance=int(u['balance'] or 0)/100, bonus_balance=int(u['bonus_balance'] or 0)/100,
+                          inventory_value=int(u['inventory_value'] or 0)/100, wealth=wealth/100, gifts=int(u['gifts'] or 0)))
+    users.sort(key=lambda x:(x['wealth'],x['id']), reverse=True)
+    return jsonify(users=users[:50])
 
 
 @app.get('/api/admin/users/<int:user_id>')

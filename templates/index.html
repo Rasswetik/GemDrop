@@ -5604,17 +5604,24 @@ function fairnessRefresh(){
   fairnessMount(page);
 }
 function fairnessMount(page){
-  const FAIR_TITLE={minesPage:'#minesPage>.mines-title',upgradePage:'#upgradePage .upgrade-title',crashPage:'#crashPage>.page-title',arenaPage:'#arenaPage>.arena-title',hiloPage:'#hiloPage .hl-head',limboPage:'#limboPage>.page-title',rollPage:'#rollTitle'};
+  const FAIR_TITLE={minesPage:'.mines-title',upgradePage:'.upgrade-title',crashPage:'.page-title',arenaPage:'.arena-title',hiloPage:'.page-title',limboPage:'.page-title',rollPage:'#rollTitle'};
   const btn=$('fairnessBtn'),sec=$(page);if(!btn||!sec)return;
-  const t=sec.querySelector(FAIR_TITLE[page]||'h1');if(!t)return;
-  if(page==='hiloPage'){
+  const title=sec.querySelector(FAIR_TITLE[page]||'h1');if(!title)return;
+
+  // Во всех игровых режимах Fairness и Info живут в одной строке справа.
+  // После появления .gg-head нельзя искать заголовок только как прямого ребёнка section.
+  let row=title.closest('.gg-head,.hl-head');
+  if(row){
     btn.classList.add('in-row');btn.style.top='';
-    if(btn.parentNode!==t)t.insertBefore(btn,t.querySelector('.hl-info'));
+    const info=row.querySelector('.game-info-btn,.gg-help,.hl-info');
+    if(btn.parentNode!==row || (info&&btn.nextSibling!==info))row.insertBefore(btn,info||null);
     return;
   }
+
+  // Fallback для режимов без Info-строки (например, отдельный roll): старое позиционирование.
   btn.classList.remove('in-row');
   if(btn.parentNode!==sec)sec.appendChild(btn);
-  const place=()=>{if(!t.offsetHeight)return;btn.style.top=Math.round(t.offsetTop+(t.offsetHeight-btn.offsetHeight)/2)+'px'};
+  const place=()=>{if(!title.offsetHeight)return;btn.style.top=Math.round(title.offsetTop+(title.offsetHeight-btn.offsetHeight)/2)+'px'};
   place();requestAnimationFrame(place);setTimeout(place,250);
 }
 addEventListener('resize',()=>{try{fairnessRefresh()}catch(e){}});
@@ -9396,6 +9403,8 @@ ready(()=>{
 /* Единая шапка режима: как в Hi-Lo — заголовок слева, Info справа. */
 .gg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
 .gg-head>.page-title,.gg-head>h1{margin:0!important;text-align:left!important;min-width:0}
+.gg-head>.fairness-fab.in-row{margin-left:auto;margin-right:0}
+.gg-head>.fairness-fab.in-row+.game-info-btn,.gg-head>.fairness-fab.in-row+.gg-help{margin-left:8px}
 .game-info-btn,.gg-help{flex:none;width:36px;height:36px;display:grid;place-items:center;margin:0;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.045);color:#8f98a6;box-shadow:inset 0 1px rgba(255,255,255,.035);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s ease,background .18s ease,border-color .18s ease,color .18s ease}
 .game-info-btn svg,.gg-help svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .game-info-btn:hover,.gg-help:hover{background:rgba(255,255,255,.065);border-color:rgba(255,255,255,.13);color:#aab1bc}
@@ -9796,6 +9805,7 @@ function addButtons(){
  }
 }
 addButtons();
+try{fairnessRefresh()}catch(e){}
 })();
 
 </script>

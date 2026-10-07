@@ -978,5 +978,43 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/web-auth/status').get_json()['status'], 'missing')
 
 
+    def test_fairness_draw_is_deterministic_and_commitment_matches(self):
+        proof = dict(id='x', game='upgrade', user_id=self.uid, server_seed='11' * 32,
+                     server_hash=hashlib.sha256(('11' * 32).encode()).hexdigest(),
+                     client_seed='client-seed-qa', nonce=7, cursor=0)
+        self.assertEqual(m.fairness_draw(proof, 100000, 0), m.fairness_draw(proof, 100000, 0))
+        self.assertEqual(proof['server_hash'], hashlib.sha256(proof['server_seed'].encode()).hexdigest())
+
+    def test_mines_fairness_commit_reveal_and_replay(self):
+        started = self.post('/api/game/start', {'bet':'1.00','mines':20,'client_seed':'qa-client-seed-1234'})
+        proof = started['round']['fairness']
+        self.assertEqual(proof['state'], 'committed')
+        self.assertNotIn('server_seed', proof)
+        with m.connect() as db:
+            mine = json.loads(db.execute('SELECT positions FROM rounds WHERE id=?',(started['round']['id'],)).fetchone()['positions'])[0]
+        finished = self.post('/api/game/open', {'cell':mine})
+        revealed = finished['round']['fairness']
+        self.assertEqual(revealed['state'], 'revealed')
+        self.assertTrue(revealed['commitment_valid'])
+        recreated = dict(game='mines', server_seed=revealed['server_seed'],
+                         client_seed=revealed['client_seed'], nonce=revealed['nonce'], cursor=0)
+        positions, _ = m.fairness_positions(recreated, 20)
+        self.assertEqual(positions, revealed['outcome']['positions'])
+
+    def test_upgrade_prepared_fairness_is_consumed(self):
+        m.save_document('portal_catalog', {'gifts':[{
+            'id':'qa-target','name':'QA Target','price_ton':'2.00',
+            'image_url':'/static/img/gift.svg','image_match':True
+        }]})
+        proof = self.post('/api/fairness/prepare', {'game':'upgrade','client_seed':'qa-upgrade-seed-123'})['fairness']
+        self.assertEqual(proof['state'], 'committed')
+        spin = self.post('/api/upgrade/spin', {'amount':'1.00','gift_id':'qa-target',
+                         'request_id':'qa_upgrade_request_12345','fairness_id':proof['id'],
+                         'client_seed':'qa-upgrade-seed-123'})
+        self.assertEqual(spin['fairness']['id'], proof['id'])
+        self.assertEqual(spin['fairness']['state'], 'revealed')
+        self.assertTrue(spin['fairness']['commitment_valid'])
+
+
 if __name__ == '__main__':
     unittest.main()

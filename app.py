@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '99-portal-resume-after-connect'
+BUILD_ID = '100-proof-of-fairness'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -525,6 +525,23 @@ def _initialize_schema():
             price INTEGER NOT NULL, outcome TEXT NOT NULL, gift_name TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS fairness_records (
+            id TEXT PRIMARY KEY,
+            game TEXT NOT NULL,
+            game_ref TEXT NOT NULL DEFAULT '',
+            user_id INTEGER NOT NULL DEFAULT 0,
+            server_seed TEXT NOT NULL,
+            server_hash TEXT NOT NULL,
+            client_seed TEXT NOT NULL,
+            nonce INTEGER NOT NULL DEFAULT 0,
+            cursor INTEGER NOT NULL DEFAULT 0,
+            outcome_json TEXT NOT NULL DEFAULT '{}',
+            state TEXT NOT NULL DEFAULT 'committed',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            revealed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_fairness_game_ref ON fairness_records(game, game_ref);
+        CREATE INDEX IF NOT EXISTS idx_fairness_user ON fairness_records(user_id, created_at);
         CREATE TABLE IF NOT EXISTS levels (
             level INTEGER PRIMARY KEY, required_turnover INTEGER NOT NULL,
             reward_json TEXT NOT NULL DEFAULT '{}'
@@ -2479,7 +2496,8 @@ def round_view(row, reveal=False):
                 multiplier=round(factor, 6), potential=amount/100,
                 positions=json.loads(row['positions']) if reveal or row['state'] != 'active' else [],
                 payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'],
-                promo_progress_after=int(row['promo_progress_after'] or 0)/100)
+                promo_progress_after=int(row['promo_progress_after'] or 0)/100,
+                fairness=fairness_for('mines', row['id'], row['state'] != 'active'))
 
 
 @app.get('/api/game/ladder')
@@ -2516,6 +2534,173 @@ def parse_amount(value):
     if not value.is_finite() or value != value.to_integral_value() or abs(value) > 9223372036854775807:
         raise ValueError('Invalid money amount')
     return int(value)
+
+
+
+FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'arena'}
+FAIRNESS_ALGORITHM = 'HMAC-SHA256/rejection-v1'
+
+
+def fairness_client_seed(value=None, fallback=''):
+    text = str(value or fallback or '').strip()
+    if not text:
+        text = secrets.token_hex(16)
+    if len(text) > 128 or not re.fullmatch(r'[A-Za-z0-9._:@-]{8,128}', text):
+        text = hashlib.sha256(text.encode('utf-8')).hexdigest()
+    return text[:128]
+
+
+def fairness_make(game, user_id=0, client_seed='', nonce=0):
+    game = str(game or '').strip().lower()
+    if game not in FAIRNESS_GAMES:
+        raise ValueError('Неизвестный режим Proof of Fairness.')
+    server_seed = secrets.token_hex(32)
+    return dict(id=secrets.token_hex(16), game=game, user_id=int(user_id or 0),
+                server_seed=server_seed,
+                server_hash=hashlib.sha256(server_seed.encode('utf-8')).hexdigest(),
+                client_seed=fairness_client_seed(client_seed, f'{game}:{int(user_id or 0)}'),
+                nonce=max(0, int(nonce or 0)), cursor=0)
+
+
+def fairness_draw(proof, upper, cursor=None):
+    upper = int(upper)
+    if upper <= 0:
+        raise ValueError('Proof of Fairness: upper должен быть положительным.')
+    cursor = int(proof.get('cursor', 0) if cursor is None else cursor)
+    limit = (1 << 256) - ((1 << 256) % upper)
+    key = bytes.fromhex(str(proof['server_seed']))
+    while True:
+        message = f"{proof['game']}|{proof['client_seed']}|{int(proof['nonce'])}|{cursor}"
+        digest = hmac.new(key, message.encode('utf-8'), hashlib.sha256).digest()
+        value = int.from_bytes(digest, 'big')
+        cursor += 1
+        if value < limit:
+            return value % upper, cursor, digest.hex()
+
+
+def fairness_positions(proof, mines):
+    items = list(range(25))
+    cursor = int(proof.get('cursor', 0) or 0)
+    for i in range(24, 0, -1):
+        j, cursor, _ = fairness_draw(proof, i + 1, cursor)
+        items[i], items[j] = items[j], items[i]
+    return sorted(items[:int(mines)]), cursor
+
+
+def fairness_store(db, proof, game_ref='', cursor=0, outcome=None, state='committed'):
+    db.execute("""INSERT INTO fairness_records(
+                   id,game,game_ref,user_id,server_seed,server_hash,client_seed,nonce,cursor,outcome_json,state,revealed_at)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (proof['id'], proof['game'], str(game_ref or ''), int(proof.get('user_id') or 0),
+                proof['server_seed'], proof['server_hash'], proof['client_seed'], int(proof.get('nonce') or 0),
+                int(cursor or 0), json.dumps(outcome or {}, ensure_ascii=False, separators=(',', ':')),
+                state, datetime.now(timezone.utc).isoformat() if state == 'settled' else None))
+    return proof['id']
+
+
+def fairness_get(db, game=None, game_ref=None, proof_id=None):
+    if proof_id:
+        return db.execute('SELECT * FROM fairness_records WHERE id=?', (str(proof_id),)).fetchone()
+    return db.execute('SELECT * FROM fairness_records WHERE game=? AND game_ref=? ORDER BY created_at DESC LIMIT 1',
+                      (str(game), str(game_ref))).fetchone()
+
+
+def fairness_public(row, reveal=None):
+    if not row:
+        return None
+    reveal = (str(row['state']) == 'settled') if reveal is None else bool(reveal)
+    try:
+        outcome = json.loads(row['outcome_json'] or '{}') if reveal else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        outcome = {}
+    result = dict(id=str(row['id']), game=str(row['game']), game_ref=str(row['game_ref'] or ''),
+                  server_hash=str(row['server_hash']), client_seed=str(row['client_seed']),
+                  nonce=int(row['nonce'] or 0), algorithm=FAIRNESS_ALGORITHM,
+                  message_format='{game}|{client_seed}|{nonce}|{cursor}',
+                  draw_method='HMAC-SHA256; 256-bit rejection sampling; result = value mod upper',
+                  state='revealed' if reveal else 'committed')
+    if reveal:
+        result.update(server_seed=str(row['server_seed']), cursor=int(row['cursor'] or 0), outcome=outcome,
+                      commitment_valid=(hashlib.sha256(str(row['server_seed']).encode('utf-8')).hexdigest()
+                                        == str(row['server_hash'])))
+    return result
+
+
+def fairness_view(db, game, game_ref, reveal=False):
+    return fairness_public(fairness_get(db, game=game, game_ref=str(game_ref)), reveal)
+
+
+def fairness_for(game, game_ref, reveal=False):
+    with connect() as db:
+        return fairness_view(db, game, game_ref, reveal)
+
+
+def fairness_set_progress(db, proof_id, cursor, outcome):
+    db.execute('UPDATE fairness_records SET cursor=?,outcome_json=? WHERE id=?',
+               (int(cursor or 0), json.dumps(outcome or {}, ensure_ascii=False, separators=(',', ':')), str(proof_id)))
+
+
+def fairness_mark_settled(db, game, game_ref, outcome=None, cursor=None):
+    row = fairness_get(db, game=game, game_ref=str(game_ref))
+    if not row:
+        return None
+    sets = ["state='settled'", 'revealed_at=?']
+    values = [datetime.now(timezone.utc).isoformat()]
+    if cursor is not None:
+        sets.append('cursor=?'); values.append(int(cursor))
+    if outcome is not None:
+        sets.append('outcome_json=?'); values.append(json.dumps(outcome, ensure_ascii=False, separators=(',', ':')))
+    values.append(str(row['id']))
+    db.execute('UPDATE fairness_records SET ' + ','.join(sets) + ' WHERE id=?', tuple(values))
+    return fairness_get(db, proof_id=row['id'])
+
+
+def fairness_resolve_action(db, game, user_id, data):
+    proof_id = str((data or {}).get('fairness_id') or '').strip()
+    row = fairness_get(db, proof_id=proof_id) if re.fullmatch(r'[0-9a-f]{32}', proof_id) else None
+    if row and str(row['game']) == game and int(row['user_id'] or 0) == int(user_id) and str(row['state']) == 'committed' and not str(row['game_ref'] or ''):
+        return row
+    proof = fairness_make(game, user_id, (data or {}).get('client_seed'))
+    fairness_store(db, proof)
+    return fairness_get(db, proof_id=proof['id'])
+
+
+def fairness_complete_action(db, row, game_ref, cursor, outcome):
+    db.execute("""UPDATE fairness_records SET game_ref=?,cursor=?,outcome_json=?,state='settled',revealed_at=?
+                  WHERE id=? AND state='committed'""",
+               (str(game_ref), int(cursor or 0), json.dumps(outcome or {}, ensure_ascii=False, separators=(',', ':')),
+                datetime.now(timezone.utc).isoformat(), str(row['id'])))
+    return fairness_get(db, proof_id=row['id'])
+
+
+@app.post('/api/fairness/prepare')
+@login_required
+def fairness_prepare():
+    data = request.get_json(silent=True) or {}
+    game = str(data.get('game') or '').strip().lower()
+    if game != 'upgrade':
+        return error('Для этого режима proof создаётся вместе с раундом.', 400)
+    with connect() as db:
+        db.execute("""DELETE FROM fairness_records
+                      WHERE user_id=? AND game=? AND state='committed' AND game_ref=''""",
+                   (session['uid'], game))
+        proof = fairness_make(game, session['uid'], data.get('client_seed'))
+        fairness_store(db, proof)
+        row = fairness_get(db, proof_id=proof['id'])
+    return jsonify(fairness=fairness_public(row, False))
+
+
+@app.get('/api/fairness/<proof_id>')
+@login_required
+def fairness_details(proof_id):
+    if not re.fullmatch(r'[0-9a-f]{32}', str(proof_id or '')):
+        return error('Proof не найден.', 404)
+    with connect() as db:
+        row = fairness_get(db, proof_id=proof_id)
+        if not row or int(row['user_id'] or 0) not in (0, int(session['uid'])):
+            return error('Proof не найден.', 404)
+        return jsonify(fairness=fairness_public(row))
+
 
 
 @app.get('/')
@@ -3906,9 +4091,11 @@ def upgrade_spin():
                 return error('Недостаточно TON для ставки.',409)
         elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
-        # Exact integer ratio permits rare wins without rounding the chance up
-        # to 0.01% (or down to an impossible 0%).
-        won=secrets.randbelow(target['price']*10000)<effective_rtp_bp*source_price
+        proof = fairness_resolve_action(db, 'upgrade', session['uid'], data)
+        fair_upper = target['price'] * 10000
+        fair_ticket, fair_cursor, fair_digest = fairness_draw(proof, fair_upper, 0)
+        fair_threshold = effective_rtp_bp * source_price
+        won = fair_ticket < fair_threshold
         awarded=None
         wager=bool(source['promo_locked'])
         xp_allowed=(not wager) and (True if amount_text else gift_counts_for_xp(source))
@@ -3976,6 +4163,12 @@ def upgrade_spin():
                     wager_complete=bool(wager and wager_target and wager_progress>=wager_target),
                     expires_at=(None if wager and wager_target and wager_progress>=wager_target else source['expires_at']) if wager else None,
                     awarded_inventory_id=awarded,compensation=compensation)
+        proof = fairness_complete_action(
+            db, proof, request_id, fair_cursor,
+            {'ticket': fair_ticket, 'upper': fair_upper, 'threshold': fair_threshold,
+             'digest': fair_digest, 'won': bool(won), 'source_price': source_price,
+             'target_price': target['price'], 'rtp_bp': effective_rtp_bp})
+        result['fairness'] = fairness_public(proof, True)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
@@ -4216,7 +4409,8 @@ def start():
             if not updated.rowcount:
                 return error('Недостаточно средств.')
 
-        positions = sorted(secrets.SystemRandom().sample(range(25), mines))
+        proof = fairness_make('mines', session['uid'], data.get('client_seed'))
+        positions, fair_cursor = fairness_positions(proof, mines)
         if bet_type == 'promo_gift':
             rtp_snapshot, promo_loss_boost, promo_game_loss = promo_loss_adjusted_rtp(db, session['uid'], snapshot['code'])
         else:
@@ -4231,6 +4425,8 @@ def start():
                     snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at'],
                     snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url']))
         row = active_round(db, session['uid'])
+        fairness_store(db, proof, str(row['id']), fair_cursor,
+                       {'positions': positions, 'mines': mines, 'board_size': 25})
         if bet_type == 'ton':
             record_transaction(db, session['uid'], 'game_bet', -bet, 'round', row['id'], f'Mines: {mines}')
         elif bet_type == 'promo_gift':
@@ -4283,6 +4479,7 @@ def open_cell():
         positions = json.loads(row['positions'])
         if cell in positions:
             db.execute("UPDATE rounds SET state='lost',lost_cell=? WHERE id=?", (cell, row['id']))
+            fairness_mark_settled(db, 'mines', row['id'])
             if row['bet_type'] == 'promo_gift':
                 attempts_total = max(1, int(row['promo_attempts_total'] or 1))
                 attempts_before = max(1, int(row['promo_attempts_remaining'] or 1))
@@ -4327,6 +4524,7 @@ def open_cell():
                         finish_round = True
             if finish_round:
                 award_round(db, row, len(opened))
+                fairness_mark_settled(db, 'mines', row['id'])
         result = db.execute('SELECT * FROM rounds WHERE id=?', (row['id'],)).fetchone()
         log_event(db,session['uid'],'mines_cell',round_id=row['id'],cell=cell,
                   lost=cell in positions,opened=len(opened))
@@ -4355,6 +4553,7 @@ def cashout():
             return error('Для вывода откройте хотя бы одну безопасную клетку.')
         opened = len(json.loads(row['opened']))
         award_round(db, row, opened)
+        fairness_mark_settled(db, 'mines', row['id'])
         result = db.execute('SELECT * FROM rounds WHERE id=?', (row['id'],)).fetchone()
         log_event(db,session['uid'],'mines_cashout',round_id=row['id'],bet=row['bet']/100,
                   mines=row['mines'],opened=opened,payout=result['payout']/100,
@@ -8370,7 +8569,11 @@ def arena_create_round(db, now=None):
     """A new round waits for the first real bet: close_at=0 means "timer not started"."""
     now = int(now if now is not None else time.time() * 1000)
     db.execute("INSERT INTO arena_rounds(state,open_at,close_at) VALUES('open',?,0)", (now,))
-    return arena_latest(db)
+    row = arena_latest(db)
+    if row and not fairness_get(db, game='arena', game_ref=str(row['id'])):
+        proof = fairness_make('arena', 0, f'arena:{row["id"]}', nonce=int(row['id']))
+        fairness_store(db, proof, str(row['id']), 0, {'status': 'waiting_for_bets'})
+    return row
 
 
 def arena_gift_list(raw):
@@ -8484,7 +8687,12 @@ def arena_advance(db, now=None):
     if len(players) < 2 or total <= 0:
         arena_refund_round(db, row, players)
         return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()
-    ticket = secrets.randbelow(total)
+    proof = fairness_get(db, game='arena', game_ref=str(row['id']))
+    if not proof:
+        generated = fairness_make('arena', 0, f'arena:{row["id"]}', nonce=int(row['id']))
+        fairness_store(db, generated, str(row['id']), 0, {'status': 'legacy_round'})
+        proof = fairness_get(db, game='arena', game_ref=str(row['id']))
+    ticket, fair_cursor, _ = fairness_draw(proof, total, 0)
     cursor = 0
     winner = players[-1]
     for player in players:
@@ -8528,6 +8736,11 @@ def arena_advance(db, now=None):
                 record_transaction(db, int(player['user_id']), 'arena_loss', 0, 'arena_round', row['id'],
                                    f'Arena #{row["id"]}: проигрыш {int(player["amount"] or 0)/100:.2f} TON'
                                    + (f' (подарки: {names})' if names else ''))
+        fairness_mark_settled(db, 'arena', row['id'], cursor=fair_cursor,
+                              outcome={'ticket': ticket, 'upper': total,
+                                       'winner_user_id': int(winner['user_id']),
+                                       'players': [{'user_id': int(p['user_id']),
+                                                    'amount': int(p['amount'] or 0)} for p in players]})
     return db.execute('SELECT * FROM arena_rounds WHERE id=?', (row['id'],)).fetchone()
 
 
@@ -8803,6 +9016,7 @@ def arena_state_payload(db, uid, now=None):
             payout=(ton_cents - fee_cents) / 100,   # TON that lands on the balance
             prize_gifts=prize_gifts,                # gifts that go to the winner (never taxed)
             winner_user_id=winner_id,
+            fairness=fairness_view(db, 'arena', row['id'], row['state'] == 'settled'),
         ),
         players=result,
         winner=winner,
@@ -9115,9 +9329,10 @@ def crash_ms():
     return int(time.time() * 1000)
 
 
-def crash_roll_x100(rtp):
-    """P(crash >= x) = rtp / x for x >= 1, so every fixed target returns exactly rtp on average."""
-    u = secrets.randbelow(10 ** 9) / 10 ** 9
+def crash_roll_x100(rtp, ticket=None):
+    """P(crash >= x) = rtp / x for x >= 1, using a verifiable integer ticket."""
+    ticket = secrets.randbelow(10 ** 9) if ticket is None else max(0, min(10 ** 9 - 1, int(ticket)))
+    u = ticket / 10 ** 9
     x = rtp / (1.0 - u)
     return int(max(100, min(CRASH_MAX_X100, math.floor(x * 100))))
 
@@ -9136,11 +9351,17 @@ def crash_mult_x100(row, now):
 
 
 def crash_new_round(db, round_id, open_at):
-    crash_x100 = crash_roll_x100(crash_rtp())
+    rtp = crash_rtp()
+    proof = fairness_make('crash', 0, f'crash:{round_id}', nonce=round_id)
+    ticket, fair_cursor, _ = fairness_draw(proof, 10 ** 9, 0)
+    crash_x100 = crash_roll_x100(rtp, ticket)
     launch_at = open_at + CRASH_BETTING_MS
-    db.execute('INSERT OR IGNORE INTO crash_rounds(id,crash_x100,rtp_snapshot,open_at,launch_at,crash_at,state) VALUES(?,?,?,?,?,?,?)',
-               (round_id, crash_x100, crash_rtp(), open_at, launch_at,
-                launch_at + crash_flight_ms(crash_x100), 'open'))
+    inserted = db.execute('INSERT OR IGNORE INTO crash_rounds(id,crash_x100,rtp_snapshot,open_at,launch_at,crash_at,state) VALUES(?,?,?,?,?,?,?)',
+                          (round_id, crash_x100, rtp, open_at, launch_at,
+                           launch_at + crash_flight_ms(crash_x100), 'open'))
+    if inserted.rowcount and not fairness_get(db, game='crash', game_ref=str(round_id)):
+        fairness_store(db, proof, str(round_id), fair_cursor,
+                       {'ticket': ticket, 'upper': 10 ** 9, 'crash_x100': crash_x100, 'rtp': rtp})
 
 
 def crash_promo_reinsert(db, bet, round_id, progress, attempts_remaining, completed):
@@ -9198,6 +9419,7 @@ def crash_settle_round(db, row):
     claimed = db.execute("UPDATE crash_rounds SET state='crashed' WHERE id=? AND state='open'", (row['id'],))
     if not claimed.rowcount:
         return
+    fairness_mark_settled(db, 'crash', row['id'])
     bets = db.execute("SELECT * FROM crash_bets WHERE round_id=? AND state='active'", (row['id'],)).fetchall()
     for bet in bets:
         auto = int(bet['auto_x100'] or 0)
@@ -9325,7 +9547,9 @@ def crash_prize_preview(amount_cents, gifts=None):
 def crash_state_payload(db, uid, now):
     row = crash_latest(db)
     phase = crash_phase(row, now)
-    payload = dict(now=now, phase=phase, round=dict(id=row['id'], open_at=row['open_at'], launch_at=row['launch_at']),
+    payload = dict(now=now, phase=phase,
+                   round=dict(id=row['id'], open_at=row['open_at'], launch_at=row['launch_at'],
+                              fairness=fairness_view(db, 'crash', row['id'], phase == 'crashed')),
                    growth=CRASH_GROWTH, boom_ms=CRASH_BOOM_MS, betting_ms=CRASH_BETTING_MS,
                    min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
                    min_nft=crash_min_prize_cents() / 100, available=game_available('crash'))
@@ -9661,7 +9885,8 @@ def hilo_game_view(row):
                 rank=rank, card=crash_gift_view(row['card_name'], row['card_image'], 0), steps=int(row['steps']),
                 mult=mult_micro / HILO_MICRO, potential=(bet * mult_micro // HILO_MICRO) / 100,
                 can_cashout=row['state'] == 'active' and int(row['steps']) >= 1,
-                history=hilo_history(row)[-12:], payout=int(row['payout'] or 0) / 100, prize=prize, options=options)
+                history=hilo_history(row)[-12:], payout=int(row['payout'] or 0) / 100, prize=prize, options=options,
+                fairness=fairness_for('hilo', row['id'], row['state'] != 'active'))
 
 
 def hilo_state_payload(db, uid):
@@ -9691,6 +9916,7 @@ def hilo_settle_cashout(db, uid, game, want_gift):
                            (payout, game['id']))
     if not moved.rowcount:
         raise ValueError('Игра уже завершена.')
+    fairness_mark_settled(db, 'hilo', game['id'])
     label = f'Hi-Lo x{mult / HILO_MICRO:.2f}'
     prize = None
     if prize_info:
@@ -10112,7 +10338,12 @@ def hilo_start():
         if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
             return error('Ставка от 0.10 до 300 TON.')
     uid = session['uid']
-    rank, card_name, card_image = hilo_pick_card()
+    proof = fairness_make('hilo', uid, data.get('client_seed'))
+    rank_ticket, fair_cursor, _ = fairness_draw(proof, HILO_RANKS, 0)
+    rank = 1 + rank_ticket
+    first_card = hilo_tier_card(rank)
+    card_name = str(first_card.get('name') or '')[:140]
+    card_image = first_card.get('image_url') or ''
     db = connect()
     new_level = None
     try:
@@ -10160,6 +10391,8 @@ def hilo_start():
                                 (uid, bet, rank, card_name, card_image, json.dumps([dict(r=rank, rel=None)])))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_game', cursor.lastrowid, 'Hi-Lo')
             new_level = increase_turnover(db, uid, bet)
+        game_id = int(cursor.lastrowid)
+        fairness_store(db, proof, str(game_id), fair_cursor, {'ranks': [rank]})
         db.commit()
     finally:
         db.close()
@@ -10180,7 +10413,6 @@ def hilo_guess():
     if direction not in ('hi', 'lo'):
         return error('Выберите Hi или Lo.')
     uid = session['uid']
-    new_rank, card_name, card_image = hilo_pick_card()
     result = {}
     settled = None
     db = connect()
@@ -10192,8 +10424,22 @@ def hilo_guess():
             db.rollback()
             return error('Нет активной игры.', 409)
         rank = int(game['cur_rank'])
-        while new_rank == rank:      # the next card is never equal to the current one
+        proof = fairness_get(db, game='hilo', game_ref=str(game['id']))
+        if proof:
+            fair_cursor = int(proof['cursor'] or 0)
+            while True:
+                rank_ticket, fair_cursor, _ = fairness_draw(proof, HILO_RANKS, fair_cursor)
+                new_rank = 1 + rank_ticket
+                if new_rank != rank:
+                    break
+            next_card = hilo_tier_card(new_rank)
+            card_name = str(next_card.get('name') or '')[:140]
+            card_image = next_card.get('image_url') or ''
+        else:
             new_rank, card_name, card_image = hilo_pick_card()
+            while new_rank == rank:
+                new_rank, card_name, card_image = hilo_pick_card()
+            fair_cursor = 0
         step = hilo_step_micro(rank, direction)
         if not step:
             db.rollback()
@@ -10201,6 +10447,9 @@ def hilo_guess():
         won = new_rank > rank if direction == 'hi' else new_rank < rank
         rel = 'up' if new_rank > rank else 'down' if new_rank < rank else 'eq'
         history = hilo_history(game) + [dict(r=new_rank, rel=rel)]
+        if proof:
+            fairness_set_progress(db, proof['id'], fair_cursor,
+                                  {'ranks': [int(x.get('r') or 0) for x in history]})
         result = dict(rank=new_rank, relation=rel, win=won, card=crash_gift_view(card_name, card_image, 0))
         if won:
             mult = int(game['mult_micro']) * step // HILO_MICRO
@@ -10221,6 +10470,7 @@ def hilo_guess():
             if not moved.rowcount:
                 db.rollback()
                 return error('Игра уже завершена.', 409)
+            fairness_mark_settled(db, 'hilo', game['id'])
             if (game['bet_type'] or 'ton') == 'gift':
                 record_transaction(db, uid, 'hilo_gift_lost', 0, 'hilo_game', game['id'], str(game['bet_gift_name'] or '')[:140])
         db.commit()

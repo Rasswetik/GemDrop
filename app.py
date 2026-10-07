@@ -1485,13 +1485,14 @@ def demo_upgrade_preview(amount_text, item_text, gift_id):
     target = upgrade_target(gift_id)
     if not target:
         raise ValueError('Целевой подарок не найден в каталоге Portal.')
-    chance = upgrade_display_chance(source_price, target['price'])
+    chance = upgrade_chance(source_price, target['price'], upgrade_rtp_basis_points())
     if not chance:
         raise ValueError('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
     return dict(source=source_view,
                 target=dict(id=target['id'], name=target['name'], image_url=target['image_url'],
                             price_ton=target['price'] / 100),
-                chance=chance / 100, probability=chance / 10000)
+                chance=chance / 100, probability=chance / 10000,
+                rtp=upgrade_rtp_basis_points() / 100, loss_rtp_boost=0, game_loss_ton=0)
 
 
 def demo_upgrade_spin(data):
@@ -4210,22 +4211,16 @@ def upgrade_target(gift_id):
                 image_url=image_url,price=price)
 
 
-def upgrade_display_chance(source_price, target_price):
-    """Public Upgrade chance: price ratio only, independent from internal game return."""
-    if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
-        return 0
-    chance_bp = (10000 * source_price) / target_price
-    if chance_bp < 100 or chance_bp > 8000:
-        return 0
-    return chance_bp
-
-
-def upgrade_internal_chance(source_price, target_price, rtp_bp=None):
-    """Internal probability used for the draw. Never use this value for UI percentages."""
+def upgrade_chance(source_price,target_price,rtp_bp=None):
     if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
         return 0
     rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    return max(1.0, min(9999.0, (rtp_bp * source_price) / target_price))
+    chance_bp = (rtp_bp * source_price) / target_price
+    # Upgrade targets are intentionally limited to the visible 1–80% range.
+    # Anything outside it is not a valid target at all, not merely hidden in UI.
+    if chance_bp < 100 or chance_bp > 8000:
+        return 0
+    return chance_bp
 
 
 def upgrade_rtp_basis_points():
@@ -4280,11 +4275,12 @@ def upgrade_preview():
     if not amount_text and source and source['promo_locked']:
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-    chance=upgrade_display_chance(source_price,target['price'])
+    chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
     if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
-                   probability=chance/10000)
+                   probability=chance/10000,rtp=effective_rtp_bp/100,
+                   loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
 
 
 DAILY_TOP_TZ = timezone(timedelta(hours=3))
@@ -4864,9 +4860,8 @@ def upgrade_spin():
         effective_rtp_bp = upgrade_rtp_basis_points()
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
-        chance=upgrade_display_chance(source_price,target['price'])
+        chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
         if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
-        internal_chance=upgrade_internal_chance(source_price,target['price'],effective_rtp_bp)
         if amount_text:
             if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
                               (source_price,session['uid'],source_price)).rowcount:
@@ -4876,7 +4871,7 @@ def upgrade_spin():
         proof = fairness_resolve_action(db, 'upgrade', session['uid'], data)
         fair_upper = target['price'] * 10000
         fair_ticket, fair_cursor, fair_digest = fairness_draw(proof, fair_upper, 0)
-        fair_threshold = round(internal_chance * target['price'])
+        fair_threshold = effective_rtp_bp * source_price
         won = fair_ticket < fair_threshold
         awarded=None
         wager=bool(source['promo_locked'])
@@ -4949,8 +4944,7 @@ def upgrade_spin():
             db, proof, request_id, fair_cursor,
             {'ticket': fair_ticket, 'upper': fair_upper, 'threshold': fair_threshold,
              'digest': fair_digest, 'won': bool(won), 'source_price': source_price,
-             'target_price': target['price'], 'display_chance_bp': round(chance),
-             'internal_threshold': fair_threshold})
+             'target_price': target['price'], 'rtp_bp': effective_rtp_bp})
         result['fairness'] = fairness_public(proof, True)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
@@ -15588,11 +15582,11 @@ def admin_rtp_set():
     if promo_percent >= percent:
         return error('Отдача промо-отыгрыша должна быть ниже обычной отдачи.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
-        return error('Внутренняя отдача апгрейда должна быть от 1 до 100%.')
+        return error('Отдача апгрейда должна быть от 1 до 100%.')
     if not math.isfinite(crash_percent) or not 80 <= crash_percent <= 99.9:
-        return error('Внутренняя отдача Crash должна быть от 80 до 99.9%.')
+        return error('Отдача Crash должна быть от 80 до 99.9%.')
     if not math.isfinite(hilo_percent) or not 80 <= hilo_percent <= 99.9:
-        return error('Внутренняя отдача Hi-Lo должна быть от 80 до 99.9%.')
+        return error('Отдача Hi-Lo должна быть от 80 до 99.9%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка отдачи от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,

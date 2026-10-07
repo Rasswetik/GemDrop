@@ -43,10 +43,10 @@ YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
-GAME_RTP_DEFAULT = 0.92
-PROMO_RTP_DEFAULT = 0.82
-MIN_GAME_RTP = 0.90
-MIN_PROMO_RTP = 0.78
+GAME_RTP_DEFAULT = 0.88
+PROMO_RTP_DEFAULT = 0.78
+MIN_GAME_RTP = 0.80
+MIN_PROMO_RTP = 0.70
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
@@ -3849,8 +3849,8 @@ def upgrade_chance(source_price,target_price,rtp_bp=None):
 
 
 def upgrade_rtp_basis_points():
-    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',8600))
-    except (TypeError,ValueError):return 8600
+    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',8200))
+    except (TypeError,ValueError):return 8200
 
 
 @app.get('/api/upgrade/settings')
@@ -9077,8 +9077,8 @@ def limbo_play():
 
 # ================================== Arena ==================================
 ARENA_BETTING_MS = 20000      # first bet starts a 20s round; a lone bet is refunded after it closes
-ARENA_SPIN_MS = 11000          # must match ARENA_SPIN_MS in the frontend
-ARENA_RESULT_MS = ARENA_SPIN_MS + 7000  # full spin + landing + ~6s result screen before the next round
+ARENA_SPIN_MS = 7000           # must match ARENA_SPIN_MS in the frontend
+ARENA_RESULT_MS = ARENA_SPIN_MS + 6500  # full spin + landing + ~6s result screen before the next round
 ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
 ARENA_SNIPE_WINDOW_MS = 1500  # a NEW player joining in the last 1.5 s extends the round (once per round)
 ARENA_EXTEND_MS = 10000       # ...by this much
@@ -9839,7 +9839,7 @@ CRASH_GROWTH = 0.08          # multiplier = e^(0.08 * seconds)
 CRASH_MIN_FLIGHT_MS = 700
 CRASH_MAX_X100 = 1000000     # 10000x ceiling
 CRASH_PROMO_MIN_X100 = 120   # wager gifts count only when cashed out at >= 1.20x (no free 1.00x grinding)
-CRASH_RTP_DEFAULT = 0.93
+CRASH_RTP_DEFAULT = 0.89
 
 
 def crash_rtp():
@@ -10348,7 +10348,7 @@ def crash_cashout():
 # after the first correct guess. The next card is drawn on the server only when the guess arrives.
 HILO_RANKS = 15
 HILO_MICRO = 1000000
-HILO_RTP_DEFAULT = 0.91
+HILO_RTP_DEFAULT = 0.87
 HILO_MIN_STEP_MICRO = 1010000            # one correct guess never pays less than x1.01
 HILO_MAX_MULT_MICRO = 200 * HILO_MICRO   # automatic cash-out at x200 ...
 HILO_MAX_PAYOUT_CENTS = 100000           # ... or at 1000 TON, whichever comes first
@@ -10360,7 +10360,7 @@ def hilo_rtp():
         value = float(doc.get('hilo_rtp', HILO_RTP_DEFAULT))
     except (TypeError, ValueError, OSError, json.JSONDecodeError):
         value = HILO_RTP_DEFAULT
-    return min(0.999, max(0.85, value))
+    return min(0.999, max(0.80, value))
 
 
 def hilo_wins(rank, direction):
@@ -15200,18 +15200,18 @@ def admin_rtp_set():
         hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
-    if not math.isfinite(percent) or not 90 <= percent <= 99.9:
-        return error('RTP Mines должен быть от 90 до 99.9%.')
-    if not math.isfinite(promo_percent) or not 78 <= promo_percent <= 96.9:
-        return error('RTP промо-отыгрыша должен быть от 78 до 96.9%.')
+    if not math.isfinite(percent) or not 80 <= percent <= 99.9:
+        return error('RTP Mines должен быть от 80 до 99.9%.')
+    if not math.isfinite(promo_percent) or not 70 <= promo_percent <= 96.9:
+        return error('RTP промо-отыгрыша должен быть от 70 до 96.9%.')
     if promo_percent >= percent:
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
         return error('RTP апгрейда должен быть от 1 до 100%.')
     if not math.isfinite(crash_percent) or not 80 <= crash_percent <= 99.9:
         return error('RTP Crash должен быть от 80 до 99.9%.')
-    if not math.isfinite(hilo_percent) or not 85 <= hilo_percent <= 99.9:
-        return error('RTP Hi-Lo должен быть от 85 до 99.9%.')
+    if not math.isfinite(hilo_percent) or not 80 <= hilo_percent <= 99.9:
+        return error('RTP Hi-Lo должен быть от 80 до 99.9%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка RTP от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
@@ -17696,6 +17696,37 @@ def run_startup_repair(fn):
         app.logger.exception('Non-fatal startup repair skipped: %s', fn.__name__)
         return False
 
+
+def migrate_rtp_cut_v1():
+    """One-time RTP cut (2026-10-07): lower already-saved admin values to the new targets.
+
+    Only ever lowers a value; anything the admin already set below the target is kept.
+    Runs once (flag rtp_cut_v1), afterwards the admin RTP page stays the single source of truth.
+    """
+    doc = dict(read_document('game_settings') or {})
+    if doc.get('rtp_cut_v1'):
+        return False
+    targets = {'rtp': GAME_RTP_DEFAULT, 'promo_rtp': PROMO_RTP_DEFAULT,
+               'crash_rtp': CRASH_RTP_DEFAULT, 'hilo_rtp': HILO_RTP_DEFAULT}
+    for key, target in targets.items():
+        try:
+            cur = float(doc.get(key, target))
+        except (TypeError, ValueError):
+            cur = target
+        doc[key] = min(cur, target)
+    try:
+        cur_bp = int(doc.get('upgrade_rtp_bp', 8200))
+    except (TypeError, ValueError):
+        cur_bp = 8200
+    doc['upgrade_rtp_bp'] = min(cur_bp, 8200)
+    if doc['promo_rtp'] >= doc['rtp']:
+        doc['promo_rtp'] = max(MIN_PROMO_RTP, round(doc['rtp'] - 0.02, 4))
+    doc['rtp_cut_v1'] = True
+    save_document('game_settings', doc)
+    return True
+
+
+run_startup_repair(migrate_rtp_cut_v1)
 
 if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
     run_startup_repair(repair_legacy_upgrade_wagers)

@@ -661,6 +661,15 @@ def _initialize_schema():
 
         # Older Render disks may contain tables created by much earlier builds.
         # Keep migrations additive so an update cannot turn a working deployment into HTTP 500.
+        db.execute("CREATE TABLE IF NOT EXISTS user_ips (user_id BIGINT NOT NULL, ip TEXT NOT NULL, "
+                   "first_seen BIGINT NOT NULL DEFAULT 0, last_seen BIGINT NOT NULL DEFAULT 0, "
+                   "hits BIGINT NOT NULL DEFAULT 1, PRIMARY KEY (user_id, ip))")
+        db.execute('CREATE INDEX IF NOT EXISTS idx_user_ips_ip ON user_ips(ip)')
+        ensure_columns('users', [
+            ('banned', 'INTEGER NOT NULL DEFAULT 0'), ('ban_reason', "TEXT NOT NULL DEFAULT ''"),
+            ('ban_kind', "TEXT NOT NULL DEFAULT ''"), ('banned_at', "TEXT NOT NULL DEFAULT ''"),
+            ('ban_immune', 'INTEGER NOT NULL DEFAULT 0'),
+        ])
         ensure_columns('users', [
             ('username', "TEXT NOT NULL DEFAULT ''"),
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
@@ -1013,6 +1022,8 @@ def auth():
                 db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)',
                            (user_id, referrer_id))
         log_event(db,user_id,'login',username=username)
+    if user_id not in ADMIN_IDS and is_banned(user_id, fresh=True):
+        return banned_response()
     session.clear()
     session['uid'] = user_id
     return jsonify(ok=True, user=profile())
@@ -1083,6 +1094,8 @@ def web_auth_status():
             db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid,referrer))
         log_event(db,uid,'login',via='web_bot')
         db.commit()
+    if uid not in ADMIN_IDS and is_banned(uid, fresh=True):
+        return banned_response()
     session.clear()
     session['uid'] = uid
     return jsonify(status='approved', user=profile())
@@ -1855,6 +1868,323 @@ def compress_response(response):
     except Exception:
         pass
     return response
+
+
+# ======================================================================
+# Anti multi-account, manual bans, maintenance mode (2026-10-07)
+# ======================================================================
+MULTI_IP_LIMIT_DEFAULT = int(os.environ.get('MULTI_ACCOUNT_IP_LIMIT', '3') or 3)   # accounts allowed per IP
+TRUSTED_PROXY_HOPS = max(1, int(os.environ.get('TRUSTED_PROXY_HOPS', '1') or 1))
+MULTI_IP_WINDOW_DAYS = 30
+MAINTENANCE_DEFAULT_TEXT = 'На сайте проводятся технические работы. Мы скоро вернёмся!'
+_ip_seen_cache = {}
+_ban_cache = {}
+_maint_cache = {'t': 0.0, 'v': None}
+
+
+def banned_response():
+    response = jsonify(error='Доступ ограничен.', banned=True)
+    response.status_code = 403
+    return response
+
+
+def client_ip():
+    """Client IP behind the hosting proxy; IPv6 is collapsed to its /64 so rotating suffixes does not help."""
+    import ipaddress
+    headers = request.headers
+    raw = (headers.get('CF-Connecting-IP') or '').strip()
+    if not raw:
+        parts = [x.strip() for x in (headers.get('X-Forwarded-For') or '').split(',') if x.strip()]
+        if parts:
+            raw = parts[-TRUSTED_PROXY_HOPS] if len(parts) >= TRUSTED_PROXY_HOPS else parts[0]
+    if not raw:
+        raw = request.remote_addr or ''
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        return ''
+    if ip.version == 6:
+        return str(ipaddress.ip_network(f'{raw}/64', strict=False).network_address) + '/64'
+    return str(ip)
+
+
+def is_banned(uid, fresh=False):
+    now = time.time()
+    cached = _ban_cache.get(uid)
+    if cached and not fresh and now - cached[1] < 15:
+        return cached[0]
+    try:
+        with connect() as db:
+            row = db.execute('SELECT banned FROM users WHERE id=?', (uid,)).fetchone()
+        value = bool(row and int(row['banned'] or 0))
+    except Exception:
+        value = False
+    if len(_ban_cache) > 5000:
+        _ban_cache.clear()
+    _ban_cache[uid] = (value, now)
+    return value
+
+
+def antifraud_settings():
+    doc = read_document('antifraud_settings') or {}
+    try:
+        limit = int(doc.get('ip_limit', MULTI_IP_LIMIT_DEFAULT))
+    except (TypeError, ValueError):
+        limit = MULTI_IP_LIMIT_DEFAULT
+    return dict(enabled=bool(doc.get('enabled', True)), ip_limit=max(1, min(50, limit)))
+
+
+def is_ban_exempt(uid):
+    """Admins and active creators are never banned automatically."""
+    try:
+        uid = int(uid)
+    except (TypeError, ValueError):
+        return True
+    if uid in ADMIN_IDS:
+        return True
+    try:
+        return bool(creator_record(uid).get('active'))
+    except Exception:
+        return False
+
+
+def ban_user(uid, reason, kind='manual', by=0, ip=''):
+    if int(uid) in ADMIN_IDS:
+        return False
+    stamp = datetime.now(timezone.utc).isoformat()
+    with connect() as db:
+        db.execute('UPDATE users SET banned=1, ban_reason=?, ban_kind=?, banned_at=? WHERE id=?',
+                   (str(reason or '')[:300], kind, stamp, int(uid)))
+        log_event(db, int(uid), 'banned', kind=kind, reason=str(reason or '')[:300], by=by, ip=ip)
+    _ban_cache[int(uid)] = (True, time.time())
+    return True
+
+
+def unban_user(uid, by=0):
+    with connect() as db:
+        db.execute("UPDATE users SET banned=0, ban_reason='', ban_kind='', banned_at='', ban_immune=1 WHERE id=?", (int(uid),))
+        log_event(db, int(uid), 'unbanned', by=by)
+    _ban_cache[int(uid)] = (False, time.time())
+
+
+def check_multi_account(ip):
+    """Keep the oldest `ip_limit` accounts seen on this IP; ban the newer ones (admins/creators exempt)."""
+    settings = antifraud_settings()
+    if not settings['enabled'] or not ip:
+        return []
+    since = int(time.time()) - MULTI_IP_WINDOW_DAYS * 86400
+    with connect() as db:
+        rows = db.execute("SELECT u.id AS id, u.created_at AS created_at, u.banned AS banned, u.ban_immune AS ban_immune "
+                          "FROM users u WHERE u.id IN (SELECT user_id FROM user_ips WHERE ip=? AND last_seen>=?)",
+                          (ip, since)).fetchall()
+    accounts = [r for r in rows if not is_ban_exempt(r['id'])]
+    accounts.sort(key=lambda r: (str(r['created_at'] or ''), int(r['id'])))
+    banned = []
+    for index, row in enumerate(accounts):
+        if index < settings['ip_limit'] or int(row['banned'] or 0) or int(row['ban_immune'] or 0):
+            continue
+        if ban_user(row['id'], f'Мульти-аккаунт: {len(accounts)} аккаунтов с одного IP', kind='multi', ip=ip):
+            banned.append(int(row['id']))
+    return banned
+
+
+def record_user_ip(uid):
+    ip = client_ip()
+    if not ip:
+        return
+    key = (uid, ip)
+    now = int(time.time())
+    if now - _ip_seen_cache.get(key, 0) < 1800:
+        return
+    if len(_ip_seen_cache) > 20000:
+        _ip_seen_cache.clear()
+    _ip_seen_cache[key] = now
+    try:
+        with connect() as db:
+            known = db.execute('SELECT 1 FROM user_ips WHERE user_id=? AND ip=?', (uid, ip)).fetchone()
+            if known:
+                db.execute('UPDATE user_ips SET last_seen=?, hits=hits+1 WHERE user_id=? AND ip=?', (now, uid, ip))
+                return
+            db.execute('INSERT INTO user_ips(user_id,ip,first_seen,last_seen,hits) VALUES(?,?,?,?,1) '
+                       'ON CONFLICT(user_id,ip) DO NOTHING', (uid, ip, now, now))
+        check_multi_account(ip)
+    except Exception:
+        app.logger.exception('record_user_ip failed')
+
+
+def maintenance_state(fresh=False):
+    now = time.time()
+    if not fresh and _maint_cache['v'] is not None and now - _maint_cache['t'] < 3:
+        return _maint_cache['v']
+    doc = read_document('maintenance') or {}
+    try:
+        ends_at = int(doc.get('ends_at') or 0)
+    except (TypeError, ValueError):
+        ends_at = 0
+    value = dict(enabled=bool(doc.get('enabled')), message=str(doc.get('message') or MAINTENANCE_DEFAULT_TEXT)[:500],
+                 ends_at=ends_at)
+    _maint_cache.update(t=now, v=value)
+    return value
+
+
+MAINT_OPEN_PREFIXES = ('/api/maintenance', '/api/ui/', '/api/auth', '/api/logout', '/api/web-auth/', '/api/admin/maintenance')
+
+
+@app.before_request
+def gate_ban_and_maintenance():
+    path = request.path
+    if not path.startswith('/api/'):
+        return None
+    try:
+        uid = int(session.get('uid') or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    is_admin = uid in ADMIN_IDS
+    if uid and not is_admin and path != '/api/logout':
+        if is_banned(uid):
+            return banned_response()
+        record_user_ip(uid)
+        if is_banned(uid):
+            return banned_response()
+    if not is_admin and not path.startswith(MAINT_OPEN_PREFIXES) and not (path == '/api/me' and not uid):
+        state = maintenance_state()
+        if state['enabled']:
+            response = jsonify(error=state['message'], maintenance=True, message=state['message'],
+                               ends_at=state['ends_at'], now=int(time.time() * 1000))
+            response.status_code = 503
+            return response
+    return None
+
+
+@app.get('/api/maintenance')
+def public_maintenance():
+    state = maintenance_state()
+    return jsonify(enabled=state['enabled'], message=state['message'], ends_at=state['ends_at'],
+                   now=int(time.time() * 1000))
+
+
+@app.get('/api/admin/maintenance')
+@admin_required
+def admin_maintenance_get():
+    state = maintenance_state(fresh=True)
+    return jsonify(enabled=state['enabled'], message=state['message'], ends_at=state['ends_at'],
+                   now=int(time.time() * 1000), default_message=MAINTENANCE_DEFAULT_TEXT)
+
+
+@app.post('/api/admin/maintenance')
+@admin_required
+def admin_maintenance_set():
+    data = request.get_json(silent=True) or {}
+    current = maintenance_state(fresh=True)
+    enabled = bool(data.get('enabled'))
+    message = str(data.get('message') or '').strip()[:500] or MAINTENANCE_DEFAULT_TEXT
+    ends_at = current['ends_at'] if enabled else 0
+    if enabled and data.get('minutes') not in (None, ''):
+        try:
+            minutes = float(data.get('minutes'))
+        except (TypeError, ValueError):
+            return error('Укажите время в минутах числом.')
+        if not math.isfinite(minutes) or minutes < 0 or minutes > 60 * 24 * 14:
+            return error('Время должно быть от 0 до 20160 минут.')
+        ends_at = int(time.time() * 1000 + minutes * 60000) if minutes > 0 else 0
+    save_document('maintenance', dict(enabled=enabled, message=message, ends_at=ends_at,
+                                      updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
+    _maint_cache['v'] = None
+    state = maintenance_state(fresh=True)
+    return jsonify(ok=True, enabled=state['enabled'], message=state['message'], ends_at=state['ends_at'],
+                   now=int(time.time() * 1000))
+
+
+def ban_user_view(user_id):
+    with connect() as db:
+        row = db.execute('SELECT id,banned,ban_reason,ban_kind,banned_at,ban_immune FROM users WHERE id=?', (user_id,)).fetchone()
+        if not row:
+            return None
+        ips = db.execute('SELECT ip,last_seen FROM user_ips WHERE user_id=? ORDER BY last_seen DESC LIMIT 10', (user_id,)).fetchall()
+        items = []
+        for entry in ips:
+            others = db.execute('SELECT COUNT(DISTINCT user_id) AS c FROM user_ips WHERE ip=?', (entry['ip'],)).fetchone()
+            items.append(dict(ip=entry['ip'], last_seen=int(entry['last_seen'] or 0), accounts=int(others['c'] or 0)))
+    return dict(banned=bool(row['banned']), reason=row['ban_reason'] or '', kind=row['ban_kind'] or '',
+                banned_at=row['banned_at'] or '', immune=bool(row['ban_immune']),
+                is_admin=int(user_id) in ADMIN_IDS, is_creator=is_ban_exempt(user_id) and int(user_id) not in ADMIN_IDS,
+                ips=items)
+
+
+@app.get('/api/admin/users/<int:user_id>/ban')
+@admin_required
+def admin_user_ban_get(user_id):
+    view = ban_user_view(user_id)
+    if view is None:
+        return error('Пользователь не найден.', 404)
+    return jsonify(**view)
+
+
+@app.post('/api/admin/users/<int:user_id>/ban')
+@admin_required
+def admin_user_ban_set(user_id):
+    data = request.get_json(silent=True) or {}
+    if user_id in ADMIN_IDS:
+        return error('Администратора нельзя заблокировать.', 403)
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Пользователь не найден.', 404)
+    if data.get('banned'):
+        ban_user(user_id, str(data.get('reason') or 'Блокировка администратором').strip()[:300], kind='manual', by=session['uid'])
+    else:
+        unban_user(user_id, by=session['uid'])
+    return jsonify(ok=True, **ban_user_view(user_id))
+
+
+@app.get('/api/admin/antifraud')
+@admin_required
+def admin_antifraud_get():
+    since = int(time.time()) - MULTI_IP_WINDOW_DAYS * 86400
+    groups = []
+    with connect() as db:
+        ips = db.execute("SELECT ip, COUNT(DISTINCT user_id) AS c FROM user_ips WHERE last_seen>=? "
+                         "GROUP BY ip HAVING COUNT(DISTINCT user_id)>=2 ORDER BY c DESC, ip LIMIT 60", (since,)).fetchall()
+        for entry in ips:
+            users = db.execute("SELECT u.id,u.name,u.username,u.banned,u.ban_kind FROM users u "
+                               "WHERE u.id IN (SELECT user_id FROM user_ips WHERE ip=? AND last_seen>=?) "
+                               "ORDER BY u.created_at, u.id LIMIT 40", (entry['ip'], since)).fetchall()
+            groups.append(dict(ip=entry['ip'], count=int(entry['c']), users=[
+                dict(id=u['id'], name=u['name'], username=u['username'] or '', banned=bool(u['banned']),
+                     kind=u['ban_kind'] or '', exempt=is_ban_exempt(u['id'])) for u in users]))
+        banned = db.execute("SELECT id,name,username,ban_kind,ban_reason,banned_at FROM users WHERE banned=1 "
+                            "ORDER BY banned_at DESC LIMIT 100").fetchall()
+    return jsonify(settings=antifraud_settings(), groups=groups,
+                   banned=[dict(id=u['id'], name=u['name'], username=u['username'] or '', kind=u['ban_kind'] or '',
+                                reason=u['ban_reason'] or '', banned_at=u['banned_at'] or '') for u in banned])
+
+
+@app.post('/api/admin/antifraud')
+@admin_required
+def admin_antifraud_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        limit = int(data.get('ip_limit'))
+    except (TypeError, ValueError):
+        return error('Лимит аккаунтов должен быть целым числом.')
+    if not 1 <= limit <= 50:
+        return error('Лимит аккаунтов с одного IP: от 1 до 50.')
+    save_document('antifraud_settings', dict(enabled=bool(data.get('enabled')), ip_limit=limit,
+                                             updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
+    return jsonify(ok=True, settings=antifraud_settings())
+
+
+@app.post('/api/admin/antifraud/scan')
+@admin_required
+def admin_antifraud_scan():
+    since = int(time.time()) - MULTI_IP_WINDOW_DAYS * 86400
+    with connect() as db:
+        ips = db.execute('SELECT ip FROM user_ips WHERE last_seen>=? GROUP BY ip HAVING COUNT(DISTINCT user_id)>=2', (since,)).fetchall()
+    banned = []
+    for entry in ips:
+        banned.extend(check_multi_account(entry['ip']))
+    return jsonify(ok=True, banned=len(banned), ids=banned[:50])
+
+
 
 @app.before_request
 def enforce_available_modes():

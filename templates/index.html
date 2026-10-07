@@ -9209,7 +9209,7 @@ html.perf-lite .gc-art svg *{filter:none!important}
 })();
 </script>
 <style id="halloween-theme">/* ===== HALLOWEEN EVENT ===== */
-html:not(.hw) #hwEventCard,html:not(.hw) #hwDeco,html:not(.hw) .hw-over{display:none!important}
+html:not(.hw) #hwEventCard,html:not(.hw) #hwDeco{display:none!important}
 #hwDeco{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
 #hwDeco svg{position:absolute}
 .hw-web-tl{top:0;left:0;width:150px;opacity:.55}.hw-web-tr{top:0;right:0;width:150px;opacity:.55;transform:scaleX(-1)}
@@ -9239,9 +9239,12 @@ html.hw .balance,html.hw .deposit-mini,html.hw .header-deposit{border-color:#ff7
 html.hw .modal{background:#0b0516d9!important;backdrop-filter:blur(6px)}
 html.hw .game-card{border-color:#6b3fb5!important;box-shadow:0 8px 26px #000a,0 0 22px #8a4dff33}
 html.hw .game-card:hover{box-shadow:0 10px 30px #000a,0 0 30px #ff7a1a66}
-html.hw .gc-art>svg:not(.hw-over){filter:hue-rotate(255deg) saturate(1.2) brightness(.92)}
-html.hw .hw-over{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
-html.hw :is(#minesPage,#crashPage,#upgradePage,#arenaPage,#hiloPage,#limboPage) svg{filter:hue-rotate(250deg) saturate(1.1)}
+html.hw .gc-art>svg:not(.hw-art){display:none!important}
+html:not(.hw) .hw-art{display:none!important}
+.hw-art{position:absolute;inset:0;width:100%;height:100%;display:block}
+html.hw :is(#arenaPage,#hiloPage) svg{filter:hue-rotate(250deg) saturate(1.1)}
+html.hw #board .cell .face.front{background:linear-gradient(145deg,#3a1a6a,#1d0d3a)!important;border-color:#6b3fb5!important;box-shadow:inset 0 0 14px #8a3dff33}
+html.hw #board .cell .face.back{background:radial-gradient(circle,#4a1f00,#1a0b33)!important}
 html.hw :is(#minesPage,#crashPage,#upgradePage,#arenaPage,#hiloPage,#limboPage){background:radial-gradient(80% 40% at 50% 0,#6a2bb333,transparent)}
 /* event card */
 #hwEventCard{position:relative;display:block;width:100%;aspect-ratio:16/9;padding:0;overflow:hidden;border:1px solid #ff7a1a;border-radius:22px;background:#12082a;color:#fff;text-align:left;cursor:pointer;grid-column:1/-1;margin-bottom:2px;box-shadow:0 0 0 1px #ff7a1a44,0 10px 34px #ff6a0033,0 0 40px #8a3dff44;animation:hwGlow 3.6s ease-in-out infinite alternate;transition:transform .2s}
@@ -9265,6 +9268,10 @@ html.hw :is(#minesPage,#crashPage,#upgradePage,#arenaPage,#hiloPage,#limboPage){
 #hwModal .hw-cd2{font:900 24px ui-monospace,monospace;color:#ffb347;margin-bottom:16px}
 #hwModal .hw-box>svg.hw-web{position:absolute;top:0;left:0;width:90px;opacity:.5}
 @media(prefers-reduced-motion:reduce){#hwDeco *,#hwEventCard,.hw-card-tag{animation:none!important}}
+html.hw #crClouds{filter:brightness(.42) hue-rotate(250deg) saturate(1.5)}
+html.hw #crGround{filter:hue-rotate(200deg) brightness(.55) saturate(1.2)}
+html.perf-lite #hwDeco .hw-bat-fly,html.perf-lite #hwDeco .hw-ghost-fl,html.perf-lite #hwDeco .hw-fog{display:none}
+html.perf-lite #hwEventCard{animation:none}
 </style><script id="halloween-js">(()=>{
 const NS='http://www.w3.org/2000/svg';
 const DEFS=`<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -9290,12 +9297,6 @@ ${[[170,150,20],[300,152,16],[415,150,22],[520,152,16]].map((p,i)=>`<g><circle c
 <g fill="#0b0516">${[[0,14,-40,9,0],[1,10,700,13,-4]].map(m=>`<g><animateTransform attributeName="transform" type="translate" ${m[0]?'from="700 0" to="-40 0"':'from="-40 0" to="700 0"'} dur="${m[3]}s" begin="${m[4]}s" repeatCount="indefinite"/><ellipse cx="0" cy="172" rx="7" ry="3.5"/><circle cx="${m[0]?-7:7}" cy="171" r="2.4"/><path d="M${m[0]?7:-7} 172q${m[0]?8:-8} -6 ${m[0]?14:-14} 0" stroke="#0b0516" fill="none"/></g>`).join('')}</g>
 <g opacity=".6"><use href="#hwGhost" width="30" height="38" y="40"><animateMotion path="M80 60 C160 10 240 100 330 40 S520 90 640 30" dur="18s" repeatCount="indefinite"/></use></g>
 <ellipse cx="200" cy="165" rx="160" ry="14" fill="#c9a8ff" opacity=".18" filter="url(#hwBlur)"><animate attributeName="cx" values="120;520;120" dur="20s" repeatCount="indefinite"/></ellipse></svg>`;
-const OVER={
-mines:`<use href="#hwPump" x="248" y="112" width="52" height="47"><animateTransform attributeName="transform" type="rotate" values="-4 274 135;4 274 135;-4 274 135" dur="3s" repeatCount="indefinite"/></use><circle cx="274" cy="136" r="40" fill="#ff7a1a" opacity=".16"><animate attributeName="opacity" values=".1;.3;.1" dur="2s" repeatCount="indefinite"/></circle>`,
-crash:`<circle cx="268" cy="38" r="22" fill="#ffeab0" opacity=".9"/><circle cx="276" cy="32" r="20" fill="#2a0f4d"/><g><animateMotion path="M20 170 C80 120 140 150 200 90 S290 40 340 -20" dur="6s" repeatCount="indefinite" rotate="auto"/><path d="M-6 3Q-30 0 -52 8 -30 12 -6 8z" fill="#ff8a1f" opacity=".85"><animate attributeName="opacity" values=".9;.4;.9" dur=".25s" repeatCount="indefinite"/></path><use href="#hwPump" x="-22" y="-20" width="44" height="40" transform="rotate(90)"/></g>`,
-upgrade:`<path d="M120 120h80l-6 34q-34 10-68 0z" fill="#0b0516"/><ellipse cx="160" cy="120" rx="40" ry="8" fill="#7cff6b"><animate attributeName="fill" values="#7cff6b;#b86bff;#7cff6b" dur="4s" repeatCount="indefinite"/></ellipse>${[0,1,2,3,4].map(i=>`<circle cx="${135+i*12}" cy="118" r="${3+i%3}" fill="#c9ff9a" opacity=".8"><animate attributeName="cy" values="118;60" dur="${2+i*.4}s" begin="${-i*.5}s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="${2+i*.4}s" begin="${-i*.5}s" repeatCount="indefinite"/></circle>`).join('')}`,
-limbo:`<g opacity=".92"><use href="#hwGhost" x="236" y="60" width="52" height="65"><animateTransform attributeName="transform" type="translate" values="0 0;-6 -12;0 0" dur="3.4s" repeatCount="indefinite"/></use></g><use href="#hwBat" x="40" y="30" width="34" height="17"/>`,
-arena:`<use href="#hwBat" x="30" y="24" width="40" height="20"><animateTransform attributeName="transform" type="translate" values="0 0;30 10;60 -4;0 0" dur="7s" repeatCount="indefinite"/></use><use href="#hwBat" x="250" y="40" width="30" height="15"/><use href="#hwPump" x="140" y="132" width="36" height="32"/>`};
 let st={active:false,ends_at:0,now:0},skew=0,built=false;
 const $$=s=>document.querySelector(s);
 const fmt=ms=>{let s=Math.max(0,Math.floor(ms/1000)),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);s%=60;const p=n=>String(n).padStart(2,'0');return(d?d+'д ':'')+p(h)+':'+p(m)+':'+p(s)};
@@ -9309,25 +9310,63 @@ function build(){
  modal.innerHTML=`<div class="hw-box"><svg class="hw-web" viewBox="0 0 100 100"><use href="#hwWeb" width="100" height="100"/></svg><svg viewBox="0 0 40 36" width="76" height="68"><use href="#hwPump" width="40" height="36"/></svg><h2>Halloween Event</h2><p>На сайте поселилась жуть: новое оформление, призрачные анимации и тематические игры. Заглядывайте в «Игры» — там всё в тыквенном свете!</p><div class="hw-cd2" id="hwCd2"></div><button class="primary" type="button" id="hwGo" style="width:100%">К играм 🎃</button></div>`;
  document.body.append(modal);
  modal.onclick=e=>{if(e.target===modal||e.target.id==='hwGo'){modal.classList.remove('open');if(e.target.id==='hwGo'&&typeof show==='function')show('gamesPage')}};
- // game card overlays
- document.querySelectorAll('#gamesPage .game-card').forEach(c=>{const k=c.dataset.key,art=c.querySelector('.gc-art');if(!art||art.querySelector('.hw-over'))return;
-  const s=document.createElementNS(NS,'svg');s.setAttribute('class','hw-over');s.setAttribute('viewBox','0 0 320 180');s.setAttribute('preserveAspectRatio','xMidYMid slice');
-  s.innerHTML=`<defs><linearGradient id="hwV${k}" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#8a3dff" stop-opacity=".35"/><stop offset=".5" stop-color="#8a3dff" stop-opacity="0"/></linearGradient></defs><rect width="320" height="180" fill="url(#hwV${k})"/><use href="#hwWeb" width="70" height="70" opacity=".6"/>${OVER[k]||''}`;
-  art.style.position='relative';art.append(s)});
  // event card
  const grid=$$('#gamesPage .games-grid');
  if(grid){const b=document.createElement('button');b.type='button';b.id='hwEventCard';b.setAttribute('aria-label','Halloween event');
   b.innerHTML=`${SCENE}<span class="hw-card-tag">ИВЕНТ</span><div class="hw-tx"><div><b>Halloween Event</b><small>Тыквы, призраки и ночные сюрпризы</small></div><span class="hw-cd" id="hwCd"></span></div>`;
   b.onclick=()=>modal.classList.add('open');grid.prepend(b)}
 }
+/* ===== SVG SWAP: Halloween <-> original ===== */
+const star=(n)=>[[30,22],[80,40],[140,14],[200,30],[250,70],[60,80],[300,100],[20,120],[180,70]].slice(0,n).map((s,i)=>`<circle cx="${s[0]}" cy="${s[1]}" r="1.2" fill="#fff"><animate attributeName="opacity" values=".2;1;.2" dur="${2+i*.4}s" begin="${-i*.5}s" repeatCount="indefinite"/></circle>`).join('');
+const sky=(k)=>`<defs><linearGradient id="hwCs${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#150833"/><stop offset=".6" stop-color="#4a1a78"/><stop offset="1" stop-color="#b8447a"/></linearGradient></defs><rect width="320" height="180" fill="url(#hwCs${k})"/>${star(9)}<circle cx="278" cy="34" r="20" fill="#ffeab0"><animate attributeName="opacity" values=".85;1;.85" dur="4s" repeatCount="indefinite"/></circle><circle cx="270" cy="30" r="3.5" fill="#e9cf8c" opacity=".7"/>`;
+const bat=(x,y,w,d)=>`<use href="#hwBat" x="${x}" y="${y}" width="${w}" height="${w/2}"><animateTransform attributeName="transform" type="translate" values="0 0;24 -8;48 4;0 0" dur="${d}s" repeatCount="indefinite"/></use>`;
+const ground=`<path d="M0 160Q80 146 160 156T320 150V180H0Z" fill="#0b0516"/><path d="M14 160v-14M8 152h12M300 156v-16M293 147h14" stroke="#0b0516" stroke-width="3" fill="none"/>`;
+const CARD={
+crash:()=>`${sky('c')}<path d="M10 150C70 142 120 122 160 92S250 44 304 14V180H10Z" fill="#ff7a1a" opacity=".16"/><path d="M10 150C70 142 120 122 160 92S250 44 304 14" fill="none" stroke="#ffb347" stroke-width="3" stroke-linecap="round" stroke-dasharray="420" stroke-dashoffset="420"><animate attributeName="stroke-dashoffset" values="420;0;0;420" keyTimes="0;.7;.95;1" dur="6s" repeatCount="indefinite"/></path><g><animateMotion path="M10 150C70 142 120 122 160 92S250 44 304 14" dur="6s" keyPoints="0;1;1" keyTimes="0;.7;1" calcMode="linear" rotate="auto" repeatCount="indefinite"/><path d="M-14 0Q-34 -5 -50 0Q-34 5 -14 0Z" fill="#ff9a2e"><animate attributeName="opacity" values=".95;.4;.95" dur=".2s" repeatCount="indefinite"/></path><use href="#hwPump" x="-18" y="-16" width="36" height="32" transform="rotate(90)"/></g>${bat(20,22,34,6)}${bat(190,10,26,8)}${ground}`,
+mines:()=>`${sky('m')}${[0,1,2].map(j=>[0,1,2].map(i=>{const x=100+i*44,y=34+j*40,k=j*3+i;return`<rect x="${x}" y="${y}" width="38" height="34" rx="8" fill="#2a1250" stroke="#6b3fb5"/>`+(k===0||k===4||k===8?`<use href="#hwPump" x="${x+4}" y="${y+4}" width="30" height="27"><animateTransform attributeName="transform" type="scale" additive="sum" values="1;1.08;1" dur="${1.8+k*.2}s" repeatCount="indefinite"/></use>`:k===5?`<circle cx="${x+19}" cy="${y+17}" r="11" fill="#0b0516" stroke="#ff4d4d"/><circle cx="${x+15}" cy="${y+15}" r="2.5" fill="#fff"/><circle cx="${x+23}" cy="${y+15}" r="2.5" fill="#fff"/><path d="M${x+14} ${y+23}h10" stroke="#fff" stroke-width="2"/>`:'')}).join('')).join('')}${bat(20,30,34,7)}${ground}`,
+upgrade:()=>`${sky('u')}<path d="M110 118h100l-8 38q-42 12-84 0z" fill="#0b0516" stroke="#6b3fb5"/><ellipse cx="160" cy="118" rx="50" ry="9" fill="#7cff6b"><animate attributeName="fill" values="#7cff6b;#b86bff;#7cff6b" dur="4s" repeatCount="indefinite"/></ellipse>${[0,1,2,3,4,5].map(i=>`<circle cx="${130+i*12}" cy="116" r="${3+i%3}" fill="#c9ff9a"><animate attributeName="cy" values="116;40" dur="${2+i*.35}s" begin="${-i*.4}s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="${2+i*.35}s" begin="${-i*.4}s" repeatCount="indefinite"/></circle>`).join('')}<g fill="none" stroke="#ffb347" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M160 96V56M144 70l16-16 16 16"><animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/></path></g>${bat(24,26,32,6)}${ground}`,
+limbo:()=>`${sky('l')}<circle cx="160" cy="96" r="58" fill="none" stroke="#1c0d38" stroke-width="16"/><circle cx="160" cy="96" r="58" fill="none" stroke="#ff9a2e" stroke-width="16" stroke-dasharray="120 260" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 160 96" to="360 160 96" dur="8s" repeatCount="indefinite"/></circle><path d="M150 28h20l-10 16z" fill="#c77dff"/><use href="#hwGhost" x="136" y="66" width="48" height="60"><animateTransform attributeName="transform" type="translate" values="0 0;0 -6;0 0" dur="3s" repeatCount="indefinite"/></use>${bat(30,24,30,7)}${ground}`,
+arena:()=>`${sky('a')}<g><animateTransform attributeName="transform" type="rotate" from="0 160 98" to="360 160 98" dur="24s" repeatCount="indefinite"/><path d="M160 98V36A62 62 0 0 1 222 98Z" fill="#ff7a1a"/><path d="M160 98H222A62 62 0 0 1 160 160Z" fill="#8a3dff"/><path d="M160 98V160A62 62 0 0 1 98 98Z" fill="#2fa86e"/><path d="M160 98H98A62 62 0 0 1 160 36Z" fill="#b83c6a"/></g><circle cx="160" cy="98" r="14" fill="#0b0516" stroke="#ffb347" stroke-width="2"/><path d="M152 28h16l-8 14z" fill="#fff"/>${bat(20,24,36,6)}${bat(240,60,28,8)}${ground}`,
+hilo:()=>`${sky('h')}<g transform="rotate(-9 110 96)"><rect x="70" y="46" width="76" height="100" rx="9" fill="#f6ecff" stroke="#8a3dff" stroke-width="2"/><use href="#hwPump" x="86" y="70" width="44" height="40"/><text x="80" y="64" font-size="14" font-weight="900" fill="#ff6a00" font-family="system-ui">A</text></g><g transform="rotate(8 210 96)"><rect x="172" y="46" width="76" height="100" rx="9" fill="#1c0d38" stroke="#ff7a1a" stroke-width="2"/><use href="#hwGhost" x="190" y="68" width="40" height="50"/><text x="182" y="64" font-size="14" font-weight="900" fill="#ffb347" font-family="system-ui">K</text></g><g fill="none" stroke="#ffb347" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M160 76V52M152 60l8-8 8 8"><animate attributeName="opacity" values="1;.2;1" dur="1.6s" repeatCount="indefinite"/></path><path d="M160 116v24M152 132l8 8 8-8"><animate attributeName="opacity" values=".2;1;.2" dur="1.6s" repeatCount="indefinite"/></path></g>${bat(20,22,32,7)}${ground}`};
+const GRAD={crSkyG:['#1a0838','#4a1a78','#c4478a'],crDuskG:['#0a0420','#2a0f5a','#7a2a8c'],crSpaceG:['#050010','#0a0220','#12052e'],crEarthG:['#8a3dff','#4a1a9a','#1d0a4a'],crHillG:['#3a1a5e','#24103e'],gdTrail:['#ff8a1f','#c77dff'],gdArea:['#ff7a1a','#8a3dff'],lbCore:['#5a1fb0','#2d0f6a','#0f0526'],lbTrackG:['#241042','#1a0b33'],ugWinGrad:['#ffb347','#ff6a00'],gemLight:['#ffb347','#ff6a00','#c77dff']};
+const ROCKET=`<defs><radialGradient id="hwRkB" cx=".45" cy=".4" r=".7"><stop offset="0" stop-color="#ffb347"/><stop offset=".7" stop-color="#ff7a1a"/><stop offset="1" stop-color="#c44a00"/></radialGradient></defs><g class="cr-rk-flame" transform="translate(-24 0)"><g><animateTransform attributeName="transform" type="scale" values="1 1;1.2 .85;.94 1.1;1 1" dur=".18s" repeatCount="indefinite"/><path d="M2-7C-8-9-22-6-38 0C-22 6-8 9 2 7Z" fill="#a24dff"/><path d="M2-5C-6-6-16-4-28 0C-16 4-6 6 2 5Z" fill="#ff9a2e"/><path d="M1-2.5C-4-3-10-2-16 0-10 2-4 3 1 2.5Z" fill="#ffe27a"/></g></g><path d="M-2-10C-8-20-20-26-32-20C-26-17-25-12-26-8C-18-11-12-9-8-5Z" fill="#2a0f4d" stroke="#9b4dff" stroke-width="1"/><path d="M-2 10C-8 20-20 26-32 20C-26 17-25 12-26 8C-18 11-12 9-8 5Z" fill="#2a0f4d" stroke="#9b4dff" stroke-width="1"/><ellipse cx="4" cy="0" rx="23" ry="14" fill="url(#hwRkB)" stroke="#8a2f00" stroke-width="1.2"/><path d="M-17-8Q4-13 25-8M-17 8Q4 13 25 8" fill="none" stroke="#b33f00" stroke-width="1.2"/><path d="M24-2Q32-5 37-1Q32 3 24 2Z" fill="#5a8a22" stroke="#2f5a0f"/><path d="M7-8L13-5.5 7-3ZM7 3L13 5.5 7 8Z" fill="#ffe27a"/><path d="M-1-9L-6-6-3-3-7 0-3 3-6 6-1 9 3 5V-5Z" fill="#ffe27a"/>`;
+const MOON=`<circle cx="250" cy="62" r="46" fill="#ffeab0" opacity=".16"/><circle cx="250" cy="62" r="22" fill="#ffeab0"/><circle cx="243" cy="56" r="4" fill="#e9cf8c" opacity=".7"/><circle cx="256" cy="70" r="5" fill="#e9cf8c" opacity=".7"/>`;
+const CRDECO=`<g id="hwCrDeco" class="hw-only"><use href="#hwBat" width="26" height="13"><animateMotion path="M-30 40 C80 10 200 70 350 30" dur="10s" repeatCount="indefinite"/></use><use href="#hwBat" width="20" height="10"><animateMotion path="M350 90 C240 60 120 110 -30 70" dur="14s" begin="-5s" repeatCount="indefinite"/></use><use href="#hwGhost" width="22" height="28" opacity=".35"><animateMotion path="M40 190 C90 120 140 150 190 60 S280 40 330 -20" dur="18s" repeatCount="indefinite"/></use></g>`;
+const crystal=(kind)=>{const s=document.createElementNS(NS,'svg');s.setAttribute('viewBox','0 0 80 80');s.setAttribute('aria-hidden','true');
+ s.innerHTML=kind==='safe'?`<circle cx="40" cy="42" r="30" fill="#ff7a1a" opacity=".25"><animate attributeName="opacity" values=".15;.4;.15" dur="2s" repeatCount="indefinite"/></circle><use href="#hwPump" x="8" y="10" width="64" height="58"/>`:`<circle cx="40" cy="46" r="26" fill="#14082a" stroke="#ff4d4d" stroke-width="2"/><path d="M52 24l8-10" stroke="#c9a8ff" stroke-width="3" stroke-linecap="round"/><circle cx="62" cy="12" r="4" fill="#ffb347"><animate attributeName="r" values="3;6;3" dur=".5s" repeatCount="indefinite"/></circle><ellipse cx="40" cy="42" rx="14" ry="12" fill="#f1e8ff"/><rect x="33" y="50" width="14" height="9" rx="2" fill="#f1e8ff"/><circle cx="34" cy="42" r="4" fill="#14082a"/><circle cx="46" cy="42" r="4" fill="#14082a"/><path d="M40 48l-2 4h4z" fill="#14082a"/>`;return s};
+const orig=new Map();let swapped=false,origCrystal=null;
+function swap(on){
+ if(on===swapped||!built)return;swapped=on;
+ // game card arts
+ document.querySelectorAll('#gamesPage .game-card').forEach(c=>{const k=c.dataset.key,art=c.querySelector('.gc-art');if(!art||!CARD[k])return;
+  let h=art.querySelector('.hw-art');if(!h){h=document.createElementNS(NS,'svg');h.setAttribute('class','hw-art');h.setAttribute('viewBox','0 0 320 180');h.setAttribute('preserveAspectRatio','xMidYMid slice');h.innerHTML=CARD[k]();art.append(h)}});
+ // gradients
+ Object.entries(GRAD).forEach(([id,cols])=>{const g=document.getElementById(id);if(!g)return;g.querySelectorAll('stop').forEach((s,i)=>{if(!cols[i])return;if(!orig.has(s))orig.set(s,s.getAttribute('stop-color'));s.setAttribute('stop-color',on?cols[i]:orig.get(s))})});
+ // crash scene
+ const rk=document.querySelector('#crRocket .cr-cartoon-rocket');if(rk){if(!orig.has(rk))orig.set(rk,rk.innerHTML);rk.innerHTML=on?ROCKET:orig.get(rk)}
+ const sun=document.getElementById('crSun');if(sun){if(!orig.has(sun))orig.set(sun,sun.innerHTML);sun.innerHTML=on?MOON:orig.get(sun)}
+ const cs=document.getElementById('crScene');if(cs){let d=cs.querySelector('#hwCrDeco');if(on&&!d){const a=document.createElementNS(NS,'g');a.innerHTML=CRDECO;cs.insertBefore(a.firstChild,document.getElementById('crArea'))}else if(!on&&d)d.remove()}
+ // limbo & upgrade extras
+ [['lbSvg','hwLbX',`<g opacity=".22"><use href="#hwPump" x="150" y="150" width="100" height="90"/></g><use href="#hwBat" x="60" y="40" width="40" height="20"/><use href="#hwBat" x="300" y="60" width="34" height="17"/>`],
+  ['ugWheelBox','hwUgX',`<g opacity=".3"><use href="#hwPump" x="90" y="92" width="60" height="54"/></g><g><animateTransform attributeName="transform" type="rotate" from="0 120 120" to="360 120 120" dur="9s" repeatCount="indefinite"/><use href="#hwBat" x="104" y="2" width="32" height="16"/></g>`]].forEach(([host,id,html])=>{
+  const el=document.getElementById(host),svg=el&&(el.tagName==='svg'?el:el.querySelector('svg'));if(!svg)return;let g=svg.querySelector('#'+id);
+  if(on&&!g){g=document.createElementNS(NS,'g');g.id=id;g.innerHTML=html;svg.append(g)}else if(!on&&g)g.remove()});
+ // brand & auth art
+ const br=document.querySelector('.studio-brand svg');if(br){if(!orig.has(br))orig.set(br,br.innerHTML);br.innerHTML=on?'<path d="M16 8c0-3 2-4 4-4" fill="none"/><ellipse cx="10" cy="19" rx="6" ry="8"/><ellipse cx="22" cy="19" rx="6" ry="8"/><ellipse cx="16" cy="19" rx="5" ry="9"/>':orig.get(br)}
+ const au=document.querySelector('.auth-art svg');if(au){if(!orig.has(au))orig.set(au,au.innerHTML);au.innerHTML=on?'<use href="#hwPump" x="10" y="20" width="180" height="162"/>':orig.get(au)}
+ // mines crystals
+ if(!origCrystal&&typeof cellCrystal==='function'){origCrystal=cellCrystal;window.cellCrystal=cellCrystal=function(k){return document.documentElement.classList.contains('hw')?crystal(k):origCrystal(k)}}
+ document.querySelectorAll('#board .cell').forEach(b=>{const st=b.dataset.st,bk=b.querySelector('.back');if(bk&&(st==='open'||st==='mine'))bk.replaceChildren(cellCrystal(st==='open'?'safe':'mine'))});
+}
+
 function tick(){
  if(!st.active)return;const now=Date.now()+skew;
- if(st.ends_at&&now>=st.ends_at){st.active=false;document.documentElement.classList.remove('hw');return}
+ if(st.ends_at&&now>=st.ends_at){st.active=false;document.documentElement.classList.remove('hw');swap(false);return}
  const t=st.ends_at?'До конца: '+fmt(st.ends_at-now):'Идёт сейчас';
  const a=document.getElementById('hwCd'),b=document.getElementById('hwCd2');if(a)a.textContent=t;if(b)b.textContent=t}
 async function poll(){
  try{const r=await fetch('/api/halloween',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;const d=await r.json();skew=(d.now||Date.now())-Date.now();st=d;
-  if(d.active)build();document.documentElement.classList.toggle('hw',!!d.active);tick()}catch(e){}}
+  if(d.active)build();document.documentElement.classList.toggle('hw',!!d.active);swap(!!d.active);tick()}catch(e){}}
 const ready=f=>document.readyState==='loading'?document.addEventListener('DOMContentLoaded',f):f();
 ready(()=>{poll();setInterval(poll,45000);setInterval(tick,1000)});
 // admin page

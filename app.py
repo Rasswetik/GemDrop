@@ -349,7 +349,7 @@ def _initialize_schema():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
             photo_url TEXT NOT NULL DEFAULT '', balance INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            bonus_balance INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
@@ -675,6 +675,7 @@ def _initialize_schema():
             ('username', "TEXT NOT NULL DEFAULT ''"),
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('bonus_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('ref_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
@@ -704,15 +705,16 @@ def _initialize_schema():
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'), ('bet_expires_at', 'TEXT'),
             ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
+            ('bonus_used', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('arena_rounds', [('extended', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('hilo_room_bets', [('gift_name', "TEXT NOT NULL DEFAULT ''"), ('gift_image', "TEXT NOT NULL DEFAULT ''"),
                                           ('gift_row', "TEXT NOT NULL DEFAULT ''"), ('won', 'INTEGER NOT NULL DEFAULT 0'),
                                           ('want_gift', 'INTEGER NOT NULL DEFAULT 0'),
                                           ('prize_name', "TEXT NOT NULL DEFAULT ''"), ('prize_image', "TEXT NOT NULL DEFAULT ''"),
-                                          ('prize_price', 'INTEGER NOT NULL DEFAULT 0')])
+                                          ('prize_price', 'INTEGER NOT NULL DEFAULT 0'), ('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('arena_bets', [('gift_amount', 'INTEGER NOT NULL DEFAULT 0'),
-                                      ('gifts', "TEXT NOT NULL DEFAULT '[]'")])
+                                      ('gifts', "TEXT NOT NULL DEFAULT '[]'"), ('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('crash_bets', [
             ('bet_type', "TEXT NOT NULL DEFAULT 'ton'"), ('bet_inventory_id', 'INTEGER'),
             ('bet_gift_id', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_name', "TEXT NOT NULL DEFAULT ''"),
@@ -724,6 +726,7 @@ def _initialize_schema():
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('bet_expires_at', 'TEXT'),
             ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
+            ('bonus_used', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('inventory', [
             ('image_url', "TEXT NOT NULL DEFAULT ''"), ('floor_price', 'INTEGER NOT NULL DEFAULT 0'),
@@ -738,7 +741,12 @@ def _initialize_schema():
             ('external_url', "TEXT NOT NULL DEFAULT ''"), ('fragment_number', "TEXT NOT NULL DEFAULT ''"),
             ('fragment_model', "TEXT NOT NULL DEFAULT ''"), ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''"),
             ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
+            ('bonus_origin', 'INTEGER NOT NULL DEFAULT 0'),
+            ('bonus_unlock_required', 'INTEGER NOT NULL DEFAULT 0'),
+            ('bonus_unlock_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
+        ensure_columns('limbo_bets', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('hilo_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('giveaways', [
             ('allow_repeat_winners', 'INTEGER NOT NULL DEFAULT 1'),
         ])
@@ -774,6 +782,7 @@ def _initialize_schema():
             ('author_user_id', 'INTEGER NOT NULL DEFAULT 0'),
             ('poll_id', "TEXT NOT NULL DEFAULT ''"),
             ('poll_option_name', "TEXT NOT NULL DEFAULT ''"),
+            ('balance_target', "TEXT NOT NULL DEFAULT 'main'"),
         ])
         ensure_columns('promo_redemptions', [('consumed_at', 'TEXT'),('deactivated_at', 'TEXT')])
         _had_seen_at = 'seen_at' in {row['name'] for row in db.execute('PRAGMA table_info(freebet_redemptions)')}
@@ -1671,8 +1680,12 @@ def profile():
     user_demo = bool(creator.get('user_demo'))
     stars_until = parse_datetime_utc(user['stars_withdrawal_until'])
     stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
+    main_balance = int(creator['demo_balance_cents'] if demo else user['balance'] or 0)
+    bonus_balance = 0 if demo else int(user['bonus_balance'] or 0)
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
-                balance=(creator['demo_balance_cents'] if demo else user['balance']) / 100,
+                balance=main_balance / 100,
+                bonus_balance=bonus_balance / 100,
+                playable_balance=(main_balance + bonus_balance) / 100,
                 tickets=(creator['demo_tickets'] if demo else int(user['tickets'] or 0)),
                 turnover=(creator['demo_turnover_cents']/100 if demo else user['turnover_cents']/100),
                 withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
@@ -1701,6 +1714,83 @@ def admin_display():
         return error('Выберите отображение кнопки.')
     save_document(f'admin_display_{session["uid"]}', {'visible': visible})
     return jsonify(ok=True, user=profile())
+
+
+def spend_game_balance(db, user_id, amount):
+    # Main real balance is always spent first; bonus balance covers only the remainder.
+    amount = max(0, int(amount or 0))
+    lock = ' FOR UPDATE' if DATABASE_URL else ''
+    row = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?' + lock, (user_id,)).fetchone()
+    if not row:
+        return None
+    main = max(0, int(row['balance'] or 0))
+    bonus = max(0, int(row['bonus_balance'] or 0))
+    if main + bonus < amount:
+        return None
+    main_used = min(main, amount)
+    bonus_used = amount - main_used
+    db.execute('UPDATE users SET balance=balance-?,bonus_balance=bonus_balance-? WHERE id=?',
+               (main_used, bonus_used, user_id))
+    return main_used, bonus_used
+
+
+def credit_game_balance(db, user_id, amount, bonus_origin=False):
+    amount = max(0, int(amount or 0))
+    if not amount:
+        return
+    column = 'bonus_balance' if bonus_origin else 'balance'
+    db.execute(f'UPDATE users SET {column}={column}+? WHERE id=?', (amount, user_id))
+
+
+def inventory_bonus_locked(row):
+    try:
+        return bool(int(row['bonus_origin'] or 0)) and int(row['bonus_unlock_progress'] or 0) < int(row['bonus_unlock_required'] or 0)
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
+
+
+def bonus_origin_values(price_cents, bonus_origin):
+    price = max(0, int(price_cents or 0))
+    return (1, price, 0) if bonus_origin and price else (0, 0, 0)
+
+
+def apply_bonus_gift_deposit_progress(db, user_id, deposit_amount):
+    # Allocate only newly confirmed paid deposits to currently existing locked gifts, oldest first.
+    left = max(0, int(deposit_amount or 0))
+    if not left:
+        return 0
+    rows = db.execute('SELECT id,bonus_unlock_required,bonus_unlock_progress FROM inventory WHERE user_id=? AND bonus_origin=1 AND bonus_unlock_progress<bonus_unlock_required ORDER BY created_at ASC,id ASC', (user_id,)).fetchall()
+    applied = 0
+    for row in rows:
+        if left <= 0:
+            break
+        required = max(0, int(row['bonus_unlock_required'] or 0))
+        progress = max(0, int(row['bonus_unlock_progress'] or 0))
+        need = max(0, required - progress)
+        if not need:
+            continue
+        add = min(left, need)
+        db.execute('UPDATE inventory SET bonus_unlock_progress=bonus_unlock_progress+? WHERE id=? AND user_id=?', (add, row['id'], user_id))
+        left -= add
+        applied += add
+    return applied
+
+
+def promo_balance_target(promo):
+    try:
+        return 'bonus' if str(promo['balance_target'] or '').lower() == 'bonus' else 'main'
+    except (KeyError, TypeError, IndexError):
+        return 'main'
+
+
+def credit_promo_balance(db, user_id, amount, target='main'):
+    amount = max(0, int(amount or 0))
+    column = 'bonus_balance' if str(target).lower() == 'bonus' else 'balance'
+    db.execute(f'UPDATE users SET {column}={column}+? WHERE id=?', (amount, user_id))
+
+
+def bonus_inventory_clause(target, price_cents):
+    return bonus_origin_values(price_cents, str(target).lower() == 'bonus')
 
 
 def level_number(db, turnover):
@@ -2761,6 +2851,11 @@ def inventory_item(row):
                 price_source=optional('price_source'), animation_url=optional('animation_url'),
                 source_label=('' if nft_match else optional('source_label')),
                 deposit_mirror=bool(int(optional('deposit_mirror', 0) or 0)),
+                bonus_origin=bool(int(optional('bonus_origin', 0) or 0)),
+                bonus_unlock_required=int(optional('bonus_unlock_required', 0) or 0)/100,
+                bonus_unlock_progress=int(optional('bonus_unlock_progress', 0) or 0)/100,
+                bonus_unlock_complete=(not bool(int(optional('bonus_origin', 0) or 0)) or
+                                       int(optional('bonus_unlock_progress', 0) or 0) >= int(optional('bonus_unlock_required', 0) or 0)),
                 promo_locked=locked, promo_code=row['promo_code'] or '',
                 wager_multiplier=float(row['promo_wager_multiplier'] or 0),
                 wager_target=target/100, wager_progress=progress/100,
@@ -2845,10 +2940,12 @@ def award_round(db, row, opened_count):
         cents = ton_to_cents(prize['price_ton'])
         remainder = max(0, amount - cents)
         image_url = safe_image(prize.get('image_url'))
-        cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                               VALUES(?,?,?,?,?,'game',?)""",
+        bo, br, bp = bonus_origin_values(cents, bool(int(row['bonus_used'] or 0)))
+        cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                               bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                               VALUES(?,?,?,?,?,'game',?,?,?,?)""",
                             (row['user_id'], str(prize['id']), str(prize['name']),
-                             image_url, cents, row['id']))
+                             image_url, cents, row['id'], bo, br, bp))
         db.execute("""UPDATE rounds
                       SET state='won',payout=?,prize_inventory_id=?,win_total=?,win_multiplier=?,
                           win_gift_name=?,win_gift_image=?,win_gift_price=?,settled_at=?
@@ -2856,7 +2953,7 @@ def award_round(db, row, opened_count):
                    (remainder, cursor.lastrowid, amount, factor, str(prize['name'])[:140],
                     image_url, cents, settled_at, row['id']))
         if remainder:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, row['user_id']))
+            credit_game_balance(db, row['user_id'], remainder, bool(int(row['bonus_used'] or 0)))
             record_transaction(db, row['user_id'], 'game_win_ton', remainder, 'round', row['id'],
                                f'Остаток после выигрыша подарка: {prize["name"]}')
         record_transaction(db, row['user_id'], 'gift_win', 0, 'round', row['id'], str(prize['name']))
@@ -2864,7 +2961,7 @@ def award_round(db, row, opened_count):
         db.execute("""UPDATE rounds SET state='won',payout=?,win_total=?,win_multiplier=?,
                       win_gift_name='',win_gift_image='',win_gift_price=NULL,settled_at=? WHERE id=?""",
                    (amount, amount, factor, settled_at, row['id']))
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, row['user_id']))
+        credit_game_balance(db, row['user_id'], amount, bool(int(row['bonus_used'] or 0)))
         record_transaction(db, row['user_id'], 'game_win_ton', amount, 'round', row['id'], 'Выигрыш Mines')
 
 
@@ -4869,7 +4966,7 @@ def upgrade_spin():
                 floor_price=ton_price, promo_locked=0, promo_wager_multiplier=0,
                 promo_wager_target=0, promo_wager_progress=0, promo_code='',
                 expires_at=None, promo_attempts_total=1, promo_attempts_remaining=1,
-                promo_burn_on_loss=1, external_url=''
+                promo_burn_on_loss=1, external_url='', bonus_origin=0, bonus_unlock_required=0, bonus_unlock_progress=0
             )
         else:
             source=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?'+(' FOR UPDATE' if DATABASE_URL else ''),
@@ -4885,11 +4982,15 @@ def upgrade_spin():
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
         chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
         if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        bonus_origin = False
         if amount_text:
-            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                              (source_price,session['uid'],source_price)).rowcount:
+            spent = spend_game_balance(db, session['uid'], source_price)
+            if not spent:
                 return error('Недостаточно TON для ставки.',409)
-        elif not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
+            bonus_origin = bool(int(spent[1]))
+        else:
+            bonus_origin = inventory_bonus_locked(source)
+        if not amount_text and not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
         proof = fairness_resolve_action(db, 'upgrade', session['uid'], data)
         fair_upper = target['price'] * 10000
@@ -4920,16 +5021,18 @@ def upgrade_spin():
                 unlock_payload = {}
                 cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
-                                 promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload)
-                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?,?,?,?,?,?,?)''',
+                                 promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload,
+                                 bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                                (session['uid'],source['gift_id'],source['gift_name'],source['image_url'],source_price,
                                 float(source['promo_wager_multiplier'] or 0),wager_target,wager_progress,source['promo_code'] or '',
                                 None if completed_wager else source['expires_at'],wager_attempts_total,wager_attempts_before,
                                 int(wager_burn_on_loss),source['external_url'] or '',
-                                json.dumps(unlock_payload,ensure_ascii=False)))
+                                json.dumps(unlock_payload,ensure_ascii=False), int(bool(source.get('bonus_origin',0) if isinstance(source,dict) else source['bonus_origin'])), int(source.get('bonus_unlock_required',0) if isinstance(source,dict) else source['bonus_unlock_required']), int(source.get('bonus_unlock_progress',0) if isinstance(source,dict) else source['bonus_unlock_progress'])))
             else:
-                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'upgrade')",
-                               (session['uid'],target['id'],target['name'],target['image_url'],target['price']))
+                bo, br, bp = bonus_origin_values(target['price'], bonus_origin)
+                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'upgrade',?,?,?)",
+                               (session['uid'],target['id'],target['name'],target['image_url'],target['price'],bo,br,bp))
             if cur is not None:
                 awarded=cur.lastrowid
         elif wager:
@@ -4937,12 +5040,13 @@ def upgrade_spin():
             if wager_attempts_after > 0:
                 cur=db.execute('''INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
-                                 promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload)
-                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?,?,?,?,?,?,?)''',
+                                 promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,promo_unlock_payload,
+                                 bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                                 VALUES(?,?,?,?,?,'upgrade_wager',1,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                                (session['uid'],source['gift_id'],source['gift_name'],source['image_url'],source_price,
                                 float(source['promo_wager_multiplier'] or 0),wager_target,int(source['promo_wager_progress'] or 0),
                                 source['promo_code'] or '',source['expires_at'],wager_attempts_total,wager_attempts_after,
-                                int(wager_burn_on_loss),source['external_url'] or '','{}'))
+                                int(wager_burn_on_loss),source['external_url'] or '','{}', int(bool(source['bonus_origin'] or 0)), int(source['bonus_unlock_required'] or 0), int(source['bonus_unlock_progress'] or 0)))
                 awarded=cur.lastrowid
                 record_transaction(db,session['uid'],'promo_wager_attempt_lost',0,'upgrade',request_id,
                                    f'{source["gift_name"]}: осталось жизней {wager_attempts_after}')
@@ -5163,6 +5267,7 @@ def start():
             return error('Сначала завершите текущую игру.')
 
         bet_type = 'ton'
+        bonus_used = 0
         xp_allowed = True
         snapshot = dict(item_id=None, gift_id='', name='', image='', price=0,
                         multiplier=0.0, target=0, progress=0, code='', expires_at=None,
@@ -5186,6 +5291,7 @@ def start():
             if bet_type == 'promo_gift' and mines < 3:
                 return error('Промо-отыгрыш доступен только при 3 или более минах.')
             xp_allowed = gift_counts_for_xp(item)
+            bonus_used = bet if inventory_bonus_locked(item) else 0
             snapshot = dict(item_id=item['id'], gift_id=item['gift_id'], name=item['gift_name'],
                             image=item['image_url'], price=bet,
                             multiplier=float(item['promo_wager_multiplier'] or 0),
@@ -5204,10 +5310,10 @@ def start():
                 return error('Укажите корректную ставку.')
             if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
                 return error('Ставка от 0.10 до 300 TON.')
-            updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                                 (bet, session['uid'], bet))
-            if not updated.rowcount:
+            spent = spend_game_balance(db, session['uid'], bet)
+            if not spent:
                 return error('Недостаточно средств.')
+            bonus_used = int(spent[1])
 
         proof = fairness_make('mines', session['uid'], data.get('client_seed'))
         positions, fair_cursor = fairness_positions(proof, mines)
@@ -5218,12 +5324,12 @@ def start():
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
                        promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot,bet_expires_at,
-                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url,bonus_used)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
                     snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
                     snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at'],
-                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url']))
+                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'], bonus_used))
         row = active_round(db, session['uid'])
         fairness_store(db, proof, str(row['id']), fair_cursor,
                        {'positions': positions, 'mines': mines, 'board_size': 25})
@@ -7275,7 +7381,8 @@ def sell_inventory(item_id):
         if not deleted.rowcount:
             return error('Подарок уже обработан.', 409)
         if amount:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
+            # Selling a still-locked bonus-origin gift must not turn promotional value into withdrawable cash.
+            credit_game_balance(db, session['uid'], amount, inventory_bonus_locked(item))
         record_transaction(db, session['uid'], 'gift_sale', amount, 'inventory', item_id, item['gift_name'])
         db.commit()
         return jsonify(ok=True, sold_for=amount/100, user=profile())
@@ -7535,12 +7642,14 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         amount = max(0, int(promo['amount'] or 0))
         if amount <= 0:
             raise ValueError('Награда фрибета настроена неверно.')
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+        target_balance = promo_balance_target(promo)
+        credit_promo_balance(db, user_id, amount, target_balance)
         reward = dict(type='balance', amount=amount/100)
         record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code, f'Freebet {freebet_code}')
     elif reward_type == 'gift':
-        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url) VALUES(?,?,?,?,?,'freebet',?)",
-                         (user_id, promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price'], fragment_url))
+        bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
+        cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'freebet',?,?,?,?)",
+                         (user_id, promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price'], fragment_url, bo, br, bp))
         inventory_id = cur.lastrowid
         reward = dict(type='gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
                                              image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100, fragment_url=fragment_url))
@@ -7551,10 +7660,12 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         item_expires_at = promo_gift_expiry(promo['gift_expires_days'])
         cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
                           promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
-                          promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url)
-                          VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?,?)""",
+                          promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,external_url,
+                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                          VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?,?,?,?,?)""",
                          (user_id, promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price'],
-                          multiplier, target, freebet_code, item_expires_at, wager_attempts, wager_attempts, int(burn_on_loss), fragment_url))
+                          multiplier, target, freebet_code, item_expires_at, wager_attempts, wager_attempts, int(burn_on_loss), fragment_url,
+                          *bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])))
         inventory_id = cur.lastrowid
         reward = dict(type='wager_gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
                                                    image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100,
@@ -7573,7 +7684,7 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         rewards = []
         if 'balance' in components:
             amount = int(components['balance']['amount'])
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, user_id))
+            credit_promo_balance(db, user_id, amount, promo_balance_target(promo))
             record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code, f'Freebet {freebet_code}')
             rewards.append(dict(type='balance', amount=amount/100))
         for kind in ('gift', 'wager_gift'):
@@ -7582,17 +7693,20 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
             comp = components[kind]
             component_expires_at = None
             if kind == 'gift':
-                cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'freebet')",
-                                 (user_id, comp['gift_id'], comp['gift_name'], comp['image_url'], comp['gift_price']))
+                bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), comp['gift_price'])
+                cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'freebet',?,?,?)",
+                                 (user_id, comp['gift_id'], comp['gift_name'], comp['image_url'], comp['gift_price'], bo, br, bp))
             else:
                 multiplier = float(comp['wager_multiplier'])
                 target = round(int(comp['gift_price']) * multiplier)
                 component_expires_at = promo_gift_expiry(comp.get('gift_expires_days'))
                 cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
-                                  VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
+                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                                  bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                                  VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?)""",
                                  (user_id, comp['gift_id'], comp['gift_name'], comp['image_url'], comp['gift_price'],
-                                  multiplier, target, freebet_code, component_expires_at))
+                                  multiplier, target, freebet_code, component_expires_at,
+                                  *bonus_inventory_clause(promo_balance_target(promo), comp['gift_price'])))
             inventory_id = cur.lastrowid
             record_transaction(db, user_id, 'freebet_'+kind, 0, 'freebet', freebet_code, comp['gift_name'])
             rewards.append(dict(type=kind, gift=dict(id=inventory_id, name=comp['gift_name'], image_url=comp['image_url'],
@@ -9071,6 +9185,9 @@ def request_withdrawal(item_id):
         item=db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?',(item_id,session['uid'])).fetchone()
         if not item:return error('Подарок не найден или уже отправлен на вывод.',404)
         if item['promo_locked']:return error('Промо-подарок нельзя вывести до завершения отыгрыша.',409)
+        if inventory_bonus_locked(item):
+            need=max(0,int(item['bonus_unlock_required'] or 0)-int(item['bonus_unlock_progress'] or 0))
+            return error(f'Этот подарок получен с бонусов. Для вывода пополните баланс ещё на {need/100:.2f} TON после получения подарка.',409)
         if int(item['deposit_mirror'] or 0):return error('Этот NFT уже учтён как пополнение TON и хранится в инвентаре как подтверждение.',409)
         db.execute('UPDATE users SET balance=balance-? WHERE id=?',(fee,session['uid']))
         cur=db.execute("""INSERT INTO withdrawals(user_id,inventory_id,gift_id,gift_name,image_url,floor_price,source,round_id,status,external_url,
@@ -9476,16 +9593,18 @@ def limbo_play():
         db.execute('BEGIN IMMEDIATE')
         if DATABASE_URL:
             db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
-        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+        spent = spend_game_balance(db, uid, bet)
+        if not spent:
             db.rollback()
             return error('Недостаточно средств.')
-        cur = db.execute("""INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout)
-                            VALUES(?,?,?,?,?,?,?)""", (uid, bet, chance * 100, mult_x100, roll, int(won), payout))
+        bonus_used = int(spent[1])
+        cur = db.execute("""INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,bonus_used)
+                            VALUES(?,?,?,?,?,?,?,?)""", (uid, bet, chance * 100, mult_x100, roll, int(won), payout, bonus_used))
         bet_id = int(cur.lastrowid)
         record_transaction(db, uid, 'limbo_bet', -bet, 'limbo', bet_id, 'Limbo · шанс %d%%' % chance)
         new_level = increase_turnover(db, uid, bet)
         if payout:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+            credit_game_balance(db, uid, payout, bool(bonus_used))
             record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
         outcome = dict(upper=LIMBO_ROLL_RANGE, ticket=roll, roll=roll, chance_bp=chance * 100, won=bool(won))
         fairness_store(db, proof, game_ref=bet_id, cursor=fair_cursor, outcome=outcome, state='settled')
@@ -9594,7 +9713,7 @@ def arena_award_gift(db, user_id, snapshot, round_id):
 
 
 def arena_players(db, round_id):
-    return db.execute("""SELECT b.user_id,b.amount,b.gift_amount,b.gifts,u.name,u.username,u.photo_url
+    return db.execute("""SELECT b.user_id,b.amount,b.gift_amount,b.gifts,b.bonus_used,u.name,u.username,u.photo_url
                          FROM arena_bets b JOIN users u ON u.id=b.user_id
                          WHERE b.round_id=? ORDER BY b.created_at ASC,b.user_id ASC""",
                       (round_id,)).fetchall()
@@ -9614,7 +9733,12 @@ def arena_refund_round(db, row, players):
         ton = amount - gift_amount
         xp_back = ton + sum(int(g.get('price') or 0) for g in gifts if g.get('xp'))
         if ton:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (ton, uid))
+            bonus_back = min(ton, max(0, int(player['bonus_used'] or 0)))
+            main_back = max(0, ton - bonus_back)
+            if main_back:
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (main_back, uid))
+            if bonus_back:
+                db.execute('UPDATE users SET bonus_balance=bonus_balance+? WHERE id=?', (bonus_back, uid))
             record_transaction(db, uid, 'arena_refund', ton, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: возврат ставки, не набралось игроков')
         for gift in gifts:
@@ -9677,7 +9801,7 @@ def arena_advance(db, now=None):
     if changed.rowcount:
         winner_id = int(winner['user_id'])
         if payout > 0:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, winner_id))
+            credit_game_balance(db, winner_id, payout, bool(int(winner['bonus_used'] or 0)))
             record_transaction(db, winner_id, 'arena_win', payout, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: выигрыш {payout/100:.2f} TON '
                                + (f'(TON-банк {ton_total/100:.2f}, комиссия {ARENA_FEE_PERCENT}% = {fee/100:.2f})'
@@ -9982,7 +10106,7 @@ def arena_state_payload(db, uid, now=None):
         my_bet=mine,
         mine_result=('won' if winner_id == int(uid) else 'lost') if winner_id and mine else None,
         recent=arena_recent_rounds(db, 6),
-        balance=profile()['balance'],
+        balance=profile().get('playable_balance', profile()['balance']),
     )
 
 
@@ -10057,25 +10181,26 @@ def arena_bet():
             if not (MIN_BET_CENTS <= amount <= MAX_BET_CENTS):
                 db.rollback()
                 return error('Для ставки подходят подарки стоимостью от 0.10 до 300 TON.', 409)
-        existing = db.execute('SELECT amount,gift_amount,gifts FROM arena_bets WHERE round_id=? AND user_id=?',
+        existing = db.execute('SELECT amount,gift_amount,gifts,bonus_used FROM arena_bets WHERE round_id=? AND user_id=?',
                               (row['id'], uid)).fetchone()
         existing_amount = int(existing['amount'] or 0) if existing else 0
         if existing_amount + amount > MAX_BET_CENTS:
             db.rollback()
             return error('Общая ставка в арене не может превышать 300 TON.', 409)
+        bonus_used = 0
         if gift_mode:
+            bonus_used = amount if inventory_bonus_locked(item) else 0
             if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
                 db.rollback()
                 return error('Подарок уже используется.', 409)
             snapshot = dict(name=str(item['gift_name'] or 'Подарок')[:140], image_url=str(item['image_url'] or ''),
                             price=amount, xp=bool(gift_counts_for_xp(item)), row=dict(item))
         else:
-            if DATABASE_URL:
-                db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
-            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
-                              (amount, uid, amount)).rowcount:
+            spent = spend_game_balance(db, uid, amount)
+            if not spent:
                 db.rollback()
                 return error('Недостаточно TON.', 409)
+            bonus_used = int(spent[1])
         gifts = arena_gift_list(existing['gifts']) if existing else []
         gift_amount = int(existing['gift_amount'] or 0) if existing else 0
         if gift_mode:
@@ -10083,11 +10208,11 @@ def arena_bet():
             gift_amount += amount
         gifts_json = json.dumps(gifts, ensure_ascii=False, default=str)
         if existing:
-            db.execute('UPDATE arena_bets SET amount=amount+?,gift_amount=?,gifts=? WHERE round_id=? AND user_id=?',
-                       (amount, gift_amount, gifts_json, row['id'], uid))
+            db.execute('UPDATE arena_bets SET amount=amount+?,gift_amount=?,gifts=?,bonus_used=bonus_used+? WHERE round_id=? AND user_id=?',
+                       (amount, gift_amount, gifts_json, bonus_used, row['id'], uid))
         else:
-            db.execute('INSERT INTO arena_bets(round_id,user_id,amount,gift_amount,gifts) VALUES(?,?,?,?,?)',
-                       (row['id'], uid, amount, gift_amount, gifts_json))
+            db.execute('INSERT INTO arena_bets(round_id,user_id,amount,gift_amount,gifts,bonus_used) VALUES(?,?,?,?,?,?)',
+                       (row['id'], uid, amount, gift_amount, gifts_json, bonus_used))
         if close_at <= 0:
             # The very first bet starts the round: only now the countdown begins.
             db.execute("UPDATE arena_rounds SET open_at=?,close_at=? WHERE id=? AND state='open'",
@@ -10393,7 +10518,7 @@ def crash_settle_round(db, row):
                 elif int(bet['user_id']) == _arena_bot['uid']:
                     pass   # house bot: its stake was never taken, so its win is not paid out of anyone's balance
                 else:
-                    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, bet['user_id']))
+                    credit_game_balance(db, bet['user_id'], payout, bool(int(bet['bonus_used'] or 0)))
                     record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
                                        f'Crash x{auto/100:.2f} (авто)')
         else:
@@ -10605,8 +10730,8 @@ def crash_state_payload(db, uid, now):
     payload['bets'] = bets
     hist = db.execute("SELECT crash_x100 FROM crash_rounds WHERE state='crashed' ORDER BY id DESC LIMIT 24").fetchall()
     payload['history'] = [h['crash_x100'] / 100 for h in hist]
-    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
-    payload['balance'] = (me['balance'] / 100) if me else 0
+    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
+    payload['balance'] = ((int(me['balance'] or 0)+int(me['bonus_balance'] or 0)) / 100) if me else 0
     return payload
 
 
@@ -10703,31 +10828,31 @@ def crash_bet():
                 db.execute("""INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bet_type,bet_inventory_id,
                               bet_gift_id,bet_gift_name,bet_gift_image,promo_wager_multiplier,promo_wager_target,
                               promo_wager_progress,promo_code,bet_expires_at,promo_attempts_total,
-                              promo_attempts_remaining,promo_burn_on_loss,bet_external_url)
-                              VALUES(?,?,?,?,'promo_gift',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                              promo_attempts_remaining,promo_burn_on_loss,bet_external_url,bonus_used)
+                              VALUES(?,?,?,?,'promo_gift',?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                            (row['id'], uid, bet, auto, inventory_id, str(item['gift_id'] or ''),
                             str(item['gift_name'] or '')[:140], str(item['image_url'] or ''),
                             float(item['promo_wager_multiplier'] or 0), target, progress, item['promo_code'] or '',
                             item['expires_at'], max(1, int(item['promo_attempts_total'] or 1)),
                             max(0, int(item['promo_attempts_remaining'] or 1)),
-                            int(bool(item['promo_burn_on_loss'])), item['external_url'] or ''))
+                            int(bool(item['promo_burn_on_loss'])), item['external_url'] or '', bet if inventory_bonus_locked(item) else 0))
                 record_transaction(db, uid, 'promo_wager_bet', 0, 'crash_round', row['id'],
                                    f'{item["gift_name"]} · X{float(item["promo_wager_multiplier"] or 0):g}')
                 # Wager gifts do not count toward turnover / levels (same as Mines).
             else:
                 db.execute("""INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bet_type,bet_inventory_id,
-                              bet_gift_id,bet_gift_name,bet_gift_image) VALUES(?,?,?,?,'gift',?,?,?,?)""",
+                              bet_gift_id,bet_gift_name,bet_gift_image,bonus_used) VALUES(?,?,?,?,'gift',?,?,?,?,?)""",
                            (row['id'], uid, bet, auto, inventory_id, str(item['gift_id'] or ''),
-                            str(item['gift_name'] or '')[:140], str(item['image_url'] or '')))
+                            str(item['gift_name'] or '')[:140], str(item['image_url'] or ''), bet if inventory_bonus_locked(item) else 0))
                 record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
                 if xp_allowed:
                     new_level = increase_turnover(db, uid, bet, withdrawal_wager=False)
         else:
-            updated = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet))
-            if not updated.rowcount:
+            spent = spend_game_balance(db, uid, bet)
+            if not spent:
                 db.rollback()
                 return error('Недостаточно средств.')
-            db.execute('INSERT INTO crash_bets(round_id,user_id,bet,auto_x100) VALUES(?,?,?,?)', (row['id'], uid, bet, auto))
+            db.execute('INSERT INTO crash_bets(round_id,user_id,bet,auto_x100,bonus_used) VALUES(?,?,?,?,?)', (row['id'], uid, bet, auto, int(spent[1])))
             record_transaction(db, uid, 'crash_bet', -bet, 'crash_round', row['id'], 'Crash')
             new_level = increase_turnover(db, uid, bet)
         db.commit()
@@ -10818,22 +10943,25 @@ def crash_cashout():
         if not moved.rowcount:
             db.rollback()
             return error('Ставка уже закрыта.', 409)
+        bonus_origin = bool(int(mine['bonus_used'] or 0))
         if prize_info:
-            cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                                   VALUES(?,?,?,?,?,'game',?)""",
+            bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
+            cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                                   bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                                   VALUES(?,?,?,?,?,'game',?,?,?,?)""",
                                 (uid, prize_info['id'], prize_info['name'], prize_info['image_url'],
-                                 prize_info['price_cents'], row['id']))
+                                 prize_info['price_cents'], row['id'], bo, br, bp))
             db.execute('UPDATE crash_bets SET prize_inventory_id=? WHERE round_id=? AND user_id=?',
                        (cursor.lastrowid, row['id'], uid))
             if remainder:
-                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, uid))
+                credit_game_balance(db, uid, remainder, bonus_origin)
                 record_transaction(db, uid, 'crash_win', remainder, 'crash_round', row['id'],
                                    f'Crash x{mult/100:.2f}: остаток после подарка {prize_info["name"]}')
             record_transaction(db, uid, 'crash_gift_win', 0, 'crash_round', row['id'],
                                f'{prize_info["name"]} · x{mult/100:.2f}')
             prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
         else:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+            credit_game_balance(db, uid, payout, bonus_origin)
             record_transaction(db, uid, 'crash_win', payout, 'crash_round', row['id'], f'Crash x{mult/100:.2f}')
         db.commit()
     finally:
@@ -10922,11 +11050,11 @@ def hilo_game_view(row):
 
 def hilo_state_payload(db, uid):
     row = db.execute('SELECT * FROM hilo_games WHERE user_id=? ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
-    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
     return dict(game=hilo_game_view(row), ranks=HILO_RANKS, rtp=hilo_rtp(),
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
                 min_nft=crash_min_prize_cents() / 100, available=game_available('hilo'),
-                balance=(me['balance'] / 100) if me else 0)
+                balance=((int(me['balance'] or 0) + int(me['bonus_balance'] or 0)) / 100) if me else 0)
 
 
 def hilo_settle_cashout(db, uid, game, want_gift):
@@ -10934,6 +11062,7 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     bet, mult = int(game['bet']), int(game['mult_micro'])
     payout = bet * mult // HILO_MICRO
     prize_info, remainder = None, 0
+    bonus_origin = bool(int(game['bonus_used'] or 0))
     # The win always arrives as a Telegram gift, the rest goes to the balance.
     # Only if it is below the cheapest gift does it stay in TON.
     prize_info = crash_prize_preview(payout)
@@ -10951,17 +11080,19 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     label = f'Hi-Lo x{mult / HILO_MICRO:.2f}'
     prize = None
     if prize_info:
-        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                      VALUES(?,?,?,?,?,'game',?)""",
-                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id']))
+        bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
+        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                      VALUES(?,?,?,?,?,'game',?,?,?,?)""",
+                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id'], bo, br, bp))
         if remainder:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, uid))
+            credit_game_balance(db, uid, remainder, bonus_origin)
             record_transaction(db, uid, 'hilo_win', remainder, 'hilo_game', game['id'],
                                f'{label}: остаток после подарка {prize_info["name"]}')
         record_transaction(db, uid, 'hilo_gift_win', 0, 'hilo_game', game['id'], f'{prize_info["name"]} · {label}')
         prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
     else:
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+        credit_game_balance(db, uid, payout, bonus_origin)
         record_transaction(db, uid, 'hilo_win', payout, 'hilo_game', game['id'], label)
     return payout, prize, remainder
 
@@ -11196,20 +11327,23 @@ def hilo_room_settle(db, n, phase):
             record_transaction(db, r['user_id'], 'hilo_gift_return', 0, 'hilo_room', r['id'], f"{r['gift_name']} · {label}")
         if prize:
             remainder = max(0, total - int(prize['price_cents']))
-            db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id)
-                          VALUES(?,?,?,?,?,'game',?)""",
-                       (r['user_id'], prize['id'], prize['name'], prize['image_url'], prize['price_cents'], r['id']))
+            bonus_origin = bool(int(r['bonus_used'] or 0))
+            bo, br, bp = bonus_origin_values(prize['price_cents'], bonus_origin)
+            db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                              bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                          VALUES(?,?,?,?,?,'game',?,?,?,?)""",
+                       (r['user_id'], prize['id'], prize['name'], prize['image_url'], prize['price_cents'], r['id'], bo, br, bp))
             db.execute('UPDATE hilo_room_bets SET prize_name=?,prize_image=?,prize_price=? WHERE id=?',
                        (prize['name'][:140], prize['image_url'], prize['price_cents'], r['id']))
             record_transaction(db, r['user_id'], 'hilo_gift_win', 0, 'hilo_room', r['id'], f"{prize['name']} · {label}")
             credit = remainder
             if remainder:
-                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (remainder, r['user_id']))
+                credit_game_balance(db, r['user_id'], remainder, bool(int(r['bonus_used'] or 0)))
                 record_transaction(db, r['user_id'], 'hilo_win', remainder, 'hilo_room', r['id'],
                                    f"{label}: остаток после подарка {prize['name']}")
             continue
         if credit:
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (credit, r['user_id']))
+            credit_game_balance(db, r['user_id'], credit, bool(int(r['bonus_used'] or 0)))
             record_transaction(db, r['user_id'], 'hilo_win', credit, 'hilo_room', r['id'], label)
 
 
@@ -11250,12 +11384,12 @@ def hilo_room_payload(db, uid, n, phase, now):
     seq = [hilo_room_visible_rank(db, k) for k in range(upto - 25, upto)]
     history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
                for i, r in enumerate(seq[1:])]
-    me = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
+    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
     return dict(now=now, round=n, no=cur_no, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
                 result=card(result_rank) if reveal else None, odds=odds, bets=bets,
                 history=history, recent=recent,
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
-                balance=(me['balance'] / 100) if me else 0,
+                balance=((int(me['balance'] or 0) + int(me['bonus_balance'] or 0)) / 100) if me else 0,
                 fairness=fairness_view(db, 'hilo_room', n, reveal),
                 last=dict(id=last['id'], round=last['round_no'], no=nums.get(last['round_no'], 0), gift_name=last['gift_name'] or '', gift_image=last['gift_image'] or '',
                           won=bool(last['won'] or last['payout'] > 0), direction=last['direction'], amount=last['amount'] / 100,
@@ -11469,16 +11603,19 @@ def hilo_room_bet():
             if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
                 db.rollback()
                 return error('Подарок уже используется.', 409)
-            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,gift_name,gift_image,gift_row) VALUES(?,?,?,?,?,?,?)',
-                             (n, uid, direction, bet, gname, gimage, gsnap))
+            bonus_used = bet if inventory_bonus_locked(item) else 0
+            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,gift_name,gift_image,gift_row,bonus_used) VALUES(?,?,?,?,?,?,?,?)',
+                             (n, uid, direction, bet, gname, gimage, gsnap, bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_room', cur.lastrowid, gname)
             if xp_allowed:
                 new_level = increase_turnover(db, uid, bet)
         else:
-            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+            spent = spend_game_balance(db, uid, bet)
+            if not spent:
                 db.rollback()
                 return error('Недостаточно средств.')
-            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,want_gift) VALUES(?,?,?,?,?)', (n, uid, direction, bet, want_gift))
+            cur = db.execute('INSERT INTO hilo_room_bets(round_no,user_id,direction,amount,want_gift,bonus_used) VALUES(?,?,?,?,?,?)',
+                             (n, uid, direction, bet, want_gift, int(spent[1])))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_room', cur.lastrowid, 'Hi-Lo общий раунд')
             new_level = increase_turnover(db, uid, bet)
         db.commit()
@@ -11566,22 +11703,24 @@ def hilo_start():
             if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (inventory_id, uid)).rowcount:
                 db.rollback()
                 return error('Подарок уже используется.', 409)
+            bonus_used = bet if inventory_bonus_locked(item) else 0
             cursor = db.execute("""INSERT INTO hilo_games(user_id,bet,bet_type,bet_inventory_id,bet_gift_id,bet_gift_name,
-                                   bet_gift_image,cur_rank,card_name,card_image,history)
-                                   VALUES(?,?,'gift',?,?,?,?,?,?,?,?)""",
+                                   bet_gift_image,cur_rank,card_name,card_image,history,bonus_used)
+                                   VALUES(?,?,'gift',?,?,?,?,?,?,?,?,?)""",
                                 (uid, bet, inventory_id, str(item['gift_id'] or ''), str(item['gift_name'] or '')[:140],
                                  str(item['image_url'] or ''), rank, card_name, card_image,
-                                 json.dumps([dict(r=rank, rel=None)])))
+                                 json.dumps([dict(r=rank, rel=None)]), bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_game', cursor.lastrowid, str(item['gift_name'] or '')[:140])
             if xp_allowed:
                 new_level = increase_turnover(db, uid, bet)
         else:
-            if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+            spent = spend_game_balance(db, uid, bet)
+            if not spent:
                 db.rollback()
                 return error('Недостаточно средств.')
-            cursor = db.execute("""INSERT INTO hilo_games(user_id,bet,cur_rank,card_name,card_image,history)
-                                   VALUES(?,?,?,?,?,?)""",
-                                (uid, bet, rank, card_name, card_image, json.dumps([dict(r=rank, rel=None)])))
+            cursor = db.execute("""INSERT INTO hilo_games(user_id,bet,cur_rank,card_name,card_image,history,bonus_used)
+                                   VALUES(?,?,?,?,?,?,?)""",
+                                (uid, bet, rank, card_name, card_image, json.dumps([dict(r=rank, rel=None)]), int(spent[1])))
             record_transaction(db, uid, 'hilo_bet', -bet, 'hilo_game', cursor.lastrowid, 'Hi-Lo')
             new_level = increase_turnover(db, uid, bet)
         game_id = int(cursor.lastrowid)
@@ -12659,7 +12798,8 @@ def redeem_promocode():
             amount = max(0, int(promo['amount']))
             if amount <= 0:
                 return error('Награда промокода настроена неверно.', 500)
-            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount, session['uid']))
+            target_balance = promo_balance_target(promo)
+            credit_promo_balance(db, session['uid'], amount, target_balance)
             reward = dict(type='balance', amount=amount/100)
             record_transaction(db, session['uid'], 'promo_balance', amount, 'promo', code, f'Промокод {code}')
         elif promo['reward_type'] == 'tickets':
@@ -12670,8 +12810,9 @@ def redeem_promocode():
                        (session['uid'],tickets,'promo','promo',code,f'Промокод {code}'))
             reward=dict(type='tickets',tickets=tickets)
         elif promo['reward_type'] == 'gift':
-            cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'promo')",
-                             (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price']))
+            bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
+            cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'promo',?,?,?)",
+                             (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'], promo['gift_price'], bo, br, bp))
             inventory_id = cur.lastrowid
             reward = dict(type='gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'], name=promo['gift_name'],
                                                  image_url=promo['gift_image_url'], price_ton=promo['gift_price']/100))
@@ -12681,10 +12822,12 @@ def redeem_promocode():
             target = max(1, round(int(promo['gift_price']) * multiplier))
             item_expires_at = promo_gift_expiry(promo['gift_expires_days'])
             cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                              promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
-                              VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
+                              promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                              bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                              VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?)""",
                              (session['uid'], promo['gift_id'], promo['gift_name'], promo['gift_image_url'],
-                              promo['gift_price'], multiplier, target, code, item_expires_at))
+                              promo['gift_price'], multiplier, target, code, item_expires_at,
+                              *bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])))
             inventory_id = cur.lastrowid
             reward = dict(type='wager_gift', gift=dict(id=inventory_id, gift_id=promo['gift_id'],
                                                        name=promo['gift_name'], image_url=promo['gift_image_url'],
@@ -12705,24 +12848,27 @@ def redeem_promocode():
                     if kind=='balance':
                         amount=int(comp.get('amount') or 0)*quantity
                         if amount<=0:return error('Мультипромокод настроен неверно.',500)
-                        db.execute('UPDATE users SET balance=balance+? WHERE id=?',(amount,session['uid']))
+                        credit_promo_balance(db,session['uid'],amount,promo_balance_target(promo))
                         record_transaction(db,session['uid'],'promo_balance',amount,'promo',code,f'Мультипромокод {code}')
                         rewards.append(dict(type='balance',amount=amount/100,quantity=quantity))
                     elif kind in ('gift','wager_gift'):
                         awarded=[]
                         for _ in range(quantity):
                             if kind=='gift':
-                                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'promo')",
-                                               (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price']))
+                                bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), comp['gift_price'])
+                                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'promo',?,?,?)",
+                                               (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],bo,br,bp))
                                 expires_at=None
                             else:
                                 multiplier=float(comp['wager_multiplier'])
                                 target=round(int(comp['gift_price'])*multiplier)
                                 expires_at=promo_gift_expiry(comp.get('gift_expires_days'))
                                 cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
-                                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at)
-                                                  VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?)""",
-                                               (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],multiplier,target,code,expires_at))
+                                                  promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                                                  bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                                                  VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?)""",
+                                               (session['uid'],comp['gift_id'],comp['gift_name'],comp['image_url'],comp['gift_price'],multiplier,target,code,expires_at,
+                                                *bonus_inventory_clause(promo_balance_target(promo), comp['gift_price'])))
                             inventory_id=cur.lastrowid
                             awarded.append(inventory_id)
                             record_transaction(db,session['uid'],'promo_'+kind,0,'promo',code,comp['gift_name'])
@@ -12742,7 +12888,7 @@ def redeem_promocode():
                 if not components:return error('Мультипромокод настроен неверно.',500)
                 if 'balance' in components:
                     amount=int(components['balance']['amount'])
-                    db.execute('UPDATE users SET balance=balance+? WHERE id=?',(amount,session['uid']))
+                    credit_promo_balance(db,session['uid'],amount,promo_balance_target(promo))
                     record_transaction(db,session['uid'],'promo_balance',amount,'promo',code,f'Мультипромокод {code}')
                     rewards.append(dict(type='balance',amount=amount/100))
                 for kind in ('gift','wager_gift'):
@@ -13164,7 +13310,7 @@ def _freebet_backing_values(data, code):
 def admin_freebets():
     with connect() as db:
         rows = db.execute("""SELECT f.*,f.min_deposit AS freebet_min_deposit,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
-                             p.bonus_percent,p.bonus_fixed,p.min_deposit,p.reward_json,p.gift_expires_days
+                             p.bonus_percent,p.bonus_fixed,p.min_deposit,p.reward_json,p.gift_expires_days,p.balance_target
                              FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
                              ORDER BY f.created_at DESC""").fetchall()
         pool_rows = db.execute("""SELECT freebet_code,COUNT(*) AS total,
@@ -13181,7 +13327,7 @@ def admin_freebets():
                           min_level=int(x['min_level'] or 0),min_telegram_level=int(x['min_telegram_level'] or 0),
                           min_turnover=int(x['min_turnover'] or 0)/100,min_deposit=int(x['freebet_min_deposit'] or 0)/100,expires_at=x['expires_at'],
                           created_at=x['created_at'],reward_type=x['reward_type'],purpose=promo_purpose(promo),
-                          author_user_id=int(x['author_user_id'] or 0),
+                          author_user_id=int(x['author_user_id'] or 0), balance_target=promo_balance_target(x),
                           burn_pool_enabled=bool(options.get('burn_pool_enabled')),
                           pool_total=pool['total'],pool_claimed=pool['claimed'],pool_remaining=max(0,pool['total']-pool['claimed'])))
     return jsonify(items=items, channel=post_channel_settings(), bot_username=bot_username_value())
@@ -13217,6 +13363,7 @@ def admin_create_freebet():
                 return error('Укажите существующий уровень GemDrop.')
     if not 0 <= expires_days <= 3650:return error('Срок действия: 0–3650 дней.')
     require_subscription=1 if bool(data.get('require_subscription')) else 0
+    balance_target='bonus' if str(data.get('balance_target') or 'main').lower()=='bonus' else 'main'
     if require_subscription and not post_channel_settings().get('chat_id'):
         return error('Сначала привяжите чат/канал в разделе Post или отключите условие участника.',409)
     expires_at=(datetime.now(timezone.utc)+timedelta(days=expires_days)).isoformat() if expires_days else None
@@ -13232,10 +13379,10 @@ def admin_create_freebet():
             return error('Такой код уже существует.',409)
         db.execute("""INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                     max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,
-                    source_label,description,expires_at,gift_expires_days)
-                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?)""",
+                    source_label,description,expires_at,gift_expires_days,balance_target)
+                    VALUES(?,?,?,?,?,?,?,?,0,0,0,?,?,?,?,?,0,'Freebet','',?,?,?)""",
                    (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,session['uid'],
-                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days))
+                    bonus_percent,bonus_fixed,min_deposit,reward_json,expires_at,gift_expires_days,balance_target))
         db.execute("""INSERT INTO freebets(code,promo_code,max_uses,active,require_subscription,min_level,min_telegram_level,
                     min_turnover,min_deposit,expires_at,created_by,author_user_id) VALUES(?,?,?,1,?,?,?,?,?,?,?,?)""",
                    (code,code,max_uses,require_subscription,min_level,min_tg,min_turnover,activation_min_deposit,
@@ -13310,6 +13457,7 @@ def admin_promocodes():
                                description=x['description'] or '',expires_at=x['expires_at'],expired=promo_is_expired(x),gift_expires_days=int(x['gift_expires_days'] or 0),
                                bonus_percent=float(x['bonus_percent'] or 0),bonus_fixed=x['bonus_fixed']/100,
                                min_deposit=x['min_deposit']/100,activation_min_deposit=int(x['activation_min_deposit'] or 0)/100,purpose=promo_purpose(x),
+                               balance_target=promo_balance_target(x),
                                components=public_level_reward(json.loads(x['reward_json'])).get('components',{})
                                if x['reward_type']=='multi' else {},
                                bundle_items=(json.loads(x['reward_json'] or '{}').get('items',[]) if x['reward_type']=='multi' else [])) for x in rows])
@@ -13323,6 +13471,7 @@ def admin_create_promocode():
     if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
         return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
     reward_type = str(data.get('reward_type') or 'balance')
+    balance_target = 'bonus' if str(data.get('balance_target') or 'main').lower() == 'bonus' else 'main'
     try:
         max_uses = int(data.get('max_uses', 1))
     except (TypeError, ValueError):
@@ -13416,12 +13565,12 @@ def admin_create_promocode():
                 return error('Пользователь с таким ID не найден.',404)
             if assigned_user_id:
                 max_uses=1
-            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                        (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
                         json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
-                        assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id))
+                        assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'promo_create', code))
     except Exception as exc:
@@ -16677,7 +16826,10 @@ def credit_verified_ton_deposit(db, order, tx_hash):
         consumed=db.execute('UPDATE promo_redemptions SET consumed_at=CURRENT_TIMESTAMP WHERE code=? AND user_id=? AND consumed_at IS NULL',
                             (active['code'],user_id))
         if not consumed.rowcount:deposit_bonus=0
-    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount+deposit_bonus, user_id))
+    auto_bonus = round(amount * 10 / 100)
+    db.execute('UPDATE users SET balance=balance+?,bonus_balance=bonus_balance+? WHERE id=?',
+               (amount, deposit_bonus + auto_bonus, user_id))
+    apply_bonus_gift_deposit_progress(db, user_id, amount)
     add_withdrawal_wager_requirement(db,user_id,amount)
     if referrer and bonus:
         # Referral income goes to a separate referral balance; the referrer moves it to the main balance
@@ -16689,10 +16841,12 @@ def credit_verified_ton_deposit(db, order, tx_hash):
     db.execute("UPDATE ton_deposit_orders SET status='credited',tx_hash=?,credited_at=CURRENT_TIMESTAMP WHERE id=?",
                (tx_hash, order['id']))
     record_transaction(db, user_id, 'ton_deposit', amount, 'ton_tx', tx_hash, 'Подтверждённое пополнение TON')
+    if auto_bonus:
+        record_transaction(db,user_id,'ton_connect_bonus',auto_bonus,'ton_tx',tx_hash,'Автобонус TON Connect +10%')
     if deposit_bonus:
         record_transaction(db,user_id,'deposit_promo_bonus',deposit_bonus,'ton_tx',tx_hash,
                            f'Бонус промокода {active["code"]}')
-    log_event(db,user_id,'deposit_confirmed',amount=amount/100,bonus=deposit_bonus/100,
+    log_event(db,user_id,'deposit_confirmed',amount=amount/100,bonus=(deposit_bonus+auto_bonus)/100,
               promo_code=active['code'] if deposit_bonus else '',transaction=tx_hash)
     if referrer and bonus:
         record_transaction(db, referrer, 'referral_bonus', bonus, 'ton_tx', tx_hash,
@@ -16732,7 +16886,7 @@ def create_ton_deposit():
         db.execute('INSERT INTO user_wallets(user_id,address,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,updated_at=CURRENT_TIMESTAMP',
                    (session['uid'], wallet_address))
         log_event(db,session['uid'],'deposit_created',amount=amount/100,promo_code=promo_code,order_id=order_id)
-    return jsonify(ok=True, order_id=order_id, amount=amount/100,
+    return jsonify(ok=True, order_id=order_id, amount=amount/100, auto_bonus=round(amount * 0.10)/100, auto_bonus_percent=10,
                    deposit_bonus=(round(amount*float(promo['bonus_percent'] or 0)/100)+int(promo['bonus_fixed'] or 0))/100
                    if promo and amount>=int(promo['min_deposit'] or 0) else 0,
                    transaction=dict(validUntil=created + 300,
@@ -16855,7 +17009,8 @@ def credit_verified_stars_deposit(db, order, payment_charge_id):
     user_id = int(order['user_id'])
     amount = int(order['amount'])
     deposit_bonus, promo = _consume_deposit_bonus(db, user_id, amount, order['promo_code'] or '')
-    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount + deposit_bonus, user_id))
+    db.execute('UPDATE users SET balance=balance+?,bonus_balance=bonus_balance+? WHERE id=?', (amount, deposit_bonus, user_id))
+    apply_bonus_gift_deposit_progress(db, user_id, amount)
     add_withdrawal_wager_requirement(db,user_id,amount)
     db.execute("""INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key)
                   VALUES(?,?,NULL,0,0,?)""",

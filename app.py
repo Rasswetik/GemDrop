@@ -40,6 +40,8 @@ BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
 BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if BOT_TOKEN else ''
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()
+TWITCH_CLIENT_ID = (os.environ.get('TWITCH_CLIENT_ID') or '').strip()
+TWITCH_CLIENT_SECRET = (os.environ.get('TWITCH_CLIENT_SECRET') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
@@ -1142,30 +1144,30 @@ def admin_required(fn):
 
 CREATOR_LEVELS = {
     'base': dict(
-        key='base', name='Base', daily_budget_cents=30, daily_code_limit=1,
+        key='base', name='Base', daily_budget_cents=100, daily_code_limit=1, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=100, wager_daily_limit=1, wager_min_x=40,
         wager_gift_min_cents=300, wager_gift_max_cents=400, wager_max_uses=1,
-        description='Базовый уровень автора: до 0.30 TON в день или 1 отыгрышный подарок 3–4 TON с X от 40.',
+        description='Базовый уровень автора: до 1 TON в день, из них 30% на основной и 70% на бонусный баланс, или 1 отыгрышный подарок 3–4 TON с X от 40.',
     ),
     'creator': dict(
-        key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0,
+        key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=50, wager_daily_limit=1, wager_min_x=30,
         wager_gift_min_cents=300, wager_gift_max_cents=500, wager_max_uses=10,
-        description='До 1.50 TON в день и 1 отыгрышный подарок стоимостью 3–5 TON.',
+        description='До 1.50 TON в день: 30% на основной и 70% на бонусный баланс; плюс 1 отыгрышный подарок стоимостью 3–5 TON.',
     ),
     'super_creator': dict(
-        key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0,
+        key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=50, wager_daily_limit=3, wager_min_x=20,
         wager_gift_min_cents=300, wager_gift_max_cents=1000, wager_max_uses=15,
         custom_deposit=True,
-        description='До 5 TON в день и до 3 отыгрышных подарков стоимостью 3–10 TON. Условие депозита задаёте сами: можно без депозита или с любым минимумом.',
+        description='До 5 TON в день: 30% на основной и 70% на бонусный баланс; до 3 отыгрышных подарков стоимостью 3–10 TON. Условие депозита задаёте сами.',
     ),
     'god': dict(
-        key='god', name='God', daily_budget_cents=1000, daily_code_limit=0,
+        key='god', name='God', daily_budget_cents=1000, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=0, wager_daily_limit=10, wager_min_x=17,
         wager_gift_min_cents=300, wager_gift_max_cents=1500, wager_max_uses=20,
         custom_deposit=True,
-        description='Высший уровень. До 10 TON в день и до 10 отыгрышных подарков стоимостью 3–15 TON с X от 17 и до 20 активаций. Депозит на выбор: без депозита или любой минимум. Выдаётся только администратором.',
+        description='Высший уровень. До 10 TON в день: 3 TON на основной и 7 TON на бонусный баланс; до 10 отыгрышных подарков 3–15 TON с X от 17 и до 20 активаций. Выдаётся только администратором.',
     ),
 }
 
@@ -1212,6 +1214,7 @@ def creator_record(user_id):
         demo_tickets = 0
     demo_claims = raw.get('demo_level_claims') if isinstance(raw.get('demo_level_claims'), dict) else {}
     youtube = raw.get('youtube') if isinstance(raw.get('youtube'), dict) else {}
+    twitch = raw.get('twitch') if isinstance(raw.get('twitch'), dict) else {}
     # Three balances exist: real, DEMO (regular player, settings) and creator DEMO (creator panel).
     # A creator never has the player-level demo: his own demo lives in the creator panel.
     user_demo = bool(raw.get('user_demo')) and not bool(raw.get('active'))
@@ -1233,6 +1236,7 @@ def creator_record(user_id):
         demo_arena=dict(raw.get('demo_arena') or {}) if isinstance(raw.get('demo_arena'), dict) else {},
         youtube=dict(youtube),
         youtube_pending=(dict(raw.get('youtube_pending')) if isinstance(raw.get('youtube_pending'), dict) else {}),
+        twitch=dict(twitch),
         creator_limit_reset_at=raw.get('creator_limit_reset_at'),
         creator_limit_credit=(dict(raw.get('creator_limit_credit')) if isinstance(raw.get('creator_limit_credit'), dict) else {}),
         created_at=raw.get('created_at'),
@@ -1269,6 +1273,8 @@ def save_creator_record(user_id, data):
         current['youtube'] = {}
     if not isinstance(current.get('youtube_pending'), dict):
         current['youtube_pending'] = {}
+    if not isinstance(current.get('twitch'), dict):
+        current['twitch'] = {}
     current['updated_at'] = datetime.now(timezone.utc).isoformat()
     if not current.get('created_at'):
         current['created_at'] = current['updated_at']
@@ -1787,6 +1793,48 @@ def credit_promo_balance(db, user_id, amount, target='main'):
     amount = max(0, int(amount or 0))
     column = 'bonus_balance' if str(target).lower() == 'bonus' else 'balance'
     db.execute(f'UPDATE users SET {column}={column}+? WHERE id=?', (amount, user_id))
+
+
+def promo_creator_balance_split(promo):
+    """Creator-issued TON rewards are intentionally split 30/70 between main and bonus balances."""
+    try:
+        payload = json.loads(promo['reward_json'] or '{}')
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    cfg = payload.get('creator_split') if isinstance(payload, dict) else None
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        main = int(cfg.get('main_percent'))
+        bonus = int(cfg.get('bonus_percent'))
+    except (TypeError, ValueError):
+        return None
+    if main < 0 or bonus < 0 or main + bonus != 100:
+        return None
+    return main, bonus
+
+
+def promo_creator_balance_split_public(promo):
+    split = promo_creator_balance_split(promo)
+    if not split:
+        return None
+    return {'main_percent': int(split[0]), 'bonus_percent': int(split[1])}
+
+
+def credit_promo_reward_balance(db, user_id, amount, promo):
+    amount = max(0, int(amount or 0))
+    split = promo_creator_balance_split(promo)
+    if split:
+        main_percent, bonus_percent = split
+        main_amount = int(round(amount * main_percent / 100))
+        main_amount = max(0, min(amount, main_amount))
+        bonus_amount = amount - main_amount
+        db.execute('UPDATE users SET balance=balance+?,bonus_balance=bonus_balance+? WHERE id=?',
+                   (main_amount, bonus_amount, user_id))
+        return main_amount, bonus_amount
+    target = promo_balance_target(promo)
+    credit_promo_balance(db, user_id, amount, target)
+    return (0, amount) if target == 'bonus' else (amount, 0)
 
 
 def bonus_inventory_clause(target, price_cents):
@@ -7642,10 +7690,10 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         amount = max(0, int(promo['amount'] or 0))
         if amount <= 0:
             raise ValueError('Награда фрибета настроена неверно.')
-        target_balance = promo_balance_target(promo)
-        credit_promo_balance(db, user_id, amount, target_balance)
-        reward = dict(type='balance', amount=amount/100)
-        record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code, f'Freebet {freebet_code}')
+        main_amount, bonus_amount = credit_promo_reward_balance(db, user_id, amount, promo)
+        reward = dict(type='balance', amount=amount/100, main_amount=main_amount/100, bonus_amount=bonus_amount/100)
+        record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code,
+                           f'Freebet {freebet_code} · основной {main_amount/100:.2f} · бонусный {bonus_amount/100:.2f} TON')
     elif reward_type == 'gift':
         bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
         cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'freebet',?,?,?,?)",
@@ -12798,10 +12846,10 @@ def redeem_promocode():
             amount = max(0, int(promo['amount']))
             if amount <= 0:
                 return error('Награда промокода настроена неверно.', 500)
-            target_balance = promo_balance_target(promo)
-            credit_promo_balance(db, session['uid'], amount, target_balance)
-            reward = dict(type='balance', amount=amount/100)
-            record_transaction(db, session['uid'], 'promo_balance', amount, 'promo', code, f'Промокод {code}')
+            main_amount, bonus_amount = credit_promo_reward_balance(db, session['uid'], amount, promo)
+            reward = dict(type='balance', amount=amount/100, main_amount=main_amount/100, bonus_amount=bonus_amount/100)
+            record_transaction(db, session['uid'], 'promo_balance', amount, 'promo', code,
+                               f'Промокод {code} · основной {main_amount/100:.2f} · бонусный {bonus_amount/100:.2f} TON')
         elif promo['reward_type'] == 'tickets':
             tickets=max(0,int(promo['amount'] or 0))
             if tickets<=0:return error('Награда промокода настроена неверно.',500)
@@ -14130,11 +14178,15 @@ def admin_creator_restore_limit(user_id):
         if old.get('day') != day:
             old = {}
         budget_add = int(round(int(cfg['daily_budget_cents']) * percent / 100))
+        main_add = int(round(budget_add * int(cfg.get('main_percent', 30)) / 100))
+        bonus_add = budget_add - main_add
         wager_add = int(math.ceil(int(cfg['wager_daily_limit']) * percent / 100)) if cfg['wager_daily_limit'] else 0
         code_add = int(math.ceil(int(cfg['daily_code_limit']) * percent / 100)) if cfg['daily_code_limit'] else 0
         changes = {'creator_limit_credit': dict(
             day=day,
             budget_cents=int(old.get('budget_cents') or 0) + budget_add,
+            main_budget_cents=int(old.get('main_budget_cents') or 0) + main_add,
+            bonus_budget_cents=int(old.get('bonus_budget_cents') or 0) + bonus_add,
             wager_count=int(old.get('wager_count') or 0) + wager_add,
             code_count=int(old.get('code_count') or 0) + code_add)}
     save_creator_record(user_id, changes)
@@ -14192,15 +14244,31 @@ def creator_limit_window(record=None, now_utc=None):
 def creator_bonus_usage(db, user_id, record=None):
     record = record or creator_record(user_id)
     start_utc, end_utc, day = creator_limit_window(record)
-    rows = db.execute("""SELECT reward_type,amount,max_uses,source_label,created_at
+    rows = db.execute("""SELECT reward_type,amount,max_uses,source_label,created_at,balance_target,reward_json
                          FROM promo_codes
                          WHERE author_user_id=? AND created_at>=? AND created_at<?""",
                       (int(user_id), _daily_top_db_string(start_utc), _daily_top_db_string(end_utc))).fetchall()
     budget = 0
+    main_budget = 0
+    bonus_budget = 0
     wager_count = 0
     for row in rows:
         if row['reward_type'] == 'balance':
-            budget += max(0, int(row['amount'] or 0)) * max(1, int(row['max_uses'] or 1))
+            cost = max(0, int(row['amount'] or 0)) * max(1, int(row['max_uses'] or 1))
+            budget += cost
+            # Older creator codes created by the first two-balance migration split every
+            # activation 30/70. Keep them accounted for correctly while new codes use
+            # one explicit target balance and one explicit quota.
+            split = promo_creator_balance_split(row)
+            if split:
+                main_part = int(round(cost * int(split[0]) / 100))
+                main_part = max(0, min(cost, main_part))
+                main_budget += main_part
+                bonus_budget += cost - main_part
+            elif promo_balance_target(row) == 'bonus':
+                bonus_budget += cost
+            else:
+                main_budget += cost
         elif row['reward_type'] == 'wager_gift':
             wager_count += 1
     code_count = len(rows)
@@ -14208,12 +14276,22 @@ def creator_bonus_usage(db, user_id, record=None):
     credit = record.get('creator_limit_credit') or {}
     if isinstance(credit, dict) and credit.get('day') == day:
         try:
-            budget = max(0, budget - max(0, int(credit.get('budget_cents') or 0)))
+            total_credit = max(0, int(credit.get('budget_cents') or 0))
+            main_credit = credit.get('main_budget_cents')
+            bonus_credit = credit.get('bonus_budget_cents')
+            if main_credit is None or bonus_credit is None:
+                cfg = CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]
+                main_credit = int(round(total_credit * int(cfg.get('main_percent', 30)) / 100))
+                bonus_credit = total_credit - main_credit
+            budget = max(0, budget - total_credit)
+            main_budget = max(0, main_budget - max(0, int(main_credit or 0)))
+            bonus_budget = max(0, bonus_budget - max(0, int(bonus_credit or 0)))
             wager_count = max(0, wager_count - max(0, int(credit.get('wager_count') or 0)))
             code_count = max(0, code_count - max(0, int(credit.get('code_count') or 0)))
         except (TypeError, ValueError):
             pass
-    return dict(day=day, budget_used=budget/100, code_count=code_count, wager_count=wager_count,
+    return dict(day=day, budget_used=budget/100, main_budget_used=main_budget/100,
+                bonus_budget_used=bonus_budget/100, code_count=code_count, wager_count=wager_count,
                 reset_at=start_utc.isoformat())
 
 
@@ -14252,6 +14330,7 @@ def creator_create_bonus():
     data = request.get_json(silent=True) or {}
     kind = str(data.get('kind') or '').strip().lower()
     reward_type = str(data.get('reward_type') or 'balance').strip().lower()
+    balance_target = 'bonus' if str(data.get('balance_target') or 'bonus').strip().lower() == 'bonus' else 'main'
     if kind not in ('freebet', 'promocode'):
         return error('Выберите Freebet или промокод.')
     if reward_type not in ('balance', 'wager_gift'):
@@ -14334,9 +14413,20 @@ def creator_create_bonus():
             return error(f'На уровне {cfg["name"]} можно создать только 1 код в день.', 409)
         if reward_type == 'balance':
             cost = amount * max_uses
-            remaining = max(0, int(cfg['daily_budget_cents']) - int(round(float(usage['budget_used']) * 100)))
-            if cost > remaining:
-                return error(f'Превышен дневной лимит. Осталось {remaining/100:.2f} TON.', 409)
+            total_remaining = max(0, int(cfg['daily_budget_cents']) - int(round(float(usage['budget_used']) * 100)))
+            main_limit = int(round(int(cfg['daily_budget_cents']) * int(cfg.get('main_percent', 30)) / 100))
+            bonus_limit = int(cfg['daily_budget_cents']) - main_limit
+            if balance_target == 'bonus':
+                target_limit = bonus_limit
+                target_used = int(round(float(usage.get('bonus_budget_used') or 0) * 100))
+                target_name = 'бонусного'
+            else:
+                target_limit = main_limit
+                target_used = int(round(float(usage.get('main_budget_used') or 0) * 100))
+                target_name = 'основного'
+            target_remaining = max(0, target_limit - target_used)
+            if cost > total_remaining or cost > target_remaining:
+                return error(f'Превышен дневной лимит {target_name} баланса. Осталось {target_remaining/100:.2f} TON.', 409)
         elif int(usage['wager_count']) >= int(cfg['wager_daily_limit']):
             return error(f'Дневной лимит отыгрышных подарков: {cfg["wager_daily_limit"]}.', 409)
         source = 'Freebet' if kind == 'freebet' else 'Creator'
@@ -14345,14 +14435,15 @@ def creator_create_bonus():
         # the record self-describing, this prevents a Freebet from under-counting
         # its potential TON cost in the creator daily budget audit.
         promo_max_uses = max_uses
+        reward_json = '{}'
         db.execute("""INSERT INTO promo_codes(
                     code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                     max_uses,uses_count,active,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
                     assigned_user_id,source_label,description,expires_at,gift_expires_days,
-                    activation_min_deposit,author_user_id)
-                    VALUES(?,?,?,?,?,?,?,?,?,0,?,?,0,0,0,'{}',0,?,'',NULL,0,?,?)""",
+                    activation_min_deposit,author_user_id,balance_target)
+                    VALUES(?,?,?,?,?,?,?,?,?,0,?,?,0,0,0,?,0,?,'',NULL,0,?,?,?)""",
                    (code,reward_type,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
-                    promo_max_uses,active,uid,source,activation_min_deposit,uid))
+                    promo_max_uses,active,uid,reward_json,source,activation_min_deposit,uid,balance_target))
         if kind == 'freebet':
             db.execute("""INSERT INTO freebets(
                         code,promo_code,max_uses,uses_count,active,require_subscription,min_level,min_telegram_level,
@@ -14376,6 +14467,163 @@ def creator_create_bonus():
                    condition_min_deposit=activation_min_deposit/100, **state)
 
 
+_TWITCH_TOKEN_CACHE = {'token': '', 'expires_at': 0}
+_TWITCH_TOKEN_LOCK = Lock()
+
+
+def twitch_channel_login(value):
+    value = str(value or '').strip()
+    if not value:
+        raise ValueError('Вставьте ссылку на Twitch-канал.')
+    if len(value) > 300:
+        raise ValueError('Ссылка на Twitch слишком длинная.')
+    value = value.split('?', 1)[0].rstrip('/')
+    m = re.search(r'(?:https?://)?(?:www\.)?twitch\.tv/([A-Za-z0-9_]{3,25})(?:/|$)', value, re.I)
+    login = m.group(1) if m else value.lstrip('@')
+    if not re.fullmatch(r'[A-Za-z0-9_]{3,25}', login):
+        raise ValueError('Не удалось определить Twitch-канал.')
+    return login.lower()
+
+
+def twitch_access_token():
+    if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
+        raise RuntimeError('Twitch не настроен. Добавьте TWITCH_CLIENT_ID и TWITCH_CLIENT_SECRET в Environment.')
+    now = int(time.time())
+    with _TWITCH_TOKEN_LOCK:
+        if _TWITCH_TOKEN_CACHE['token'] and int(_TWITCH_TOKEN_CACHE['expires_at'] or 0) > now + 60:
+            return _TWITCH_TOKEN_CACHE['token']
+        try:
+            response = requests.post('https://id.twitch.tv/oauth2/token', params={
+                'client_id': TWITCH_CLIENT_ID, 'client_secret': TWITCH_CLIENT_SECRET,
+                'grant_type': 'client_credentials'}, timeout=12)
+            response.raise_for_status()
+            data = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise RuntimeError('Twitch временно недоступен.') from exc
+        token = str(data.get('access_token') or '')
+        if not token:
+            raise RuntimeError('Twitch не выдал access token.')
+        _TWITCH_TOKEN_CACHE['token'] = token
+        _TWITCH_TOKEN_CACHE['expires_at'] = now + max(120, int(data.get('expires_in') or 3600))
+        return token
+
+
+def twitch_api_get(path, params=None):
+    token = twitch_access_token()
+    try:
+        response = requests.get('https://api.twitch.tv/helix/' + path.lstrip('/'), params=params or {},
+                                headers={'Client-ID': TWITCH_CLIENT_ID, 'Authorization': 'Bearer ' + token}, timeout=12)
+        if response.status_code == 401:
+            with _TWITCH_TOKEN_LOCK:
+                _TWITCH_TOKEN_CACHE.update(token='', expires_at=0)
+            token = twitch_access_token()
+            response = requests.get('https://api.twitch.tv/helix/' + path.lstrip('/'), params=params or {},
+                                    headers={'Client-ID': TWITCH_CLIENT_ID, 'Authorization': 'Bearer ' + token}, timeout=12)
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError('Не удалось получить данные Twitch.') from exc
+
+
+def twitch_thumbnail(url):
+    return safe_image(str(url or '').replace('%{width}', '320').replace('%{height}', '180'))
+
+
+def twitch_channel_snapshot(value):
+    login = twitch_channel_login(value)
+    users = twitch_api_get('users', {'login': login}).get('data') or []
+    if not users:
+        raise ValueError('Twitch-канал не найден.')
+    user = users[0]
+    user_id = str(user.get('id') or '')
+    videos = []
+    live_rows = twitch_api_get('streams', {'user_id': user_id, 'first': 1}).get('data') or []
+    if live_rows:
+        live = live_rows[0]
+        title = str(live.get('title') or '')
+        if 'gemdrop' in title.casefold():
+            videos.append(dict(id='live:' + str(live.get('id') or user_id), title=title or 'LIVE',
+                               url='https://www.twitch.tv/' + login,
+                               thumbnail_url=twitch_thumbnail(live.get('thumbnail_url')),
+                               views=int(live.get('viewer_count') or 0), created_at=live.get('started_at') or '',
+                               is_live=True))
+    for video in (twitch_api_get('videos', {'user_id': user_id, 'first': 50, 'type': 'archive', 'sort': 'time'}).get('data') or []):
+        title = str(video.get('title') or '')
+        if 'gemdrop' not in title.casefold():
+            continue
+        videos.append(dict(id=str(video.get('id') or ''), title=title or 'Трансляция',
+                           url=str(video.get('url') or ''), thumbnail_url=twitch_thumbnail(video.get('thumbnail_url')),
+                           views=int(video.get('view_count') or 0), created_at=video.get('created_at') or '', is_live=False))
+        if len(videos) >= 20:
+            break
+    return dict(user_id=user_id, login=str(user.get('login') or login),
+                display_name=str(user.get('display_name') or login), avatar_url=safe_image(user.get('profile_image_url')),
+                url='https://www.twitch.tv/' + login, videos=videos,
+                updated_at=datetime.now(timezone.utc).isoformat())
+
+
+def twitch_taken_by_other(user_id, uid):
+    with connect() as db:
+        rows = db.execute("SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%'").fetchall()
+    for row in rows:
+        try:
+            other = int(str(row['name']).split(':', 1)[1])
+            payload = json.loads(row['payload'] or '{}')
+        except (ValueError, TypeError, json.JSONDecodeError, IndexError):
+            continue
+        if other == int(uid) or not isinstance(payload, dict) or not payload.get('active'):
+            continue
+        tw = payload.get('twitch') if isinstance(payload.get('twitch'), dict) else {}
+        if str(tw.get('user_id') or '') == str(user_id or ''):
+            return True
+    return False
+
+
+@app.post('/api/creator/twitch')
+@login_required
+@creator_required
+def creator_twitch_link():
+    uid = int(session['uid'])
+    data = request.get_json(silent=True) or {}
+    try:
+        snapshot = twitch_channel_snapshot(data.get('url'))
+    except ValueError as exc:
+        return error(str(exc))
+    except RuntimeError as exc:
+        return error(str(exc), 503)
+    if twitch_taken_by_other(snapshot.get('user_id'), uid):
+        return error('Этот Twitch-канал уже привязан к другому автору.', 409)
+    record = save_creator_record(uid, {'twitch': snapshot})
+    return jsonify(ok=True, twitch=record.get('twitch') or {})
+
+
+@app.post('/api/creator/twitch/refresh')
+@login_required
+@creator_required
+def creator_twitch_refresh():
+    uid = int(session['uid'])
+    current = creator_record(uid).get('twitch') or {}
+    ref = current.get('login') or current.get('url')
+    if not ref:
+        return error('Сначала привяжите Twitch-канал.', 409)
+    try:
+        snapshot = twitch_channel_snapshot(ref)
+    except (ValueError, RuntimeError) as exc:
+        return error(str(exc), 503)
+    if current.get('user_id') and str(snapshot.get('user_id')) != str(current.get('user_id')):
+        return error('Twitch вернул другой канал. Данные не изменены.', 409)
+    record = save_creator_record(uid, {'twitch': snapshot})
+    return jsonify(ok=True, twitch=record.get('twitch') or {})
+
+
+@app.delete('/api/creator/twitch')
+@login_required
+@creator_required
+def creator_twitch_unlink():
+    save_creator_record(session['uid'], {'twitch': {}})
+    return jsonify(ok=True)
+
+
 @app.get('/api/creator/state')
 @login_required
 @creator_required
@@ -14397,6 +14645,8 @@ def creator_state():
         youtube_pending=record.get('youtube_pending') or {},
         youtube_configured=True,
         youtube_mode=('api' if YOUTUBE_API_KEY else 'public'),
+        twitch=record.get('twitch') or {},
+        twitch_configured=bool(TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET),
     )
 
 
@@ -14529,7 +14779,7 @@ def creator_youtube_unlink():
 def creator_freebets():
     with connect() as db:
         rows = db.execute("""SELECT f.*,p.reward_type,p.amount,p.gift_name,p.gift_price,p.wager_multiplier,
-                             p.reward_json,p.gift_expires_days
+                             p.reward_json,p.gift_expires_days,p.balance_target
                              FROM freebets f JOIN promo_codes p ON p.code=f.promo_code
                              WHERE f.author_user_id=? OR p.author_user_id=?
                              ORDER BY f.created_at DESC""",
@@ -14541,7 +14791,7 @@ def creator_freebets():
             code=x['code'], link=freebet_link(x['code']), active=bool(x['active']),
             max_uses=int(x['max_uses'] or 0), uses_count=int(x['uses_count'] or 0),
             remaining=(None if int(x['max_uses'] or 0) == 0 else max(0, int(x['max_uses'] or 0)-int(x['uses_count'] or 0))),
-            reward_type=x['reward_type'], purpose=promo_purpose(x),
+            reward_type=x['reward_type'], purpose=promo_purpose(x), balance_target=promo_balance_target(x),
             wager_multiplier=float(x['wager_multiplier'] or 0),
             burn_pool_enabled=bool(options.get('burn_pool_enabled')),
             require_subscription=bool(x['require_subscription']),
@@ -14549,6 +14799,7 @@ def creator_freebets():
             min_telegram_level=int(x['min_telegram_level'] or 0),
             min_turnover=int(x['min_turnover'] or 0)/100,
             min_deposit=int(x['min_deposit'] or 0)/100,
+            balance_split=promo_creator_balance_split_public(x),
             created_at=x['created_at'], expires_at=x['expires_at']))
     return jsonify(items=items)
 
@@ -14568,7 +14819,8 @@ def creator_promocodes():
         remaining=(None if int(x['max_uses'] or 0)==0 else max(0,int(x['max_uses'] or 0)-int(x['uses_count'] or 0))),
         active=bool(x['active']) and not promo_is_expired(x),
         expired=promo_is_expired(x), expires_at=x['expires_at'], created_at=x['created_at'],
-        source=x['source_label'] or '', description=x['description'] or ''
+        source=x['source_label'] or '', description=x['description'] or '',
+        balance_target=promo_balance_target(x), balance_split=promo_creator_balance_split_public(x)
     ) for x in rows])
 
 
@@ -14815,8 +15067,15 @@ def admin_user(user_id):
                             (user_id,)).fetchall()
         level=level_number(db,int(user['turnover_cents'] or 0))
         available_levels=[int(r['level']) for r in db.execute('SELECT level FROM levels ORDER BY level').fetchall()]
+        referred = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,r.created_at
+                                 FROM referrals r JOIN users u ON u.id=r.referred_id
+                                 WHERE r.referrer_id=? ORDER BY r.created_at DESC''', (user_id,)).fetchall()
+        referrer = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,r.created_at
+                                 FROM referrals r JOIN users u ON u.id=r.referrer_id
+                                 WHERE r.referred_id=? LIMIT 1''', (user_id,)).fetchone()
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'] or '',
-                             balance=user['balance']/100,level=level,
+                             balance=user['balance']/100, bonus_balance=int(user['bonus_balance'] or 0)/100,
+                             ref_balance=int(user['ref_balance'] or 0)/100, level=level,
                              turnover=user['turnover_cents']/100,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or '',
@@ -14833,6 +15092,8 @@ def admin_user(user_id):
                                                      set_at=user['max_drop_override_set_at'])
                                                 if int(user['max_drop_override_price'] or 0)>0 and user['max_drop_override_name'] else None)),items=[inventory_item(x) for x in items],
                    available_levels=available_levels,
+                   referrals=[dict(id=r['id'],name=r['name'],username=r['username'] or '',photo_url=r['photo_url'] or '',created_at=r['created_at']) for r in referred],
+                   referrer=(dict(id=referrer['id'],name=referrer['name'],username=referrer['username'] or '',photo_url=referrer['photo_url'] or '',created_at=referrer['created_at']) if referrer else None),
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),
                                 active=bool(p['active'] and not promo_is_expired(p)),
                                 used=bool(p['uses_count'])) for p in promos])
@@ -14958,6 +15219,7 @@ def admin_user_stars_withdrawal_unlock(user_id):
 def admin_create_user_promocode(user_id):
     data = request.get_json(silent=True) or {}
     kind = str(data.get('reward_type') or '')
+    balance_target = 'bonus' if str(data.get('balance_target') or 'main').lower() == 'bonus' else 'main'
     if kind not in ('balance','tickets','deposit_bonus','gift','wager_gift','multi'):
         return error('Выберите награду личного промокода.')
     code = str(data.get('code') or '').strip().upper()
@@ -15030,10 +15292,10 @@ def admin_create_user_promocode(user_id):
         db.execute('''INSERT INTO promo_codes(
                       code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
                       max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
-                      assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit)
-                      VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)''',
+                      assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,balance_target)
+                      VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)''',
                    (code,kind,amount,gift_id,gift_name,gift_image,gift_price,wager_multiplier,
-                    session['uid'],bonus_percent,bonus_fixed,min_deposit,json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',user_id,'Администрация','',expires_at,gift_expires_days,activation_min_deposit))
+                    session['uid'],bonus_percent,bonus_fixed,min_deposit,json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',user_id,'Администрация','',expires_at,gift_expires_days,activation_min_deposit,balance_target))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],user_id,'promo_issue',code))
         log_event(db,user_id,'promo_issued',code=code,source='Администрация')
@@ -15067,13 +15329,13 @@ def admin_issue_user_promocode(user_id):
         db.execute('''INSERT INTO promo_codes(
             code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,
             max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,
-            assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit)
-            VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)''',
+            assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,balance_target)
+            VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (issued_code,template['reward_type'],template['amount'],template['gift_id'],
              template['gift_name'],template['gift_image_url'],template['gift_price'],
              template['wager_multiplier'],session['uid'],template['bonus_percent'],
              template['bonus_fixed'],template['min_deposit'],template['reward_json'],
-             user_id,'Выдан администратором',promo_purpose(template),template['expires_at'],template['gift_expires_days'],template['activation_min_deposit']))
+             user_id,'Выдан администратором',promo_purpose(template),template['expires_at'],template['gift_expires_days'],template['activation_min_deposit'],promo_balance_target(template)))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],user_id,'promo_issue',f'{code} → {issued_code}'))
         log_event(db,user_id,'promo_issued',code=issued_code,source='Администрация')
@@ -15652,24 +15914,103 @@ def admin_user_activity(user_id):
 @admin_required
 def admin_balance(user_id):
     data = request.get_json(silent=True) or {}
+    kind = str(data.get('kind') or 'main').strip().lower()
+    mode = str(data.get('mode') or 'set').strip().lower()
+    fields = {'main': 'balance', 'bonus': 'bonus_balance', 'referral': 'ref_balance'}
+    field = fields.get(kind)
+    if not field:
+        return error('Неизвестный тип баланса.')
+    raw = data.get('amount') if mode == 'add' else data.get('balance', data.get('amount'))
     try:
-        amount = parse_amount(data.get('balance'))
+        amount = parse_amount(raw)
     except (ValueError, TypeError, InvalidOperation):
         return error('Введите сумму с точностью до 0.01.')
+    if mode not in ('set', 'add'):
+        return error('Неизвестная операция с балансом.')
+    if mode == 'add' and amount <= 0:
+        return error('Сумма начисления должна быть больше 0.')
     if not 0 <= amount <= 100000000:
-        return error('Баланс должен быть от 0 до 1 000 000.')
+        return error('Сумма должна быть от 0 до 1 000 000 TON.')
     with connect() as db:
-        old_row = db.execute('SELECT balance FROM users WHERE id=?', (user_id,)).fetchone()
+        db.execute('BEGIN IMMEDIATE')
+        old_row = db.execute('SELECT balance,bonus_balance,ref_balance FROM users WHERE id=?', (user_id,)).fetchone()
         if not old_row:
             return error('Пользователь не найден.', 404)
-        cursor = db.execute('UPDATE users SET balance=? WHERE id=?', (amount, user_id))
-        if not cursor.rowcount:
-            return error('Пользователь не найден.', 404)
+        old_value = int(old_row[field] or 0)
+        if mode == 'add':
+            db.execute(f'UPDATE users SET {field}={field}+? WHERE id=?', (amount, user_id))
+            new_value = old_value + amount
+        else:
+            db.execute(f'UPDATE users SET {field}=? WHERE id=?', (amount, user_id))
+            new_value = amount
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], user_id, 'balance_set', str(amount)))
-        record_transaction(db, user_id, 'admin_balance', amount-int(old_row['balance']),
-                           'admin', session['uid'], f'Баланс установлен: {amount/100:.2f} TON')
-    return jsonify(ok=True, balance=amount/100)
+                   (session['uid'], user_id, f'{kind}_balance_{mode}', str(amount)))
+        if kind == 'main':
+            record_transaction(db, user_id, 'admin_balance', new_value-old_value,
+                               'admin', session['uid'], f'Основной баланс: {new_value/100:.2f} TON')
+        else:
+            log_event(db, user_id, 'admin_balance_change', balance_kind=kind, mode=mode,
+                      amount_ton=amount/100, balance_after_ton=new_value/100, admin_id=session['uid'])
+        db.commit()
+        row = db.execute('SELECT balance,bonus_balance,ref_balance FROM users WHERE id=?', (user_id,)).fetchone()
+    return jsonify(ok=True, balance=int(row['balance'] or 0)/100,
+                   bonus_balance=int(row['bonus_balance'] or 0)/100,
+                   ref_balance=int(row['ref_balance'] or 0)/100)
+
+
+@app.post('/api/admin/users/<int:user_id>/referrals')
+@admin_required
+def admin_bind_referral(user_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        referred_id = int(data.get('referred_id') or 0)
+    except (TypeError, ValueError):
+        return error('Укажите ID реферала.')
+    if referred_id <= 0 or referred_id == int(user_id):
+        return error('Нельзя привязать пользователя к самому себе.')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
+            return error('Реферер не найден.', 404)
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (referred_id,)).fetchone():
+            return error('Реферал не найден.', 404)
+        # Keep the referral graph acyclic. Reassigning a user is allowed, but an
+        # ancestor may not be attached beneath its own descendant.
+        cursor = int(user_id)
+        seen = set()
+        while cursor and cursor not in seen:
+            seen.add(cursor)
+            parent = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (cursor,)).fetchone()
+            if not parent:
+                break
+            cursor = int(parent['referrer_id'] or 0)
+            if cursor == referred_id:
+                return error('Эта привязка создаст цикл в реферальной системе.', 409)
+        old = db.execute('SELECT referrer_id FROM referrals WHERE referred_id=?', (referred_id,)).fetchone()
+        db.execute('DELETE FROM referrals WHERE referred_id=?', (referred_id,))
+        db.execute('INSERT INTO referrals(referred_id,referrer_id) VALUES(?,?)', (referred_id, user_id))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, 'referral_bind',
+                    json.dumps({'referred_id': referred_id, 'previous_referrer_id': int(old['referrer_id']) if old else 0})))
+        log_event(db, user_id, 'admin_referral_bind', referred_id=referred_id, admin_id=session['uid'])
+        db.commit()
+    return jsonify(ok=True, referred_id=referred_id,
+                   previous_referrer_id=int(old['referrer_id']) if old else None)
+
+
+@app.delete('/api/admin/users/<int:user_id>/referrals/<int:referred_id>')
+@admin_required
+def admin_unbind_referral(user_id, referred_id):
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        result = db.execute('DELETE FROM referrals WHERE referred_id=? AND referrer_id=?', (referred_id, user_id))
+        if not result.rowcount:
+            return error('Такая реферальная связь не найдена.', 404)
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, 'referral_unbind', str(referred_id)))
+        log_event(db, user_id, 'admin_referral_unbind', referred_id=referred_id, admin_id=session['uid'])
+        db.commit()
+    return jsonify(ok=True, referred_id=referred_id)
 
 
 @app.post('/api/admin/users/<int:user_id>/deposit')
@@ -15698,6 +16039,7 @@ def admin_deposit(user_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'admin_deposit', str(amount)))
         record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
+        apply_bonus_gift_deposit_progress(db, user_id, amount)
         balance_now=int(db.execute('SELECT balance FROM users WHERE id=?',(user_id,)).fetchone()['balance'])
         db.commit()
         notify_deposit_async(user_id, amount, balance_now)
@@ -15710,6 +16052,8 @@ def admin_deposit(user_id):
 @admin_required
 def admin_add_inventory(user_id):
     data = request.get_json(silent=True) or {}
+    bonus_origin = (str(data.get('balance_target') or data.get('origin') or 'main').lower() == 'bonus'
+                    or bool(data.get('bonus_origin')))
     nft_url = str(data.get('fragment_url') or data.get('telegram_url') or '').strip()
 
     if nft_url:
@@ -15756,17 +16100,18 @@ def admin_add_inventory(user_id):
             cur = db.execute("""INSERT INTO inventory(
                 user_id,gift_id,gift_name,image_url,floor_price,source,external_url,
                 fragment_number,fragment_model,fragment_backdrop,fragment_symbol,
-                price_source,animation_url,source_label,deposit_mirror)
-                VALUES(?,?,?,?,?,'admin_nft',?,?,?,?,?,?,?,?,0)""",
+                price_source,animation_url,source_label,deposit_mirror,bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                VALUES(?,?,?,?,?,'admin_nft',?,?,?,?,?,?,?,?,0,?,?,?)""",
                 (user_id, gift_id, gift_name, image_url, accepted_price, external_url,
                  number, model, backdrop, symbol, str(portal_source or 'Portal') + ' · −15%',
-                 animation_url, ''))
+                 animation_url, '', *bonus_origin_values(accepted_price, bonus_origin)))
             item_id = cur.lastrowid
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], user_id, 'gift_add_nft',
                         json.dumps({'inventory_id': item_id, 'gift': gift_name, 'url': external_url,
                                     'portal_price': portal_price, 'price': accepted_price,
-                                    'discount_percent': 15, 'price_source': portal_source}, ensure_ascii=False)))
+                                    'discount_percent': 15, 'price_source': portal_source,
+                                    'bonus_origin': bonus_origin, 'unlock_required': accepted_price if bonus_origin else 0}, ensure_ascii=False)))
             log_event(db, user_id, 'admin_gift_add', gift_name=gift_name,
                       fragment_number=number, price_ton=accepted_price/100,
                       portal_price_ton=portal_price/100, discount_percent=15,
@@ -15791,13 +16136,15 @@ def admin_add_inventory(user_id):
     with connect() as db:
         if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
             return error('Пользователь не найден.', 404)
-        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,price_source,source_label)
-                            VALUES(?,?,?,?,?,'admin',?,'Выдано администратором')""",
+        bo, br, bp = bonus_origin_values(price, bonus_origin)
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,price_source,source_label,
+                            bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                            VALUES(?,?,?,?,?,'admin',?,'Выдано администратором',?,?,?)""",
                          (user_id, gift_id, str(gift['name']),
                           safe_image(gift.get('image_url') or gift.get('portal_image_url')),
-                          price, str(gift.get('price_source') or 'Portal')))
+                          price, str(gift.get('price_source') or 'Portal'), bo, br, bp))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
-                   (session['uid'], user_id, 'gift_add', gift_id))
+                   (session['uid'], user_id, 'gift_add', f'{gift_id}:bonus={int(bonus_origin)}'))
         log_event(db,user_id,'admin_gift_add',gift_name=str(gift['name']),price_ton=price/100,admin_id=session['uid'])
         row = db.execute('SELECT * FROM inventory WHERE id=?', (cur.lastrowid,)).fetchone()
     return jsonify(ok=True, item=inventory_item(row), source='catalog')

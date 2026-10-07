@@ -5097,7 +5097,7 @@ let upgradeLoading=false,upgradeLoadError="",upgradeListMode="mine",upgradeWinsP
 function stopUpgradeIdle(){let pointer=$('ugPointer');upgradeIdleToken++;if(upgradeIdleTimer){clearTimeout(upgradeIdleTimer);upgradeIdleTimer=0}if(pointer.classList.contains('idling')){let matrix=new DOMMatrix(getComputedStyle(pointer).transform);upgradePointerAngle=(Math.atan2(matrix.b,matrix.a)*180/Math.PI+360)%360;pointer.classList.remove('idling');pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`}}
 function continueUpgradeIdle(token){if(token!==upgradeIdleToken||upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden'))return;let pointer=$('ugPointer');if(!pointer.classList.contains('idling'))return;let duration=Math.round(1200+Math.random()*4300),speed=14+Math.random()*48,delta=Math.max(28,Math.min(250,speed*duration/1000));upgradePointerAngle+=delta;pointer.style.transition=`transform ${duration}ms linear`;pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;upgradeIdleTimer=setTimeout(()=>continueUpgradeIdle(token),duration+24)}
 function startUpgradeIdle(){if(upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden')||matchMedia('(prefers-reduced-motion: reduce)').matches)return;let pointer=$('ugPointer');if(pointer.classList.contains('idling'))return;upgradeIdleToken++;let token=upgradeIdleToken;pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;pointer.classList.add('idling');requestAnimationFrame(()=>continueUpgradeIdle(token))}
-function pickArt(box,item){if(box._fragmentMotionCleanup)box._fragmentMotionCleanup();box.classList.remove('portal-bg-black','portal-bg-onyx-black');let bg=giftBackgroundClass(giftBackgroundLabel(item));if(bg)box.classList.add(bg);box.replaceChildren();if(item?.image_url){let im=new Image;im.src=item.image_url;im.alt=giftDisplayName(item);im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};box.append(im);if(item?.external_url||item?.fragment_url)attachFragmentMotion(box,item)}else{let sp=document.createElement('span');sp.textContent='＋';box.append(sp)}}
+function pickArt(box,item){if(box._fragmentMotionCleanup)box._fragmentMotionCleanup();box.classList.remove('portal-bg-black','portal-bg-onyx-black');let bg=giftBackgroundClass(giftBackgroundLabel(item));if(bg)box.classList.add(bg);box.replaceChildren();if(item){let im=new Image;im.alt=giftDisplayName(item);applyGiftImage(im,item);box.append(im);if(item?.external_url||item?.fragment_url)attachFragmentMotion(box,item)}else{let sp=document.createElement('span');sp.textContent='＋';box.append(sp)}}
 function upgradeTargetChance(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0),rtp=Number(upgradeSettings?.rtp||90);if(!(sp>0&&tp>sp))return 0;let chance=rtp*sp/tp;return chance>0&&chance<=80?chance:0}
 function upgradeRawChance(s,tg){let sp=Number(s?.price_ton||0),tp=Number(tg?.price_ton||0);return sp>0&&tp>sp?Math.min(100,sp/tp*100):0}
 function upgradeShownChance(real){let r=upgradeRawChance(upgradeSource,upgradeGoal);return r>0?r:real}
@@ -5141,7 +5141,7 @@ function upgradeList(mode){
   for(let item of items){
     let b=document.createElement('button');b.type='button';b.className='upgrade-option '+giftBackgroundClass(giftBackgroundLabel(item));
     let art=document.createElement('span');art.className='upgrade-list-art '+giftBackgroundClass(giftBackgroundLabel(item));
-    let im=new Image;im.src=item.image_url||TON;im.alt='';im.loading='lazy';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};art.append(im);
+    let im=new Image;im.alt=giftDisplayName(item);im.loading='lazy';applyGiftImage(im,item);art.append(im);
     let meta=document.createElement('span');meta.className='upgrade-option-meta';let name=document.createElement('strong');name.textContent=giftDisplayName(item);let price=document.createElement('small');price.className='upgrade-option-price';price.textContent=money(item.price_ton)+' TON';meta.append(name,price);b.append(art,meta);
     if(!mine){let chance=document.createElement('span');chance.className='upgrade-option-chance';chance.textContent=formatUpgradeChance(upgradeRawChance(upgradeSource,item)||upgradeTargetChance(upgradeSource,item));chance.setAttribute('aria-label','Шанс '+chance.textContent);b.append(chance)}
     else if(item.promo_locked){let lock=document.createElement('span');lock.className='upgrade-option-chance';lock.textContent='×'+Number(item.wager_multiplier);lock.title='Отыгрыш';b.append(lock)}
@@ -5166,18 +5166,18 @@ function renderUpgradeCompensation(result){
   $('closeUpgradeResult').textContent=compensationPhase==='ready'?'Открыть компенсацию':'Продолжить';
 }
 const CX_TICKET='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg>';
+function compensationBalanceIsBonus(prize){return prize?.balance_target==='bonus'||/ton2\.png(?:$|[?#])/i.test(String(prize?.image_url||''))||/бонус/i.test(String(prize?.name||''))}
 function cxArt(prize){
   let art=document.createElement('div');art.className='cx-art';
   if(prize?.type==='balance'){
     let v=document.createElement('span');v.className='cx-num';v.textContent=money(prize.amount);
-    let i=new Image;i.src=TON;i.alt='TON';i.className='cx-ton';art.append(v,i);
+    let bonus=compensationBalanceIsBonus(prize),i=new Image;i.src=bonus?TON2:TON;i.alt=bonus?'Bonus TON':'TON';i.className='cx-ton';art.classList.toggle('bonus-balance',bonus);art.append(v,i);
   }else if(prize?.type==='tickets'){
     let i=document.createElement('span');i.className='cx-tk';i.innerHTML=CX_TICKET;
     let v=document.createElement('span');v.className='cx-num';v.textContent=Number(prize.tickets||0).toLocaleString('ru-RU');
     art.append(i,v);
   }else{
-    let img=new Image;img.src=prize?.image_url||TON;img.alt=prize?.name||'Подарок';
-    img.onerror=()=>{img.onerror=null;img.src=TON};art.append(img);
+    let img=new Image;img.alt=prize?.name||'Подарок';applyGiftImage(img,prize||{});art.append(img);
   }
   return art;
 }
@@ -5185,9 +5185,10 @@ function compensationCell(prize){
   let type=prize?.type||'gift',cell=document.createElement('div');
   cell.className='cx-cell '+type;
   let tag=document.createElement('small');tag.className='cx-tag';
-  tag.textContent=type==='wager_gift'?('Отыгрыш ×'+prize.wager_multiplier):type==='promo'?'Промокод':type==='tickets'?'Билеты':type==='balance'?'Баланс':'Подарок';
+  let bonusBalance=type==='balance'&&compensationBalanceIsBonus(prize);
+  tag.textContent=type==='wager_gift'?('Отыгрыш ×'+prize.wager_multiplier):type==='promo'?'Промокод':type==='tickets'?'Билеты':type==='balance'?(bonusBalance?'Бонусный баланс':'Основной баланс'):'Подарок';
   let name=document.createElement('b');name.className='cx-name';
-  name.textContent=type==='balance'?'TON':type==='tickets'?'билетов':(prize?.name||'Подарок');
+  name.textContent=type==='balance'?(bonusBalance?'Бонусный TON':'TON'):type==='tickets'?'билетов':(prize?.name||'Подарок');
   cell.append(tag,cxArt(prize),name);
   return cell;
 }
@@ -5195,8 +5196,8 @@ function renderCompensationPrize(prize){
   let wrap=document.createElement('div');wrap.className='cx-final '+(prize?.type||'gift');
   let art=cxArt(prize);
   let title=document.createElement('strong'),detail=document.createElement('span');
-  if(prize?.type==='balance'){title.textContent='Начислено на баланс';detail.textContent='+'+money(prize.amount)+' TON'}
-  else if(prize?.type==='tickets'){title.textContent='Билеты розыгрыша';detail.textContent='+'+Number(prize.tickets||0).toLocaleString('ru-RU')+' билетов'}
+  if(prize?.type==='balance'){let bonus=compensationBalanceIsBonus(prize);title.textContent=bonus?'Бонусный баланс пополнен':'Основной баланс пополнен';detail.textContent='+'+money(prize.amount)+' TON'}
+  else if(prize?.type==='tickets'){title.textContent='Билеты начислены';detail.textContent='+'+Number(prize.tickets||0).toLocaleString('ru-RU')+' билетов'}
   else if(prize?.type==='wager_gift'){title.textContent=prize.name||'Подарок';detail.textContent='Добавлено в инвентарь · отыгрыш ×'+prize.wager_multiplier}
   else if(prize?.type==='promo'){title.textContent=prize.name||'Промокод';detail.textContent='Персональный промокод на подарок'}
   else{title.textContent=prize?.name||'Подарок';detail.textContent='Добавлено в инвентарь'}
@@ -9905,6 +9906,28 @@ try{fairnessRefresh()}catch(e){}
 .cx-final>span{font-size:13px;line-height:1.4;color:#b9c6d4}
 .cx-final>code{max-width:100%;overflow:hidden;text-overflow:ellipsis;padding:7px 9px;border-radius:10px;background:#1a1d31;color:#aff5dc;font-size:12px}
 @media(max-width:520px){.cx-reel{height:160px}#upgradeResultModal #upgradeResultCard.compensation-open{padding:18px 10px 14px!important;border-radius:22px!important}.cx-final .cx-num{font-size:28px}}
+/* Upgrade compensation v2: centered, compact and balance-aware. */
+#upgradeResultModal #upgradeResultCard.compensation-open{width:min(520px,calc(100vw - 24px))!important;padding:20px 14px 14px!important;border-radius:22px!important;text-align:center!important;overflow:hidden!important}
+#upgradeResultCard.compensation-open #upgradeResultHeading{margin:0 0 14px!important;font-size:20px!important;line-height:1.15!important;letter-spacing:-.025em!important}
+#upgradeResultModal #upgradeCompensation{margin:0 0 12px!important;overflow:hidden!important}
+.cx-reel{height:164px!important;border-radius:16px!important}
+.cx-cell{padding:12px 8px 10px!important;gap:5px!important}
+.cx-art{gap:7px!important}
+.cx-art.bonus-balance{padding:0 4px!important}
+.cx-final{width:min(100%,360px)!important;margin:4px auto 12px!important;padding:16px 14px!important;gap:6px!important;border-radius:18px!important;background:#151726!important;box-shadow:none!important}
+.cx-final .cx-art{flex:none!important;width:auto!important;min-height:0!important;height:auto!important;margin:0 auto 4px!important;padding:0!important;background:transparent!important}
+.cx-final .cx-art img:not(.cx-ton){width:88px!important;height:88px!important;max-width:88px!important;object-fit:contain!important}
+.cx-final .cx-num{font-size:28px!important;line-height:1!important}
+.cx-final .cx-ton{width:25px!important;height:25px!important;flex-basis:25px!important}
+.cx-final>strong{max-width:100%!important;margin-top:2px!important;font-size:15px!important;line-height:1.25!important;font-weight:760!important}
+.cx-final>span{max-width:100%!important;font-size:12px!important;line-height:1.35!important;color:#9daabc!important}
+.cx-final.balance{padding-top:18px!important;padding-bottom:18px!important}
+.cx-final.balance .cx-art{display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:8px!important;min-width:0!important;min-height:0!important;width:auto!important;height:auto!important;border:0!important}
+.cx-final.balance .cx-num{font-size:30px!important;letter-spacing:-.045em!important}
+.cx-final.balance .cx-ton{width:26px!important;height:26px!important;flex-basis:26px!important}
+.cx-final.balance>strong{font-size:14px!important}
+#upgradeResultCard.compensation-open #closeUpgradeResult{min-height:48px!important;border-radius:14px!important;margin-top:0!important}
+@media(max-width:520px){#upgradeResultModal #upgradeResultCard.compensation-open{width:calc(100vw - 16px)!important;padding:16px 10px 12px!important}.cx-reel{height:150px!important}.cx-final{width:min(100%,330px)!important;padding:14px 12px!important}.cx-final .cx-art img:not(.cx-ton){width:78px!important;height:78px!important}.cx-final.balance .cx-num{font-size:26px!important}.cx-final.balance .cx-ton{width:23px!important;height:23px!important;flex-basis:23px!important}}
 /* --- арена: спокойнее --- */
 .arena-marker,.arena-player,.arena-zone,.arena-zone.entering{animation:none!important}
 .arena-world{transform:none!important;transition:none!important}

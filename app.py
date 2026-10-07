@@ -50,6 +50,7 @@ MIN_PROMO_RTP = 0.70
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
+UPGRADE_COMPENSATION_MIN_CENTS = 500  # a lost upgrade is compensated from 5 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
@@ -1202,11 +1203,16 @@ def creator_record(user_id):
         demo_tickets = 0
     demo_claims = raw.get('demo_level_claims') if isinstance(raw.get('demo_level_claims'), dict) else {}
     youtube = raw.get('youtube') if isinstance(raw.get('youtube'), dict) else {}
+    # Three balances exist: real, DEMO (regular player, settings) and creator DEMO (creator panel).
+    # A creator never has the player-level demo: his own demo lives in the creator panel.
+    user_demo = bool(raw.get('user_demo')) and not bool(raw.get('active'))
     return dict(
         active=bool(raw.get('active')),
+        user_demo=user_demo,
+        demo_misc=(dict(raw.get('demo_misc')) if isinstance(raw.get('demo_misc'), dict) else {}),
         creator_level=creator_level_key(raw.get('creator_level')),
         panel_hidden=bool(raw.get('active') and raw.get('panel_hidden')),
-        demo_enabled=bool(raw.get('active') and raw.get('demo_enabled')),
+        demo_enabled=bool((raw.get('active') and raw.get('demo_enabled')) or user_demo),
         demo_balance_cents=demo_balance,
         demo_turnover_cents=demo_turnover,
         demo_tickets=demo_tickets,
@@ -1232,6 +1238,9 @@ def save_creator_record(user_id, data):
     current['creator_level'] = creator_level_key(current.get('creator_level'))
     current['panel_hidden'] = bool(current['active'] and current.get('panel_hidden'))
     current['demo_enabled'] = bool(current['active'] and current.get('demo_enabled'))
+    current['user_demo'] = bool(current.get('user_demo')) and not current['active']
+    if not isinstance(current.get('demo_misc'), dict):
+        current['demo_misc'] = {}
     for key, upper in (('demo_balance_cents', 100000000000),
                        ('demo_turnover_cents', 100000000000000),
                        ('demo_tickets', 1000000000)):
@@ -1491,8 +1500,7 @@ def demo_upgrade_preview(amount_text, item_text, gift_id):
     return dict(source=source_view,
                 target=dict(id=target['id'], name=target['name'], image_url=target['image_url'],
                             price_ton=target['price'] / 100),
-                chance=chance / 100, probability=chance / 10000,
-                rtp=upgrade_rtp_basis_points() / 100, loss_rtp_boost=0, game_loss_ton=0)
+                chance=chance / 100, probability=chance / 10000)
 
 
 def demo_upgrade_spin(data):
@@ -1660,6 +1668,7 @@ def profile():
     user = current_user()
     creator = creator_record(user['id'])
     demo = bool(creator.get('demo_enabled'))
+    user_demo = bool(creator.get('user_demo'))
     stars_until = parse_datetime_utc(user['stars_withdrawal_until'])
     stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
     return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
@@ -1675,8 +1684,11 @@ def profile():
                 creator_level_info=creator_level_public(creator.get('creator_level')),
                 creator_panel_hidden=bool(creator.get('panel_hidden')),
                 creator_button_visible=bool(creator.get('active') and not creator.get('panel_hidden')),
-                creator_demo=demo,
+                creator_demo=bool(demo and not user_demo),
                 creator_demo_balance=creator['demo_balance_cents']/100 if creator.get('active') else 0,
+                user_demo=user_demo,
+                demo_balance=(creator['demo_balance_cents']/100 if (user_demo or creator.get('active')) else 0),
+                balance_kind=('demo' if user_demo else 'creator_demo' if demo else 'real'),
                 admin=user['id'] in ADMIN_IDS,
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
 
@@ -2242,10 +2254,20 @@ def enforce_available_modes():
     uid = session.get('uid')
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/transfers/send', '/api/deposit', '/api/stars', '/api/hilo/', '/api/limbo/'
+            '/api/transfers/send', '/api/deposit', '/api/stars',
+            # the old solo Hi-Lo has no demo twin; the shared room and Limbo do
+            '/api/hilo/start', '/api/hilo/guess', '/api/hilo/cashout',
         )
         if any(path.startswith(prefix) for prefix in real_money_prefixes):
-            return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
+            return error('Демо-режим активен. Отключите его, чтобы пользоваться реальными средствами.', 409)
+        if creator_record(uid).get('user_demo') and not path.startswith('/api/demo/'):
+            # A regular player's demo must never touch anything that has real value.
+            real_value = ('/api/rolls/', '/api/giveaways/', '/api/referrals/withdraw', '/api/promocodes/redeem',
+                          '/api/deposit-bonus/', '/api/wallet/')
+            if any(path.startswith(prefix) for prefix in real_value) or path.endswith('/claim-promo'):
+                return error('Это действие недоступно в демо-режиме. Выключите демо в настройках.', 409)
+    if uid and path.startswith('/api/arena/') and creator_record(uid).get('user_demo'):
+        return error('Арена недоступна в демо-режиме. Выключите демо в настройках.', 409)
     # Craft is retired from the product. Keep its old data/code for safe migration,
     # but make the API inaccessible so stale clients cannot start new crafts.
     if path.startswith('/api/craft/'):
@@ -4215,12 +4237,14 @@ def upgrade_chance(source_price,target_price,rtp_bp=None):
     if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
         return 0
     rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    chance_bp = (rtp_bp * source_price) / target_price
-    # Upgrade targets are intentionally limited to the visible 1–80% range.
-    # Anything outside it is not a valid target at all, not merely hidden in UI.
-    if chance_bp < 100 or chance_bp > 8000:
+    effective_bp = (rtp_bp * source_price) / target_price
+    # Validity is checked on the REAL (RTP-adjusted) chance, exactly as before.
+    if effective_bp < 100 or effective_bp > 8000:
         return 0
-    return chance_bp
+    # ...but what the player sees is the plain price ratio (5 -> 10 TON = 50%).
+    # The RTP multiplier is applied silently in the roll itself (see upgrade_spin /
+    # demo_upgrade_spin: threshold = rtp_bp * source_price).
+    return (10000 * source_price) / target_price
 
 
 def upgrade_rtp_basis_points():
@@ -4279,8 +4303,7 @@ def upgrade_preview():
     if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
-                   probability=chance/10000,rtp=effective_rtp_bp/100,
-                   loss_rtp_boost=round(loss_boost,2),game_loss_ton=round(game_loss/100,2))
+                   probability=chance/10000)
 
 
 DAILY_TOP_TZ = timezone(timedelta(hours=3))
@@ -7069,20 +7092,17 @@ def public_user_profile(user_id):
                 crash_drop = dict(price_cents=value, name=row['prize_name'] or 'Выигрыш Crash',
                                   image_url=row['prize_image'] or '', source='Crash')
 
-        craft_rows = db.execute("""SELECT input_total,reward_price,reward_name,reward_image,reward_multiplier,created_at
-                                  FROM craft_spins WHERE user_id=? ORDER BY id DESC""", (user_id,)).fetchall()
-        craft_count, craft_wins, max_craft_x, craft_drop = len(craft_rows), 0, 0.0, None
-        for row in craft_rows:
-            total=max(0,int(row['input_total'] or 0)); reward=max(0,int(row['reward_price'] or 0))
-            if reward < total or reward <= 0:
+        limbo_rows = db.execute("""SELECT multiplier_x100,won,payout,created_at
+                                  FROM limbo_bets WHERE user_id=? ORDER BY id DESC""", (user_id,)).fetchall()
+        limbo_count, limbo_wins, max_limbo_x, limbo_drop = len(limbo_rows), 0, 0.0, None
+        for row in limbo_rows:
+            if not int(row['won'] or 0):
                 continue
-            craft_wins += 1
-            try: mult=float(row['reward_multiplier'] or (reward/total if total else 0))
-            except (TypeError, ValueError, ZeroDivisionError): mult=0
-            max_craft_x=max(max_craft_x,mult)
-            if drop_is_after_override(row['created_at']) and (not craft_drop or reward > craft_drop['price_cents']):
-                craft_drop=dict(price_cents=reward,name=row['reward_name'] or 'Выигрыш Craft',
-                                image_url=row['reward_image'] or '',source='Craft')
+            limbo_wins += 1
+            max_limbo_x = max(max_limbo_x, int(row['multiplier_x100'] or 0) / 100)
+            value = int(row['payout'] or 0)
+            if value > 0 and drop_is_after_override(row['created_at']) and (not limbo_drop or value > limbo_drop['price_cents']):
+                limbo_drop = dict(price_cents=value, name='Выигрыш Limbo', image_url='', source='Limbo')
 
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
@@ -7090,7 +7110,7 @@ def public_user_profile(user_id):
         if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
-        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, arena_drop, hilo_drop, crash_drop, craft_drop) if x),
+        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, arena_drop, hilo_drop, crash_drop, limbo_drop) if x),
                        key=lambda x: x['price_cents'], default=None)
 
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
@@ -7104,15 +7124,15 @@ def public_user_profile(user_id):
                               mines_wins=mines_wins, upgrade_wins=upgrade_wins, arena_wins=arena_wins,
                               hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4),
                               crash_count=crash_count, crash_wins=crash_wins, max_crash_x=round(max_crash_x, 4),
-                              craft_count=craft_count, craft_wins=craft_wins, max_craft_x=round(max_craft_x, 4)),
+                              limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4)),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
                               arena=(arena_drop['price_cents']/100 if arena_drop else None),
                               hilo=(hilo_drop['price_cents']/100 if hilo_drop else None),
                               crash=(crash_drop['price_cents']/100 if crash_drop else None),
-                              craft=(craft_drop['price_cents']/100 if craft_drop else None)),
+                              limbo=(limbo_drop['price_cents']/100 if limbo_drop else None)),
                    max_multiplier=(lambda values: (dict(source=values[0][0], value=round(values[0][1],4)) if values and values[0][1]>0 else None))(
-                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Craft',max_craft_x)], key=lambda x:x[1], reverse=True)),
+                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Limbo',max_limbo_x)], key=lambda x:x[1], reverse=True)),
                    max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 
@@ -9376,12 +9396,44 @@ def limbo_feed(db, user_id):
     return feed, [limbo_row_view(row) for row in mine]
 
 
+def demo_limbo_play(data):
+    uid = session['uid']
+    record = creator_record(uid)
+    bet = parse_amount(data.get('bet'))
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        raise ValueError('Ставка от 0.10 до 300 TON.')
+    chance_value = float(data.get('chance'))
+    if chance_value != int(chance_value) or not (LIMBO_MIN_CHANCE <= int(chance_value) <= LIMBO_MAX_CHANCE):
+        raise ValueError('Шанс — целое число от 1% до 90%.')
+    chance = int(chance_value)
+    mult_x100 = limbo_multiplier_x100(chance)
+    payout_if_win = bet * mult_x100 // 100
+    if payout_if_win > LIMBO_MAX_PAYOUT_CENTS:
+        raise ValueError('Максимальный выигрыш за один спин — %d TON. Уменьшите ставку или шанс.' % (LIMBO_MAX_PAYOUT_CENTS // 100))
+    if int(record.get('demo_balance_cents') or 0) < bet:
+        raise ValueError('Недостаточно DEMO TON.')
+    roll = secrets.randbelow(LIMBO_ROLL_RANGE)
+    won = roll < chance * 100
+    payout = payout_if_win if won else 0
+    record['demo_balance_cents'] = int(record['demo_balance_cents']) - bet + payout
+    increase_demo_turnover(record, bet)
+    misc = dict(record.get('demo_misc') or {})
+    row = dict(id=int(time.time() * 1000), bet=bet, chance_bp=chance * 100, multiplier_x100=mult_x100, roll=roll,
+               won=int(won), payout=payout, created_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
+    misc['limbo'] = ([row] + list(misc.get('limbo') or []))[:20]
+    save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
+                              'demo_turnover_cents': record['demo_turnover_cents'], 'demo_misc': misc})
+    return limbo_row_view(row)
+
+
 @app.get('/api/limbo/state')
 @login_required
 def limbo_state():
     uid = session['uid']
     with connect() as db:
         feed, mine = limbo_feed(db, uid)
+    if creator_demo_active(uid):
+        mine = [limbo_row_view(r) for r in (creator_record(uid).get('demo_misc') or {}).get('limbo', [])]
     return jsonify(ok=True, config=limbo_config(), wins=feed, history=mine, user=profile(),
                    available=game_available('limbo'))
 
@@ -9391,6 +9443,11 @@ def limbo_state():
 def limbo_play():
     data = request.get_json(silent=True) or {}
     uid = session['uid']
+    if creator_demo_active(uid):
+        try:
+            return jsonify(ok=True, result=demo_limbo_play(data), fairness=None, user=profile(), new_level=None)
+        except (ValueError, InvalidOperation, TypeError) as exc:
+            return error(str(exc) or 'Некорректные параметры.', 409)
     try:
         bet = parse_amount(data.get('bet'))
     except (ValueError, InvalidOperation, TypeError):
@@ -10333,6 +10390,8 @@ def crash_settle_round(db, row):
             if moved.rowcount:
                 if is_promo:
                     crash_promo_win(db, bet, row['id'], auto)
+                elif int(bet['user_id']) == _arena_bot['uid']:
+                    pass   # house bot: its stake was never taken, so its win is not paid out of anyone's balance
                 else:
                     db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, bet['user_id']))
                     record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
@@ -10349,6 +10408,69 @@ def crash_settle_round(db, row):
 
 def crash_latest(db):
     return db.execute('SELECT * FROM crash_rounds ORDER BY id DESC LIMIT 1').fetchone()
+
+
+# ---- house bot in Crash: the same @gemdrop_adm account that plays the Arena also bets in Crash rounds.
+# It plays with house money (nothing is taken from / paid to any balance); its rounds are real
+# crash_bets rows, so they count in the admin account's profile statistics.
+CRASH_BOT_ROUND_CHANCE = 85   # percent of rounds the bot takes part in
+CRASH_BOT_MIN_CENTS = 10
+CRASH_BOT_MAX_CENTS = 1000    # up to 10 TON, log-uniform (mostly small stakes)
+_crash_bot_seen = set()
+
+
+def crash_bot_dice(round_id):
+    key = app.secret_key if isinstance(app.secret_key, bytes) else str(app.secret_key).encode()
+    digest = hmac.new(key, f'crash-bot:{int(round_id)}'.encode(), hashlib.sha256).digest()
+    return [int.from_bytes(digest[i:i + 4], 'big') for i in range(0, 20, 4)]
+
+
+def crash_bot_plan(row):
+    """(joins, due_ms, bet_cents, auto_x100) - identical on every worker, no shared state needed."""
+    d = crash_bot_dice(row['id'])
+    if d[0] % 100 >= CRASH_BOT_ROUND_CHANCE:
+        return None
+    due = int(row['open_at']) + 700 + d[1] % max(1, CRASH_BETTING_MS - 2400)
+    span = CRASH_BOT_MAX_CENTS / CRASH_BOT_MIN_CENTS
+    bet = int(CRASH_BOT_MIN_CENTS * span ** ((d[2] % 10 ** 6) / 10 ** 6))
+    bet = bet if bet < 100 else bet // 5 * 5
+    auto = int(110 * (7.0 / 1.1) ** ((d[3] % 10 ** 6) / 10 ** 6))    # cash-out target x1.10 .. x7.00
+    return due, max(CRASH_BOT_MIN_CENTS, bet), max(110, auto)
+
+
+def crash_bot_tick(db, row, now):
+    """Place the bot's bet for the current betting phase. Call inside an open transaction."""
+    if not row or row['state'] != 'open' or now >= int(row['launch_at']) - 500:
+        return False
+    plan = crash_bot_plan(row)
+    if not plan or now < plan[0]:
+        return False
+    uid = arena_bot_uid(db)
+    if not uid:
+        return False
+    return bool(db.execute("""INSERT OR IGNORE INTO crash_bets(round_id,user_id,bet,auto_x100,state,bet_type)
+                              VALUES(?,?,?,?, 'active','ton')""", (row['id'], uid, plan[1], plan[2])).rowcount)
+
+
+def crash_bot_maybe_play(db, now):
+    """Cheap pre-check first, so the write lock is only taken when the bot really has to bet."""
+    row = crash_latest(db)
+    if not row or row['state'] != 'open' or row['id'] in _crash_bot_seen or now >= int(row['launch_at']) - 500:
+        return
+    plan = crash_bot_plan(row)
+    if not plan:
+        _crash_bot_seen.add(row['id'])
+    elif now >= plan[0]:
+        db.execute('BEGIN IMMEDIATE')
+        try:
+            crash_bot_tick(db, crash_latest(db), now)
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('Crash bot tick failed')
+        _crash_bot_seen.add(row['id'])
+    if len(_crash_bot_seen) > 200:
+        _crash_bot_seen.clear()
 
 
 def crash_needs_advance(row, now):
@@ -10460,13 +10582,19 @@ def crash_state_payload(db, uid, now):
         payload['round']['crash_at'] = row['crash_at']
     mine = db.execute('SELECT * FROM crash_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone()
     payload['my_bet'] = crash_user_view(mine)
-    rows = db.execute('SELECT b.user_id,b.bet,b.state,b.cashout_x100,b.payout,b.bet_type,b.bet_gift_name,b.bet_gift_image,'
+    cur_x = crash_mult_x100(row, now) if phase == 'flying' else 0
+    rows = db.execute('SELECT b.user_id,b.bet,b.auto_x100,b.state,b.cashout_x100,b.payout,b.bet_type,b.bet_gift_name,b.bet_gift_image,'
                       'b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url '
                       'FROM crash_bets b JOIN users u ON u.id=b.user_id '
                       'WHERE b.round_id=? ORDER BY b.bet DESC LIMIT 40', (row['id'],)).fetchall()
     bets = []
     for r in rows:
         is_gift = (r['bet_type'] or 'ton') in ('gift', 'promo_gift')
+        r = dict(r)
+        if (r['user_id'] == _arena_bot['uid'] and r['state'] == 'active' and cur_x
+                and int(r['auto_x100'] or 0) >= 101 and cur_x >= int(r['auto_x100'])):
+            r['state'], r['cashout_x100'] = 'won', int(r['auto_x100'])
+            r['payout'] = int(r['bet']) * int(r['auto_x100']) // 100
         bets.append(dict(user_id=r['user_id'], name=r['name'], photo_url=r['photo_url'], bet=r['bet'] / 100,
                          bet_type=(r['bet_type'] if is_gift else 'ton'), promo=(r['bet_type'] or 'ton') == 'promo_gift',
                          bet_gift=crash_gift_view(r['bet_gift_name'], r['bet_gift_image'], r['bet']) if is_gift else None,
@@ -10495,6 +10623,7 @@ def crash_state():
             db.execute('BEGIN IMMEDIATE')
             crash_advance(db, now)
             db.commit()
+        crash_bot_maybe_play(db, crash_ms())
         return jsonify(crash_state_payload(db, uid, crash_ms()))
     finally:
         db.close()
@@ -11167,6 +11296,50 @@ def hilo_recent_wins():
                    top_reward=daily_top_reward('hilo'), top_schedule=daily_top_schedule_view('hilo'))
 
 
+def demo_hilo_overlay(db, payload, uid, n, phase):
+    """Shared room with a private DEMO bet: cards, odds and other players are real, the stake and payout are not."""
+    record = creator_record(uid)
+    misc = dict(record.get('demo_misc') or {})
+    bets = [dict(b) for b in (misc.get('hilo_bets') or [])]
+    balance = int(record.get('demo_balance_cents') or 0)
+    last = misc.get('hilo_last')
+    changed = False
+    for b in bets:
+        if b.get('settled') or not (int(b['round']) < n or (int(b['round']) == n and phase >= HILO_BET_MS)):
+            continue
+        base, res, _proof = hilo_room_ranks(db, int(b['round']))
+        push = hilo_room_is_push(base, b['direction'])
+        won = True if push else (res > base if b['direction'] == 'hi' else res < base)
+        step = hilo_room_step_micro(base, b['direction'])
+        total = int(b['amount']) * step // HILO_MICRO if won and step else 0
+        b.update(settled=True, payout=total, won=bool(won))
+        balance += total
+        changed = True
+        last = dict(id=-int(b['round']), round=int(b['round']),
+                    no=hilo_round_numbers(db, [int(b['round'])]).get(int(b['round']), 0),
+                    gift_name='', gift_image='', won=bool(won), direction=b['direction'],
+                    amount=int(b['amount']) / 100, payout=total / 100, prize_name='', prize_image='', prize_price=0)
+    pending = None
+    if changed:
+        bets = bets[-10:]
+        misc.update(hilo_bets=bets, hilo_last=last)
+        pending = {'demo_balance_cents': balance, 'demo_misc': misc}
+    user = current_user()
+    mine = next((b for b in bets if int(b['round']) == n), None)
+    shown = [x for x in payload['bets'] if not x.get('mine')]
+    if mine:
+        shown.insert(0, dict(user_id=uid, name=user['name'] or 'Игрок', photo_url=user['photo_url'] or '',
+                             direction=mine['direction'], settled=bool(mine.get('settled')),
+                             amount=int(mine['amount']) / 100, payout=int(mine.get('payout') or 0) / 100, mine=True,
+                             gift_name='', gift_image='', want_gift=False, prize_name='', prize_image='', prize_price=0))
+    payload['bets'] = shown
+    payload['recent'] = [dict(x, mine=False) for x in payload.get('recent', [])]
+    payload['balance'] = balance / 100
+    payload['last'] = last
+    payload['demo'] = True
+    return payload, pending
+
+
 @app.get('/api/hilo/room')
 @login_required
 def hilo_room():
@@ -11179,10 +11352,60 @@ def hilo_room():
         hilo_room_settle(db, n, phase)
         if phase >= HILO_BET_MS:
             fairness_mark_settled(db, 'hilo_room', n)
+        payload = hilo_room_payload(db, session['uid'], n, phase, now)
+        pending = None
+        if creator_demo_active(session['uid']):
+            payload, pending = demo_hilo_overlay(db, payload, session['uid'], n, phase)
         db.commit()
-        return jsonify(hilo_room_payload(db, session['uid'], n, phase, now))
     finally:
         db.close()
+    if pending:
+        save_creator_record(session['uid'], pending)
+    return jsonify(payload)
+
+
+def demo_hilo_room_bet(direction, data):
+    uid = session['uid']
+    if data.get('inventory_id') not in (None, ''):
+        return error('В демо-режиме ставки подарками в Hi-Lo недоступны — ставьте DEMO TON.')
+    try:
+        bet = parse_amount(data.get('bet'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Укажите корректную ставку.')
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON.')
+    now = int(time.time() * 1000)
+    n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
+    if phase >= HILO_BET_MS - 300:
+        return error('Приём ставок закрыт — дождитесь следующего раунда.', 409)
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_round_no(db, n)
+        payload, pending = demo_hilo_overlay(db, hilo_room_payload(db, uid, n, phase, now), uid, n, phase)
+        db.commit()
+    finally:
+        db.close()
+    if pending:                                   # a finished demo round credits its payout first
+        save_creator_record(uid, pending)
+    record = creator_record(uid)
+    misc = dict(record.get('demo_misc') or {})
+    bets = list(misc.get('hilo_bets') or [])
+    if any(int(b['round']) == n for b in bets):
+        return error('В этом раунде ставка уже сделана.', 409)
+    if int(record.get('demo_balance_cents') or 0) < bet:
+        return error('Недостаточно DEMO TON.')
+    bets.append(dict(round=n, direction=direction, amount=bet, settled=False, payout=0, won=False))
+    misc['hilo_bets'] = bets[-10:]
+    increase_demo_turnover(record, bet)
+    save_creator_record(uid, {'demo_balance_cents': int(record['demo_balance_cents']) - bet,
+                              'demo_turnover_cents': record['demo_turnover_cents'], 'demo_misc': misc})
+    db = connect()
+    try:
+        payload, _ = demo_hilo_overlay(db, hilo_room_payload(db, uid, n, phase, now), uid, n, phase)
+    finally:
+        db.close()
+    return jsonify(ok=True, room=payload, user=profile(), new_level=None)
 
 
 @app.post('/api/hilo/room/bet')
@@ -11206,6 +11429,8 @@ def hilo_room_bet():
         if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
             return error('Ставка от 0.10 до 300 TON.')
     uid = session['uid']
+    if creator_demo_active(uid):
+        return demo_hilo_room_bet(direction, data)
     now = int(time.time() * 1000)
     n, phase = now // HILO_ROOM_MS, now % HILO_ROOM_MS
     if phase >= HILO_BET_MS - 300:
@@ -12014,7 +12239,7 @@ def apply_upgrade_loss_compensation(db, user_id, source_price, target_price=None
     empty = dict(cashback=0, cashback_percent=0, promo=None, reward=None, reel=[],
                  deferred=False, claimed=False)
     source_price = max(0, int(source_price or 0))
-    if source_price < MIN_BET_CENTS:
+    if source_price < UPGRADE_COMPENSATION_MIN_CENTS:   # compensation starts from 5 TON
         return empty
 
     large = source_price >= 10000
@@ -14296,6 +14521,50 @@ def creator_reveal_panel():
         return error('Неверный код.', 403)
     record = save_creator_record(session['uid'], {'panel_hidden': False})
     return jsonify(ok=True, panel_hidden=record['panel_hidden'], user=profile())
+
+
+DEMO_USER_DEFAULT_CENTS = 10000   # 100 DEMO TON on first activation
+DEMO_RESET = dict(user_demo=False, demo_balance_cents=0, demo_turnover_cents=0, demo_tickets=0,
+                  demo_level_claims={}, demo_inventory=[], demo_mines={}, demo_upgrade={},
+                  demo_crash={}, demo_arena={}, demo_misc={})
+
+
+@app.post('/api/demo/mode')
+@login_required
+def user_demo_mode():
+    """Settings switch for regular players. Turning it off wipes the whole demo state."""
+    data = request.get_json(silent=True) or {}
+    enabled = data.get('enabled')
+    if not isinstance(enabled, bool):
+        return error('Передайте enabled=true/false.')
+    uid = session['uid']
+    record = creator_record(uid)
+    if record.get('active'):
+        return error('У автора свой демо-режим — он включается в панели автора.', 409)
+    if enabled:
+        patch = dict(user_demo=True)
+        if not record.get('user_demo'):
+            patch.update(DEMO_RESET, user_demo=True, demo_balance_cents=DEMO_USER_DEFAULT_CENTS)
+        save_creator_record(uid, patch)
+    elif record.get('user_demo') or record.get('demo_balance_cents') or record.get('demo_inventory'):
+        save_creator_record(uid, dict(DEMO_RESET))
+    return jsonify(ok=True, user_demo=bool(enabled), user=profile())
+
+
+@app.post('/api/demo/balance')
+@login_required
+def user_demo_balance():
+    uid = session['uid']
+    if not creator_record(uid).get('user_demo'):
+        return error('Сначала включите демо-режим в настройках.', 409)
+    try:
+        cents = parse_amount((request.get_json(silent=True) or {}).get('amount'))
+    except (ValueError, TypeError, InvalidOperation):
+        return error('Введите демо-баланс с точностью до 0.01 TON.')
+    if not 0 <= cents <= 100000000000:
+        return error('Демо-баланс: от 0 до 1 000 000 000 TON.')
+    save_creator_record(uid, {'demo_balance_cents': cents})
+    return jsonify(ok=True, demo_balance=cents / 100, user=profile())
 
 
 @app.post('/api/creator/demo-mode')

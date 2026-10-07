@@ -3938,7 +3938,7 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 <div class="lb-hist-wrap"><div class="lb-hist-head"><b>Мои спины</b><span id="lbHistCount"></span></div><div id="lbHist" class="lb-hist"><span class="lb-hist-empty">Пока нет спинов</span></div></div>
 </section>
 <section id="hiloPage" class="hidden">
-<div class="hl-head"><h1 class="page-title">Hi-Lo</h1><button id="hlInfoBtn" class="hl-info" type="button" aria-label="Правила"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/></svg></button></div>
+<div class="hl-head"><h1 class="page-title">Hi-Lo</h1><button id="hlInfoBtn" class="hl-info game-info-btn" type="button" aria-label="Информация об игре" title="Info"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/></svg></button></div>
 <div class="hl-desktop-grid">
   <div class="hl-main-col">
     <div class="hl-top"><div id="hlStrip" class="hl-strip" aria-label="История карт"></div></div>
@@ -9393,8 +9393,16 @@ ready(()=>{
 #ggModal:not(.hidden) .hlg-step:nth-of-type(5){animation-delay:.2s}
 #hlInfoModal .modal-card.hlg,#hlInfoModal .hl-rules.hlg{max-width:min(560px,calc(100vw - 20px))!important;width:min(560px,calc(100vw - 20px))}
 #hlInfoModal .hlg-art svg{max-height:210px}
-.gg-help{display:inline-grid;place-items:center;width:24px;height:24px;margin-left:10px;padding:0;vertical-align:middle;border:0;border-radius:50%;font:900 13px/1 inherit;color:#fff;background:linear-gradient(145deg,#6c5ce7,#3b82f6);box-shadow:0 3px 10px #3b82f655;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s}
-.gg-help:active{transform:scale(.9)}
+/* Единая шапка режима: как в Hi-Lo — заголовок слева, Info справа. */
+.gg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}
+.gg-head>.page-title,.gg-head>h1{margin:0!important;text-align:left!important;min-width:0}
+.game-info-btn,.gg-help{flex:none;width:36px;height:36px;display:grid;place-items:center;margin:0;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.045);color:#8f98a6;box-shadow:inset 0 1px rgba(255,255,255,.035);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s ease,background .18s ease,border-color .18s ease,color .18s ease}
+.game-info-btn svg,.gg-help svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.game-info-btn:hover,.gg-help:hover{background:rgba(255,255,255,.065);border-color:rgba(255,255,255,.13);color:#aab1bc}
+.game-info-btn:active,.gg-help:active{transform:scale(.94)}
+#hiloPage .hl-head .hl-info.game-info-btn{width:36px;height:36px;border-radius:12px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);color:#8f98a6;box-shadow:inset 0 1px rgba(255,255,255,.035);font-style:normal}
+#hiloPage .hl-head .hl-info.game-info-btn:hover{background:rgba(255,255,255,.065);border-color:rgba(255,255,255,.13);color:#aab1bc}
+#hiloPage .hl-head .hl-info.game-info-btn:active{transform:scale(.94)}
 
 .gg-svg{display:block;width:100%;height:auto}
 .gg-t{font-weight:800}
@@ -9769,13 +9777,22 @@ if(typeof orig==='function'){
  window.show=function(name){const r=orig.apply(this,arguments);try{if(PAGE[name])setTimeout(()=>maybe(name,0),700)}catch(e){}return r};
 }
 
-/* ---------- "?" buttons ---------- */
+/* ---------- Info buttons: единое расположение как в Hi-Lo ---------- */
 function addButtons(){
  for(const [page,id] of Object.entries(PAGE)){
   if(id==='hilo'||id==='rewards')continue;
-  const h=document.querySelector('#'+page+' h1');if(!h||h.querySelector('.gg-help'))continue;
-  const b=document.createElement('button');b.type='button';b.className='gg-help';b.textContent='?';b.setAttribute('aria-label','Как играть');
-  b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openGuide(id)});h.appendChild(b);
+  const root=document.getElementById(page);if(!root)continue;
+  const h=root.querySelector('h1');if(!h)continue;
+  let head=h.parentElement&&h.parentElement.classList.contains('gg-head')?h.parentElement:null;
+  if(!head){
+   head=document.createElement('div');head.className='gg-head';
+   h.parentNode.insertBefore(head,h);head.appendChild(h);
+  }
+  if(head.querySelector('.gg-help'))continue;
+  const b=document.createElement('button');b.type='button';b.className='gg-help game-info-btn';
+  b.setAttribute('aria-label','Информация об игре');b.setAttribute('title','Info');
+  b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/></svg>';
+  b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openGuide(id)});head.appendChild(b);
  }
 }
 addButtons();

@@ -43,10 +43,10 @@ YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
-GAME_RTP_DEFAULT = 0.94
-PROMO_RTP_DEFAULT = 0.85
+GAME_RTP_DEFAULT = 0.92
+PROMO_RTP_DEFAULT = 0.82
 MIN_GAME_RTP = 0.90
-MIN_PROMO_RTP = 0.80
+MIN_PROMO_RTP = 0.78
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
@@ -1888,7 +1888,7 @@ def enforce_available_modes():
 def game_rtp():
     """Long-run payout ratio used for standard Mines rounds.
 
-    Default 94%. The mandatory first-step multiplier of 1.01x still applies, so on the
+    Default 92%. The mandatory first-step multiplier of 1.01x still applies, so on the
     first click in the 1-mine mode the payout stays at 1.01x (effective RTP of that single
     step is ~97%); every further step follows the configured RTP.
     """
@@ -3455,8 +3455,8 @@ def upgrade_chance(source_price,target_price,rtp_bp=None):
 
 
 def upgrade_rtp_basis_points():
-    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',9000))
-    except (TypeError,ValueError):return 9000
+    try:return int((read_document('game_settings') or {}).get('upgrade_rtp_bp',8600))
+    except (TypeError,ValueError):return 8600
 
 
 @app.get('/api/upgrade/settings')
@@ -9320,7 +9320,7 @@ CRASH_GROWTH = 0.08          # multiplier = e^(0.08 * seconds)
 CRASH_MIN_FLIGHT_MS = 700
 CRASH_MAX_X100 = 1000000     # 10000x ceiling
 CRASH_PROMO_MIN_X100 = 120   # wager gifts count only when cashed out at >= 1.20x (no free 1.00x grinding)
-CRASH_RTP_DEFAULT = 0.97
+CRASH_RTP_DEFAULT = 0.93
 
 
 def crash_rtp():
@@ -9829,7 +9829,7 @@ def crash_cashout():
 # after the first correct guess. The next card is drawn on the server only when the guess arrives.
 HILO_RANKS = 15
 HILO_MICRO = 1000000
-HILO_RTP_DEFAULT = 0.93
+HILO_RTP_DEFAULT = 0.91
 HILO_MIN_STEP_MICRO = 1010000            # one correct guess never pays less than x1.01
 HILO_MAX_MULT_MICRO = 200 * HILO_MICRO   # automatic cash-out at x200 ...
 HILO_MAX_PAYOUT_CENTS = 100000           # ... or at 1000 TON, whichever comes first
@@ -14643,8 +14643,8 @@ def admin_rtp_set():
         return error('Введите RTP в процентах.')
     if not math.isfinite(percent) or not 90 <= percent <= 99.9:
         return error('RTP Mines должен быть от 90 до 99.9%.')
-    if not math.isfinite(promo_percent) or not 80 <= promo_percent <= 96.9:
-        return error('RTP промо-отыгрыша должен быть от 80 до 96.9%.')
+    if not math.isfinite(promo_percent) or not 78 <= promo_percent <= 96.9:
+        return error('RTP промо-отыгрыша должен быть от 78 до 96.9%.')
     if promo_percent >= percent:
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
@@ -16337,12 +16337,15 @@ def _portal_requested_collection(row):
 def _portal_norm(value):return re.sub(r'[^a-z0-9]+','',str(value or '').casefold())
 
 def _portal_matches(items,name):
-    target=_portal_norm(name);out=[]
+    target=_portal_norm(name);exact=[];loose=[]
     for x in items or []:
         if not isinstance(x,dict):continue
         live=_portal_norm(x.get('name'))
-        if target and live and (target==live or target in live or live in target):out.append(x)
-    return out
+        if not (target and live):continue
+        if target==live:exact.append(x)
+        elif target in live or live in target:loose.append(x)
+    # An exact collection match always wins: "Heart" must never fall back to "Heart Locket" if a real Heart exists.
+    return exact or loose
 
 def _portal_owned_candidate(row):
     name,backdrop=_portal_requested_collection(row)
@@ -16358,6 +16361,12 @@ def _portal_market_candidate(row):
     if backdrop:params['filter_by_backdrops']=backdrop
     data=_portal_partner_request('GET','/partners/nfts/search',params=params)
     items=[x for x in _portal_matches(data.get('results') or [],name) if _portal_decimal(x.get('price'))>0]
+    # Never overpay: the market price may exceed the gift's floor value by 25% (+0.5 TON) at most.
+    try:floor=Decimal(int(row.get('floor_price') or 0))/Decimal(100)
+    except (TypeError,ValueError,InvalidOperation):floor=Decimal(0)
+    if floor>0:
+        cap=floor*Decimal('1.25')+Decimal('0.5')
+        items=[x for x in items if _portal_decimal(x.get('price'))<=cap]
     items.sort(key=lambda x:_portal_decimal(x.get('price')))
     return items[0] if items else None
 
@@ -16467,6 +16476,13 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
             return dict(ok=True,status='portal_waiting_recipient',provider='portal',manual_required=False)
         source=str(old.get('source') or '');price=_portal_decimal(old.get('purchase_price') or 0)
         already_owned=old.get('status')=='portal_bought' and bool(nft.get('id'))
+        if old.get('status')=='portal_buying' and nft.get('id'):
+            # The process died while buying: check whether the NFT is already ours before trying to buy again.
+            try:
+                chk=_portal_partner_request('GET','/partners/nfts/owned',params={'ids':str(nft['id']),'limit':5})
+                hit=next((x for x in (chk.get('nfts') or []) if str(x.get('id'))==str(nft['id'])),None)
+                if hit:nft=hit;already_owned=True;source='market'
+            except Exception:pass
         try:
             wallet=_portal_wallet_info()
             if not nft.get('id'):
@@ -16525,7 +16541,7 @@ def _portal_resume_pending(limit=8):
     if not portal_partner_token():return
     with connect() as db:
         rows=db.execute("""SELECT p.withdrawal_id FROM portal_withdrawal_logs p JOIN withdrawals w ON w.id=p.withdrawal_id
-                           WHERE w.status='pending' AND p.status IN ('portal_not_configured','portal_waiting_recipient','portal_bought','portal_withdrawing')
+                           WHERE w.status='pending' AND p.status IN ('portal_not_configured','portal_waiting_recipient','portal_bought','portal_buying','portal_withdrawing')
                            ORDER BY p.updated_at ASC LIMIT ?""",(max(1,min(20,int(limit))),)).fetchall()
     for x in rows:
         try:_portal_fallback_withdraw(int(x['withdrawal_id']))

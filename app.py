@@ -10095,7 +10095,7 @@ def limbo_play():
 
 # ================================== Arena ==================================
 ARENA_BETTING_MS = 20000      # first bet starts a 20s round; a lone bet is refunded after it closes
-ARENA_SPIN_MS = 7000           # must match ARENA_SPIN_MS in the frontend
+ARENA_SPIN_MS = 15000          # must match ARENA_SPIN_MS in the frontend
 ARENA_RESULT_MS = ARENA_SPIN_MS + 6500  # full spin + landing + ~6s result screen before the next round
 ARENA_FEE_PERCENT = 10        # house commission taken from the pool when the winner is paid
 ARENA_SNIPE_WINDOW_MS = 1500  # a NEW player joining in the last 1.5 s extends the round (once per round)

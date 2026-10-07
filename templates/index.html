@@ -10026,4 +10026,10 @@ if('IntersectionObserver' in window)new IntersectionObserver(es=>{visible=!!es[0
 addEventListener('resize',bounds,{passive:true});document.addEventListener('visibilitychange',()=>{last=0});start();
 })();
 </script>
+<style id="infoScrollFix">
+/* Info / rules modals: always scrollable by touch and wheel */
+#ggModal,#hlInfoModal{overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+#ggModal .gg,#hlInfoModal .hl-rules,#hlInfoModal .modal-card{max-height:calc(100dvh - 32px)!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+#ggModal svg,#hlInfoModal svg{pointer-events:none;touch-action:pan-y}
+</style>
 </body></html>

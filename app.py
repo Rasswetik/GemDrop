@@ -43,10 +43,10 @@ YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()
 ADMIN_IDS = {int(x.strip()) for x in os.environ.get('ADMIN_IDS', '5257227756,8468542825').split(',') if x.strip().isdigit()}
 ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
-GAME_RTP_DEFAULT = 0.97
-PROMO_RTP_DEFAULT = 0.90
-MIN_GAME_RTP = 0.97
-MIN_PROMO_RTP = 0.89
+GAME_RTP_DEFAULT = 0.94
+PROMO_RTP_DEFAULT = 0.85
+MIN_GAME_RTP = 0.90
+MIN_PROMO_RTP = 0.80
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
@@ -1888,9 +1888,9 @@ def enforce_available_modes():
 def game_rtp():
     """Long-run payout ratio used for standard Mines rounds.
 
-    With uniformly sampled mines and a mandatory first-step multiplier >= 1.01x,
-    a global RTP below ~97% is mathematically incompatible with the 1-mine mode.
-    Keep standard play in the 97–99.9% range instead of secretly biasing outcomes.
+    Default 94%. The mandatory first-step multiplier of 1.01x still applies, so on the
+    first click in the 1-mine mode the payout stays at 1.01x (effective RTP of that single
+    step is ~97%); every further step follows the configured RTP.
     """
     try:
         doc = read_document('game_settings') or {}
@@ -9829,10 +9829,10 @@ def crash_cashout():
 # after the first correct guess. The next card is drawn on the server only when the guess arrives.
 HILO_RANKS = 15
 HILO_MICRO = 1000000
-HILO_RTP_DEFAULT = 0.97
+HILO_RTP_DEFAULT = 0.93
 HILO_MIN_STEP_MICRO = 1010000            # one correct guess never pays less than x1.01
-HILO_MAX_MULT_MICRO = 500 * HILO_MICRO   # automatic cash-out at x500 ...
-HILO_MAX_PAYOUT_CENTS = 300000           # ... or at 3000 TON, whichever comes first
+HILO_MAX_MULT_MICRO = 200 * HILO_MICRO   # automatic cash-out at x200 ...
+HILO_MAX_PAYOUT_CENTS = 100000           # ... or at 1000 TON, whichever comes first
 
 
 def hilo_rtp():
@@ -9841,7 +9841,7 @@ def hilo_rtp():
         value = float(doc.get('hilo_rtp', HILO_RTP_DEFAULT))
     except (TypeError, ValueError, OSError, json.JSONDecodeError):
         value = HILO_RTP_DEFAULT
-    return min(0.999, max(0.90, value))
+    return min(0.999, max(0.85, value))
 
 
 def hilo_wins(rank, direction):
@@ -14641,18 +14641,18 @@ def admin_rtp_set():
         hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите RTP в процентах.')
-    if not math.isfinite(percent) or not 97 <= percent <= 99.9:
-        return error('Для честной сетки Mines с минимумом 1.01x общий RTP должен быть от 97 до 99.9%.')
-    if not math.isfinite(promo_percent) or not 89 <= promo_percent <= 96.9:
-        return error('RTP промо-отыгрыша должен быть от 89 до 96.9%.')
+    if not math.isfinite(percent) or not 90 <= percent <= 99.9:
+        return error('RTP Mines должен быть от 90 до 99.9%.')
+    if not math.isfinite(promo_percent) or not 80 <= promo_percent <= 96.9:
+        return error('RTP промо-отыгрыша должен быть от 80 до 96.9%.')
     if promo_percent >= percent:
         return error('RTP промо-отыгрыша должен быть ниже обычного RTP.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
         return error('RTP апгрейда должен быть от 1 до 100%.')
     if not math.isfinite(crash_percent) or not 80 <= crash_percent <= 99.9:
         return error('RTP Crash должен быть от 80 до 99.9%.')
-    if not math.isfinite(hilo_percent) or not 90 <= hilo_percent <= 99.9:
-        return error('RTP Hi-Lo должен быть от 90 до 99.9%.')
+    if not math.isfinite(hilo_percent) or not 85 <= hilo_percent <= 99.9:
+        return error('RTP Hi-Lo должен быть от 85 до 99.9%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка RTP от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,

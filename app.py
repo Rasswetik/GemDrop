@@ -665,6 +665,7 @@ def _initialize_schema():
             ('username', "TEXT NOT NULL DEFAULT ''"),
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('ref_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
             ('turnover_cents', 'INTEGER NOT NULL DEFAULT 0'),
@@ -3019,6 +3020,7 @@ def admin_save_levels_bulk():
 # ---- Level plan v4: 100 levels, every reward is sized from the casino margin earned on that level ----
 LEVEL_PLAN_MIN_GIFT_TON = 3.3   # cheapest Portal gift we ever hand out
 LEVEL_PLAN_BUDGET_SHARE = 0.06  # share of the casino margin (8% of turnover) spent on level rewards
+LEVEL_PLAN_EDGE = 0.08          # casino edge on wagering (game RTP 92%)
 
 
 def level_plan_threshold_ton(level):
@@ -3031,14 +3033,40 @@ def level_plan_unit_ton(level):
     return LEVEL_PLAN_BUDGET_SHARE * 0.08 * gain
 
 
-def _lp_x(level):
-    return 8 if level < 50 else 10 if level < 70 else 12 if level < 90 else 15
+def _lp_x_base(level):
+    """Wagering multiplier of a minimum-size gift: grows smoothly with the level (X8 -> X15)."""
+    if level < 20: return 8
+    if level < 30: return 9
+    if level < 45: return 10
+    if level < 60: return 11
+    if level < 75: return 12
+    if level < 90: return 14
+    return 15
 
 
-def _lp_wager(cost, level, days=30):
-    """Wager gift whose casino cost (25% of price) is `cost`; never cheaper than the Portal minimum."""
-    return {'type': 'wager_gift', 'gift_price_ton': round(max(LEVEL_PLAN_MIN_GIFT_TON, cost / 0.25), 1),
-            'wager_multiplier': _lp_x(level), 'gift_expires_days': days}
+def _lp_x(level, price=0.0):
+    """Wagering multiplier for a gift of `price` TON at `level`: the bigger the gift, the higher the X."""
+    extra = 0 if price < 8 else 1 if price < 12 else 2 if price < 18 else 3 if price < 25 else 5
+    return min(20, _lp_x_base(level) + extra)
+
+
+def _lp_share(x):
+    """Casino cost of a wager gift as a share of its price: the gift is paid out, the wagering wins back
+    edge*X of its price (never counted above 88%, as part of the players never finish the wagering)."""
+    return max(0.12, 1.0 - LEVEL_PLAN_EDGE * x)
+
+
+def _lp_days(level):
+    return 30 if level < 50 else 45 if level < 90 else 60
+
+
+def _lp_wager(cost, level, days=None):
+    """Wager gift whose casino cost equals `cost`; never cheaper than the Portal minimum."""
+    price = max(LEVEL_PLAN_MIN_GIFT_TON, cost / _lp_share(_lp_x_base(level)))
+    x = _lp_x(level, price)
+    price = max(LEVEL_PLAN_MIN_GIFT_TON, cost / _lp_share(x))
+    return {'type': 'wager_gift', 'gift_price_ton': round(price, 1),
+            'wager_multiplier': _lp_x(level, price), 'gift_expires_days': days or _lp_days(level)}
 
 
 def _lp_gift(cost):
@@ -3060,27 +3088,41 @@ def _lp_deposit_cost(cost, level):
     return _lp_deposit(percent, minimum)
 
 
-def _lw(price, mult=15, days=60):
-    return {'gift_price_ton': float(price), 'wager_multiplier': mult, 'gift_expires_days': days}
+def _lw(price, days=60):
+    """Finale wager gift; X is filled in from the level and the price in level_plan_reward."""
+    return {'gift_price_ton': float(price), 'wager_multiplier': None, 'gift_expires_days': days}
 
 
 LEVEL_PLAN_FINALE = {
     91: {'type': 'wager_gift', **_lw(8)},
-    92: {'type': 'wager_gift', **_lw(10)},
+    92: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'wager_gift': _lw(10), 'balance': {'amount_ton': 1.2}}},
     93: {'type': 'gift', 'gift_price_ton': 5.0},
     94: {'type': 'multi_promo', 'expires_days': 60, 'components': {
-        'wager_gift': _lw(12), 'balance': {'amount_ton': 1.5}}},
+        'wager_gift': _lw(12), 'balance': {'amount_ton': 2.5}}},
     95: {'type': 'wager_gift', **_lw(15)},
-    96: {'type': 'gift', 'gift_price_ton': 6.0},
+    96: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'gift': {'gift_price_ton': 6.0}, 'balance': {'amount_ton': 1.5}}},
     97: {'type': 'wager_gift', **_lw(20)},
     98: {'type': 'multi_promo', 'expires_days': 60, 'components': {
-        'gift': {'gift_price_ton': 7.0}, 'balance': {'amount_ton': 2.0}}},
+        'gift': {'gift_price_ton': 7.0}, 'balance': {'amount_ton': 3.0}}},
     99: {'type': 'multi_promo', 'expires_days': 60, 'components': {
-        'gift': {'gift_price_ton': 10.0}, 'wager_gift': _lw(10)}},
+        'gift': {'gift_price_ton': 10.0}, 'wager_gift': _lw(10), 'balance': {'amount_ton': 2.5}}},
     100: {'type': 'multi_promo', 'expires_days': 60, 'components': {
-        'gift': {'gift_price_ton': 18.0}, 'wager_gift': _lw(25, 20), 'balance': {'amount_ton': 5.0}}},
+        'gift': {'gift_price_ton': 18.0}, 'wager_gift': _lw(25), 'balance': {'amount_ton': 8.0}}},
 }
 
+
+def _lp_finale(level):
+    """Hand-set finale prize with its wagering multiplier resolved (deep copy, the table stays intact)."""
+    spec = json.loads(json.dumps(LEVEL_PLAN_FINALE[level]))
+    def fill(part):
+        if part.get('wager_multiplier') is None and 'gift_price_ton' in part and 'gift_expires_days' in part:
+            part['wager_multiplier'] = _lp_x(level, part['gift_price_ton'])
+    fill(spec)
+    for part in (spec.get('components') or {}).values():
+        fill(part)
+    return spec
 
 
 def _lp_part(spec):
@@ -3113,45 +3155,47 @@ def level_plan_reward(level):
     if L == 18:
         return {'type': 'transfer_unlock'}
     if L >= 91:  # finale: hand-set prizes sized for 12-15k turnover
-        return LEVEL_PLAN_FINALE[L]
-    # 15-39: no tickets any more; sizes still follow the level budget
+        return _lp_finale(L)
+    # 15-39: no tickets any more; TON on the balance is the main reward, sizes follow the level budget
     if L < 40:
         if r == 0:
             return {'type': 'multi_promo', 'expires_days': 30, 'components': {
-                'wager_gift': _lp_part(_lp_wager(2.0 * u, L)),
-                'balance': {'amount_ton': round(max(0.3, 1.2 * u), 2)}}}
+                'wager_gift': _lp_part(_lp_wager(1.6 * u, L)),
+                'balance': {'amount_ton': round(max(0.4, 1.6 * u), 2)}}}
         if r == 5:
-            return _lp_wager(1.0 * u, L)
+            return _lp_wager(0.9 * u, L)
         if L == 28:
             return {'type': 'personal_promo', 'promo_reward_type': 'balance', 'expires_days': 14,
-                    'amount_ton': round(max(0.3, 1.5 * u), 2)}
+                    'amount_ton': round(max(0.4, 2.0 * u), 2)}
         if L == 35:
-            return _lp_balance(2.0 * u)
-        return _lp_deposit_cost(0.6 * u, L) if L % 2 else _lp_balance(1.0 * u)
+            return _lp_balance(2.5 * u)
+        if L % 4 == 1:
+            return _lp_deposit_cost(0.6 * u, L)
+        return _lp_balance((1.6 if L % 2 else 1.4) * u)
     # 40-99: a 10-level cycle; every price scales with the turnover of that level
     if r == 0:  # milestone: multi reward (every second one also holds a plain gift)
-        comps = {'wager_gift': _lp_part(_lp_wager(1.3 * u, L)),
-                 'balance': {'amount_ton': round(max(0.5, 1.0 * u), 2)}}
+        comps = {'wager_gift': _lp_part(_lp_wager(0.9 * u, L)),
+                 'balance': {'amount_ton': round(max(0.8, 1.6 * u), 2)}}
         if L % 20 == 0:
-            comps['gift'] = _lp_part(_lp_gift(1.6 * u))
+            comps['gift'] = _lp_part(_lp_gift(1.4 * u))
         else:
-            comps['deposit_bonus'] = _lp_part(_lp_deposit_cost(0.5 * u, L))
+            comps['deposit_bonus'] = _lp_part(_lp_deposit_cost(0.4 * u, L))
         return {'type': 'multi_promo', 'expires_days': 30, 'components': comps}
     if r == 5 or (r == 2 and u >= 1.4):  # plain gifts, no wagering (twice per cycle once the budget affords it)
-        return _lp_gift(2.0 * u)
+        return _lp_gift(1.6 * u)
     if r == 7 and L in (47, 67, 87):  # personal promo code with a wager gift
         return {'type': 'personal_promo', 'promo_reward_type': 'wager_gift', 'expires_days': 14,
-                **_lp_part(_lp_wager(0.6 * u, L))}
-    if r in (1, 2, 3, 7, 9):
-        return _lp_wager(0.6 * u, L)
-    if r == 6:
-        return _lp_balance(1.2 * u)
-    return _lp_deposit_cost(0.35 * u, L)  # r in (4, 8)
+                **_lp_part(_lp_wager(0.5 * u, L))}
+    if r in (1, 2, 7, 9):
+        return _lp_wager(0.5 * u, L)
+    if r in (3, 6, 8):  # TON straight to the balance
+        return _lp_balance((1.2 if r == 3 else 1.6 if r == 6 else 1.4) * u)
+    return _lp_deposit_cost(0.35 * u, L)  # r == 4
 
 
 def level_plan_cost_ton(spec):
-    """Casino cost model: wager gift 25% of price, plain gift / TON 100%, deposit bonus 25% of the bonus
-    on its minimum deposit, ticket 0.01 TON."""
+    """Casino cost model: wager gift = price * (1 - edge*X) (>=12%), plain gift / TON 100%, deposit bonus
+    25% of the bonus on its minimum deposit, ticket 0.01 TON."""
     t = spec.get('type')
     if t == 'tickets':
         return spec['tickets'] * 0.01
@@ -3160,7 +3204,7 @@ def level_plan_cost_ton(spec):
     if t == 'gift':
         return spec['gift_price_ton']
     if t == 'wager_gift':
-        return spec['gift_price_ton'] * 0.25
+        return spec['gift_price_ton'] * _lp_share(float(spec.get('wager_multiplier') or 0))
     if t == 'deposit_promo':
         return spec['bonus_percent'] / 100 * spec['min_deposit_ton'] * 0.25
     if t == 'personal_promo':
@@ -3513,7 +3557,7 @@ def claim_level(level):
         current_profile=profile()
         if result.get('code'):
             notify_promo_async(session['uid'], result['code'], 'levels')
-            message=f'Личный промокод {result["code"]} добавлен в Бонусы → Промокоды.'
+            message=f'Промокод {result["code"]} отправлен вам в бота. Нажмите на этот уровень, чтобы увидеть его снова.'
         elif result.get('type')=='tickets':
             message=f'+{int(result.get("tickets") or 0)} билет(ов). Теперь у вас {int(current_profile.get("tickets") or 0)} билет(ов).'
         elif result.get('type')=='balance':
@@ -6500,6 +6544,7 @@ PUBLIC_BALANCE_KINDS = {
     'ton_deposit': 'Пополнение TON',
     'stars_deposit': 'Пополнение Stars',
     'referral_bonus': 'Реферальный бонус',
+    'referral_withdraw': 'Вывод реферального баланса',
     'transfer_sent': 'Перевод отправлен',
     'transfer_received': 'Перевод получен',
     'withdrawal_request': 'Запрос на вывод',
@@ -8358,7 +8403,7 @@ def deliver_activity_notifications():
             db.commit()
         actions = {'gift_sale':'profile','gift_win':'profile','admin_gift_add':'profile',
                    'admin_gift_remove':'profile','transfer_sent':'profile','transfer_received':'profile',
-                   'promo_issued':'bonuses','level_claim':'levels','reward_task_claim':'giveaways',
+                   'promo_issued':'bonuses','referral_bonus':'bonuses','level_claim':'levels','reward_task_claim':'giveaways',
                    'giveaway_enter':'giveaways','upgrade':'profile','daily_top_reward':'profile'}
         markup = miniapp_markup('Открыть розыгрыш', f'giveaways&giveaway={row["giveaway_id"]}') if row['kind'] == 'giveaway_started' else miniapp_markup('Открыть', actions.get(row['kind'], ''))
         heading, separator, body = str(row['text']).partition('\n')
@@ -8447,6 +8492,11 @@ def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
 
 def notify_promo_async(user_id, code, action='bonuses'):
     safe_code = escape(str(code))
+    if action == 'levels':
+        text = (f'🎟 <b>Вам выдан промокод за уровень</b>\n\n<code>{safe_code}</code>\n\n'
+                'Введите его в разделе «Бонусы». Код всегда можно увидеть снова: нажмите на этот уровень в списке уровней.')
+        notify_user_async(user_id, text, miniapp_markup('🎁 Ввести промокод', 'bonuses'), 'HTML')
+        return
     text = f'🎟 <b>Вам выдан промокод</b>\n\n<code>{safe_code}</code>\n\nОткройте GemDrop, чтобы забрать награду.'
     notify_user_async(user_id, text, miniapp_markup('🎁 Забрать', action), 'HTML')
 
@@ -11182,22 +11232,61 @@ def save_admin_loader_settings():
     return jsonify(ok=True, path=path, catalog=loader_catalog())
 
 
+REFERRAL_MIN_WITHDRAW_CENTS = 200  # 2 TON
+
+
 @app.get('/api/referrals/me')
 @login_required
 def my_referrals():
+    uid = session['uid']
     with connect() as db:
-        count = db.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=?',
-                           (session['uid'],)).fetchone()[0]
+        count = db.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id=?', (uid,)).fetchone()[0]
         depositors = db.execute('''SELECT COUNT(DISTINCT user_id) FROM deposits
-                                   WHERE referrer_id=? AND referral_bonus>0''',
-                                (session['uid'],)).fetchone()[0]
+                                   WHERE referrer_id=? AND referral_bonus>0''', (uid,)).fetchone()[0]
         total = db.execute("SELECT COALESCE(SUM(amount),0) FROM transactions WHERE user_id=? AND kind='referral_bonus'",
-                           (session['uid'],)).fetchone()[0]
+                           (uid,)).fetchone()[0]
+        me = db.execute('SELECT ref_balance FROM users WHERE id=?', (uid,)).fetchone()
+        ref_balance = int(me['ref_balance'] or 0) if me else 0
+        rows = db.execute('''SELECT r.referred_id AS id, r.created_at AS joined_at, u.name AS name, u.username AS username,
+                                    u.photo_url AS photo_url,
+                                    COALESCE((SELECT SUM(d.amount) FROM deposits d
+                                              WHERE d.user_id=r.referred_id AND d.referrer_id=r.referrer_id),0) AS deposited,
+                                    COALESCE((SELECT SUM(d.referral_bonus) FROM deposits d
+                                              WHERE d.user_id=r.referred_id AND d.referrer_id=r.referrer_id),0) AS earned
+                             FROM referrals r LEFT JOIN users u ON u.id=r.referred_id
+                             WHERE r.referrer_id=? ORDER BY earned DESC, r.created_at DESC LIMIT 200''', (uid,)).fetchall()
     username = current_bot_username()
-    return jsonify(count=count, depositors=depositors, earned=total/100,
+    referrals = [dict(id=r['id'], name=(r['name'] or 'Игрок'), username=r['username'] or '',
+                      photo_url=r['photo_url'] or '', joined_at=r['joined_at'] or '',
+                      deposited=int(r['deposited'] or 0) / 100, earned=int(r['earned'] or 0) / 100,
+                      active=int(r['deposited'] or 0) > 0) for r in rows]
+    return jsonify(count=count, depositors=depositors, earned=total / 100,
+                   ref_balance=ref_balance / 100, min_withdraw=REFERRAL_MIN_WITHDRAW_CENTS / 100,
+                   can_withdraw=ref_balance >= REFERRAL_MIN_WITHDRAW_CENTS, referrals=referrals,
                    percent=referral_percent(), bot_username=username,
-                   link=f'https://t.me/{username}?start=ref_{session["uid"]}' if username else '')
+                   link=f'https://t.me/{username}?start=ref_{uid}' if username else '')
 
+
+@app.post('/api/referrals/withdraw')
+@login_required
+def withdraw_referral_balance():
+    """Move the whole referral balance to the main balance (from REFERRAL_MIN_WITHDRAW_CENTS)."""
+    uid = session['uid']
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT ref_balance FROM users WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''), (uid,)).fetchone()
+        amount = int(row['ref_balance'] or 0) if row else 0
+        if amount < REFERRAL_MIN_WITHDRAW_CENTS:
+            db.rollback()
+            return error(f'Вывод с реферального баланса доступен от {REFERRAL_MIN_WITHDRAW_CENTS / 100:g} TON.', 400)
+        db.execute('UPDATE users SET balance=balance+?, ref_balance=ref_balance-? WHERE id=?', (amount, amount, uid))
+        record_transaction(db, uid, 'referral_withdraw', amount, 'referral', uid, 'Вывод реферального баланса на основной')
+        log_event(db, uid, 'referral_withdraw', amount=amount / 100)
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(ok=True, withdrawn=amount / 100, user=profile())
 
 
 def parse_datetime_utc(value):
@@ -14482,6 +14571,7 @@ _TX_TITLES = {
     'ton_deposit': ('Пополнение через TON', 'win'),
     'deposit_promo_bonus': ('Бонус за пополнение (промокод)', 'win'),
     'referral_bonus': ('Реферальный бонус', 'win'),
+    'referral_withdraw': ('Вывод реферального баланса', 'neutral'),
     'admin_balance': ('Администратор изменил баланс', 'neutral'),
     'gift_sale': ('Продажа подарка', 'win'),
     'arena_refund': ('Арена · возврат ставки', 'neutral'),
@@ -15946,7 +16036,9 @@ def credit_verified_ton_deposit(db, order, tx_hash):
     db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount+deposit_bonus, user_id))
     add_withdrawal_wager_requirement(db,user_id,amount)
     if referrer and bonus:
-        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (bonus, referrer))
+        # Referral income goes to a separate referral balance; the referrer moves it to the main balance
+        # themselves once it reaches REFERRAL_MIN_WITHDRAW_CENTS.
+        db.execute('UPDATE users SET ref_balance=ref_balance+? WHERE id=?', (bonus, referrer))
     request_key = 'ton:' + str(order['id'])
     db.execute('INSERT INTO deposits(user_id,amount,referrer_id,referral_bonus,admin_id,request_key) VALUES(?,?,?,?,0,?)',
                (user_id, amount, referrer, bonus, request_key))

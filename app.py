@@ -53,7 +53,7 @@ MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
 MIN_MINES = 1
 MAX_MINES = 20
 app = Flask(__name__)
-BUILD_ID = '101-proof-of-fairness-ui'
+BUILD_ID = '102-levels-plan-v3'
 # A stable key avoids worker/restart-dependent Telegram sessions.
 secret_path = DATA / '.session_secret'
 if not os.environ.get('SECRET_KEY') and not BOT_TOKEN and not secret_path.exists():
@@ -3016,6 +3016,347 @@ def admin_save_levels_bulk():
     return jsonify(ok=True)
 
 
+# ---- Level plan v4: 100 levels, every reward is sized from the casino margin earned on that level ----
+LEVEL_PLAN_MIN_GIFT_TON = 3.3   # cheapest Portal gift we ever hand out
+LEVEL_PLAN_BUDGET_SHARE = 0.06  # share of the casino margin (8% of turnover) spent on level rewards
+
+
+def level_plan_threshold_ton(level):
+    return 0.0 if level <= 1 else round((level - 1) ** 2.1, 2)
+
+
+def level_plan_unit_ton(level):
+    """Reward budget of one level (casino cost, TON): share of the margin earned between level-1 and level."""
+    gain = level_plan_threshold_ton(level) - level_plan_threshold_ton(level - 1)
+    return LEVEL_PLAN_BUDGET_SHARE * 0.08 * gain
+
+
+def _lp_x(level):
+    return 8 if level < 50 else 10 if level < 70 else 12 if level < 90 else 15
+
+
+def _lp_wager(cost, level, days=30):
+    """Wager gift whose casino cost (25% of price) is `cost`; never cheaper than the Portal minimum."""
+    return {'type': 'wager_gift', 'gift_price_ton': round(max(LEVEL_PLAN_MIN_GIFT_TON, cost / 0.25), 1),
+            'wager_multiplier': _lp_x(level), 'gift_expires_days': days}
+
+
+def _lp_gift(cost):
+    return {'type': 'gift', 'gift_price_ton': round(max(LEVEL_PLAN_MIN_GIFT_TON, cost), 1)}
+
+
+def _lp_balance(cost):
+    return {'type': 'balance', 'amount_ton': round(max(0.1, cost), 2)}
+
+
+def _lp_deposit(percent, min_ton, days=7):
+    return {'type': 'deposit_promo', 'bonus_percent': percent, 'min_deposit_ton': min_ton, 'expires_days': days}
+
+
+def _lp_deposit_cost(cost, level):
+    """Deposit bonus whose cost model (25% of the bonus on its minimum deposit) equals `cost`."""
+    percent = 10 if level < 60 else 15 if level < 85 else 20
+    minimum = max(5, int(round(cost * 400 / percent / 5.0)) * 5)
+    return _lp_deposit(percent, minimum)
+
+
+def _lw(price, mult=15, days=60):
+    return {'gift_price_ton': float(price), 'wager_multiplier': mult, 'gift_expires_days': days}
+
+
+LEVEL_PLAN_FINALE = {
+    91: {'type': 'wager_gift', **_lw(8)},
+    92: {'type': 'wager_gift', **_lw(10)},
+    93: {'type': 'gift', 'gift_price_ton': 5.0},
+    94: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'wager_gift': _lw(12), 'balance': {'amount_ton': 1.5}}},
+    95: {'type': 'wager_gift', **_lw(15)},
+    96: {'type': 'gift', 'gift_price_ton': 6.0},
+    97: {'type': 'wager_gift', **_lw(20)},
+    98: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'gift': {'gift_price_ton': 7.0}, 'balance': {'amount_ton': 2.0}}},
+    99: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'gift': {'gift_price_ton': 10.0}, 'wager_gift': _lw(10)}},
+    100: {'type': 'multi_promo', 'expires_days': 60, 'components': {
+        'gift': {'gift_price_ton': 18.0}, 'wager_gift': _lw(25, 20), 'balance': {'amount_ton': 5.0}}},
+}
+
+
+
+def _lp_part(spec):
+    """Component of a multi reward: the same spec without its type key."""
+    return {k: v for k, v in spec.items() if k != 'type'}
+
+
+def level_plan_reward(level):
+    """Reward spec in TON terms; the concrete Portal gift is picked from the catalog on apply."""
+    L = int(level)
+    u = level_plan_unit_ton(L)
+    r = L % 10
+    if L <= 1:
+        return {'type': 'none'}
+    # 2-14: small turnover (up to ~220 TON): tickets, the first deposit bonuses and the first real gift
+    if L <= 4:
+        return {'type': 'tickets', 'tickets': 1}
+    if L == 5:
+        return _lp_deposit(10, 5)
+    if L <= 8:
+        return {'type': 'tickets', 'tickets': 2}
+    if L == 9:
+        return {'type': 'tickets', 'tickets': 3}
+    if L == 10:
+        return _lp_wager(0.83, L)
+    if L <= 13:
+        return {'type': 'tickets', 'tickets': 3 if L < 13 else 4}
+    if L == 14:
+        return _lp_deposit(10, 10)
+    if L == 18:
+        return {'type': 'transfer_unlock'}
+    if L >= 91:  # finale: hand-set prizes sized for 12-15k turnover
+        return LEVEL_PLAN_FINALE[L]
+    # 15-39: no tickets any more; sizes still follow the level budget
+    if L < 40:
+        if r == 0:
+            return {'type': 'multi_promo', 'expires_days': 30, 'components': {
+                'wager_gift': _lp_part(_lp_wager(2.0 * u, L)),
+                'balance': {'amount_ton': round(max(0.3, 1.2 * u), 2)}}}
+        if r == 5:
+            return _lp_wager(1.0 * u, L)
+        if L == 28:
+            return {'type': 'personal_promo', 'promo_reward_type': 'balance', 'expires_days': 14,
+                    'amount_ton': round(max(0.3, 1.5 * u), 2)}
+        if L == 35:
+            return _lp_balance(2.0 * u)
+        return _lp_deposit_cost(0.6 * u, L) if L % 2 else _lp_balance(1.0 * u)
+    # 40-99: a 10-level cycle; every price scales with the turnover of that level
+    if r == 0:  # milestone: multi reward (every second one also holds a plain gift)
+        comps = {'wager_gift': _lp_part(_lp_wager(1.3 * u, L)),
+                 'balance': {'amount_ton': round(max(0.5, 1.0 * u), 2)}}
+        if L % 20 == 0:
+            comps['gift'] = _lp_part(_lp_gift(1.6 * u))
+        else:
+            comps['deposit_bonus'] = _lp_part(_lp_deposit_cost(0.5 * u, L))
+        return {'type': 'multi_promo', 'expires_days': 30, 'components': comps}
+    if r == 5 or (r == 2 and u >= 1.4):  # plain gifts, no wagering (twice per cycle once the budget affords it)
+        return _lp_gift(2.0 * u)
+    if r == 7 and L in (47, 67, 87):  # personal promo code with a wager gift
+        return {'type': 'personal_promo', 'promo_reward_type': 'wager_gift', 'expires_days': 14,
+                **_lp_part(_lp_wager(0.6 * u, L))}
+    if r in (1, 2, 3, 7, 9):
+        return _lp_wager(0.6 * u, L)
+    if r == 6:
+        return _lp_balance(1.2 * u)
+    return _lp_deposit_cost(0.35 * u, L)  # r in (4, 8)
+
+
+def level_plan_cost_ton(spec):
+    """Casino cost model: wager gift 25% of price, plain gift / TON 100%, deposit bonus 25% of the bonus
+    on its minimum deposit, ticket 0.01 TON."""
+    t = spec.get('type')
+    if t == 'tickets':
+        return spec['tickets'] * 0.01
+    if t == 'balance':
+        return spec['amount_ton']
+    if t == 'gift':
+        return spec['gift_price_ton']
+    if t == 'wager_gift':
+        return spec['gift_price_ton'] * 0.25
+    if t == 'deposit_promo':
+        return spec['bonus_percent'] / 100 * spec['min_deposit_ton'] * 0.25
+    if t == 'personal_promo':
+        return level_plan_cost_ton({**spec, 'type': spec.get('promo_reward_type')})
+    if t == 'multi_promo':
+        return sum(level_plan_cost_ton({'type': 'deposit_promo' if n == 'deposit_bonus' else n, **c})
+                   for n, c in spec['components'].items())
+    return 0.0
+
+
+def level_plan_pick_gift(gifts, target_ton, used=None):
+    """Portal gift closest to target_ton from below, never cheaper than LEVEL_PLAN_MIN_GIFT_TON.
+    Prefers gifts that were used least so far, so neighbouring levels do not repeat the same gift."""
+    used = used if used is not None else {}
+    floor = int(round(LEVEL_PLAN_MIN_GIFT_TON * 100))
+    priced = []
+    for g in gifts:
+        try:
+            cents = ton_to_cents(g['price_ton'])
+        except (KeyError, ValueError, TypeError, InvalidOperation):
+            continue
+        if cents >= floor and g.get('id') not in (None, ''):
+            priced.append((cents, g))
+    if not priced:
+        return None
+    target = int(round(target_ton * 100))
+    under = [x for x in priced if x[0] <= target * 1.05]  # a hair above the target is fine, below is not
+    if not under:
+        return min(priced, key=lambda x: (x[0], str(x[1].get('id'))))[1]
+    top = max(x[0] for x in under)
+    pool = [x for x in under if x[0] >= top * 0.93]
+    best = min(pool, key=lambda x: (used.get(str(x[1].get('id')), 0), -x[0], str(x[1].get('id'))))
+    return best[1]
+
+
+def _level_plan_data(spec, gifts, used):
+    """Spec in TON terms -> payload for normalize_level_reward (Portal gifts are picked here)."""
+    kind = spec['type']
+    if kind in ('gift', 'wager_gift'):
+        gift = level_plan_pick_gift(gifts, spec['gift_price_ton'], used)
+        if not gift:
+            raise ValueError('В каталоге Portal нет подарков от %.1f TON.' % LEVEL_PLAN_MIN_GIFT_TON)
+        used[str(gift.get('id'))] = used.get(str(gift.get('id')), 0) + 1
+        data = {k: v for k, v in spec.items() if k != 'gift_price_ton'}
+        data['gift_id'] = str(gift.get('id'))
+        return data
+    if kind == 'balance':
+        return {'type': 'balance', 'amount': '%.2f' % spec['amount_ton']}
+    if kind == 'personal_promo':
+        data = _level_plan_data(dict(spec, type=spec['promo_reward_type']), gifts, used)
+        data.update(type='personal_promo', promo_reward_type=spec['promo_reward_type'],
+                    expires_days=spec.get('expires_days', 0))
+        return data
+    if kind == 'deposit_promo':
+        return {'type': 'deposit_promo', 'bonus_percent': spec['bonus_percent'],
+                'min_deposit': '%.2f' % spec['min_deposit_ton'], 'expires_days': spec.get('expires_days', 0)}
+    if kind == 'multi_promo':
+        components = {}
+        for name, conf in spec['components'].items():
+            sub = {'type': 'deposit_promo' if name == 'deposit_bonus' else name, **conf}
+            components[name] = _level_plan_data(sub, gifts, used)
+            components[name].pop('type', None)
+        return {'type': 'multi_promo', 'components': components, 'expires_days': spec.get('expires_days', 0)}
+    return dict(spec)
+
+
+def level_plan_build():
+    gifts = read_catalog().get('gifts', [])
+    used, rows, cum = {}, [], 0.0
+    for level in range(1, 101):
+        spec = level_plan_reward(level)
+        reward = normalize_level_reward(_level_plan_data(spec, gifts, used))
+        cost = level_plan_cost_ton(spec)
+        cum += cost
+        rows.append(dict(level=level, required_turnover=int(round(level_plan_threshold_ton(level) * 100)),
+                         reward=reward, cost_ton=round(cost, 3), cumulative_cost_ton=round(cum, 2)))
+    return rows
+
+
+def level_plan_is_untouched(db):
+    """True while the level table is still the factory one: no rewards configured and nothing claimed."""
+    if db.execute('SELECT 1 FROM level_claims LIMIT 1').fetchone():
+        return False
+    for row in db.execute('SELECT reward_json FROM levels').fetchall():
+        try:
+            reward = json.loads(row['reward_json'] or '{}')
+        except (ValueError, TypeError):
+            return False
+        if reward.get('type', 'none') != 'none':
+            return False
+    return True
+
+
+def level_plan_apply(reset_users=False, admin_id=None, source='manual'):
+    """Replace the level table with the 100-level plan (Portal gifts picked from the live catalog)."""
+    rows = level_plan_build()
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        last = db.execute('SELECT fee_percent,enabled FROM transfer_rates ORDER BY level DESC LIMIT 1').fetchone()
+        fee, enabled = (last['fee_percent'], last['enabled']) if last else (5, 1)
+        if reset_users:
+            db.execute('DELETE FROM level_claims')
+        db.execute('DELETE FROM levels')
+        for r in rows:
+            db.execute('INSERT INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',
+                       (r['level'], r['required_turnover'], json.dumps(r['reward'], ensure_ascii=False)))
+            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,?,?)',
+                       (r['level'], fee, enabled))
+        db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
+        if reset_users:
+            db.execute('UPDATE users SET turnover_cents=0')
+        if admin_id:
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (admin_id, admin_id, 'level_plan_apply', 'reset' if reset_users else 'keep'))
+        db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('levels_plan_v3_applied',))
+        db.commit()
+    finally:
+        db.close()
+    names = []
+    for r in rows:
+        rw = r['reward']
+        parts = [rw] if rw.get('type') != 'multi_promo' else list((rw.get('components') or {}).values())
+        for part in parts:
+            if part.get('gift_name'):
+                names.append(dict(level=r['level'], name=part['gift_name'], price_ton=part.get('gift_price', 0) / 100))
+    save_document('levels_plan_state', dict(version='v3', source=source, levels=len(rows),
+                                             applied_at=datetime.now(timezone.utc).isoformat(), gifts=names))
+    return rows
+
+
+@app.get('/api/admin/levels/plan')
+@admin_required
+def admin_levels_plan():
+    try:
+        rows = level_plan_build()
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True, state=read_document('levels_plan_state'),
+                   levels=[dict(level=r['level'], required_turnover=r['required_turnover'] / 100,
+                                cost_ton=r['cost_ton'], cumulative_cost_ton=r['cumulative_cost_ton'],
+                                reward=public_level_reward(r['reward'])) for r in rows])
+
+
+@app.post('/api/admin/levels/plan/apply')
+@admin_required
+def admin_levels_plan_apply():
+    """Replace the level table with the 100-level plan. reset_users=true also zeroes everybody's
+    turnover and claimed rewards. Requires {"confirm": "APPLY"}."""
+    data = request.get_json(silent=True) or {}
+    if data.get('confirm') != 'APPLY':
+        return error('Передайте confirm="APPLY".')
+    reset_users = bool(data.get('reset_users'))
+    try:
+        rows = level_plan_apply(reset_users, session['uid'], 'admin')
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True, levels=len(rows), reset_users=reset_users)
+
+
+def level_plan_autoapply_loop():
+    """First start on a fresh host: wait for the Portal catalog, then fill the 100 levels with real gifts.
+    Runs once (schema_migrations marker) and only while the level table is still untouched.
+    LEVELS_PLAN_AUTOAPPLY=0 disables it."""
+    if os.environ.get('LEVELS_PLAN_AUTOAPPLY', '1') != '1':
+        return
+    time.sleep(10)
+    last_fetch = 0.0
+    while True:
+        try:
+            with connect() as db:
+                done = db.execute("SELECT 1 FROM schema_migrations WHERE name IN (?,?)",
+                                  ('levels_plan_v3_applied', 'levels_plan_v3_skipped')).fetchone()
+                if done:
+                    return
+                if not level_plan_is_untouched(db):
+                    db.execute('INSERT OR IGNORE INTO schema_migrations(name) VALUES(?)', ('levels_plan_v3_skipped',))
+                    app.logger.info('Levels plan v3: levels already customised, auto-apply skipped (use admin apply).')
+                    return
+            doc = read_document('portal_catalog') or {}
+            gifts = read_catalog().get('gifts', []) if doc else []
+            usable = [g for g in gifts if level_plan_pick_gift([g], 1000000) is not None]
+            if len(usable) >= 10 and not doc.get('partial'):
+                level_plan_apply(False, None, 'first_start')
+                append_portal_log('Уровни: план на 100 уровней применён, подарки подобраны из каталога Portal.')
+                app.logger.info('Levels plan v3 applied automatically.')
+                return
+            if not doc.get('partial') and time.time() - last_fetch > 600 and portal_job_lock.acquire(blocking=False):
+                last_fetch = time.time()
+                append_portal_log('Уровни: каталог Portal пуст, загружаем его для плана уровней.')
+                Thread(target=portal_job, args=(saved_portal_key(),), daemon=True).start()
+        except Exception:
+            app.logger.exception('Levels plan auto-apply loop failed')
+        time.sleep(30)
+
+
 LEVEL_PROMO_TYPES = ('personal_promo', 'deposit_promo', 'multi_promo')
 
 
@@ -3190,7 +3531,7 @@ def reward_description(reward):
     if reward.get('type')=='none':return 'Без награды'
     if reward.get('type')=='transfer_unlock':return 'Доступ к переводам TON'
     if reward.get('type')=='tickets':return f"{int(reward.get('tickets') or 0)} билет(ов) для розыгрышей"
-    if reward.get('type')=='multi_promo':return 'Мультипромокод · '+', '.join(reward.get('components',{}))
+    if reward.get('type')=='multi_promo':return 'Набор наград · '+' + '.join(reward_description(part) for part in (reward.get('components') or {}).values())
     if reward.get('type')=='balance' or reward.get('promo_reward_type')=='balance' and reward.get('type')=='personal_promo':
         return f"{reward.get('amount',0)/100:.2f} TON"
     if reward.get('type')=='wager_gift' or reward.get('promo_reward_type')=='wager_gift':
@@ -17271,6 +17612,7 @@ if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
 # Keep perpetual background-leader lock ids in their own range, separate from
 # transaction/migration locks (660105/660106 above).
 start_background(portal_auto_loop, 660101)
+start_background(level_plan_autoapply_loop, 660107)
 start_background(daily_top_settlement_loop, 661201)
 start_background(broadcast_worker_loop, 661203)
 start_background(relayer_auto_loop, 661204)

@@ -1701,8 +1701,10 @@ def profile():
                 balance=main_balance / 100,
                 bonus_balance=bonus_balance / 100,
                 playable_balance=(main_balance + bonus_balance) / 100,
-                active_game_balance=(main_balance if main_balance > 0 else bonus_balance) / 100,
-                active_game_balance_type=('main' if main_balance > 0 else 'bonus'),
+                # A main balance below the minimum game bet (0.10 TON) is not playable.
+                # Keep those cents on the main ledger, but switch games fully to bonus.
+                active_game_balance=(main_balance if main_balance >= MIN_BET_CENTS else bonus_balance) / 100,
+                active_game_balance_type=('main' if main_balance >= MIN_BET_CENTS else 'bonus'),
                 tickets=(creator['demo_tickets'] if demo else int(user['tickets'] or 0)),
                 turnover=(creator['demo_turnover_cents']/100 if demo else user['turnover_cents']/100),
                 withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
@@ -1736,10 +1738,10 @@ def admin_display():
 def spend_game_balance(db, user_id, amount):
     """Spend a game bet from exactly one balance ledger.
 
-    Main and bonus funds never mix. While the player has even 0.01 TON on the
-    main balance, games may use only the main balance. Bonus becomes eligible
-    only after the main balance reaches zero. This guarantees that every round
-    has one unambiguous source and every payout/gift can inherit that source.
+    Main and bonus funds never mix. The main ledger is the active game source
+    only while it contains at least the minimum playable stake (0.10 TON). If
+    it drops below 0.10 TON, those remaining cents stay on the main ledger but
+    games switch completely to bonus. A single bet is never split across both.
     """
     amount = max(0, int(amount or 0))
     lock = ' FOR UPDATE' if DATABASE_URL else ''
@@ -1748,7 +1750,7 @@ def spend_game_balance(db, user_id, amount):
         return None
     main = max(0, int(row['balance'] or 0))
     bonus = max(0, int(row['bonus_balance'] or 0))
-    if main > 0:
+    if main >= MIN_BET_CENTS:
         if main < amount:
             return None
         changed = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
@@ -1767,7 +1769,7 @@ def active_game_balance_cents(db, user_id):
         return 0, 'main'
     main = max(0, int(row['balance'] or 0))
     bonus = max(0, int(row['bonus_balance'] or 0))
-    return (main, 'main') if main > 0 else (bonus, 'bonus')
+    return (main, 'main') if main >= MIN_BET_CENTS else (bonus, 'bonus')
 
 
 def credit_game_balance(db, user_id, amount, bonus_origin=False):
@@ -3105,6 +3107,7 @@ def round_view(row, reveal=False):
                 multiplier=round(factor, 6), potential=amount/100,
                 positions=json.loads(row['positions']) if reveal or row['state'] != 'active' else [],
                 payout=row['payout']/100, prize=prize, awarded=owned, lost_cell=row['lost_cell'],
+                bonus_origin=bool(int(row['bonus_used'] or 0)),
                 promo_progress_after=int(row['promo_progress_after'] or 0)/100,
                 fairness=fairness_for('mines', row['id'], row['state'] != 'active'))
 
@@ -4478,9 +4481,12 @@ def upgrade_preview():
         except (ValueError,InvalidOperation,TypeError):return error('Укажите ставку в TON с точностью до 0.01.')
         if not 10<=source_price<=MAX_UPGRADE_BET_CENTS:return error('Ставка TON: от 0.10 до 1 000.')
         with connect() as db:
-            balance=db.execute('SELECT balance FROM users WHERE id=?',(session['uid'],)).fetchone()['balance']
-        if balance<source_price:return error('Недостаточно TON для ставки.')
-        source_view=dict(type='ton',id=None,name='TON',image_url='/static/img/ton.png',price_ton=source_price/100)
+            active_balance, balance_source = active_game_balance_cents(db, session['uid'])
+        if active_balance < source_price:return error('Недостаточно TON на активном балансе.')
+        source_view=dict(type='ton',id=None,
+                         name='BONUS TON' if balance_source=='bonus' else 'TON',
+                         image_url='/static/img/ton2.png' if balance_source=='bonus' else '/static/img/ton.png',
+                         price_ton=source_price/100,balance_source=balance_source)
     else:
         try:source_id=int(item_text)
         except (ValueError,TypeError):return error('Выберите свой подарок.')
@@ -5094,6 +5100,14 @@ def upgrade_spin():
             if not spent:
                 return error('Недостаточно TON для ставки.',409)
             bonus_origin = bool(int(spent[1]))
+            if bonus_origin:
+                source['gift_name'] = 'BONUS TON'
+                source['image_url'] = '/static/img/ton2.png'
+                source['bonus_origin'] = 1
+            else:
+                source['gift_name'] = 'TON'
+                source['image_url'] = '/static/img/ton.png'
+                source['bonus_origin'] = 0
         else:
             bonus_origin = inventory_is_bonus(source)
         if not amount_text and not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
@@ -5162,7 +5176,7 @@ def upgrade_spin():
                                    f'Сгорел промо-подарок: {source["gift_name"]}')
         else:
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'],bonus_origin=bonus_origin)
-        result=dict(ok=True,id=request_id,won=won,chance=chance/100,
+        result=dict(ok=True,id=request_id,won=won,chance=chance/100,bonus_origin=bool(bonus_origin),
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
@@ -10506,7 +10520,10 @@ def arena_state_payload(db, uid, now=None):
         my_bet=mine,
         mine_result=('won' if winner_id == int(uid) else 'lost') if winner_id and mine else None,
         recent=arena_recent_rounds(db, 6),
-        balance=profile().get('playable_balance', profile()['balance']),
+        balance=(lambda r: (int(r['balance'] or 0) / 100) if r else 0)(
+            db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()),
+        balance_source='main',
+        bonus_balance_allowed=False,
     )
 
 
@@ -10598,11 +10615,18 @@ def arena_bet():
                             xp_cents=(int(round(amount * (0.2 if inventory_is_bonus(item) else 1.0))) if gift_counts_for_xp(item) else 0),
                             row=dict(item))
         else:
-            spent = spend_game_balance(db, uid, amount)
-            if not spent:
+            main_row = db.execute('SELECT balance FROM users WHERE id=?' + (' FOR UPDATE' if DATABASE_URL else ''),
+                                  (uid,)).fetchone()
+            main_balance = int(main_row['balance'] or 0) if main_row else 0
+            if main_balance < amount:
                 db.rollback()
-                return error('Недостаточно TON.', 409)
-            bonus_used = int(spent[1])
+                return error('В Арене бонусный баланс не используется. Недостаточно TON на основном балансе.', 409)
+            changed = db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?',
+                                 (amount, uid, amount))
+            if not changed.rowcount:
+                db.rollback()
+                return error('Недостаточно TON на основном балансе.', 409)
+            bonus_used = 0
         if existing and existing_amount > 0:
             old_bonus = max(0, int(existing['bonus_used'] or 0))
             old_source = 'bonus' if old_bonus == existing_amount else 'main' if old_bonus == 0 else 'mixed'
@@ -11076,6 +11100,7 @@ def crash_user_view(row):
     return dict(bet=row['bet'] / 100, auto=(row['auto_x100'] or 0) / 100, state=row['state'],
                 cashout=(row['cashout_x100'] or 0) / 100, payout=(row['payout'] or 0) / 100,
                 bet_type=(row['bet_type'] if is_gift else 'ton'), promo=is_promo, promo_min=CRASH_PROMO_MIN_X100 / 100,
+                bonus_origin=bool(int(row['bonus_used'] or 0)),
                 bet_gift=crash_bet_gift_view(row) if is_gift else None,
                 prize=prize)
 
@@ -11146,8 +11171,9 @@ def crash_state_payload(db, uid, now):
     payload['bets'] = bets
     hist = db.execute("SELECT crash_x100 FROM crash_rounds WHERE state='crashed' ORDER BY id DESC LIMIT 24").fetchall()
     payload['history'] = [h['crash_x100'] / 100 for h in hist]
-    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
-    payload['balance'] = ((int(me['balance'] or 0)+int(me['bonus_balance'] or 0)) / 100) if me else 0
+    active_cents, active_source = active_game_balance_cents(db, uid)
+    payload['balance'] = active_cents / 100
+    payload['balance_source'] = active_source
     return payload
 
 
@@ -11387,6 +11413,7 @@ def crash_cashout():
     db = connect()
     try:
         return jsonify(ok=True, multiplier=mult / 100, payout=payout / 100, prize=prize, remainder=remainder / 100,
+                       bonus_origin=bool(bonus_origin),
                        state=crash_state_payload(db, uid, crash_ms()), user=profile())
     finally:
         db.close()
@@ -11458,6 +11485,7 @@ def hilo_game_view(row):
     if row['prize_name']:
         prize = crash_gift_view(row['prize_name'], row['prize_image'], row['prize_price'])
     return dict(id=row['id'], state=row['state'], bet=bet / 100, bet_type='gift' if is_gift else 'ton',
+                bonus_origin=bool(int(row['bonus_used'] or 0)),
                 bet_gift=crash_gift_view(row['bet_gift_name'], row['bet_gift_image'], bet) if is_gift else None,
                 rank=rank, card=crash_gift_view(row['card_name'], row['card_image'], 0), steps=int(row['steps']),
                 mult=mult_micro / HILO_MICRO, potential=(bet * mult_micro // HILO_MICRO) / 100,
@@ -11468,11 +11496,11 @@ def hilo_game_view(row):
 
 def hilo_state_payload(db, uid):
     row = db.execute('SELECT * FROM hilo_games WHERE user_id=? ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
-    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
+    active_cents, active_source = active_game_balance_cents(db, uid)
     return dict(game=hilo_game_view(row), ranks=HILO_RANKS, rtp=hilo_rtp(),
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
                 min_nft=crash_min_prize_cents() / 100, available=game_available('hilo'),
-                balance=((int(me['balance'] or 0) + int(me['bonus_balance'] or 0)) / 100) if me else 0)
+                balance=active_cents / 100, balance_source=active_source)
 
 
 def hilo_settle_cashout(db, uid, game, want_gift):
@@ -11773,20 +11801,21 @@ def hilo_room_payload(db, uid, n, phase, now):
                     chance=(100.0 if hilo_room_is_push(base, d) else round(hilo_wins(base, d) * 100 / (HILO_RANKS - 1), 1)),
                     push=hilo_room_is_push(base, d))
             for d in ('hi', 'lo')}
-    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,b.want_gift,b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
+    rows = db.execute("""SELECT b.user_id,b.direction,b.amount,b.gift_name,b.gift_image,b.settled,b.payout,b.want_gift,b.prize_name,b.prize_image,b.prize_price,b.bonus_used,u.name,u.photo_url
                          FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.round_no=?
                          ORDER BY b.amount DESC,b.id ASC LIMIT 60""", (n,)).fetchall()
     bets = [dict(user_id=r['user_id'], name=r['name'] or 'Игрок', photo_url=r['photo_url'] or '', direction=r['direction'],
                  settled=bool(r['settled']), amount=r['amount'] / 100, payout=r['payout'] / 100, mine=r['user_id'] == uid,
                  gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', want_gift=bool(r['want_gift']),
+                 bonus_origin=bool(int(r['bonus_used'] or 0)),
                  prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
             for r in rows]
     _, hl_clear_id = wins_feed_cutoff(db, 'hilo')
     recent_rows = db.execute("""SELECT b.id,b.user_id,b.round_no,b.direction,b.amount,b.payout,b.won,b.gift_name,b.gift_image,
-                                        b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
+                                        b.prize_name,b.prize_image,b.prize_price,b.bonus_used,u.name,u.photo_url
                                  FROM hilo_room_bets b JOIN users u ON u.id=b.user_id WHERE b.settled=1 AND b.id>?
                                  ORDER BY b.id DESC LIMIT 30""", (hl_clear_id,)).fetchall()
-    last = db.execute("""SELECT id,round_no,direction,amount,payout,won,gift_name,gift_image,prize_name,prize_image,prize_price FROM hilo_room_bets WHERE user_id=? AND settled=1
+    last = db.execute("""SELECT id,round_no,direction,amount,payout,won,gift_name,gift_image,prize_name,prize_image,prize_price,bonus_used FROM hilo_room_bets WHERE user_id=? AND settled=1
                          ORDER BY id DESC LIMIT 1""", (uid,)).fetchone()
     nums = hilo_round_numbers(db, [r['round_no'] for r in recent_rows] + ([last['round_no']] if last else []) + [n])
     cur_no = nums.get(n, 0)
@@ -11794,6 +11823,7 @@ def hilo_room_payload(db, uid, n, phase, now):
                    direction=r['direction'], amount=r['amount'] / 100, payout=r['payout'] / 100, no=nums.get(r['round_no'], 0),
                    won=bool(r['won'] or r['payout'] > 0),
                    gift_name=r['gift_name'] or '', gift_image=r['gift_image'] or '', mine=r['user_id'] == uid,
+                   bonus_origin=bool(int(r['bonus_used'] or 0)),
                    x=hilo_room_step_micro(hilo_room_rank(r['round_no']), r['direction']) / HILO_MICRO,
                    push=hilo_room_is_push(hilo_room_rank(r['round_no']), r['direction']),
                    prize_name=r['prize_name'] or '', prize_image=r['prize_image'] or '', prize_price=(r['prize_price'] or 0) / 100)
@@ -11802,15 +11832,16 @@ def hilo_room_payload(db, uid, n, phase, now):
     seq = [hilo_room_visible_rank(db, k) for k in range(upto - 25, upto)]
     history = [dict(rank=r, rel='up' if r > seq[i] else 'down' if r < seq[i] else 'eq', **hilo_tier_card(r))
                for i, r in enumerate(seq[1:])]
-    me = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (uid,)).fetchone()
+    active_cents, active_source = active_game_balance_cents(db, uid)
     return dict(now=now, round=n, no=cur_no, phase=phase, bet_ms=HILO_BET_MS, room_ms=HILO_ROOM_MS, card=card(base),
                 result=card(result_rank) if reveal else None, odds=odds, bets=bets,
                 history=history, recent=recent,
                 min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100, available=game_available('hilo'),
-                balance=((int(me['balance'] or 0) + int(me['bonus_balance'] or 0)) / 100) if me else 0,
+                balance=active_cents / 100, balance_source=active_source,
                 fairness=fairness_view(db, 'hilo_room', n, reveal),
                 last=dict(id=last['id'], round=last['round_no'], no=nums.get(last['round_no'], 0), gift_name=last['gift_name'] or '', gift_image=last['gift_image'] or '',
                           won=bool(last['won'] or last['payout'] > 0), direction=last['direction'], amount=last['amount'] / 100,
+                          bonus_origin=bool(int(last['bonus_used'] or 0)),
                           payout=last['payout'] / 100, prize_name=last['prize_name'] or '', prize_image=last['prize_image'] or '',
                           prize_price=(last['prize_price'] or 0) / 100) if last else None,
                 min_nft=crash_min_prize_cents() / 100)

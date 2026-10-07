@@ -5110,6 +5110,14 @@ def upgrade_spin():
                 source['bonus_origin'] = 0
         else:
             bonus_origin = inventory_is_bonus(source)
+        # Resolve the public artwork before the inventory row is consumed. Bonus/admin NFT
+        # gifts may rely on their exact Fragment URL even when the raw image_url is empty.
+        if amount_text:
+            source_image_url = source['image_url']
+        else:
+            source_public = inventory_item(source)
+            source_image_url = source_public.get('image_url') or safe_image(source['image_url']) or '/static/img/gift.svg'
+            source['image_url'] = source_image_url
         if not amount_text and not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
             return error('Подарок уже использован.',409)
         proof = fairness_resolve_action(db, 'upgrade', session['uid'], data)
@@ -5178,7 +5186,8 @@ def upgrade_spin():
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'],bonus_origin=bonus_origin)
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,bonus_origin=bool(bonus_origin),
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
-                    source=dict(name=source['gift_name'],image_url=source['image_url'],price_ton=source_price/100),
+                    source=dict(name=source['gift_name'],image_url=source_image_url,price_ton=source_price/100,
+                                bonus_origin=bool(bonus_origin)),
                     target=dict(name=target['name'],image_url=target['image_url'],price_ton=target['price']/100,
                                 promo_locked=False),
                     wager_progress=(wager_progress if wager else 0)/100,wager_target=wager_target/100,
@@ -5195,12 +5204,12 @@ def upgrade_spin():
         result['fairness'] = fairness_public(proof, True)
         db.execute('''INSERT INTO upgrade_spins(id,user_id,source_name,source_image,source_price,target_name,target_image,target_price,chance_bp,won,result_json,created_at,bonus_used)
                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                   (request_id,session['uid'],source['gift_name'],source['image_url'],source_price,
+                   (request_id,session['uid'],source['gift_name'],source_image_url,source_price,
                     target['name'],target['image_url'],target['price'],round(chance),int(won),json.dumps(result,ensure_ascii=False),
                     datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f'), source_price if bonus_origin else 0))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
-        log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source['image_url'],
+        log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source_image_url,
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
                   target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,
                   wager_progress=wager_progress/100 if wager and won else None,source_type='ton' if amount_text else 'gift')
@@ -12936,6 +12945,8 @@ def claim_upgrade_loss_compensation(db, user_id, spin_id, result):
                                'Компенсация Upgrade · ' + ('бонусный баланс' if bonus_origin else 'основной баланс'))
             comp['cashback'] = amount / 100
             reward['balance_target'] = 'bonus' if bonus_origin else 'main'
+            reward['image_url'] = '/static/img/ton2.png' if bonus_origin else '/static/img/ton.png'
+            reward['name'] = 'Бонусный TON' if bonus_origin else 'TON'
     elif kind == 'tickets':
         tickets = max(1, int(reward.get('tickets') or 1))
         db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (tickets, user_id))

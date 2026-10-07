@@ -351,7 +351,8 @@ def _initialize_schema():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
             photo_url TEXT NOT NULL DEFAULT '', balance INTEGER NOT NULL DEFAULT 0,
-            bonus_balance INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            bonus_balance INTEGER NOT NULL DEFAULT 0, loss_cashback_residual INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
@@ -679,6 +680,7 @@ def _initialize_schema():
             ('photo_url', "TEXT NOT NULL DEFAULT ''"),
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('bonus_balance', 'INTEGER NOT NULL DEFAULT 0'),
+            ('loss_cashback_residual', 'INTEGER NOT NULL DEFAULT 0'),
             ('ref_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
@@ -1778,6 +1780,37 @@ def credit_game_balance(db, user_id, amount, bonus_origin=False):
         return
     column = 'bonus_balance' if bonus_origin else 'balance'
     db.execute(f'UPDATE users SET {column}={column}+? WHERE id=?', (amount, user_id))
+
+
+LOSS_CASHBACK_PERCENT = 2
+
+
+def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', reference_id='', details=''):
+    """Credit exactly 2% of a main-balance gaming loss to bonus balance.
+
+    Sub-cent cashback is carried in loss_cashback_residual so repeated small
+    losses are not rounded away. Bonus-funded bets and gift/NFT losses do not
+    call this helper.
+    """
+    loss_cents = max(0, int(loss_cents or 0))
+    if not loss_cents:
+        return 0
+    lock = ' FOR UPDATE' if DATABASE_URL else ''
+    row = db.execute('SELECT loss_cashback_residual FROM users WHERE id=?' + lock, (int(user_id),)).fetchone()
+    if not row:
+        return 0
+    residual = max(0, int(row['loss_cashback_residual'] or 0))
+    numerator = loss_cents * LOSS_CASHBACK_PERCENT + residual
+    credit = numerator // 100
+    residual = numerator % 100
+    db.execute('UPDATE users SET bonus_balance=bonus_balance+?,loss_cashback_residual=? WHERE id=?',
+               (credit, residual, int(user_id)))
+    if credit:
+        note = f'Кэшбэк {LOSS_CASHBACK_PERCENT}% за проигрыш с основного баланса'
+        if details:
+            note += ' · ' + str(details)[:300]
+        record_transaction(db, int(user_id), 'loss_cashback', credit, reference_type, reference_id, note)
+    return credit
 
 
 def inventory_is_bonus(row):
@@ -4301,6 +4334,9 @@ def spin_roll(roll_id):
         record_transaction(db,session['uid'],'roll_spin',-roll['price'],'roll',spin_id,roll['name'])
         if entry['kind']=='gift':
             record_transaction(db,session['uid'],'roll_gift',0,'roll',spin_id,entry['name'])
+        elif entry['kind']=='empty':
+            credit_main_loss_cashback(db, session['uid'], int(roll['price'] or 0),
+                                      'roll', spin_id, str(roll['name'] or 'Roll'))
         log_event(db,session['uid'],'roll',name=roll['name'],price=roll['price']/100,
                   outcome=entry['kind'],gift_name=entry['name'],gift_image=entry.get('image_url',''))
         new_level=increase_turnover(db,session['uid'],roll['price'])
@@ -5184,6 +5220,9 @@ def upgrade_spin():
                                    f'Сгорел промо-подарок: {source["gift_name"]}')
         else:
             compensation=apply_upgrade_loss_compensation(db,session['uid'],source_price,target['price'],bonus_origin=bonus_origin)
+        if not won and amount_text and not bonus_origin:
+            credit_main_loss_cashback(db, session['uid'], source_price, 'upgrade', request_id,
+                                      f'{source["gift_name"]} → {target["name"]}')
         result=dict(ok=True,id=request_id,won=won,chance=chance/100,bonus_origin=bool(bonus_origin),
                     source_type='ton' if amount_text else 'gift',reward_type='wager_progress' if wager else 'gift',
                     source=dict(name=source['gift_name'],image_url=source_image_url,price_ton=source_price/100,
@@ -5556,6 +5595,9 @@ def open_cell():
             elif row['bet_type'] == 'gift':
                 record_transaction(db, row['user_id'], 'gift_bet_lost', 0, 'round', row['id'],
                                    f'Проигран подарок: {row["bet_gift_name"]}')
+            elif row['bet_type'] == 'ton' and not int(row['bonus_used'] or 0):
+                credit_main_loss_cashback(db, row['user_id'], int(row['bet'] or 0),
+                                          'round', row['id'], f'Mines · {int(row["mines"] or 0)} мин')
         else:
             opened.append(cell)
             db.execute('UPDATE rounds SET opened=? WHERE id=?', (json.dumps(opened), row['id']))
@@ -7321,6 +7363,7 @@ PUBLIC_BALANCE_KINDS = {
     'roll_gift': 'Подарок из Roll',
     'upgrade_bet': 'Ставка Upgrade',
     'upgrade_cashback': 'Утешительный приз Upgrade',
+    'loss_cashback': 'Кэшбэк 2% за проигрыш',
     'gift_sale': 'Продажа подарка',
     'promo_balance': 'Промокод',
     'promo_gift': 'Подарок по промокоду',
@@ -7649,7 +7692,8 @@ def sell_inventory(item_id):
         record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + amount
         save_creator_record(session['uid'], {'demo_balance_cents': record['demo_balance_cents'],
                                              'demo_inventory': record['demo_inventory']})
-        return jsonify(ok=True, sold_for=amount/100, demo=True, user=profile())
+        return jsonify(ok=True, sold_for=amount/100, demo=True,
+                       sale_split=dict(main=0.0, bonus=0.0, demo=amount/100, mode='demo'), user=profile())
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -7668,12 +7712,38 @@ def sell_inventory(item_id):
                              (item_id, session['uid']))
         if not deleted.rowcount:
             return error('Подарок уже обработан.', 409)
+
+        # Bonus-origin NFT sale rules are intentionally different from an ordinary gift.
+        # The rolling 24h deposit only unlocks *real* value. Once the requirement is met,
+        # a sale is still split 50/50 so promotional value never becomes 100% main balance.
+        # If the 24h requirement is not met, the whole sale remains bonus balance.
+        sale_split = dict(main=0.0, bonus=0.0, mode='main')
+        sale_details = str(item['gift_name'] or 'Подарок')
+        is_bonus_gift = inventory_is_bonus(item)
+        bonus_locked = inventory_bonus_locked(item) if is_bonus_gift else False
         if amount:
-            # Selling a still-locked bonus-origin gift must not turn promotional value into withdrawable cash.
-            credit_game_balance(db, session['uid'], amount, inventory_bonus_locked(item))
-        record_transaction(db, session['uid'], 'gift_sale', amount, 'inventory', item_id, item['gift_name'])
+            if is_bonus_gift and bonus_locked:
+                credit_game_balance(db, session['uid'], amount, True)
+                sale_split = dict(main=0.0, bonus=amount / 100, mode='bonus_locked')
+                sale_details += f' · бонусный NFT: +{amount/100:.2f} TON на бонусный баланс (условие 24 ч не выполнено)'
+            elif is_bonus_gift:
+                main_credit = amount // 2
+                bonus_credit = amount - main_credit
+                if main_credit:
+                    db.execute('UPDATE users SET balance=balance+? WHERE id=?', (main_credit, session['uid']))
+                if bonus_credit:
+                    db.execute('UPDATE users SET bonus_balance=bonus_balance+? WHERE id=?', (bonus_credit, session['uid']))
+                sale_split = dict(main=main_credit / 100, bonus=bonus_credit / 100, mode='bonus_split')
+                sale_details += (f' · бонусный NFT 50/50: +{main_credit/100:.2f} TON основной, '
+                                 f'+{bonus_credit/100:.2f} TON бонусный')
+            else:
+                credit_game_balance(db, session['uid'], amount, False)
+                sale_split = dict(main=amount / 100, bonus=0.0, mode='main')
+        record_transaction(db, session['uid'], 'gift_sale', amount, 'inventory', item_id, sale_details)
         db.commit()
-        return jsonify(ok=True, sold_for=amount/100, user=profile())
+        return jsonify(ok=True, sold_for=amount/100, sale_split=sale_split,
+                       bonus_origin=bool(is_bonus_gift), bonus_unlock_complete=not bonus_locked,
+                       user=profile())
     finally:
         db.close()
 
@@ -10001,6 +10071,8 @@ def limbo_play():
         if payout:
             credit_game_balance(db, uid, payout, bool(bonus_used))
             record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
+        elif not bonus_used:
+            credit_main_loss_cashback(db, uid, bet, 'limbo', bet_id, f'Limbo · шанс {chance}%')
         outcome = dict(upper=LIMBO_ROLL_RANGE, ticket=roll, roll=roll, chance_bp=chance * 100, won=bool(won))
         fairness_store(db, proof, game_ref=bet_id, cursor=fair_cursor, outcome=outcome, state='settled')
         db.execute('UPDATE limbo_bets SET fairness_id=? WHERE id=?', (proof['id'], bet_id))
@@ -10242,6 +10314,10 @@ def arena_advance(db, now=None):
                 record_transaction(db, int(player['user_id']), 'arena_loss', 0, 'arena_round', row['id'],
                                    f'Arena #{row["id"]}: проигрыш {int(player["amount"] or 0)/100:.2f} TON'
                                    + (f' (подарки: {names})' if names else ''))
+                main_ton_loss = max(0, int(player['amount'] or 0) - int(player['gift_amount'] or 0))
+                if main_ton_loss:
+                    credit_main_loss_cashback(db, int(player['user_id']), main_ton_loss,
+                                              'arena_round', row['id'], f'Arena #{row["id"]}')
         fairness_mark_settled(db, 'arena', row['id'], cursor=fair_cursor,
                               outcome={'ticket': ticket, 'upper': total,
                                        'winner_user_id': int(winner['user_id']),
@@ -10978,6 +11054,10 @@ def crash_settle_round(db, row):
                                    f'Проигран подарок: {bet["bet_gift_name"]}')
             elif lost.rowcount and is_promo:
                 crash_promo_loss(db, bet, row['id'])
+            elif (lost.rowcount and (bet['bet_type'] or 'ton') == 'ton'
+                  and not int(bet['bonus_used'] or 0) and int(bet['user_id']) != _arena_bot['uid']):
+                credit_main_loss_cashback(db, bet['user_id'], int(bet['bet'] or 0),
+                                          'crash_round', row['id'], f'Crash #{row["id"]}')
 
 
 def crash_latest(db):
@@ -11775,6 +11855,9 @@ def hilo_room_settle(db, n, phase):
                           (credit, 1 if won else 0, r['id'])).rowcount:
             continue
         if not won:
+            if not gift_bet and not int(r['bonus_used'] or 0):
+                credit_main_loss_cashback(db, r['user_id'], int(r['amount'] or 0),
+                                          'hilo_room', r['id'], f'Hi-Lo общий раунд #{r["round_no"]}')
             continue
         label = f'Hi-Lo общий раунд x{step / HILO_MICRO:.2f}' + (' (возврат)' if push else '')
         if keep_stake:
@@ -12268,6 +12351,9 @@ def hilo_guess():
             fairness_mark_settled(db, 'hilo', game['id'])
             if (game['bet_type'] or 'ton') == 'gift':
                 record_transaction(db, uid, 'hilo_gift_lost', 0, 'hilo_game', game['id'], str(game['bet_gift_name'] or '')[:140])
+            elif (game['bet_type'] or 'ton') == 'ton' and not int(game['bonus_used'] or 0):
+                credit_main_loss_cashback(db, uid, int(game['bet'] or 0),
+                                          'hilo_game', game['id'], 'Hi-Lo')
         db.commit()
     except ValueError as exc:
         db.rollback()

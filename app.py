@@ -1740,12 +1740,30 @@ def spend_game_balance(db, user_id, amount):
     return main_used, bonus_used
 
 
-def credit_game_balance(db, user_id, amount, bonus_origin=False):
+def credit_game_balance(db, user_id, amount, bonus_origin=False, stake=None):
+    """Pay a win back. Without `stake` the whole amount goes to one balance (legacy behaviour).
+    With `stake` and `bonus_origin` = bonus part of that stake, the win is split in the same proportion:
+    a stake paid from the main balance always returns to the main balance."""
     amount = max(0, int(amount or 0))
     if not amount:
         return
+    if stake is not None:
+        stake = max(0, int(stake or 0))
+        bonus_part = max(0, min(int(bonus_origin or 0), stake))
+        to_bonus = amount * bonus_part // stake if stake else 0
+        if to_bonus:
+            db.execute('UPDATE users SET bonus_balance=bonus_balance+? WHERE id=?', (to_bonus, user_id))
+        if amount - to_bonus:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (amount - to_bonus, user_id))
+        return
     column = 'bonus_balance' if bonus_origin else 'balance'
     db.execute(f'UPDATE users SET {column}={column}+? WHERE id=?', (amount, user_id))
+
+
+def bonus_stake_flag(bonus_used, stake):
+    """A prize gift is bonus-origin only when the bonus balance paid at least half of the stake."""
+    bonus_used, stake = int(bonus_used or 0), int(stake or 0)
+    return bonus_used > 0 and bonus_used * 2 >= stake
 
 
 def inventory_bonus_locked(row):
@@ -2988,7 +3006,7 @@ def award_round(db, row, opened_count):
         cents = ton_to_cents(prize['price_ton'])
         remainder = max(0, amount - cents)
         image_url = safe_image(prize.get('image_url'))
-        bo, br, bp = bonus_origin_values(cents, bool(int(row['bonus_used'] or 0)))
+        bo, br, bp = bonus_origin_values(cents, bonus_stake_flag(row['bonus_used'], row['bet']))
         cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
                                bonus_origin,bonus_unlock_required,bonus_unlock_progress)
                                VALUES(?,?,?,?,?,'game',?,?,?,?)""",
@@ -3001,7 +3019,7 @@ def award_round(db, row, opened_count):
                    (remainder, cursor.lastrowid, amount, factor, str(prize['name'])[:140],
                     image_url, cents, settled_at, row['id']))
         if remainder:
-            credit_game_balance(db, row['user_id'], remainder, bool(int(row['bonus_used'] or 0)))
+            credit_game_balance(db, row['user_id'], remainder, int(row['bonus_used'] or 0), row['bet'])
             record_transaction(db, row['user_id'], 'game_win_ton', remainder, 'round', row['id'],
                                f'Остаток после выигрыша подарка: {prize["name"]}')
         record_transaction(db, row['user_id'], 'gift_win', 0, 'round', row['id'], str(prize['name']))
@@ -3009,7 +3027,7 @@ def award_round(db, row, opened_count):
         db.execute("""UPDATE rounds SET state='won',payout=?,win_total=?,win_multiplier=?,
                       win_gift_name='',win_gift_image='',win_gift_price=NULL,settled_at=? WHERE id=?""",
                    (amount, amount, factor, settled_at, row['id']))
-        credit_game_balance(db, row['user_id'], amount, bool(int(row['bonus_used'] or 0)))
+        credit_game_balance(db, row['user_id'], amount, int(row['bonus_used'] or 0), row['bet'])
         record_transaction(db, row['user_id'], 'game_win_ton', amount, 'round', row['id'], 'Выигрыш Mines')
 
 
@@ -5035,7 +5053,7 @@ def upgrade_spin():
             spent = spend_game_balance(db, session['uid'], source_price)
             if not spent:
                 return error('Недостаточно TON для ставки.',409)
-            bonus_origin = bool(int(spent[1]))
+            bonus_origin = bonus_stake_flag(spent[1], source_price)
         else:
             bonus_origin = inventory_bonus_locked(source)
         if not amount_text and not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?',(source_id,session['uid'])).rowcount:
@@ -9652,7 +9670,7 @@ def limbo_play():
         record_transaction(db, uid, 'limbo_bet', -bet, 'limbo', bet_id, 'Limbo · шанс %d%%' % chance)
         new_level = increase_turnover(db, uid, bet)
         if payout:
-            credit_game_balance(db, uid, payout, bool(bonus_used))
+            credit_game_balance(db, uid, payout, bonus_used, bet)
             record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
         outcome = dict(upper=LIMBO_ROLL_RANGE, ticket=roll, roll=roll, chance_bp=chance * 100, won=bool(won))
         fairness_store(db, proof, game_ref=bet_id, cursor=fair_cursor, outcome=outcome, state='settled')
@@ -9849,7 +9867,7 @@ def arena_advance(db, now=None):
     if changed.rowcount:
         winner_id = int(winner['user_id'])
         if payout > 0:
-            credit_game_balance(db, winner_id, payout, bool(int(winner['bonus_used'] or 0)))
+            credit_game_balance(db, winner_id, payout, int(winner['bonus_used'] or 0), max(1, int(winner['amount'] or 0) - int(winner['gift_amount'] or 0)) if int(winner['bonus_used'] or 0) else None)
             record_transaction(db, winner_id, 'arena_win', payout, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: выигрыш {payout/100:.2f} TON '
                                + (f'(TON-банк {ton_total/100:.2f}, комиссия {ARENA_FEE_PERCENT}% = {fee/100:.2f})'
@@ -10566,7 +10584,7 @@ def crash_settle_round(db, row):
                 elif int(bet['user_id']) == _arena_bot['uid']:
                     pass   # house bot: its stake was never taken, so its win is not paid out of anyone's balance
                 else:
-                    credit_game_balance(db, bet['user_id'], payout, bool(int(bet['bonus_used'] or 0)))
+                    credit_game_balance(db, bet['user_id'], payout, int(bet['bonus_used'] or 0), bet['bet'])
                     record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
                                        f'Crash x{auto/100:.2f} (авто)')
         else:
@@ -10991,7 +11009,8 @@ def crash_cashout():
         if not moved.rowcount:
             db.rollback()
             return error('Ставка уже закрыта.', 409)
-        bonus_origin = bool(int(mine['bonus_used'] or 0))
+        bonus_origin = bonus_stake_flag(mine['bonus_used'], mine['bet'])
+        bonus_part = int(mine['bonus_used'] or 0)
         if prize_info:
             bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
             cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
@@ -11002,14 +11021,14 @@ def crash_cashout():
             db.execute('UPDATE crash_bets SET prize_inventory_id=? WHERE round_id=? AND user_id=?',
                        (cursor.lastrowid, row['id'], uid))
             if remainder:
-                credit_game_balance(db, uid, remainder, bonus_origin)
+                credit_game_balance(db, uid, remainder, bonus_part, mine['bet'])
                 record_transaction(db, uid, 'crash_win', remainder, 'crash_round', row['id'],
                                    f'Crash x{mult/100:.2f}: остаток после подарка {prize_info["name"]}')
             record_transaction(db, uid, 'crash_gift_win', 0, 'crash_round', row['id'],
                                f'{prize_info["name"]} · x{mult/100:.2f}')
             prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
         else:
-            credit_game_balance(db, uid, payout, bonus_origin)
+            credit_game_balance(db, uid, payout, bonus_part, mine['bet'])
             record_transaction(db, uid, 'crash_win', payout, 'crash_round', row['id'], f'Crash x{mult/100:.2f}')
         db.commit()
     finally:
@@ -11110,7 +11129,8 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     bet, mult = int(game['bet']), int(game['mult_micro'])
     payout = bet * mult // HILO_MICRO
     prize_info, remainder = None, 0
-    bonus_origin = bool(int(game['bonus_used'] or 0))
+    bonus_origin = bonus_stake_flag(game['bonus_used'], game['bet'])
+    bonus_part = int(game['bonus_used'] or 0)
     # The win always arrives as a Telegram gift, the rest goes to the balance.
     # Only if it is below the cheapest gift does it stay in TON.
     prize_info = crash_prize_preview(payout)
@@ -11134,13 +11154,13 @@ def hilo_settle_cashout(db, uid, game, want_gift):
                       VALUES(?,?,?,?,?,'game',?,?,?,?)""",
                    (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id'], bo, br, bp))
         if remainder:
-            credit_game_balance(db, uid, remainder, bonus_origin)
+            credit_game_balance(db, uid, remainder, bonus_part, bet)
             record_transaction(db, uid, 'hilo_win', remainder, 'hilo_game', game['id'],
                                f'{label}: остаток после подарка {prize_info["name"]}')
         record_transaction(db, uid, 'hilo_gift_win', 0, 'hilo_game', game['id'], f'{prize_info["name"]} · {label}')
         prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
     else:
-        credit_game_balance(db, uid, payout, bonus_origin)
+        credit_game_balance(db, uid, payout, bonus_part, bet)
         record_transaction(db, uid, 'hilo_win', payout, 'hilo_game', game['id'], label)
     return payout, prize, remainder
 
@@ -11375,7 +11395,7 @@ def hilo_room_settle(db, n, phase):
             record_transaction(db, r['user_id'], 'hilo_gift_return', 0, 'hilo_room', r['id'], f"{r['gift_name']} · {label}")
         if prize:
             remainder = max(0, total - int(prize['price_cents']))
-            bonus_origin = bool(int(r['bonus_used'] or 0))
+            bonus_origin = bonus_stake_flag(r['bonus_used'], r['amount'])
             bo, br, bp = bonus_origin_values(prize['price_cents'], bonus_origin)
             db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
                               bonus_origin,bonus_unlock_required,bonus_unlock_progress)
@@ -11386,12 +11406,12 @@ def hilo_room_settle(db, n, phase):
             record_transaction(db, r['user_id'], 'hilo_gift_win', 0, 'hilo_room', r['id'], f"{prize['name']} · {label}")
             credit = remainder
             if remainder:
-                credit_game_balance(db, r['user_id'], remainder, bool(int(r['bonus_used'] or 0)))
+                credit_game_balance(db, r['user_id'], remainder, int(r['bonus_used'] or 0), r['amount'])
                 record_transaction(db, r['user_id'], 'hilo_win', remainder, 'hilo_room', r['id'],
                                    f"{label}: остаток после подарка {prize['name']}")
             continue
         if credit:
-            credit_game_balance(db, r['user_id'], credit, bool(int(r['bonus_used'] or 0)))
+            credit_game_balance(db, r['user_id'], credit, int(r['bonus_used'] or 0), r['amount'])
             record_transaction(db, r['user_id'], 'hilo_win', credit, 'hilo_room', r['id'], label)
 
 

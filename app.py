@@ -144,7 +144,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages',
+            'creator_chat_messages', 'limbo_bets',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -259,6 +259,14 @@ def _initialize_schema():
             PRIMARY KEY (round_id, user_id)
         );
         CREATE INDEX IF NOT EXISTS idx_crash_bets_user ON crash_bets(user_id, round_id);
+        CREATE TABLE IF NOT EXISTS limbo_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, bet INTEGER NOT NULL,
+            chance_bp INTEGER NOT NULL, multiplier_x100 INTEGER NOT NULL, roll INTEGER NOT NULL,
+            won INTEGER NOT NULL DEFAULT 0, payout INTEGER NOT NULL DEFAULT 0,
+            fairness_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_limbo_bets_user ON limbo_bets(user_id, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_limbo_bets_won ON limbo_bets(won, id DESC);
         CREATE TABLE IF NOT EXISTS arena_rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT NOT NULL DEFAULT 'open',
@@ -1858,7 +1866,7 @@ def enforce_available_modes():
     uid = session.get('uid')
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/transfers/send', '/api/deposit', '/api/stars', '/api/hilo/'
+            '/api/transfers/send', '/api/deposit', '/api/stars', '/api/hilo/', '/api/limbo/'
         )
         if any(path.startswith(prefix) for prefix in real_money_prefixes):
             return error('Демо-режим активен. Отключите его в панели автора для операций с реальными средствами.', 409)
@@ -1876,6 +1884,7 @@ def enforce_available_modes():
     game_key = ('arena' if path.startswith('/api/arena/') else
                 'hilo' if path.startswith('/api/hilo/') else
                 'crash' if path.startswith('/api/crash/') else
+                'limbo' if path.startswith('/api/limbo/') else
                 'upgrade' if path.startswith('/api/upgrade/') else
                 'mines' if path.startswith('/api/game/') else None)
     # A Hi-Lo game that is already running can always be finished or cashed out.
@@ -2537,7 +2546,7 @@ def parse_amount(value):
 
 
 
-FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll'}
+FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll', 'limbo'}
 FAIRNESS_ALGORITHM = 'HMAC-SHA256/rejection-v1'
 
 
@@ -7177,7 +7186,7 @@ def validate_greeting(text):
 
 MINIAPP_DESTINATIONS = {
     'home': 'Главная', 'games': 'Игры', 'mines': 'Мины', 'upgrade': 'Апгрейды',
-    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'giveaways': 'Розыгрыши',
+    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'giveaways': 'Розыгрыши',
     'profile': 'Профиль', 'levels': 'Уровни', 'bonuses': 'Бонусы',
     'creator': 'Панель автора', 'deposit': 'Пополнение',
 }
@@ -8493,13 +8502,13 @@ def loader_catalog():
 
 
 # ======================= Game switches (on / off / admins only) =======================
-GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo')
-GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off'}
+GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off', 'limbo': 'admin'}
 
 
 GAME_BADGES = ('new', 'hot', 'top', 'beta', 'soon')
-GAME_LAYOUT_DEFAULT_ORDER = ('hilo', 'arena', 'mines', 'upgrade', 'crash')
-GAME_LAYOUT_DEFAULT_BADGES = {'hilo': 'new', 'arena': 'new'}
+GAME_LAYOUT_DEFAULT_ORDER = ('limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
+GAME_LAYOUT_DEFAULT_BADGES = {'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
 
 
 def game_layout():
@@ -8553,6 +8562,125 @@ def game_available(key, admin=None):
 def effective_games():
     admin = is_admin_session()
     return {key: game_available(key, admin) for key in GAME_KEYS}
+
+
+
+# ================================== Limbo ==================================
+# A single-bet "wheel" game: the player picks a win chance (1-90 %), the payout is
+# RTP / chance. One provably-fair draw in [0, 10000) decides the round; the wheel on the
+# client just lands the pointer on that exact position.
+LIMBO_MIN_CHANCE = 1
+LIMBO_MAX_CHANCE = 90
+LIMBO_ROLL_RANGE = 10000          # roll is 0.00 .. 99.99
+LIMBO_MAX_PAYOUT_CENTS = 100000   # one spin can never pay more than 1000 TON
+LIMBO_FEED_SIZE = 14
+
+
+def limbo_multiplier_x100(chance):
+    """Payout multiplier (x100) for a win chance in whole percent, floored so the house edge never shrinks."""
+    return max(101, int(game_rtp() * 10000 / int(chance)))
+
+
+def limbo_config():
+    return dict(min_chance=LIMBO_MIN_CHANCE, max_chance=LIMBO_MAX_CHANCE, roll_range=LIMBO_ROLL_RANGE,
+                min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
+                max_payout=LIMBO_MAX_PAYOUT_CENTS / 100, rtp=game_rtp(),
+                multipliers={str(c): limbo_multiplier_x100(c) / 100 for c in range(LIMBO_MIN_CHANCE, LIMBO_MAX_CHANCE + 1)})
+
+
+def limbo_row_view(row):
+    return dict(id=int(row['id']), bet=int(row['bet']) / 100, chance=int(row['chance_bp']) / 100,
+                multiplier=int(row['multiplier_x100']) / 100, roll=int(row['roll']) / 100,
+                won=bool(row['won']), payout=int(row['payout']) / 100, created_at=str(row['created_at'] or ''))
+
+
+def limbo_feed(db, user_id):
+    wins = db.execute("""SELECT b.id,b.bet,b.chance_bp,b.multiplier_x100,b.roll,b.won,b.payout,b.created_at,
+                                u.name,u.photo_url
+                         FROM limbo_bets b JOIN users u ON u.id=b.user_id
+                         WHERE b.won=1 ORDER BY b.id DESC LIMIT ?""", (LIMBO_FEED_SIZE,)).fetchall()
+    mine = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at
+                         FROM limbo_bets WHERE user_id=? ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
+    feed = []
+    for row in wins:
+        item = limbo_row_view(row)
+        item.update(profit=(int(row['payout']) - int(row['bet'])) / 100, name=str(row['name'] or '')[:40],
+                    photo_url=str(row['photo_url'] or ''))
+        feed.append(item)
+    return feed, [limbo_row_view(row) for row in mine]
+
+
+@app.get('/api/limbo/state')
+@login_required
+def limbo_state():
+    uid = session['uid']
+    with connect() as db:
+        feed, mine = limbo_feed(db, uid)
+    return jsonify(ok=True, config=limbo_config(), wins=feed, history=mine, user=profile(),
+                   available=game_available('limbo'))
+
+
+@app.post('/api/limbo/play')
+@login_required
+def limbo_play():
+    data = request.get_json(silent=True) or {}
+    uid = session['uid']
+    try:
+        bet = parse_amount(data.get('bet'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Укажите корректную ставку.')
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON.')
+    try:
+        chance_value = float(data.get('chance'))
+    except (TypeError, ValueError):
+        return error('Укажите шанс от 1% до 90%.')
+    if chance_value != chance_value or chance_value != int(chance_value) \
+            or not (LIMBO_MIN_CHANCE <= int(chance_value) <= LIMBO_MAX_CHANCE):
+        return error('Шанс — целое число от 1% до 90%.')
+    chance = int(chance_value)
+    mult_x100 = limbo_multiplier_x100(chance)
+    payout_if_win = bet * mult_x100 // 100
+    if payout_if_win > LIMBO_MAX_PAYOUT_CENTS:
+        return error('Максимальный выигрыш за один спин — %d TON. Уменьшите ставку или шанс.' % (LIMBO_MAX_PAYOUT_CENTS // 100))
+    proof = fairness_make('limbo', uid, data.get('client_seed'))
+    roll, fair_cursor, _ = fairness_draw(proof, LIMBO_ROLL_RANGE, 0)
+    won = roll < chance * 100
+    payout = payout_if_win if won else 0
+    db = connect()
+    new_level = None
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if DATABASE_URL:
+            db.execute('SELECT id FROM users WHERE id=? FOR UPDATE', (uid,))
+        if not db.execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', (bet, uid, bet)).rowcount:
+            db.rollback()
+            return error('Недостаточно средств.')
+        cur = db.execute("""INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout)
+                            VALUES(?,?,?,?,?,?,?)""", (uid, bet, chance * 100, mult_x100, roll, int(won), payout))
+        bet_id = int(cur.lastrowid)
+        record_transaction(db, uid, 'limbo_bet', -bet, 'limbo', bet_id, 'Limbo · шанс %d%%' % chance)
+        new_level = increase_turnover(db, uid, bet)
+        if payout:
+            db.execute('UPDATE users SET balance=balance+? WHERE id=?', (payout, uid))
+            record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
+        outcome = dict(upper=LIMBO_ROLL_RANGE, ticket=roll, roll=roll, chance_bp=chance * 100, won=bool(won))
+        fairness_store(db, proof, game_ref=bet_id, cursor=fair_cursor, outcome=outcome, state='settled')
+        db.execute('UPDATE limbo_bets SET fairness_id=? WHERE id=?', (proof['id'], bet_id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('Limbo spin failed')
+        return error('Не удалось провести спин. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    if new_level:
+        notify_level_up_async(uid, new_level)
+    with connect() as db:
+        row = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at
+                            FROM limbo_bets WHERE id=?""", (bet_id,)).fetchone()
+        fair = fairness_public(fairness_get(db, proof_id=proof['id']), True)
+    return jsonify(ok=True, result=limbo_row_view(row), fairness=fair, user=profile(), new_level=new_level)
 
 
 

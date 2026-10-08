@@ -15042,37 +15042,23 @@ def twitch_thumbnail(url):
 
 
 def twitch_channel_snapshot(value):
-    login = twitch_channel_login(value)
-    users = twitch_api_get('users', {'login': login}).get('data') or []
-    if not users:
-        raise ValueError('Twitch-канал не найден.')
-    user = users[0]
-    user_id = str(user.get('id') or '')
-    videos = []
-    live_rows = twitch_api_get('streams', {'user_id': user_id, 'first': 1}).get('data') or []
-    if live_rows:
-        live = live_rows[0]
-        title = str(live.get('title') or '')
-        if 'gemdrop' in title.casefold():
-            videos.append(dict(id='live:' + str(live.get('id') or user_id), title=title or 'LIVE',
-                               url='https://www.twitch.tv/' + login,
-                               thumbnail_url=twitch_thumbnail(live.get('thumbnail_url')),
-                               views=int(live.get('viewer_count') or 0), created_at=live.get('started_at') or '',
-                               is_live=True))
-    for video in (twitch_api_get('videos', {'user_id': user_id, 'first': 50, 'type': 'archive', 'sort': 'time'}).get('data') or []):
-        title = str(video.get('title') or '')
-        if 'gemdrop' not in title.casefold():
-            continue
-        videos.append(dict(id=str(video.get('id') or ''), title=title or 'Трансляция',
-                           url=str(video.get('url') or ''), thumbnail_url=twitch_thumbnail(video.get('thumbnail_url')),
-                           views=int(video.get('view_count') or 0), created_at=video.get('created_at') or '', is_live=False))
-        if len(videos) >= 20:
-            break
-    return dict(user_id=user_id, login=str(user.get('login') or login),
-                display_name=str(user.get('display_name') or login), avatar_url=safe_image(user.get('profile_image_url')),
-                url='https://www.twitch.tv/' + login, videos=videos,
-                updated_at=datetime.now(timezone.utc).isoformat())
+    """Build a Twitch channel record without OAuth/API keys.
 
+    Live playback is handled by Twitch's official embed player in the client,
+    which only needs the channel login and the current parent hostname.
+    """
+    login = twitch_channel_login(value)
+    return dict(
+        user_id='login:' + login,
+        login=login,
+        display_name=login,
+        avatar_url='',
+        url='https://www.twitch.tv/' + login,
+        embed_url='https://player.twitch.tv/?channel=' + login,
+        videos=[],
+        tokenless=True,
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 def twitch_taken_by_other(user_id, uid):
     with connect() as db:

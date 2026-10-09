@@ -14550,6 +14550,7 @@ def wheel_clean_prize(data, existing=None):
     if not math.isfinite(weight) or not 0 <= weight <= 1000000:
         raise ValueError('Шанс (вес): от 0 до 1 000 000.')
     gift_id = str(data.get('gift_id') or (existing['gift_id'] if existing else '') or '').strip()
+    catalog_image = ''
     gift_name = str(data.get('gift_name') or (existing['gift_name'] if existing else '') or '').strip()[:140]
     title = str(data.get('title') if data.get('title') is not None else (existing['title'] if existing else '')).strip()[:140]
     if kind == 'deposit_bonus':
@@ -14573,13 +14574,18 @@ def wheel_clean_prize(data, existing=None):
             if not gift:
                 raise ValueError('Подарок с таким ID не найден в каталоге Portal.')
             gift_name = gift_name or str(gift.get('name') or 'Подарок')[:140]
+            catalog_image = str(gift.get('image_url') or '').strip()
+            if not (catalog_image.startswith('https://') or catalog_image.startswith('/static/')):
+                catalog_image = ''
             if gift_price <= 0:
                 try:
                     gift_price = ton_to_cents(gift.get('price_ton'))
                 except (ValueError, TypeError, InvalidOperation):
                     gift_price = 0
+        if not gift_id and not existing:
+            raise ValueError('Выберите подарок из каталога Portal.')
         if gift_price <= 0:
-            raise ValueError('Укажите цену подарка в TON.')
+            raise ValueError('Не удалось определить цену подарка — выберите его из каталога Portal.')
         if kind == 'wager_gift' and (not math.isfinite(wager) or not 1 <= wager <= 1000):
             raise ValueError('X отыгрыша: от 1 до 1000.')
         if not 0 <= gift_days <= 3650:
@@ -14591,7 +14597,7 @@ def wheel_clean_prize(data, existing=None):
     if not 0 <= promo_days <= 3650:
         raise ValueError('Срок жизни промокода: от 0 до 3650 дней.')
     return dict(kind=kind, title=title, weight=weight, amount=amount, percent=percent, min_deposit=min_deposit,
-                gift_id=gift_id, gift_name=gift_name, gift_price=gift_price,
+                gift_id=gift_id, gift_name=gift_name, gift_price=gift_price, catalog_image=catalog_image,
                 wager_multiplier=wager if kind == 'wager_gift' else 0.0,
                 gift_expires_days=gift_days, promo_days=promo_days)
 
@@ -14650,6 +14656,8 @@ def admin_wheel_create_prize():
         with connect() as db:
             image_id = wheel_store_image(db, file) if file else ''
             image_url = '' if image_id else str(data.get('image_url') or '').strip()
+            if not image_id and not image_url and values.get('catalog_image'):
+                image_url = values['catalog_image']
             if image_url and not (image_url.startswith('https://') or image_url.startswith('/static/')):
                 raise ValueError('Ссылка на изображение должна начинаться с https:// или /static/.')
             order = db.execute('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM wheel_prizes').fetchone()['n']

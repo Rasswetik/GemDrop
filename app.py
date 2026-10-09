@@ -1547,7 +1547,7 @@ def demo_upgrade_preview(amount_text, item_text, gift_id):
         raise ValueError('Целевой подарок не найден в каталоге Portal.')
     chance = upgrade_chance(source_price, target['price'], upgrade_rtp_basis_points())
     if not chance:
-        raise ValueError('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        raise ValueError('Выберите цель с расчётным шансом от 5% до 80% и ценой не выше ×20 ставки.')
     return dict(source=source_view,
                 target=dict(id=target['id'], name=target['name'], image_url=target['image_url'],
                             price_ton=target['price'] / 100),
@@ -4500,18 +4500,19 @@ def upgrade_target(gift_id):
                 image_url=image_url,price=price)
 
 
-def upgrade_chance(source_price,target_price,rtp_bp=None):
-    if source_price < 1 or target_price <= source_price or target_price > source_price * 10:
+UPGRADE_MIN_DISPLAY_CHANCE_BP = 500  # 5.00%
+UPGRADE_MAX_DISPLAY_CHANCE_BP = 8000  # 80.00%
+UPGRADE_MAX_TARGET_MULTIPLIER = 20
+
+
+def upgrade_chance(source_price, target_price, rtp_bp=None):
+    """Price-ratio selection/display. RTP changes settlement, never visible targets."""
+    if source_price < 1 or target_price <= source_price or target_price > source_price * UPGRADE_MAX_TARGET_MULTIPLIER:
         return 0
-    rtp_bp = upgrade_rtp_basis_points() if rtp_bp is None else max(1, min(10000, int(rtp_bp)))
-    effective_bp = (rtp_bp * source_price) / target_price
-    # Validity is checked on the REAL (RTP-adjusted) chance, exactly as before.
-    if effective_bp < 100 or effective_bp > 8000:
+    visible_bp = (10000 * source_price) / target_price
+    if not UPGRADE_MIN_DISPLAY_CHANCE_BP <= visible_bp <= UPGRADE_MAX_DISPLAY_CHANCE_BP:
         return 0
-    # ...but what the player sees is the plain price ratio (5 -> 10 TON = 50%).
-    # The RTP multiplier is applied silently in the roll itself (see upgrade_spin /
-    # demo_upgrade_spin: threshold = rtp_bp * source_price).
-    return (10000 * source_price) / target_price
+    return visible_bp
 
 
 def upgrade_rtp_basis_points():
@@ -4522,7 +4523,7 @@ def upgrade_rtp_basis_points():
 @app.get('/api/upgrade/settings')
 @login_required
 def upgrade_settings():
-    return jsonify(rtp=upgrade_rtp_basis_points()/100,min_chance=1,max_chance=80,max_target_multiplier=10,
+    return jsonify(min_chance=5,max_chance=80,max_target_multiplier=UPGRADE_MAX_TARGET_MULTIPLIER,
                    min_bet_ton=0.1,max_bet_ton=MAX_UPGRADE_BET_CENTS/100)
 
 
@@ -4570,7 +4571,7 @@ def upgrade_preview():
         with connect() as db:
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
     chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-    if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+    if not chance:return error('Выберите цель с расчётным шансом от 5% до 80% и ценой не выше ×20 ставки.')
     return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
                    probability=chance/10000)
@@ -5155,7 +5156,7 @@ def upgrade_spin():
         if not amount_text and source['promo_locked']:
             effective_rtp_bp, _, _ = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
         chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
-        if not chance:return error('Выберите цель с шансом от 1% до 80% и ценой не выше ×10 ставки.')
+        if not chance:return error('Выберите цель с расчётным шансом от 5% до 80% и ценой не выше ×20 ставки.')
         bonus_origin = False
         if amount_text:
             spent = spend_game_balance(db, session['uid'], source_price)

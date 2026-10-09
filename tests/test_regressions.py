@@ -1044,5 +1044,33 @@ class RegressionTests(unittest.TestCase):
         self.assertIn("p.game==='hilo_room'", page)
 
 
+    def test_upgrade_visible_targets_independent_of_rtp(self):
+        # Prices are in cents. A 1 TON bet displays 80% for a 1.25 TON target
+        # and 5% for a 20 TON target, whatever internal settlement RTP is.
+        with patch.object(m, 'upgrade_rtp_basis_points', return_value=2500):
+            self.assertEqual(m.upgrade_chance(100, 125), 8000)
+            self.assertEqual(m.upgrade_chance(100, 2000), 500)
+            self.assertEqual(m.upgrade_chance(100, 2100), 0)
+            self.assertEqual(m.upgrade_chance(100, 120), 0)
+        with patch.object(m, 'upgrade_rtp_basis_points', return_value=9900):
+            self.assertEqual(m.upgrade_chance(100, 125), 8000)
+            self.assertEqual(m.upgrade_chance(100, 2000), 500)
+        self.assertEqual(m.upgrade_chance(100, 2000, 1000), 500)
+        self.assertEqual(m.upgrade_chance(100, 2000, 10000), 500)
+
+    def test_upgrade_preview_displays_exact_five_percent(self):
+        m.save_document('portal_catalog', {'gifts':[
+            {'id':'five-pct','name':'Five percent','price_ton':20,
+             'image_url':'/static/img/gift.svg', 'image_match':True}]})
+        response = self.client.get('/api/upgrade/preview?amount=1&gift_id=five-pct')
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertAlmostEqual(response.get_json()['chance'], 5.0)
+        settings = self.client.get('/api/upgrade/settings').get_json()
+        self.assertEqual(settings['min_chance'], 5)
+        self.assertEqual(settings['max_chance'], 80)
+        self.assertEqual(settings['max_target_multiplier'], 20)
+        self.assertNotIn('rtp', settings)
+
+
 if __name__ == '__main__':
     unittest.main()

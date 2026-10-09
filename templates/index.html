@@ -6,7 +6,17 @@
 html.gd-banned body>*:not(#loader){display:none!important}
 html.gd-banned #loader,html.gd-banned #loader.hidden{display:grid!important}
 html.gd-maint body>*:not(#maintScreen){display:none!important}
-#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;background:#090a11;color:#f4f5f7;font:500 14px system-ui,-apple-system,'Segoe UI',sans-serif;overflow:auto}
+#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:clamp(16px,5vw,32px);background:radial-gradient(ellipse at 50% 10%,#252029 0%,#13151a 43%,#0b0d10 100%);color:#f4f5f7;font:500 14px system-ui,-apple-system,'Segoe UI',sans-serif;overflow:auto;min-height:100dvh}
+#maintScreen:before{content:'';position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(#ffffff04 1px,transparent 1px),linear-gradient(90deg,#ffffff04 1px,transparent 1px);background-size:38px 38px;mask-image:linear-gradient(to bottom,#000,transparent 80%)}
+#maintScreen .mt-card{position:relative!important;width:min(100%,430px)!important;gap:16px!important;padding:clamp(20px,5vw,36px)!important;border-radius:28px;border:1px solid #ffffff16;background:linear-gradient(165deg,#1c1e25ed,#111318f2);box-shadow:0 30px 85px #0008,inset 0 1px #ffffff0c}
+#maintScreen .mt-icon{background:#ffb32b13!important;border-color:#ffc04b30!important}
+#maintScreen .mt-icon svg{stroke:#ffbf36!important}
+#maintScreen h1{font-size:clamp(24px,6vw,30px)!important;font-weight:850;line-height:1.15}
+#maintScreen .mt-msg{max-width:34ch;color:#a3a7b0}
+#maintScreen .mt-eta{border-color:#ffffff16!important;background:#ffffff07!important;border-radius:18px!important}
+#maintScreen .mt-clock{color:#f7c05b!important}
+#maintScreen .mt-retry{background:linear-gradient(180deg,#ffcf36,#ff9c19)!important;color:#1c1408!important;border-radius:15px!important}
+@media(prefers-reduced-motion:reduce){#maintScreen .mt-icon svg{animation:none!important}}
 #maintScreen .mt-card{width:min(100%,420px);display:grid;gap:14px;justify-items:center;text-align:center}
 #maintScreen .mt-icon{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;background:rgba(71,176,245,.12);border:1px solid rgba(71,176,245,.28)}
 #maintScreen .mt-icon svg{width:40px;height:40px;fill:none;stroke:#47b0f5;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;animation:mtSpin 6s linear infinite}
@@ -3882,6 +3892,57 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
   #arenaPage .arena-player-copy small.arena-gifts{grid-template-columns:repeat(auto-fit,minmax(52px,1fr))!important}
   #arGiftModal #arGiftGrid{gap:6px!important}
 }
+
+/* October 2026: creator navigation + reference-inspired Upgrade */
+#creatorPage{max-width:100%;min-width:0}
+#creatorPage .creator-nav-head{margin:6px 0 10px}
+#creatorPage .creator-drawer-toggle{width:100%;display:flex;align-items:center;gap:12px;min-height:64px;padding:12px 16px;border:1px solid #ffffff18;border-radius:18px;background:linear-gradient(135deg,#1b2028,#13171d);color:#f5f6f8;text-align:left}
+#creatorPage .creator-drawer-icon{display:grid;place-items:center;width:39px;height:39px;flex:none;border-radius:12px;background:#ffffff10;font-size:22px}
+#creatorPage .creator-drawer-toggle span:nth-child(2){display:grid;gap:4px;flex:1;min-width:0}
+#creatorPage .creator-drawer-toggle small{font-size:9px;letter-spacing:.16em;color:#89939e}
+#creatorPage .creator-drawer-toggle b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#creatorPage .creator-drawer-chevron{font-size:24px;transition:transform .2s}
+#creatorPage .creator-drawer-toggle.opened .creator-drawer-chevron{transform:rotate(180deg)}
+#creatorPage .creator-drawer.creator-tabs-v2{display:grid!important;grid-template-columns:1fr!important;gap:5px!important;margin:0 0 14px!important;padding:8px;border:1px solid #ffffff18;border-radius:18px;background:#14181f;box-shadow:0 18px 38px #0004}
+#creatorPage .creator-drawer[hidden]{display:none!important}
+#creatorPage .creator-drawer button{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:47px;padding:12px 14px!important;border:0!important;border-radius:11px!important;background:transparent!important;color:#adb6c1!important;text-align:left}
+#creatorPage .creator-drawer button.active{color:#fff!important;background:#ffffff12!important}
+#creatorPage .creator-drawer button span{font-size:22px;opacity:.6}
+#creatorPage .creator-section{min-width:0}
+#creatorPage .creator-section .panel{min-width:0;max-width:100%;overflow-wrap:anywhere}
+#creatorPage .creator-video-card,#creatorPage .creator-demo-gift{min-width:0}
+#upgradePage{--ug-accent:#ffbe1d;--ug-panel:#191b20}
+#upgradePage .upgrade-title{text-align:center;margin:6px 0 4px!important;font-weight:800;letter-spacing:-.045em}
+#upgradePage .ug-live-tag{text-align:center;color:#858c98;font-size:9px;font-weight:850;letter-spacing:.24em;margin-bottom:10px}
+#upgradePage .ug-live-tag span{color:var(--ug-accent);padding:0 3px}
+#upgradePage .ug-card{padding:14px 10px 18px!important;border-radius:24px!important;background:linear-gradient(180deg,#111317,#0c0d10)!important;border:1px solid #ffffff0b!important;box-shadow:inset 0 1px #ffffff08!important}
+#upgradePage .ug-wheel{width:min(74vw,330px)!important;margin:0 auto 14px!important}
+#upgradePage .ug-svg{width:100%;height:100%;filter:none}
+#upgradePage .ug-track{stroke:#24262d!important;stroke-width:23!important}
+#upgradePage .ug-win{stroke:#ffbc22!important;stroke-width:23!important;filter:drop-shadow(0 0 4px #f9a61738)}
+#upgradePage .ug-center{inset:15%!important;display:flex;flex-direction:column;justify-content:center;align-items:center;border-radius:50%;background:radial-gradient(circle at 50% 42%,#202127,#121316 83%)!important;box-shadow:inset 0 0 28px #0007!important}
+#upgradePage .ug-cap{color:#848b96!important;letter-spacing:.16em}
+#upgradePage .ug-pct{position:relative;z-index:2}
+#upgradePage .ug-empty-text{position:absolute;top:67%;width:85%;font-size:11px;line-height:1.45;color:#92949b;text-align:center;font-weight:700}
+#upgradePage .ug-empty-text.hidden{display:none!important}
+#upgradePage .ug-wheel:not(.ready) .ug-cap{opacity:0}
+#upgradePage .ug-wheel:not(.ready) .ug-pct{transform:translateY(-15px)}
+#upgradePage .ug-pointer i{background:#fff!important;filter:drop-shadow(0 2px 2px #0008)}
+#upgradePage .ug-picks{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px!important;margin:14px 0!important}
+#upgradePage .ug-pick{min-width:0;min-height:178px!important;padding:32px 10px 14px!important;border-radius:19px!important;background:radial-gradient(ellipse at 50% 28%,#48205f38,transparent 68%),#17181e!important;border:1px solid #ffffff10!important}
+#upgradePage .ug-pick.target{background:radial-gradient(ellipse at 50% 28%,#72411848,transparent 68%),#17181e!important}
+#upgradePage .ug-pick-label{color:#f3f3f5!important;letter-spacing:0!important;font-size:11px!important}
+#upgradePage .ug-pick .pick-art{background:#ffffff07!important;border-color:#ffffff1d!important}
+#upgradePage .ug-hint{font-size:10px!important;line-height:1.4}
+#upgradePage .ug-pick.selected{border-color:#ffffff40!important}
+#upgradePage .ug-actions{display:flex;gap:9px;align-items:stretch}
+#upgradePage .ug-go{flex:1;min-width:0;min-height:52px;border-radius:16px!important;background:linear-gradient(180deg,#ffd02f,#ff9f14)!important;color:#18130a!important;font-weight:850!important;box-shadow:0 9px 22px #e58b1720!important}
+#upgradePage .ug-go:disabled{background:linear-gradient(180deg,#514021,#372c1b)!important;color:#c3a36a!important}
+#upgradePage .ug-quick{border-radius:15px!important;min-width:52px}
+#upgradePage .upgrade-option-chance{color:#ffc14b!important}
+@media(max-width:360px){#upgradePage .ug-wheel{width:min(72vw,270px)!important}#upgradePage .ug-picks{gap:8px!important}#upgradePage .ug-pick{padding-inline:6px!important}#creatorPage .creator-drawer-toggle{padding:10px}}
+@media(min-width:740px){#upgradePage{max-width:470px;margin-inline:auto}}
+@media(prefers-reduced-motion:reduce){#creatorPage .creator-drawer-chevron,#upgradePage .ug-wheel{animation:none!important;transition:none!important}}
 </style>
 </head><body class="studio"><svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false"><defs>
 <linearGradient id="gdSpace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0d22"/><stop offset=".6" stop-color="#171a40"/><stop offset="1" stop-color="#2a2358"/></linearGradient>
@@ -4056,7 +4117,7 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
   </aside>
 </div>
 </section>
-<section id="upgradePage" class="hidden"><h1 class="page-title upgrade-title">Апгрейд</h1><div class="ug-card"><div class="ug-wheel" id="ugWheelBox"><svg class="ug-svg" viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="ugWinGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf6cd"/><stop offset="1" stop-color="#27b98a"/></linearGradient></defs><circle class="ug-track" cx="120" cy="120" r="104"/><circle id="ugWin" class="ug-win" cx="120" cy="120" r="104" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 120 120)"/></svg><div id="ugPointer" class="ug-pointer"><i></i></div><div class="ug-center" id="ugCenter"><div class="ug-gift" id="ugGift"></div><div class="ug-pct"><b id="upgradeChance">0</b><span>%</span></div><div class="ug-cap">ШАНС</div></div></div><p id="upgradePromoNote" class="ug-note hidden">При выигрыше цена цели идёт в отыгрыш исходного подарка. При проигрыше снимается одна жизнь; подарок сгорает только когда жизни закончатся.</p><div class="ug-actions"><button id="upgradeAction" class="ug-go" type="button" disabled>Крутить</button><button id="upgradeQuick" class="ug-quick" type="button" aria-label="Быстрый апгрейд" aria-pressed="false" title="Быстрый апгрейд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6Z"/></svg></button></div><p id="upgradeStatus" class="upgrade-status"></p></div><div class="ug-picks"><button id="ugMine" class="ug-pick mine" type="button" aria-label="Выбрать ставку"><small class="ug-pick-label">МОЯ СТАВКА</small><div class="pick-art" id="ugMineArt"><span>＋</span></div><b id="ugMineName"></b><span class="pick-price" id="ugMinePrice"></span><span class="ug-hint">Выберите подарок из своего инвентаря</span></button><button id="ugTarget" class="ug-pick target" type="button" aria-label="Выбрать целевой подарок"><small class="ug-pick-label">ЦЕЛЬ</small><div class="pick-art" id="ugTargetArt"><span>＋</span></div><b id="ugTargetName"></b><span class="pick-price" id="ugTargetPrice"></span><span class="ug-hint">Выберите подарок из инвентаря сервиса</span></button></div><section class="recent-wins-card upgrade-wins-card" aria-label="Последние победы в апгрейдах"><h2>Последние победы</h2><div id="upgradeTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="upgradeRecentWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section></section><section id="giveawayPage" class="hidden">
+<section id="upgradePage" class="hidden"><h1 class="page-title upgrade-title">Апгрейд</h1><div class="ug-live-tag">GEMDROP <span>•</span> UPGRADE</div><div class="ug-card"><div class="ug-wheel" id="ugWheelBox"><svg class="ug-svg" viewBox="0 0 240 240" aria-hidden="true"><defs><linearGradient id="ugWinGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf6cd"/><stop offset="1" stop-color="#27b98a"/></linearGradient></defs><circle class="ug-track" cx="120" cy="120" r="104"/><circle id="ugWin" class="ug-win" cx="120" cy="120" r="104" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 120 120)"/></svg><div id="ugPointer" class="ug-pointer"><i></i></div><div class="ug-center" id="ugCenter"><div class="ug-gift" id="ugGift"></div><div id="ugEmptyText" class="ug-empty-text">Выберите ставку и подарок<br>для улучшения</div><div class="ug-pct"><b id="upgradeChance">0</b><span>%</span></div><div class="ug-cap">ШАНС</div></div></div><p id="upgradePromoNote" class="ug-note hidden">При выигрыше цена цели идёт в отыгрыш исходного подарка. При проигрыше снимается одна жизнь; подарок сгорает только когда жизни закончатся.</p><div class="ug-actions"><button id="upgradeAction" class="ug-go" type="button" disabled>Крутить</button><button id="upgradeQuick" class="ug-quick" type="button" aria-label="Быстрый апгрейд" aria-pressed="false" title="Быстрый апгрейд"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6Z"/></svg></button></div><p id="upgradeStatus" class="upgrade-status"></p></div><div class="ug-picks"><button id="ugMine" class="ug-pick mine" type="button" aria-label="Выбрать ставку"><small class="ug-pick-label">МОЯ СТАВКА</small><div class="pick-art" id="ugMineArt"><span>＋</span></div><b id="ugMineName"></b><span class="pick-price" id="ugMinePrice"></span><span class="ug-hint">Выберите подарок из своего инвентаря</span></button><button id="ugTarget" class="ug-pick target" type="button" aria-label="Выбрать целевой подарок"><small class="ug-pick-label">ЦЕЛЬ</small><div class="pick-art" id="ugTargetArt"><span>＋</span></div><b id="ugTargetName"></b><span class="pick-price" id="ugTargetPrice"></span><span class="ug-hint">Выберите подарок из инвентаря сервиса</span></button></div><section class="recent-wins-card upgrade-wins-card" aria-label="Последние победы в апгрейдах"><h2>Последние победы</h2><div id="upgradeTopDrop" class="top-drop" aria-live="polite"><span class="top-drop-label">ТОП-ДРОП · СЕГОДНЯ</span><span class="top-drop-empty">Сегодня пока без выигрышей</span></div><div id="upgradeRecentWins" class="recent-wins" aria-live="polite"><div class="recent-win-empty">Загружаем победы…</div></div></section></section><section id="giveawayPage" class="hidden">
 
     <div class="rewards-main-tabs" role="tablist"><button id="rewardsTasksTab" class="active" type="button" role="tab">Задания</button><button id="rewardsGiveawaysTab" type="button" role="tab">Розыгрыши <span id="rewardsGiveawaysCount">0</span></button></div>
     <div id="rewardsTasksView"><span id="rewardsTicketCount" class="hidden" aria-hidden="true">0</span><div id="rewardsTaskGroups" class="rewards-task-groups"><div class="giveaway-empty">Загружаем задания…</div></div></div>
@@ -4152,11 +4213,12 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
 <section id="creatorPage" class="hidden">
 <button id="creatorBack" class="back" type="button">← Профиль</button>
 <div class="page-heading"><span class="eyebrow">GEMDROP · CREATOR</span><h1>Панель автора</h1><p>Уровень, платформа, demo и инструменты автора</p></div>
-<div class="creator-tabs creator-tabs-v2">
-  <button id="creatorTabProfile" class="active" type="button">Профиль</button>
-  <button id="creatorTabDemo" type="button">Demo</button>
-  <button id="creatorTabFreebets" type="button">Freebet</button>
-  <button id="creatorTabPromos" type="button">Промокоды</button>
+<div class="creator-nav-head"><button id="creatorDrawerToggle" class="creator-drawer-toggle" type="button" aria-expanded="false" aria-controls="creatorDrawer"><span class="creator-drawer-icon">☰</span><span><small>РАЗДЕЛ ПАНЕЛИ</small><b id="creatorSectionLabel">Профиль автора</b></span><span class="creator-drawer-chevron">⌄</span></button></div>
+<div id="creatorDrawer" class="creator-tabs creator-tabs-v2 creator-drawer" hidden>
+  <button id="creatorTabProfile" class="active" type="button">Профиль <span>›</span></button>
+  <button id="creatorTabDemo" type="button">Demo <span>›</span></button>
+  <button id="creatorTabFreebets" type="button">Freebet <span>›</span></button>
+  <button id="creatorTabPromos" type="button">Промокоды <span>›</span></button>
 </div>
 <button id="creatorOpenBuilder" class="creator-builder-open creator-builder-open-calm" type="button"><span>＋</span><div><b>Создать Freebet или промокод</b><small id="creatorBuilderOpenHint">Лимиты зависят от вашего уровня</small></div><i>→</i></button>
 
@@ -5193,7 +5255,7 @@ function stopUpgradeIdle(){let pointer=$('ugPointer');upgradeIdleToken++;if(upgr
 function continueUpgradeIdle(token){if(token!==upgradeIdleToken||upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden'))return;let pointer=$('ugPointer');if(!pointer.classList.contains('idling'))return;let duration=Math.round(1200+Math.random()*4300),speed=14+Math.random()*48,delta=Math.max(28,Math.min(250,speed*duration/1000));upgradePointerAngle+=delta;pointer.style.transition=`transform ${duration}ms linear`;pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;upgradeIdleTimer=setTimeout(()=>continueUpgradeIdle(token),duration+24)}
 function startUpgradeIdle(){if(upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden')||matchMedia('(prefers-reduced-motion: reduce)').matches)return;let pointer=$('ugPointer');if(pointer.classList.contains('idling'))return;upgradeIdleToken++;let token=upgradeIdleToken;pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;pointer.classList.add('idling');requestAnimationFrame(()=>continueUpgradeIdle(token))}
 function pickArt(box,item){if(box._fragmentMotionCleanup)box._fragmentMotionCleanup();box.classList.remove('portal-bg-black','portal-bg-onyx-black');let bg=giftBackgroundClass(giftBackgroundLabel(item));if(bg)box.classList.add(bg);box.replaceChildren();if(item){let im=new Image;im.alt=giftDisplayName(item);applyGiftImage(im,item);box.append(im);if(item?.external_url||item?.fragment_url)attachFragmentMotion(box,item)}else{let sp=document.createElement('span');sp.textContent='＋';box.append(sp)}}
-function upgradeTargetChance(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0),rtp=Number(upgradeSettings?.rtp||90);if(!(sp>0&&tp>sp))return 0;let chance=rtp*sp/tp;return chance>0&&chance<=80?chance:0}
+function upgradeTargetChance(source,target){let chance=upgradeRawChance(source,target);return chance>=5-1e-7&&chance<=80+1e-7?chance:0}
 function upgradeRawChance(s,tg){let sp=Number(s?.price_ton||0),tp=Number(tg?.price_ton||0);return sp>0&&tp>sp?Math.min(100,sp/tp*100):0}
 function upgradeShownChance(real){let r=upgradeRawChance(upgradeSource,upgradeGoal);return r>0?r:real}
 function upgradePreviewUrl(giftId){if(!upgradeSource)return'';let base='/api/upgrade/preview?gift_id='+encodeURIComponent(giftId);return upgradeSource.type==='ton'?base+'&amount='+encodeURIComponent(money(upgradeSource.price_ton)):base+'&inventory_id='+encodeURIComponent(upgradeSource.id)}
@@ -5218,7 +5280,7 @@ function paintUpgrade(){
   }
   $('ugTargetName').textContent=upgradeGoal?giftDisplayName(upgradeGoal):'';
   if(upgradeGoal)setUpgradePrice($('ugTargetPrice'),upgradeGoal.price_ton);else $('ugTargetPrice').textContent='';
-  let chance=upgradeShownChance(upgradePreviewData?.chance||0);$('ugWheelBox').classList.toggle('ready',!!upgradePreviewData);$('upgradeChance').textContent=upgradePreviewData?formatUpgradeChance(chance).replace('%',''):'0';$('ugWin').setAttribute('stroke-dasharray',(upgradePreviewData?Math.max(0,Math.min(100,chance)):0).toFixed(3)+' 100');let ugGift=$('ugGift');ugGift.replaceChildren();ugGift.classList.toggle('has',!!upgradeGoal?.image_url);if(upgradeGoal?.image_url){let im=new Image;im.src=upgradeGoal.image_url;im.alt='';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};ugGift.append(im)}$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&gameSpendBalance()<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Крутится…':lowBalance?'Пополните баланс':'Крутить';startUpgradeIdle()
+  let chance=upgradeShownChance(upgradePreviewData?.chance||0);$('ugWheelBox').classList.toggle('ready',!!upgradePreviewData);$('ugEmptyText').classList.toggle('hidden',!!upgradePreviewData);$('upgradeChance').textContent=upgradePreviewData?formatUpgradeChance(chance).replace('%',''):'0';$('ugWin').setAttribute('stroke-dasharray',(upgradePreviewData?Math.max(0,Math.min(100,chance)):0).toFixed(3)+' 100');let ugGift=$('ugGift');ugGift.replaceChildren();ugGift.classList.toggle('has',!!upgradeGoal?.image_url);if(upgradeGoal?.image_url){let im=new Image;im.src=upgradeGoal.image_url;im.alt='';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};ugGift.append(im)}$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&gameSpendBalance()<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Крутится…':lowBalance?'Пополните баланс':'Крутить';startUpgradeIdle()
 }
 function upgradeList(mode){
   upgradeListMode=mode;
@@ -5226,7 +5288,7 @@ function upgradeList(mode){
   let items=mine?upgradeInventory:[...upgradeCatalog].filter(item=>{
     if(!upgradeSource)return false;
     let chance=upgradeTargetChance(upgradeSource,item);
-    return Number(item.price_ton)>Number(upgradeSource.price_ton)&&Number(item.price_ton)<=Number(upgradeSource.price_ton)*10&&chance>=1&&chance<=80;
+    return Number(item.price_ton)>Number(upgradeSource.price_ton)&&Number(item.price_ton)<=Number(upgradeSource.price_ton)*20&&chance>=5&&chance<=80;
   }).sort((a,b)=>Number(a.price_ton)-Number(b.price_ton)||String(a.name||'').localeCompare(String(b.name||''),'ru'));
   $('upgradeListTitle').textContent=mine?'Моя ставка':'Целевой подарок';
   $('upgradeTonPick').classList.toggle('hidden',!mine);
@@ -5601,7 +5663,9 @@ $('creatorUserSearch').oninput=()=>{clearTimeout(creatorSearchTimer);let q=$('cr
 $('addCreatorSelected').onclick=async()=>{if(!creatorSelectedUser)return;let b=$('addCreatorSelected');b.disabled=true;try{await api('/api/admin/creators/'+creatorSelectedUser.id,{method:'POST',body:'{}'});toast('Автор добавлен. Кнопка «Панель автора» выдана.');clearCreatorCandidate();$('creatorUserSearch').value='';await loadCreatorsAdmin()}catch(e){toast(e.message);b.disabled=false}};
 function fillCreatorGiftSelect(){let sel=$('creatorDemoGift'),cur=sel.value;sel.replaceChildren();for(let g of catalogItems)sel.add(new Option((g.name||'Подарок')+' · '+money(g.price_ton)+' TON',g.id));if(cur)sel.value=cur}
 function renderCreatorDemoInventory(items){let root=$('creatorDemoInventory');root.replaceChildren();$('creatorDemoGiftCount').textContent=(items||[]).length;for(let x of items||[]){let row=document.createElement('div');row.className='creator-demo-gift';let im=new Image;im.className='creator-demo-art';im.src=x.image_url||TON;im.alt='';im.onerror=()=>{im.src=TON};let info=document.createElement('div');let b=document.createElement('b');b.textContent=x.name||'Подарок';let sm=document.createElement('small');sm.textContent=money(x.price_ton)+' TON · DEMO';info.append(b,sm);let del=document.createElement('button');del.type='button';del.className='creator-demo-delete';del.textContent='Удалить';del.onclick=async()=>{try{let d=await api('/api/creator/demo-inventory/'+x.id,{method:'DELETE'});renderCreatorDemoInventory(d.items||[]);if(user&&user.creator_demo)loadInventory()}catch(e){toast(e.message)}};row.append(im,info,del);root.append(row)}if(!items||!items.length)root.innerHTML='<div class="empty">Demo-подарков пока нет</div>'}
-function setCreatorTab(name){let map={profile:'creatorProfileSection',demo:'creatorDemoSection',freebets:'creatorFreebetsSection',promos:'creatorPromosSection',builder:'creatorBuilderSection'};for(let [key,id] of Object.entries(map))$(id)?.classList.toggle('hidden',key!==name);$('creatorTabProfile').classList.toggle('active',name==='profile');$('creatorTabDemo').classList.toggle('active',name==='demo');$('creatorTabFreebets').classList.toggle('active',name==='freebets');$('creatorTabPromos').classList.toggle('active',name==='promos');$('creatorOpenBuilder').classList.toggle('hidden',name==='builder');if(name==='profile'){renderCreatorYoutube();renderCreatorTwitch();}if(name==='freebets')loadCreatorFreebets();if(name==='promos')loadCreatorPromos();if(name==='builder')loadCreatorBuilder()}
+function setCreatorTab(name){const labels={profile:'Профиль автора',demo:'Demo-инструменты',freebets:'Мои Freebet',promos:'Промокоды',builder:'Создание награды'};$('creatorSectionLabel').textContent=labels[name]||'Панель автора';setCreatorDrawer(false);let map={profile:'creatorProfileSection',demo:'creatorDemoSection',freebets:'creatorFreebetsSection',promos:'creatorPromosSection',builder:'creatorBuilderSection'};for(let [key,id] of Object.entries(map))$(id)?.classList.toggle('hidden',key!==name);$('creatorTabProfile').classList.toggle('active',name==='profile');$('creatorTabDemo').classList.toggle('active',name==='demo');$('creatorTabFreebets').classList.toggle('active',name==='freebets');$('creatorTabPromos').classList.toggle('active',name==='promos');$('creatorOpenBuilder').classList.toggle('hidden',name==='builder');if(name==='profile'){renderCreatorYoutube();renderCreatorTwitch();}if(name==='freebets')loadCreatorFreebets();if(name==='promos')loadCreatorPromos();if(name==='builder')loadCreatorBuilder()}
+function setCreatorDrawer(open){const drawer=$('creatorDrawer'),btn=$('creatorDrawerToggle');drawer.hidden=!open;btn.setAttribute('aria-expanded',String(open));btn.classList.toggle('opened',open)}
+$('creatorDrawerToggle').onclick=()=>setCreatorDrawer($('creatorDrawer').hidden);
 $('creatorTabProfile').onclick=()=>setCreatorTab('profile');$('creatorTabDemo').onclick=()=>setCreatorTab('demo');$('creatorTabFreebets').onclick=()=>setCreatorTab('freebets');$('creatorTabPromos').onclick=()=>setCreatorTab('promos');$('creatorOpenBuilder').onclick=()=>setCreatorTab('builder');$('creatorBuilderBack').onclick=()=>setCreatorTab('profile');
 function creatorCountText(n){n=Number(n||0);return n.toLocaleString('ru-RU')}
 function renderCreatorYoutube(){let y=creatorYoutubeState||{},card=$('creatorYoutubeCard'),videos=$('creatorYoutubeVideos'),linked=!!y.channel_id,pend=creatorYoutubePending||{},waiting=!!pend.channel_id&&!(linked&&y.verified&&y.channel_id===pend.channel_id);$('creatorYoutubeStatus').textContent=waiting?'Ожидает подтверждения: '+(pend.title||pend.handle||'канал'):linked?(y.verified?'Канал привязан и подтверждён ✓':'Канал привязан, но не подтверждён'):'Канал не привязан.';let vb=$('creatorYoutubeVerify');vb.classList.toggle('hidden',!waiting);vb.replaceChildren();if(waiting){let t=document.createElement('b');t.textContent='Подтвердите, что это ваш канал';let st=document.createElement('small');st.textContent='Вставьте этот код в описание канала (YouTube Studio → Настройка канала → Описание), сохраните и нажмите «Проверить код».';let code=document.createElement('code');code.textContent=pend.verify_code||'';code.style.cssText='display:inline-block;margin:8px 0 2px;padding:7px 11px;border-radius:9px;background:#0b1220;border:1px solid var(--line);font-size:16px;letter-spacing:.06em;user-select:all';let cp=document.createElement('button');cp.type='button';cp.className='mini-btn';cp.textContent='Копировать';cp.style.marginLeft='8px';cp.onclick=()=>{navigator.clipboard?.writeText(pend.verify_code||'').then(()=>toast('Код скопирован'),()=>{})};vb.append(t,document.createElement('br'),st,document.createElement('br'),code,cp)}$('creatorYoutubeCheck').classList.toggle('hidden',!(waiting||(linked&&!y.verified)));$('creatorYoutubeRefresh').classList.toggle('hidden',!linked);$('creatorYoutubeUnlink').classList.toggle('hidden',!linked);card.classList.toggle('hidden',!linked);card.replaceChildren();if(linked){let im=new Image;im.src=y.avatar_url||'';im.alt='YouTube';let info=document.createElement('div');let b=document.createElement('b');b.textContent=y.title||'YouTube';let handle=document.createElement('small');handle.textContent=(y.handle||'')+(y.subscriber_count_hidden?' · подписчики скрыты':' · '+creatorCountText(y.subscribers)+' подписчиков');info.append(b,handle);card.append(im,info)}videos.replaceChildren();let list=Array.isArray(y.videos)?y.videos:[];$('creatorYoutubeVideoCount').textContent=list.length;if(!linked){videos.innerHTML='<div class="empty">Привяжите канал, чтобы увидеть ролики.</div>';return}if(!list.length){videos.innerHTML='<div class="empty">Видео на канале пока не найдены. Нажмите «Обновить данные».</div>';return}for(let v of list){let row=document.createElement('button');row.type='button';row.className='creator-video-card';let im=new Image;im.src=v.thumbnail_url||'';im.alt='';let info=document.createElement('div');let b=document.createElement('b');b.textContent=v.title||'Видео';let sm=document.createElement('small');if(v.gemdrop){sm.textContent=creatorCountText(v.views)+' просмотров'+(v.likes==null?'':' · '+creatorCountText(v.likes)+' лайков');info.append(b,sm)}else{row.classList.add('video-muted');info.append(b)}row.append(im,info);row.onclick=()=>{if(v.url)window.open(v.url,'_blank','noopener')};videos.append(row)}}
@@ -10672,7 +10736,7 @@ function mineRow(it){
   else{tx.append(el('span','',g.name||it.title||'Подарок'),el('small','','Добавлен в инвентарь'))}
   top.append(tx);row.append(top);
   if(it.kind==='deposit_bonus'&&it.code){
-    row.classList.add('wl-tap');
+    row.classList.add('wl-tap');top.setAttribute('role','button');top.setAttribute('tabindex','0');top.setAttribute('aria-expanded','false');top.setAttribute('aria-label','Показать промокод '+it.code);
     const panel=el('div','wl-promo-panel');panel.hidden=true;
     panel.append(el('div','wl-promo-code',it.code));
     if(it.status==='active'){
@@ -10681,7 +10745,7 @@ function mineRow(it){
       a.append(c,b);panel.append(a);
     }else{panel.append(el('div','wl-status',it.status==='used'?'Активирован':it.status==='expired'?'Срок действия истёк':'Недоступен'))}
     row.append(panel);
-    top.onclick=()=>{panel.hidden=!panel.hidden;row.classList.toggle('open',!panel.hidden)};
+    top.onclick=()=>{panel.hidden=!panel.hidden;row.classList.toggle('open',!panel.hidden);top.setAttribute('aria-expanded',String(!panel.hidden))};top.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();top.click()}};
   }
   return row;
 }

@@ -947,6 +947,12 @@ def _initialize_schema():
         db.execute('CREATE INDEX IF NOT EXISTS notifications_delivery ON user_notifications(delivery_state,delivery_next_at,id)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_assigned_user ON promo_codes(assigned_user_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS promo_codes_poll ON promo_codes(poll_id,created_at)')
+        try:
+            # Wheel codes live in their own namespace ("WL~" prefix) so the same text can also be a regular promo code.
+            db.execute("UPDATE promo_redemptions SET code='WL~'||code WHERE reward_type='wheel' AND code NOT LIKE 'WL~%'")
+            db.execute("UPDATE promo_codes SET code='WL~'||code WHERE reward_type='wheel' AND code NOT LIKE 'WL~%'")
+        except Exception:
+            app.logger.exception('Wheel code namespace migration skipped')
         db.execute('CREATE INDEX IF NOT EXISTS promo_poll_votes_poll ON promo_poll_votes(poll_id,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebets_active ON freebets(active,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS freebet_redemptions_user ON freebet_redemptions(user_id,created_at)')
@@ -14886,6 +14892,8 @@ YOUTUBE_PUBLIC_HEADERS = {
                    'AppleWebKit/537.36 (KHTML, like Gecko) '
                    'Chrome/124.0 Safari/537.36'),
     'Accept-Language': 'en-US,en;q=0.9',
+    # Skip the EU cookie-consent wall, which otherwise replaces the channel page for server-side requests.
+    'Cookie': 'CONSENT=YES+cb.20240101-00-p0.en+FX+000; SOCS=CAI',
 }
 
 
@@ -14966,9 +14974,10 @@ def youtube_public_handle(page, fallback=''):
     return ('@' + str(fallback).lstrip('@')) if fallback else ''
 
 
-def youtube_public_gemdrop_videos(channel_id):
+def youtube_public_feed(channel_id):
+    """Latest uploads of a channel from the public RSS feed: dict(title, videos)."""
     if not re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', str(channel_id or '')):
-        return []
+        return dict(title='', videos=[])
     response = youtube_public_get('https://www.youtube.com/feeds/videos.xml',
                                   {'channel_id': channel_id})
     try:
@@ -14980,7 +14989,7 @@ def youtube_public_gemdrop_videos(channel_id):
         'yt': 'http://www.youtube.com/xml/schemas/2015',
         'media': 'http://search.yahoo.com/mrss/',
     }
-    matches = []
+    videos = []
     for entry in root.findall('atom:entry', ns):
         title = str(entry.findtext('atom:title', default='', namespaces=ns) or '')
         group = entry.find('media:group', ns)
@@ -14999,24 +15008,27 @@ def youtube_public_gemdrop_videos(channel_id):
                     views = max(0, int(statistics.attrib.get('views') or 0))
                 except (TypeError, ValueError):
                     views = 0
-        if 'gemdrop' not in title.casefold() and '#gemdrop' not in description.casefold():
-            continue
         video_id = str(entry.findtext('yt:videoId', default='', namespaces=ns) or '')
         if not re.fullmatch(r'[A-Za-z0-9_-]{6,20}', video_id):
             continue
         link = entry.find('atom:link[@rel="alternate"]', ns)
         video_url = str(link.attrib.get('href') or '') if link is not None else ''
-        matches.append(dict(
+        videos.append(dict(
             video_id=video_id,
             title=title or 'Видео',
-            thumbnail_url=safe_image(thumbnail_url),
+            thumbnail_url=safe_image(thumbnail_url) or ('https://i.ytimg.com/vi/' + video_id + '/mqdefault.jpg'),
             published_at=str(entry.findtext('atom:published', default='', namespaces=ns) or ''),
             views=views,
+            gemdrop=('gemdrop' in title.casefold() or '#gemdrop' in description.casefold()),
             url=video_url or ('https://www.youtube.com/watch?v=' + video_id),
         ))
-        if len(matches) >= 20:
+        if len(videos) >= 20:
             break
-    return matches
+    return dict(title=str(root.findtext('atom:title', default='', namespaces=ns) or ''), videos=videos)
+
+
+def youtube_public_gemdrop_videos(channel_id):
+    return youtube_public_feed(channel_id)['videos']
 
 
 def youtube_public_channel_snapshot(value):
@@ -15024,16 +15036,28 @@ def youtube_public_channel_snapshot(value):
     page_url = ('https://www.youtube.com/channel/' + ref if kind == 'id' else
                 'https://www.youtube.com/' + ref if kind == 'path' else
                 'https://www.youtube.com/@' + ref)
-    response = youtube_public_get(page_url, {'hl': 'en'})
-    page = response.text or ''
+    try:
+        page = youtube_public_get(page_url, {'hl': 'en'}).text or ''
+    except RuntimeError:
+        if kind != 'id':
+            raise
+        page = ''  # the channel id is known: the RSS feed below is enough to link the channel
     channel_id = ref if kind == 'id' else youtube_public_channel_id(page)
     if not re.fullmatch(r'UC[A-Za-z0-9_-]{20,}', channel_id or ''):
         raise ValueError('YouTube-канал не найден или YouTube временно не отдал публичные данные.')
-    title = youtube_meta_content(page, 'og:title')
-    if not title:
+    feed = None
+    try:
+        feed = youtube_public_feed(channel_id)
+    except RuntimeError:
+        feed = None
+    title = youtube_meta_content(page, 'og:title') if page else ''
+    if not title and page:
         title_match = re.search(r'<title>(.*?)</title>', page, re.I | re.S)
-        title = unescape(title_match.group(1)).strip() if title_match else 'YouTube'
+        title = unescape(title_match.group(1)).strip() if title_match else ''
         title = re.sub(r'\s*-\s*YouTube\s*$', '', title, flags=re.I)
+    if not title and feed:
+        title = feed.get('title') or ''
+    title = title or 'YouTube'
     avatar = youtube_meta_content(page, 'og:image')
     handle = youtube_public_handle(page, ref if kind == 'handle' else '')
     subscribers = youtube_public_subscribers(page)
@@ -15049,11 +15073,7 @@ def youtube_public_channel_snapshot(value):
         updated_at=datetime.now(timezone.utc).isoformat(),
         source='public',
     )
-    try:
-        snapshot['videos'] = youtube_public_gemdrop_videos(channel_id)
-    except RuntimeError:
-        # A channel without uploads (or a flaky RSS feed) must not block linking the channel itself.
-        snapshot['videos'] = []
+    snapshot['videos'] = (feed or {}).get('videos') or []
     return snapshot
 
 
@@ -15116,16 +15136,15 @@ def youtube_api_gemdrop_videos(channel):
         snippet = item.get('snippet') or {}
         title = str(snippet.get('title') or '')
         description = str(snippet.get('description') or '')
-        if 'gemdrop' not in title.casefold() and '#gemdrop' not in description.casefold():
-            continue
         video_id = str((item.get('contentDetails') or {}).get('videoId') or
                        (snippet.get('resourceId') or {}).get('videoId') or '')
         if not video_id:
             continue
         thumbs = snippet.get('thumbnails') or {}
         thumb = ((thumbs.get('high') or thumbs.get('medium') or thumbs.get('default') or {}).get('url') or '')
-        matches.append(dict(video_id=video_id, title=title, thumbnail_url=safe_image(thumb),
+        matches.append(dict(video_id=video_id, title=title, thumbnail_url=safe_image(thumb) or ('https://i.ytimg.com/vi/' + video_id + '/mqdefault.jpg'),
                             published_at=snippet.get('publishedAt') or '', views=0,
+                            gemdrop=('gemdrop' in title.casefold() or '#gemdrop' in description.casefold()),
                             url='https://www.youtube.com/watch?v=' + video_id))
         if len(matches) >= 20:
             break
@@ -15608,24 +15627,102 @@ def twitch_thumbnail(url):
     return safe_image(str(url or '').replace('%{width}', '320').replace('%{height}', '180'))
 
 
-def twitch_channel_snapshot(value):
-    """Build a Twitch channel record without OAuth/API keys.
+TWITCH_GQL_URL = 'https://gql.twitch.tv/gql'
+TWITCH_GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'  # public web-player id, no secret involved
 
-    Live playback is handled by Twitch's official embed player in the client,
-    which only needs the channel login and the current parent hostname.
+
+def twitch_duration_label(seconds):
+    try:
+        seconds = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return ''
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
+
+
+def twitch_video_item(video_id, title, thumb, created, views, duration=''):
+    title = str(title or 'Трансляция')[:200]
+    return dict(video_id=str(video_id), title=title, thumbnail_url=twitch_thumbnail(thumb),
+                published_at=str(created or ''), views=int(views or 0), duration=str(duration or ''),
+                gemdrop='gemdrop' in title.casefold(), url='https://www.twitch.tv/videos/' + str(video_id))
+
+
+def twitch_helix_channel(login):
+    """Official API (needs TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET)."""
+    users = twitch_api_get('users', {'login': login}).get('data') or []
+    if not users:
+        raise ValueError('Twitch-канал не найден.')
+    user = users[0]
+    videos = []
+    for item in (twitch_api_get('videos', {'user_id': user['id'], 'first': 20, 'type': 'archive'}).get('data') or []):
+        videos.append(twitch_video_item(item.get('id'), item.get('title'), item.get('thumbnail_url'),
+                                        item.get('created_at'), item.get('view_count'), item.get('duration') or ''))
+    live = False
+    try:
+        live = bool(twitch_api_get('streams', {'user_login': login}).get('data'))
+    except RuntimeError:
+        live = False
+    return dict(display_name=str(user.get('display_name') or login), avatar_url=safe_image(user.get('profile_image_url') or ''),
+                twitch_id=str(user.get('id') or ''), videos=videos, is_live=live, source='api')
+
+
+def twitch_gql_channel(login):
+    """No-key fallback through Twitch's public web endpoint. Best effort: any failure -> RuntimeError."""
+    query = ('query($login:String!){user(login:$login){id displayName profileImageURL(width:150) stream{id} '
+             'videos(first:20,type:ARCHIVE,sort:TIME){edges{node{id title previewThumbnailURL(width:320,height:180) '
+             'createdAt viewCount lengthSeconds}}}}}')
+    try:
+        response = requests.post(TWITCH_GQL_URL, json={'query': query, 'variables': {'login': login}},
+                                 headers={'Client-ID': TWITCH_GQL_CLIENT_ID}, timeout=(4, 10))
+        response.raise_for_status()
+        user = ((response.json() or {}).get('data') or {}).get('user')
+    except (requests.RequestException, ValueError) as exc:
+        raise RuntimeError('Не удалось получить трансляции Twitch.') from exc
+    if not user:
+        raise ValueError('Twitch-канал не найден.')
+    videos = []
+    for edge in ((user.get('videos') or {}).get('edges') or []):
+        node = edge.get('node') or {}
+        if node.get('id'):
+            videos.append(twitch_video_item(node['id'], node.get('title'), node.get('previewThumbnailURL'),
+                                            node.get('createdAt'), node.get('viewCount'),
+                                            twitch_duration_label(node.get('lengthSeconds'))))
+    return dict(display_name=str(user.get('displayName') or login), avatar_url=safe_image(user.get('profileImageURL') or ''),
+                twitch_id=str(user.get('id') or ''), videos=videos, is_live=bool(user.get('stream')), source='public')
+
+
+def twitch_channel_snapshot(value):
+    """Channel record + latest broadcasts. Uses the official API when keys are set, else the public endpoint.
+
+    user_id stays 'login:<name>' so a channel keeps the same identity whichever source answered.
     """
     login = twitch_channel_login(value)
-    return dict(
-        user_id='login:' + login,
-        login=login,
-        display_name=login,
-        avatar_url='',
+    snapshot = dict(
+        user_id='login:' + login, login=login, display_name=login, avatar_url='',
         url='https://www.twitch.tv/' + login,
         embed_url='https://player.twitch.tv/?channel=' + login,
-        videos=[],
-        tokenless=True,
+        videos=[], is_live=False, tokenless=not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET),
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
+    data = None
+    if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET:
+        try:
+            data = twitch_helix_channel(login)
+        except RuntimeError:
+            data = None  # keys rejected / Twitch API down: fall back to the public endpoint
+    if data is None:
+        try:
+            data = twitch_gql_channel(login)
+        except RuntimeError:
+            data = None
+    if data:
+        snapshot.update(display_name=data['display_name'], avatar_url=data['avatar_url'], twitch_id=data['twitch_id'],
+                        videos=data['videos'], is_live=data['is_live'], source=data['source'])
+    else:
+        snapshot['videos_error'] = True
+    return snapshot
+
 
 def twitch_taken_by_other(user_id, uid):
     with connect() as db:

@@ -6,7 +6,17 @@
 html.gd-banned body>*:not(#loader){display:none!important}
 html.gd-banned #loader,html.gd-banned #loader.hidden{display:grid!important}
 html.gd-maint body>*:not(#maintScreen){display:none!important}
-#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;background:#090a11;color:#f4f5f7;font:500 14px system-ui,-apple-system,'Segoe UI',sans-serif;overflow:auto}
+#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:clamp(16px,5vw,32px);background:radial-gradient(ellipse at 50% 10%,#252029 0%,#13151a 43%,#0b0d10 100%);color:#f4f5f7;font:500 14px system-ui,-apple-system,'Segoe UI',sans-serif;overflow:auto;min-height:100dvh}
+#maintScreen:before{content:'';position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(#ffffff04 1px,transparent 1px),linear-gradient(90deg,#ffffff04 1px,transparent 1px);background-size:38px 38px;mask-image:linear-gradient(to bottom,#000,transparent 80%)}
+#maintScreen .mt-card{position:relative!important;width:min(100%,430px)!important;gap:16px!important;padding:clamp(20px,5vw,36px)!important;border-radius:28px;border:1px solid #ffffff16;background:linear-gradient(165deg,#1c1e25ed,#111318f2);box-shadow:0 30px 85px #0008,inset 0 1px #ffffff0c}
+#maintScreen .mt-icon{background:#ffb32b13!important;border-color:#ffc04b30!important}
+#maintScreen .mt-icon svg{stroke:#ffbf36!important}
+#maintScreen h1{font-size:clamp(24px,6vw,30px)!important;font-weight:850;line-height:1.15}
+#maintScreen .mt-msg{max-width:34ch;color:#a3a7b0}
+#maintScreen .mt-eta{border-color:#ffffff16!important;background:#ffffff07!important;border-radius:18px!important}
+#maintScreen .mt-clock{color:#f7c05b!important}
+#maintScreen .mt-retry{background:linear-gradient(180deg,#ffcf36,#ff9c19)!important;color:#1c1408!important;border-radius:15px!important}
+@media(prefers-reduced-motion:reduce){#maintScreen .mt-icon svg{animation:none!important}}
 #maintScreen .mt-card{width:min(100%,420px);display:grid;gap:14px;justify-items:center;text-align:center}
 #maintScreen .mt-icon{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;background:rgba(71,176,245,.12);border:1px solid rgba(71,176,245,.28)}
 #maintScreen .mt-icon svg{width:40px;height:40px;fill:none;stroke:#47b0f5;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;animation:mtSpin 6s linear infinite}

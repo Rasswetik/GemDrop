@@ -13328,6 +13328,9 @@ def redeem_promocode():
         db.execute('BEGIN IMMEDIATE')
         promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not promo or not promo['active']:
+            wheel_only = db.execute("SELECT 1 FROM promo_codes WHERE code=? AND active=1", (wheel_code_key(code),)).fetchone()
+            if wheel_only:
+                return error('Это код для колеса. Введите его на странице «Колесо».', 409)
             return error('Промокод не найден или отключён.', 404)
         if int(promo['author_user_id'] or 0) == int(session['uid']):
             return error('Автор не может активировать собственный промокод.', 403)
@@ -14032,7 +14035,7 @@ def admin_delete_freebet(code):
 def admin_promocodes():
     with connect() as db:
         rows = db.execute("SELECT * FROM promo_codes WHERE source_label<>'Freebet' ORDER BY created_at DESC,code DESC LIMIT 300").fetchall()
-    return jsonify(items=[dict(code=x['code'], reward_type=x['reward_type'], amount=(x['amount'] if x['reward_type']=='tickets' else x['amount']/100), tickets=(int(x['amount'] or 0) if x['reward_type']=='tickets' else 0),
+    return jsonify(items=[dict(code=wheel_code_display(x['code']), key=x['code'], scope=('wheel' if x['reward_type']=='wheel' else 'general'), reward_type=x['reward_type'], amount=(x['amount'] if x['reward_type']=='tickets' else x['amount']/100), tickets=(int(x['amount'] or 0) if x['reward_type']=='tickets' else 0),
                                gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
@@ -14152,7 +14155,7 @@ def admin_create_promocode():
             if assigned_user_id:
                 max_uses=1
             db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
+                       (wheel_code_key(code) if reward_type == 'wheel' else code, reward_type, amount, gift_id, gift_name, gift_image, gift_price,
                         wager_multiplier, max_uses, session['uid'],
                         bonus_percent,bonus_fixed,min_deposit,
                         json.dumps(multi_reward,ensure_ascii=False) if multi_reward else '{}',
@@ -14294,9 +14297,62 @@ def admin_toggle_promocode(code):
     return jsonify(ok=True, active=bool(active))
 
 
+@app.post('/api/admin/promocodes/<code>/delete')
+@admin_required
+def admin_delete_promocode(code):
+    code = str(code).strip().upper()
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT code,poll_id,source_label,reward_type FROM promo_codes WHERE code=?', (code,)).fetchone()
+        if not row:
+            return error('Промокод не найден.', 404)
+        if str(row['source_label'] or '') == 'Freebet':
+            return error('Фрибеты удаляются в разделе Freebet.', 409)
+        if str(row['poll_id'] or ''):
+            return error('Код входит в опросник — закройте опросник в блоке «Промокоды-опросники».', 409)
+        live = db.execute("""SELECT 1 FROM promo_redemptions WHERE code=? AND reward_type='deposit_bonus'
+                              AND consumed_at IS NULL AND deactivated_at IS NULL LIMIT 1""", (code,)).fetchone()
+        if live:
+            return error('У игроков есть активный бонус к пополнению по этому коду. Сначала отключите промокод.', 409)
+        db.execute('DELETE FROM promo_redemptions WHERE code=?', (code,))
+        db.execute('DELETE FROM promo_codes WHERE code=?', (code,))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'promo_delete', wheel_code_display(code)))
+        db.commit()
+        return jsonify(ok=True, deleted=True)
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Wheel ("Колесо"): spin by a special promo code, prizes are managed in admin
 # ---------------------------------------------------------------------------
+# Wheel codes live in their own namespace: they are stored with this prefix, so the same
+# text can exist as a wheel code and as a regular (deposit/gift/balance...) promo code.
+# Which one fires depends on where the player enters it.
+WHEEL_CODE_PREFIX = 'WL~'
+
+
+def wheel_code_key(code):
+    return WHEEL_CODE_PREFIX + str(code or '').strip().upper()
+
+
+def wheel_code_display(code):
+    code = str(code or '')
+    return code[len(WHEEL_CODE_PREFIX):] if code.startswith(WHEEL_CODE_PREFIX) else code
+
+
+def wheel_promo_lookup(db, code, lock=False):
+    """Find a wheel code: new prefixed storage first, then legacy unprefixed rows."""
+    suffix = ' FOR UPDATE' if (lock and DATABASE_URL) else ''
+    row = db.execute('SELECT * FROM promo_codes WHERE code=?' + suffix, (wheel_code_key(code),)).fetchone()
+    if row:
+        return row
+    row = db.execute("SELECT * FROM promo_codes WHERE code=? AND reward_type='wheel'" + suffix, (code,)).fetchone()
+    return row
+
+
 WHEEL_KINDS = ('deposit_bonus', 'balance', 'gift', 'wager_gift')
 WHEEL_IMAGE_TYPES = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg'}
 WHEEL_MAX_IMAGE = 3 * 1024 * 1024
@@ -14466,14 +14522,15 @@ def wheel_spin():
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
-        promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
+        promo = wheel_promo_lookup(db, code, lock=True)
         if not promo or not promo['active'] or promo['reward_type'] != 'wheel':
             return error('Промокод для колеса не найден или отключён.', 404)
+        key = promo['code']
         if int(promo['assigned_user_id'] or 0) not in (0, uid):
             return error('Этот промокод предназначен другому пользователю.', 403)
         if promo_is_expired(promo):
             return error('Срок действия промокода истёк.', 409)
-        if db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (code, uid)).fetchone():
+        if db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (key, uid)).fetchone():
             return error('Вы уже активировали этот промокод.', 409)
         if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
             return error('Лимит активаций этого промокода исчерпан.', 409)
@@ -14490,8 +14547,8 @@ def wheel_spin():
         reward = wheel_deliver(db, uid, prize, code, str(spin_id))
         db.execute('UPDATE wheel_spins SET reward_json=? WHERE id=?', (json.dumps(reward, ensure_ascii=False), spin_id))
         db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
-                   (code, uid, 'wheel', 0, (reward.get('gift') or {}).get('id')))
-        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+                   (key, uid, 'wheel', 0, (reward.get('gift') or {}).get('id')))
+        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (key,))
         log_event(db, uid, 'wheel_spin', code=code, prize_id=prize['id'], reward=reward)
         db.commit()
         return jsonify(ok=True, prize=wheel_prize_public(prize), reward=reward, user=profile())
@@ -14643,7 +14700,7 @@ def admin_wheel():
         spins = db.execute('SELECT COUNT(*) AS n FROM wheel_spins').fetchone()['n']
         codes = db.execute("SELECT code,max_uses,uses_count,active,expires_at,created_at FROM promo_codes WHERE reward_type='wheel' ORDER BY created_at DESC LIMIT 30").fetchall()
     return jsonify(ok=True, prizes=[wheel_prize_admin(r, total) for r in rows], total_weight=total, spins=int(spins or 0),
-                   settings=wheel_settings(), codes=[dict(code=c['code'], max_uses=int(c['max_uses'] or 0), uses=int(c['uses_count'] or 0),
+                   settings=wheel_settings(), codes=[dict(code=wheel_code_display(c['code']), max_uses=int(c['max_uses'] or 0), uses=int(c['uses_count'] or 0),
                                                          active=bool(c['active']), expires_at=c['expires_at'], created_at=c['created_at']) for c in codes])
 
 
@@ -14762,13 +14819,13 @@ def admin_wheel_create_code():
     try:
         with connect() as db:
             db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       (code, 'wheel', 0, '', '', '', 0, 0.0, max_uses, session['uid'], 0, 0, 0, '{}', 0,
+                       (wheel_code_key(code), 'wheel', 0, '', '', '', 0, 0.0, max_uses, session['uid'], 0, 0, 0, '{}', 0,
                         'Колесо', 'Код для прокрутки колеса.', expires_at, 0, 0, 0, 'main'))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'wheel_code_create', code))
     except Exception as exc:
         if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
-            return error('Такой промокод уже существует.', 409)
+            return error('Такой код колеса уже существует.', 409)
         raise
     return jsonify(ok=True, code=code)
 

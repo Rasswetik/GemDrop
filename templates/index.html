@@ -4117,17 +4117,17 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
 <section id="wheelAdminPage" class="hidden"><button id="wlaBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">НАГРАДЫ</span><h1>Колесо призов</h1><p>Призы, шансы и коды для прокрутки колеса</p></div>
 <div class="panel stack"><h2>Доступ</h2><label class="toggle-row"><span>Открыть колесо всем игрокам</span><input id="wlaPublic" type="checkbox"></label><label class="caption" for="wlaChannel">Канал с кодами (без @, необязательно)</label><input id="wlaChannel" class="text-input" type="text" placeholder="case_app" maxlength="40" autocomplete="off"><button id="wlaSaveSettings" class="secondary" type="button">Сохранить</button><small class="muted">Пока переключатель выключен, колесо видят только администраторы.</small></div>
 <div class="panel stack"><h2>Коды для прокрутки</h2><div class="wla-grid3"><input id="wlaCode" class="text-input" type="text" placeholder="Код (пусто — случайный)" maxlength="32" autocomplete="off"><input id="wlaCodeUses" class="text-input" type="number" min="0" step="1" value="1" inputmode="numeric" title="Лимит активаций, 0 — без лимита"><input id="wlaCodeDays" class="text-input" type="number" min="0" step="1" value="0" inputmode="numeric" title="Срок в днях, 0 — без срока"></div><small class="muted">Слева направо: код · лимит активаций (0 — без лимита) · срок в днях (0 — без срока).</small><button id="wlaCreateCode" class="primary" type="button">Создать код</button><div id="wlaCodes" class="wla-codes"></div></div>
-<div class="panel stack"><div class="panel-head"><h2>Призы</h2><span id="wlaStats">0</span></div><div id="wlaList" class="wla-list"></div></div>
+<div class="panel stack"><div class="panel-head"><h2>Призы</h2><span id="wlaStats">0</span></div><button id="wlaAddNew" class="primary" type="button">＋ Добавить приз</button><div id="wlaList" class="wla-list"></div></div>
 <div class="panel stack" id="wlaFormPanel"><h2 id="wlaFormTitle">Добавить приз</h2><label class="caption" for="wlaKind">Тип приза</label><select id="wlaKind" class="text-input"><option value="deposit_bonus">Промокод на пополнение (%)</option><option value="balance">TON на баланс</option><option value="gift">Подарок в инвентарь</option><option value="wager_gift">Подарок на отыгрыш</option></select>
 <div class="wla-row" data-kinds="deposit_bonus"><div><label class="caption" for="wlaPercent">Бонус, %</label><input id="wlaPercent" class="text-input" type="number" min="1" max="1000" step="1" inputmode="decimal" placeholder="35"></div><div><label class="caption" for="wlaMinDeposit">Мин. пополнение, TON</label><input id="wlaMinDeposit" class="text-input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0"></div><div><label class="caption" for="wlaPromoDays">Срок промокода, дн.</label><input id="wlaPromoDays" class="text-input" type="number" min="0" step="1" inputmode="numeric" value="7"></div></div>
 <div class="wla-row" data-kinds="balance"><div><label class="caption" for="wlaAmount">Сумма, TON</label><input id="wlaAmount" class="text-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="10"></div></div>
-<div class="wla-row" data-kinds="gift wager_gift"><div><label class="caption" for="wlaGiftName">Название подарка</label><input id="wlaGiftName" class="text-input" type="text" maxlength="140" placeholder="Snoop Cigar"></div><div><label class="caption" for="wlaGiftPrice">Цена, TON</label><input id="wlaGiftPrice" class="text-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="15.76"></div></div>
-<div class="wla-row" data-kinds="gift wager_gift"><div><label class="caption" for="wlaGiftId">ID из Portal (необязательно)</label><input id="wlaGiftId" class="text-input" type="text" maxlength="120" placeholder="цена и название подтянутся из каталога"></div></div>
+<div class="wla-row" data-kinds="gift wager_gift"><div class="wla-pick"><label class="caption">Подарок из Portal</label><div id="wlaGiftCard" class="wla-gift-card empty"><span>Подарок не выбран</span></div><button id="wlaPickGift" class="secondary" type="button">Выбрать подарок</button><input id="wlaGiftId" type="hidden"><input id="wlaGiftName" type="hidden"><input id="wlaGiftPrice" type="hidden"></div></div>
 <div class="wla-row" data-kinds="wager_gift"><div><label class="caption" for="wlaWager">X отыгрыша</label><input id="wlaWager" class="text-input" type="number" min="1" max="1000" step="0.1" inputmode="decimal" placeholder="20"></div><div><label class="caption" for="wlaGiftDays">Жизнь подарка, дн.</label><input id="wlaGiftDays" class="text-input" type="number" min="0" step="1" inputmode="numeric" value="0"></div></div>
 <label class="caption" for="wlaTitle">Подпись (необязательно)</label><input id="wlaTitle" class="text-input" type="text" maxlength="140" placeholder="Подставится автоматически">
 <label class="caption" for="wlaWeight">Шанс (вес). Чем больше число, тем чаще выпадает</label><input id="wlaWeight" class="text-input" type="number" min="0" step="0.01" inputmode="decimal" value="1"><small id="wlaChanceHint" class="muted"></small>
-<div class="wla-image"><div id="wlaPreview" class="wla-preview"></div><div class="wla-image-actions"><button id="wlaPickImage" class="secondary" type="button">Загрузить изображение</button><button id="wlaClearImage" class="mini-btn hidden" type="button">Убрать</button><input id="wlaImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden></div></div><small class="muted">Без картинки приз рисуется автоматически: цветной билет для пополнения, белый для баланса. Подарок лучше с картинкой.</small>
+<div class="wla-image"><div id="wlaPreview" class="wla-preview"></div><div class="wla-image-actions"><button id="wlaPickImage" class="secondary" type="button">Своя картинка (необязательно)</button><button id="wlaClearImage" class="mini-btn hidden" type="button">Убрать</button><input id="wlaImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden></div></div><small class="muted">Для подарка картинка берётся из Portal автоматически. Для пополнения и баланса без картинки рисуется билет.</small>
 <div class="wla-form-actions"><button id="wlaSave" class="primary" type="button">Добавить приз</button><button id="wlaCancel" class="secondary hidden" type="button">Отмена</button></div></div></section>
+<div id="wlaGiftModal" class="modal wl-modal hidden"><div class="modal-card wl-sheet wla-picker-sheet"><button class="wl-close" id="wlaGiftClose" type="button" aria-label="Закрыть">×</button><h2>Подарок из Portal</h2><input id="wlaGiftSearch" class="text-input" type="search" placeholder="Поиск по названию" autocomplete="off"><div id="wlaGiftGrid" class="wla-gift-grid"></div></div></div>
 <section id="antifraudPage" class="hidden"><button id="antifraudBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">БЕЗОПАСНОСТЬ</span><h1>Мульти-аккаунты и баны</h1><p>Аккаунты с одного IP, автоблокировка вторых аккаунтов и список заблокированных</p></div><div class="panel stack"><h2>Автоблокировка</h2><label class="toggle-row"><span>Блокировать вторые аккаунты</span><input id="afEnabled" type="checkbox"></label><label class="caption" for="afLimit">Допустимо аккаунтов с одного IP</label><div class="row"><input id="afLimit" class="text-input" type="number" min="1" max="50" step="1" inputmode="numeric"><button id="afSave" class="mini-btn" type="button">Сохранить</button></div><small class="muted">Самые старые аккаунты на IP остаются, более новые блокируются. Администраторы и креаторы не блокируются. Учитываются заходы за последние 30 дней. Общие IP (мобильные операторы, общежития, офисы) могут давать ложные срабатывания — держите лимит повыше, а ошибочно заблокированных разблокируйте: такие аккаунты больше не блокируются автоматически.</small><button id="afScan" class="secondary" type="button">Проверить сейчас</button></div><div class="panel stack"><div class="panel-head"><h2>IP с несколькими аккаунтами</h2><span id="afGroupsCount">0</span></div><div id="afGroups" class="af-groups"></div></div><div class="panel stack"><div class="panel-head"><h2>Заблокированные</h2><span id="afBannedCount">0</span></div><div id="afBanned" class="af-banned"></div></div></section>
 <section id="halloweenPage" class="hidden"><button id="halloweenBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">ИВЕНТ</span><h1>Halloween Event</h1><p>При включении весь сайт получает оформление Хэллоуина, а в разделе «Игры» появляется карточка ивента.</p></div><div class="panel stack"><label class="toggle-row"><span>Режим Halloween</span><input id="hwEnabled" type="checkbox"></label><label class="caption" for="hwStart">Начало (пусто — сразу)</label><input id="hwStart" class="text-input" type="datetime-local"><label class="caption" for="hwEnd">Конец (пусто — без ограничения)</label><input id="hwEnd" class="text-input" type="datetime-local"><small class="muted">Ивент активен, пока переключатель включён и текущее время внутри заданного периода. По окончании оформление вернётся автоматически.</small><button id="hwSave" class="primary" type="button">Сохранить</button><div id="hwStatus" class="notice hidden" role="status"></div></div></section>
 <section id="maintenancePage" class="hidden"><button id="maintenanceBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">СИСТЕМА</span><h1>Технические работы</h1><p>Игроки увидят экран «Технические работы» с обратным отсчётом. Администраторы продолжают пользоваться сайтом.</p></div><div class="panel stack"><label class="toggle-row"><span>Режим технических работ</span><input id="mtEnabled" type="checkbox"></label><label class="caption" for="mtMinutes">Сколько примерно осталось, минут</label><input id="mtMinutes" class="text-input" type="number" min="0" max="20160" step="1" inputmode="numeric" placeholder="Например, 30"><small id="mtEtaHint" class="muted">0 — без таймера. Время можно обновить в любой момент, отсчёт начнётся заново.</small><label class="caption" for="mtMessage">Сообщение для игроков</label><textarea id="mtMessage" class="text-input" rows="3" maxlength="500"></textarea><button id="mtSave" class="primary" type="button">Сохранить</button><div id="mtStatus" class="notice hidden" role="status"></div></div></section>
@@ -10451,6 +10451,23 @@ addEventListener('resize',bounds,{passive:true});document.addEventListener('visi
 .wla-preview .wl-item{width:100%}
 .wla-image-actions{display:grid;gap:8px;justify-items:start}
 .wla-form-actions{display:grid;gap:8px}
+.wla-pick{grid-column:1/-1;display:grid;gap:8px}
+.wla-gift-card{display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;align-items:center;padding:10px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.wla-gift-card.empty{display:block;text-align:center;color:#8d99a8;font-size:13px;padding:16px;border-style:dashed}
+.wla-gift-art{width:56px;height:56px;border-radius:12px;background:rgba(255,255,255,.06);display:grid;place-items:center;overflow:hidden}
+.wla-gift-art img{width:100%;height:100%;object-fit:contain}
+.wla-gift-meta{min-width:0;display:grid;gap:3px}
+.wla-gift-meta b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wla-gift-meta small{color:#8d99a8;font-size:12px}
+#wlaAddNew{width:100%}
+.wla-picker-sheet{max-height:86vh;display:flex;flex-direction:column;gap:10px}
+.wla-gift-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;overflow:auto;min-height:120px;padding-bottom:6px}
+.wla-gift-opt{display:grid;gap:5px;padding:8px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid transparent;color:#fff;text-align:center;cursor:pointer}
+.wla-gift-opt:active,.wla-gift-opt:hover{border-color:#2a8cff}
+.wla-gift-opt .wla-gift-art{width:100%;height:auto;aspect-ratio:1}
+.wla-gift-opt b{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wla-gift-opt small{color:#8d99a8;font-size:11px}
+.wla-gift-empty{grid-column:1/-1;text-align:center;color:#8d99a8;padding:24px 0;font-size:13px}
 /* bottom nav redesign (phones) */
 .nav-wheel .nw-disc em{font-style:normal}
 @media(max-width:700px){
@@ -10695,7 +10712,7 @@ window.syncWheelNav=function(){
 window.wheelEnter=enter;window.wheelLeave=leave;
 
 /* ---------- admin ---------- */
-const WA={prizes:[],total:0,editing:null,file:null,removeImage:false,keepImage:'',previewUrl:''};
+const WA={prizes:[],total:0,editing:null,file:null,removeImage:false,keepImage:'',previewUrl:'',pickedImage:'',catalog:null};
 const KINDS_ROWS=()=>document.querySelectorAll('#wheelAdminPage .wla-row[data-kinds]');
 function waKindSync(){const k=$('wlaKind').value;KINDS_ROWS().forEach(r=>{r.hidden=!r.dataset.kinds.split(' ').includes(k)});waPreview()}
 const num=id=>{const v=$(id).value;return v===''?'':v};
@@ -10703,7 +10720,7 @@ function waFormPrize(){
   const k=$('wlaKind').value;
   return{kind:k,title:$('wlaTitle').value.trim(),percent:Number($('wlaPercent').value||0),amount:Number($('wlaAmount').value||0),
     gift_price:Number($('wlaGiftPrice').value||0),gift_name:$('wlaGiftName').value.trim(),wager_multiplier:Number($('wlaWager').value||0),
-    image_url:WA.previewUrl||(!WA.removeImage?WA.keepImage:'')};
+    image_url:WA.previewUrl||WA.pickedImage||(!WA.removeImage?WA.keepImage:'')};
 }
 function waPreview(){
   const box=$('wlaPreview');box.replaceChildren();const p=waFormPrize();
@@ -10714,19 +10731,19 @@ function waPreview(){
   $('wlaChanceHint').textContent=(others+w)>0?`Шанс этого приза ≈ ${(w/(others+w)*100).toFixed(2)}% (общий вес ${fmt(others+w)})`:'';
 }
 function waReset(){
-  WA.editing=null;WA.file=null;WA.removeImage=false;WA.keepImage='';if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}
+  WA.editing=null;WA.file=null;WA.removeImage=false;WA.keepImage='';WA.pickedImage='';if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}
   ['wlaPercent','wlaMinDeposit','wlaAmount','wlaGiftName','wlaGiftPrice','wlaGiftId','wlaWager','wlaTitle'].forEach(id=>$(id).value='');
   $('wlaPromoDays').value='7';$('wlaGiftDays').value='0';$('wlaWeight').value='1';$('wlaImage').value='';
   $('wlaKind').value='deposit_bonus';$('wlaFormTitle').textContent='Добавить приз';$('wlaSave').textContent='Добавить приз';$('wlaCancel').classList.add('hidden');
-  waKindSync();
+  waGiftCardRender();waKindSync();
 }
 function waEdit(p){
-  WA.editing=p.id;WA.file=null;WA.removeImage=false;WA.keepImage=p.image_url||'';if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}
+  WA.editing=p.id;WA.file=null;WA.removeImage=false;WA.pickedImage='';WA.keepImage=p.image_url||'';if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}
   $('wlaKind').value=p.kind;$('wlaPercent').value=p.percent||'';$('wlaMinDeposit').value=p.min_deposit||'';$('wlaPromoDays').value=p.promo_days;
   $('wlaAmount').value=p.amount||'';$('wlaGiftName').value=p.gift_name||'';$('wlaGiftPrice').value=p.gift_price||'';$('wlaGiftId').value=p.gift_id||'';
   $('wlaWager').value=p.wager_multiplier||'';$('wlaGiftDays').value=p.gift_expires_days;$('wlaTitle').value=p.title||'';$('wlaWeight').value=p.weight;$('wlaImage').value='';
   $('wlaFormTitle').textContent='Изменить приз';$('wlaSave').textContent='Сохранить';$('wlaCancel').classList.remove('hidden');
-  waKindSync();$('wlaFormPanel').scrollIntoView({behavior:'smooth',block:'start'});
+  waGiftCardRender();waKindSync();$('wlaFormPanel').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function waRender(d){
   WA.prizes=d.prizes;WA.total=d.total_weight;
@@ -10753,12 +10770,13 @@ async function waSave(){
   const b=$('wlaSave');b.disabled=true;
   try{
     const f=new FormData(),k=$('wlaKind').value;
+    if((k==='gift'||k==='wager_gift')&&!$('wlaGiftId').value&&!$('wlaGiftName').value){toast('Выберите подарок из Portal');return}
     f.append('kind',k);f.append('weight',num('wlaWeight')||'0');f.append('title',$('wlaTitle').value.trim());
     if(k==='deposit_bonus'){f.append('percent',num('wlaPercent'));f.append('min_deposit',num('wlaMinDeposit')||'0');f.append('promo_days',num('wlaPromoDays')||'0')}
     if(k==='balance')f.append('amount',num('wlaAmount'));
     if(k==='gift'||k==='wager_gift'){f.append('gift_name',$('wlaGiftName').value.trim());f.append('gift_price',num('wlaGiftPrice'));f.append('gift_id',$('wlaGiftId').value.trim());f.append('gift_expires_days',num('wlaGiftDays')||'0')}
     if(k==='wager_gift')f.append('wager_multiplier',num('wlaWager'));
-    if(WA.file)f.append('image',WA.file);else if(WA.removeImage)f.append('remove_image','1');
+    if(WA.file)f.append('image',WA.file);else if(WA.pickedImage)f.append('image_url',WA.pickedImage);else if(WA.removeImage)f.append('remove_image','1');
     await api(WA.editing?'/api/admin/wheel/prizes/'+WA.editing:'/api/admin/wheel/prizes',{method:'POST',body:f});
     toast(WA.editing?'Приз сохранён':'Приз добавлен');waReset();await loadWheelAdmin();
   }catch(e){toast(e.message)}finally{b.disabled=false}
@@ -10768,13 +10786,60 @@ $('wlaKind').onchange=waKindSync;
 $('wlaPickImage').onclick=()=>$('wlaImage').click();
 $('wlaImage').onchange=()=>{const f=$('wlaImage').files[0];if(!f)return;if(f.size>3*1024*1024){toast('Изображение больше 3 МБ');$('wlaImage').value='';return}
   if(WA.previewUrl)URL.revokeObjectURL(WA.previewUrl);WA.file=f;WA.removeImage=false;WA.previewUrl=URL.createObjectURL(f);waPreview()};
-$('wlaClearImage').onclick=()=>{WA.file=null;WA.removeImage=true;if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}$('wlaImage').value='';waPreview()};
+$('wlaClearImage').onclick=()=>{WA.file=null;WA.pickedImage='';WA.removeImage=true;if(WA.previewUrl){URL.revokeObjectURL(WA.previewUrl);WA.previewUrl=''}$('wlaImage').value='';waPreview()};
+
+/* ---------- picker: gift from Portal catalog ---------- */
+function waGiftCardRender(){
+  const box=$('wlaGiftCard');if(!box)return;box.replaceChildren();
+  const id=$('wlaGiftId').value,name=$('wlaGiftName').value,price=Number($('wlaGiftPrice').value||0);
+  if(!name){box.className='wla-gift-card empty';box.append(el('span','','Подарок не выбран'));$('wlaPickGift').textContent='Выбрать подарок';return}
+  box.className='wla-gift-card';
+  const art=el('div','wla-gift-art'),src=WA.pickedImage||(!WA.removeImage?WA.keepImage:'');
+  if(src){const i=new Image();i.src=src;i.alt='';i.onerror=()=>i.remove();art.append(i)}else art.textContent='🎁';
+  const meta=el('div','wla-gift-meta');meta.append(el('b','',name),el('small','',fmt(price)+' TON'+(id?'':' · без привязки к Portal')));
+  box.append(art,meta);$('wlaPickGift').textContent='Заменить подарок';
+}
+async function waLoadCatalog(){
+  if(WA.catalog)return WA.catalog;
+  const d=await api('/api/catalog');
+  WA.catalog=(d.gifts||[]).filter(g=>g&&g.id!=null&&Number(g.price_ton)>0);
+  return WA.catalog;
+}
+function waRenderPicker(){
+  const grid=$('wlaGiftGrid'),q=$('wlaGiftSearch').value.trim().toLowerCase();grid.replaceChildren();
+  const list=(WA.catalog||[]).filter(g=>!q||String(g.name||'').toLowerCase().includes(q)).slice(0,200);
+  if(!list.length){grid.append(el('div','wla-gift-empty',WA.catalog&&WA.catalog.length?'Ничего не найдено':'Каталог Portal пуст'));return}
+  list.forEach(g=>{
+    const b=el('button','wla-gift-opt');b.type='button';
+    const art=el('div','wla-gift-art'),img=new Image();img.loading='lazy';img.alt='';
+    if(typeof applyGiftImage==='function')applyGiftImage(img,g);else img.src=g.image_url||'';
+    art.append(img);b.append(art,el('b','',typeof giftDisplayName==='function'?giftDisplayName(g):g.name),el('small','',fmt(g.price_ton)+' TON'));
+    b.onclick=()=>waPickGift(g);grid.append(b);
+  });
+}
+function waPickGift(g){
+  const old=$('wlaGiftName').value,t=$('wlaTitle');
+  if(!t.value.trim()||t.value.trim()===old)t.value='';
+  $('wlaGiftId').value=String(g.id);$('wlaGiftName').value=g.name||'';$('wlaGiftPrice').value=String(g.price_ton);
+  WA.pickedImage=/^(https:\/\/|\/static\/)/.test(g.image_url||'')?g.image_url:'';WA.removeImage=false;
+  $('wlaGiftModal').classList.add('hidden');waGiftCardRender();waPreview();
+}
+async function waOpenPicker(){
+  const m=$('wlaGiftModal');m.classList.remove('hidden');$('wlaGiftSearch').value='';
+  $('wlaGiftGrid').replaceChildren(el('div','wla-gift-empty','Загружаем каталог…'));
+  try{await waLoadCatalog();waRenderPicker()}catch(e){m.classList.add('hidden');toast(e.message)}
+}
+$('wlaPickGift').onclick=waOpenPicker;
+$('wlaGiftSearch').addEventListener('input',waRenderPicker);
+$('wlaGiftClose').onclick=()=>$('wlaGiftModal').classList.add('hidden');
+$('wlaGiftModal').addEventListener('click',e=>{if(e.target===$('wlaGiftModal'))$('wlaGiftModal').classList.add('hidden')});
+$('wlaAddNew').onclick=()=>{waReset();$('wlaFormPanel').scrollIntoView({behavior:'smooth',block:'start'})};
 $('wlaSave').onclick=waSave;$('wlaCancel').onclick=waReset;
 $('wlaSaveSettings').onclick=async()=>{try{await api('/api/admin/wheel/settings',{method:'POST',body:JSON.stringify({public:$('wlaPublic').checked,channel:$('wlaChannel').value.trim()})});toast('Сохранено')}catch(e){toast(e.message)}};
 $('wlaCreateCode').onclick=async()=>{const b=$('wlaCreateCode');b.disabled=true;try{const d=await api('/api/admin/wheel/codes',{method:'POST',body:JSON.stringify({code:$('wlaCode').value.trim(),max_uses:Number($('wlaCodeUses').value||0),expires_in_days:Number($('wlaCodeDays').value||0)})});$('wlaCode').value='';await copyText(d.code);toast('Код '+d.code+' создан и скопирован');loadWheelAdmin()}catch(e){toast(e.message)}finally{b.disabled=false}};
 $('wlaBack').onclick=()=>show('adminPage');
 const oa=$('openWheelAdmin');if(oa)oa.onclick=()=>show('wheelAdminPage');
-waKindSync();
+waGiftCardRender();waKindSync();
 syncWheelNav();
 })();
 </script>

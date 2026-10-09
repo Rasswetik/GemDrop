@@ -344,6 +344,25 @@ def _initialize_schema():
         CREATE TABLE IF NOT EXISTS app_documents (
             name TEXT PRIMARY KEY, payload TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS wheel_prizes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+            image_id TEXT NOT NULL DEFAULT '', image_url TEXT NOT NULL DEFAULT '',
+            weight REAL NOT NULL DEFAULT 1, amount INTEGER NOT NULL DEFAULT 0, percent REAL NOT NULL DEFAULT 0,
+            min_deposit INTEGER NOT NULL DEFAULT 0, gift_id TEXT NOT NULL DEFAULT '', gift_name TEXT NOT NULL DEFAULT '',
+            gift_price INTEGER NOT NULL DEFAULT 0, wager_multiplier REAL NOT NULL DEFAULT 0,
+            gift_expires_days INTEGER NOT NULL DEFAULT 0, promo_days INTEGER NOT NULL DEFAULT 7,
+            active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS wheel_images (
+            id TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS wheel_spins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, code TEXT NOT NULL,
+            prize_id INTEGER NOT NULL DEFAULT 0, prize_kind TEXT NOT NULL DEFAULT '', prize_title TEXT NOT NULL DEFAULT '',
+            reward_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS withdrawal_contact_notices (
             user_id INTEGER PRIMARY KEY,
             shown_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1724,6 +1743,7 @@ def profile():
                 demo_balance=(creator['demo_balance_cents']/100 if (user_demo or creator.get('active')) else 0),
                 balance_kind=('demo' if user_demo else 'creator_demo' if demo else 'real'),
                 admin=user['id'] in ADMIN_IDS,
+                wheel_enabled=wheel_available_for(user['id']),
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
 
 
@@ -2482,7 +2502,7 @@ def enforce_available_modes():
     uid = session.get('uid')
     if uid and creator_demo_active(uid) and request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         real_money_prefixes = (
-            '/api/transfers/send', '/api/deposit', '/api/stars',
+            '/api/transfers/send', '/api/deposit', '/api/stars', '/api/wheel/spin',
             # the old solo Hi-Lo has no demo twin; the shared room and Limbo do
             '/api/hilo/start', '/api/hilo/guess', '/api/hilo/cashout',
         )
@@ -2491,7 +2511,7 @@ def enforce_available_modes():
         if creator_record(uid).get('user_demo') and not path.startswith('/api/demo/'):
             # A regular player's demo must never touch anything that has real value.
             real_value = ('/api/rolls/', '/api/giveaways/', '/api/referrals/withdraw', '/api/promocodes/redeem',
-                          '/api/deposit-bonus/', '/api/wallet/')
+                          '/api/deposit-bonus/', '/api/wallet/', '/api/wheel/spin')
             if any(path.startswith(prefix) for prefix in real_value) or path.endswith('/claim-promo'):
                 return error('Это действие недоступно в демо-режиме. Выключите демо в настройках.', 409)
     if uid and path.startswith('/api/arena/') and creator_record(uid).get('user_demo'):
@@ -12713,6 +12733,8 @@ def promo_purpose(promo):
         lifetime = f' Подарок сгорит через {days} дн. после получения, если отыгрыш не завершён.' if days else ''
         return (f"Выдаёт отыгрышный подарок «{promo['gift_name'] or 'Подарок'}» "
                 f"с условием X{float(promo['wager_multiplier'] or 0):g}.{lifetime}")
+    if kind == 'wheel':
+        return 'Код для прокрутки колеса призов.'
     if kind == 'deposit_bonus':
         pct = float(promo['bonus_percent'] or 0)
         fixed = int(promo['bonus_fixed'] or 0) / 100
@@ -13313,6 +13335,8 @@ def redeem_promocode():
                 or (str(promo['source_label'] or '') == 'Компенсация Upgrade'
                     and int(promo['assigned_user_id'] or 0) != int(session['uid']))):
             return error('Этот промокод предназначен другому пользователю.', 403)
+        if promo['reward_type'] == 'wheel':
+            return error('Это код для колеса. Введите его на странице «Колесо».', 409)
         if promo_is_expired(promo):
             return error('Срок действия промокода истёк.', 409)
         poll_id=str(promo['poll_id'] or '')
@@ -14108,6 +14132,8 @@ def admin_create_promocode():
         bonus_percent=deposit.get('bonus_percent',0)
         bonus_fixed=deposit.get('bonus_fixed',0)
         min_deposit=deposit.get('min_deposit',0)
+    elif reward_type=='wheel':
+        amount=0
     elif reward_type=='deposit_bonus':
         try:
             bonus_percent=float(data.get('bonus_percent') or 0)
@@ -14267,6 +14293,482 @@ def admin_toggle_promocode(code):
                    (session['uid'], session['uid'], 'promo_toggle', f'{code}:{active}'))
     return jsonify(ok=True, active=bool(active))
 
+
+# ---------------------------------------------------------------------------
+# Wheel ("Колесо"): spin by a special promo code, prizes are managed in admin
+# ---------------------------------------------------------------------------
+WHEEL_KINDS = ('deposit_bonus', 'balance', 'gift', 'wager_gift')
+WHEEL_IMAGE_TYPES = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg'}
+WHEEL_MAX_IMAGE = 3 * 1024 * 1024
+
+
+def wheel_settings():
+    data = read_document('wheel_settings') or {}
+    return dict(public=bool(data.get('public', False)),
+                channel=str(data.get('channel') or '')[:64])
+
+
+def wheel_available_for(user_id):
+    return int(user_id) in ADMIN_IDS or wheel_settings()['public']
+
+
+def wheel_access_required(fn):
+    @wraps(fn)
+    def decorated(*args, **kwargs):
+        if not wheel_available_for(session.get('uid') or 0):
+            return error('Колесо пока доступно только администраторам.', 403)
+        return fn(*args, **kwargs)
+    return decorated
+
+
+def wheel_image_url(row):
+    if row['image_id']:
+        return '/api/wheel/image/' + str(row['image_id'])
+    return str(row['image_url'] or '')
+
+
+def wheel_prize_public(row):
+    kind = row['kind']
+    return dict(id=row['id'], kind=kind, title=row['title'] or '', image_url=wheel_image_url(row),
+                percent=float(row['percent'] or 0), amount=int(row['amount'] or 0) / 100,
+                gift_name=row['gift_name'] or '', gift_price=int(row['gift_price'] or 0) / 100,
+                wager_multiplier=float(row['wager_multiplier'] or 0),
+                min_deposit=int(row['min_deposit'] or 0) / 100)
+
+
+def wheel_prize_admin(row, total_weight):
+    item = wheel_prize_public(row)
+    weight = float(row['weight'] or 0)
+    item.update(weight=weight, active=bool(row['active']),
+                chance=(weight / total_weight * 100 if total_weight > 0 and row['active'] else 0),
+                gift_id=row['gift_id'] or '', gift_expires_days=int(row['gift_expires_days'] or 0),
+                promo_days=int(row['promo_days'] or 0))
+    return item
+
+
+def wheel_active_prizes(db):
+    return db.execute('SELECT * FROM wheel_prizes WHERE active=1 ORDER BY sort_order, id').fetchall()
+
+
+def seed_wheel_prizes():
+    """Default prizes (only when the table is empty). Rendered as CSS tickets until an image is uploaded."""
+    with connect() as db:
+        if db.execute('SELECT 1 FROM wheel_prizes LIMIT 1').fetchone():
+            return
+        order = 0
+        def add(kind, title, weight, **kw):
+            nonlocal order
+            order += 1
+            db.execute('''INSERT INTO wheel_prizes(kind,title,weight,amount,percent,min_deposit,promo_days,sort_order)
+                          VALUES(?,?,?,?,?,?,?,?)''',
+                       (kind, title, weight, kw.get('amount', 0), kw.get('percent', 0), 0, kw.get('promo_days', 7), order))
+        for pct, weight in ((25, 30), (35, 22), (40, 16), (45, 11), (50, 8), (100, 2)):
+            add('deposit_bonus', f'{pct}% к пополнению', weight, percent=pct)
+        for ton, weight in ((1, 4), (3, 2.5), (5, 1.5), (7, 1), (10, 0.6), (15, 0.35), (25, 0.2), (50, 0.1), (100, 0.04), (250, 0.01), (500, 0.005)):
+            add('balance', f'{ton} TON на баланс', weight, amount=ton * 100)
+
+
+def wheel_pick(prizes):
+    total = sum(max(0.0, float(p['weight'] or 0)) for p in prizes)
+    if total <= 0:
+        return None
+    roll = secrets.SystemRandom().uniform(0, total)
+    acc = 0.0
+    for p in prizes:
+        acc += max(0.0, float(p['weight'] or 0))
+        if roll <= acc:
+            return p
+    return prizes[-1]
+
+
+def wheel_deliver(db, uid, prize, code, spin_ref):
+    """Give the prize to the user. Returns the reward dict stored with the spin."""
+    kind = prize['kind']
+    title = prize['title'] or ''
+    if kind == 'balance':
+        amount = int(prize['amount'] or 0)
+        credit_promo_balance(db, uid, amount, 'main')
+        record_transaction(db, uid, 'promo_balance', amount, 'wheel', spin_ref, f'Колесо · {amount/100:g} TON')
+        return dict(type='balance', amount=amount / 100)
+    if kind in ('gift', 'wager_gift'):
+        price = int(prize['gift_price'] or 0)
+        name = (prize['gift_name'] or title or 'Подарок')[:140]
+        image = wheel_image_url(prize)
+        gift_id = prize['gift_id'] or ('wheel:%s' % prize['id'])
+        if kind == 'gift':
+            bo, br, bp = bonus_inventory_clause('main', price)
+            cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'promo',?,?,?)",
+                             (uid, gift_id, name, image, price, bo, br, bp))
+            item_id = cur.lastrowid
+            record_transaction(db, uid, 'promo_gift', 0, 'wheel', spin_ref, name)
+            return dict(type='gift', gift=dict(id=item_id, name=name, image_url=image, price_ton=price / 100))
+        multiplier = max(1.0, float(prize['wager_multiplier'] or 1))
+        target = max(1, round(price * multiplier))
+        expires_at = promo_gift_expiry(int(prize['gift_expires_days'] or 0))
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                          promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                          VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,?,?,?,?,?)""",
+                         (uid, gift_id, name, image, price, multiplier, target, code, expires_at,
+                          *bonus_inventory_clause('main', price)))
+        item_id = cur.lastrowid
+        record_transaction(db, uid, 'promo_wager_gift', 0, 'wheel', spin_ref, f'{name} · X{multiplier:g}')
+        return dict(type='wager_gift', gift=dict(id=item_id, name=name, image_url=image, price_ton=price / 100,
+                                                 wager_multiplier=multiplier, wager_target=target / 100, expires_at=expires_at))
+    if kind == 'deposit_bonus':
+        percent = float(prize['percent'] or 0)
+        min_deposit = int(prize['min_deposit'] or 0)
+        days = int(prize['promo_days'] or 0)
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None
+        personal = unique_promo_code(db, 'WHL')
+        db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                   (personal, 'deposit_bonus', 0, '', '', '', 0, 0.0, 1, uid, percent, 0, min_deposit, '{}',
+                    uid, 'Колесо', '', expires_at, 0, 0, 0, 'main'))
+        return dict(type='deposit_bonus', code=personal, bonus_percent=percent, min_deposit=min_deposit / 100, expires_at=expires_at)
+    raise ValueError('bad prize kind')
+
+
+@app.get('/api/wheel')
+@login_required
+@wheel_access_required
+def wheel_state():
+    with connect() as db:
+        prizes = [wheel_prize_public(p) for p in wheel_active_prizes(db)]
+    cfg = wheel_settings()
+    return jsonify(ok=True, prizes=prizes, channel=cfg['channel'])
+
+
+@app.get('/api/wheel/image/<image_id>')
+def wheel_image(image_id):
+    import base64
+    from flask import Response
+    if not re.fullmatch(r'[0-9a-f]{8,40}', str(image_id)):
+        return error('Не найдено.', 404)
+    with connect() as db:
+        row = db.execute('SELECT mime,data FROM wheel_images WHERE id=?', (image_id,)).fetchone()
+    if not row:
+        return error('Не найдено.', 404)
+    resp = Response(base64.b64decode(row['data']), mimetype=row['mime'])
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    if row['mime'] == 'image/svg+xml':
+        resp.headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'"
+    return resp
+
+
+@app.post('/api/wheel/spin')
+@login_required
+@wheel_access_required
+def wheel_spin():
+    code = str((request.get_json(silent=True) or {}).get('code') or '').strip().upper()
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Проверьте промокод.')
+    uid = int(session['uid'])
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        promo = db.execute('SELECT * FROM promo_codes WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
+        if not promo or not promo['active'] or promo['reward_type'] != 'wheel':
+            return error('Промокод для колеса не найден или отключён.', 404)
+        if int(promo['assigned_user_id'] or 0) not in (0, uid):
+            return error('Этот промокод предназначен другому пользователю.', 403)
+        if promo_is_expired(promo):
+            return error('Срок действия промокода истёк.', 409)
+        if db.execute('SELECT 1 FROM promo_redemptions WHERE code=? AND user_id=?', (code, uid)).fetchone():
+            return error('Вы уже активировали этот промокод.', 409)
+        if promo['max_uses'] > 0 and promo['uses_count'] >= promo['max_uses']:
+            return error('Лимит активаций этого промокода исчерпан.', 409)
+        need = int(promo['activation_min_deposit'] or 0)
+        if need and confirmed_deposit_total(db, uid) < need:
+            return error(f'Для активации нужен подтверждённый депозит от {need/100:.2f} TON.', 409)
+        prizes = wheel_active_prizes(db)
+        prize = wheel_pick(prizes)
+        if not prize:
+            return error('Призы колеса ещё не настроены.', 409)
+        cur = db.execute('INSERT INTO wheel_spins(user_id,code,prize_id,prize_kind,prize_title,reward_json) VALUES(?,?,?,?,?,?)',
+                         (uid, code, prize['id'], prize['kind'], prize['title'] or '', '{}'))
+        spin_id = cur.lastrowid
+        reward = wheel_deliver(db, uid, prize, code, str(spin_id))
+        db.execute('UPDATE wheel_spins SET reward_json=? WHERE id=?', (json.dumps(reward, ensure_ascii=False), spin_id))
+        db.execute('INSERT INTO promo_redemptions(code,user_id,reward_type,amount,inventory_id) VALUES(?,?,?,?,?)',
+                   (code, uid, 'wheel', 0, (reward.get('gift') or {}).get('id')))
+        db.execute('UPDATE promo_codes SET uses_count=uses_count+1 WHERE code=?', (code,))
+        log_event(db, uid, 'wheel_spin', code=code, prize_id=prize['id'], reward=reward)
+        db.commit()
+        return jsonify(ok=True, prize=wheel_prize_public(prize), reward=reward, user=profile())
+    finally:
+        db.close()
+
+
+@app.get('/api/wheel/mine')
+@login_required
+@wheel_access_required
+def wheel_mine():
+    uid = int(session['uid'])
+    items = []
+    with connect() as db:
+        rows = db.execute('SELECT * FROM wheel_spins WHERE user_id=? ORDER BY id DESC LIMIT 100', (uid,)).fetchall()
+        for row in rows:
+            try:
+                reward = json.loads(row['reward_json'] or '{}')
+            except (ValueError, TypeError):
+                reward = {}
+            prize = db.execute('SELECT * FROM wheel_prizes WHERE id=?', (row['prize_id'],)).fetchone()
+            item = dict(id=row['id'], kind=row['prize_kind'], title=row['prize_title'], created_at=row['created_at'],
+                        prize=wheel_prize_public(prize) if prize else None, reward=reward, status='received')
+            if row['prize_kind'] == 'deposit_bonus' and reward.get('code'):
+                promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (reward['code'],)).fetchone()
+                redemption = db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?', (reward['code'], uid)).fetchone()
+                if promo:
+                    view = promo_view(promo, redemption, True)
+                    item['status'] = view['status']
+                item['code'] = reward['code']
+            items.append(item)
+    return jsonify(ok=True, items=items)
+
+
+def wheel_clean_prize(data, existing=None):
+    """Validate admin input; returns a dict of column values."""
+    def num(name, default=0.0):
+        raw = data.get(name, default)
+        if raw in (None, ''):
+            return float(default)
+        return float(str(raw).replace(',', '.'))
+    kind = str(data.get('kind') or (existing['kind'] if existing else '')).strip()
+    if kind not in WHEEL_KINDS:
+        raise ValueError('Выберите тип приза.')
+    try:
+        weight = num('weight', existing['weight'] if existing else 1)
+        percent = num('percent', existing['percent'] if existing else 0)
+        amount = parse_amount(data.get('amount') if data.get('amount') not in (None, '') else (int(existing['amount'] or 0) / 100 if existing else 0))
+        min_deposit = parse_amount(data.get('min_deposit') if data.get('min_deposit') not in (None, '') else (int(existing['min_deposit'] or 0) / 100 if existing else 0))
+        gift_price = parse_amount(data.get('gift_price') if data.get('gift_price') not in (None, '') else (int(existing['gift_price'] or 0) / 100 if existing else 0))
+        wager = num('wager_multiplier', existing['wager_multiplier'] if existing else 0)
+        gift_days = int(num('gift_expires_days', existing['gift_expires_days'] if existing else 0))
+        promo_days = int(num('promo_days', existing['promo_days'] if existing else 7))
+    except (ValueError, TypeError, InvalidOperation):
+        raise ValueError('Проверьте числовые поля приза.')
+    if not math.isfinite(weight) or not 0 <= weight <= 1000000:
+        raise ValueError('Шанс (вес): от 0 до 1 000 000.')
+    gift_id = str(data.get('gift_id') or (existing['gift_id'] if existing else '') or '').strip()
+    gift_name = str(data.get('gift_name') or (existing['gift_name'] if existing else '') or '').strip()[:140]
+    title = str(data.get('title') if data.get('title') is not None else (existing['title'] if existing else '')).strip()[:140]
+    if kind == 'deposit_bonus':
+        if not math.isfinite(percent) or not 1 <= percent <= 1000:
+            raise ValueError('Бонус к пополнению: от 1% до 1000%.')
+        if not 0 <= min_deposit <= 100000000:
+            raise ValueError('Минимальное пополнение указано неверно.')
+        if not title:
+            title = f'{percent:g}% к пополнению'
+    elif kind == 'balance':
+        if not 1 <= amount <= 100000000:
+            raise ValueError('Сумма TON: от 0.01 до 1 000 000.')
+        if not title:
+            title = f'{amount/100:g} TON на баланс'
+    else:
+        if gift_id:
+            try:
+                gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+            except (OSError, ValueError, json.JSONDecodeError):
+                gift = None
+            if not gift:
+                raise ValueError('Подарок с таким ID не найден в каталоге Portal.')
+            gift_name = gift_name or str(gift.get('name') or 'Подарок')[:140]
+            if gift_price <= 0:
+                try:
+                    gift_price = ton_to_cents(gift.get('price_ton'))
+                except (ValueError, TypeError, InvalidOperation):
+                    gift_price = 0
+        if gift_price <= 0:
+            raise ValueError('Укажите цену подарка в TON.')
+        if kind == 'wager_gift' and (not math.isfinite(wager) or not 1 <= wager <= 1000):
+            raise ValueError('X отыгрыша: от 1 до 1000.')
+        if not 0 <= gift_days <= 3650:
+            raise ValueError('Срок жизни подарка: от 0 до 3650 дней.')
+        if not gift_name:
+            gift_name = title or 'Подарок'
+        if not title:
+            title = gift_name
+    if not 0 <= promo_days <= 3650:
+        raise ValueError('Срок жизни промокода: от 0 до 3650 дней.')
+    return dict(kind=kind, title=title, weight=weight, amount=amount, percent=percent, min_deposit=min_deposit,
+                gift_id=gift_id, gift_name=gift_name, gift_price=gift_price,
+                wager_multiplier=wager if kind == 'wager_gift' else 0.0,
+                gift_expires_days=gift_days, promo_days=promo_days)
+
+
+def wheel_request_data():
+    """Accepts JSON or multipart/form-data (with an optional 'image' file)."""
+    if request.files or request.mimetype == 'multipart/form-data':
+        return request.form.to_dict(), request.files.get('image')
+    return (request.get_json(silent=True) or {}), None
+
+
+def wheel_store_image(db, file):
+    import base64
+    raw = file.read(WHEEL_MAX_IMAGE + 1)
+    if not raw:
+        raise ValueError('Файл изображения пустой.')
+    if len(raw) > WHEEL_MAX_IMAGE:
+        raise ValueError('Изображение больше 3 МБ.')
+    mime = (file.mimetype or '').lower()
+    if raw[:8] == b'\x89PNG\r\n\x1a\n':
+        mime = 'image/png'
+    elif raw[:3] == b'\xff\xd8\xff':
+        mime = 'image/jpeg'
+    elif raw[:4] == b'RIFF' and raw[8:12] == b'WEBP':
+        mime = 'image/webp'
+    elif raw[:6] in (b'GIF87a', b'GIF89a'):
+        mime = 'image/gif'
+    elif b'<svg' in raw[:2000].lower():
+        mime = 'image/svg+xml'
+    if mime not in WHEEL_IMAGE_TYPES:
+        raise ValueError('Допустимы PNG, JPG, WEBP, GIF или SVG.')
+    image_id = secrets.token_hex(12)
+    db.execute('INSERT INTO wheel_images(id,mime,data) VALUES(?,?,?)', (image_id, mime, base64.b64encode(raw).decode('ascii')))
+    return image_id
+
+
+@app.get('/api/admin/wheel')
+@admin_required
+def admin_wheel():
+    with connect() as db:
+        rows = db.execute('SELECT * FROM wheel_prizes ORDER BY sort_order, id').fetchall()
+        total = sum(float(r['weight'] or 0) for r in rows if r['active'])
+        spins = db.execute('SELECT COUNT(*) AS n FROM wheel_spins').fetchone()['n']
+        codes = db.execute("SELECT code,max_uses,uses_count,active,expires_at,created_at FROM promo_codes WHERE reward_type='wheel' ORDER BY created_at DESC LIMIT 30").fetchall()
+    return jsonify(ok=True, prizes=[wheel_prize_admin(r, total) for r in rows], total_weight=total, spins=int(spins or 0),
+                   settings=wheel_settings(), codes=[dict(code=c['code'], max_uses=int(c['max_uses'] or 0), uses=int(c['uses_count'] or 0),
+                                                         active=bool(c['active']), expires_at=c['expires_at'], created_at=c['created_at']) for c in codes])
+
+
+@app.post('/api/admin/wheel/prizes')
+@admin_required
+def admin_wheel_create_prize():
+    data, file = wheel_request_data()
+    try:
+        values = wheel_clean_prize(data)
+        with connect() as db:
+            image_id = wheel_store_image(db, file) if file else ''
+            image_url = '' if image_id else str(data.get('image_url') or '').strip()
+            if image_url and not (image_url.startswith('https://') or image_url.startswith('/static/')):
+                raise ValueError('Ссылка на изображение должна начинаться с https:// или /static/.')
+            order = db.execute('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM wheel_prizes').fetchone()['n']
+            db.execute('''INSERT INTO wheel_prizes(kind,title,image_id,image_url,weight,amount,percent,min_deposit,gift_id,gift_name,gift_price,
+                          wager_multiplier,gift_expires_days,promo_days,active,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)''',
+                       (values['kind'], values['title'], image_id, image_url, values['weight'], values['amount'], values['percent'],
+                        values['min_deposit'], values['gift_id'], values['gift_name'], values['gift_price'], values['wager_multiplier'],
+                        values['gift_expires_days'], values['promo_days'], order))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'wheel_prize_create', values['title'][:200]))
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/wheel/prizes/<int:prize_id>')
+@admin_required
+def admin_wheel_update_prize(prize_id):
+    data, file = wheel_request_data()
+    try:
+        with connect() as db:
+            row = db.execute('SELECT * FROM wheel_prizes WHERE id=?', (prize_id,)).fetchone()
+            if not row:
+                return error('Приз не найден.', 404)
+            values = wheel_clean_prize(data, row)
+            image_id, image_url = row['image_id'], row['image_url']
+            if file:
+                image_id, image_url = wheel_store_image(db, file), ''
+            elif data.get('remove_image') in (True, 'true', '1', 1):
+                image_id, image_url = '', ''
+            elif data.get('image_url') not in (None, ''):
+                image_url = str(data.get('image_url')).strip()
+                if not (image_url.startswith('https://') or image_url.startswith('/static/')):
+                    raise ValueError('Ссылка на изображение должна начинаться с https:// или /static/.')
+                image_id = ''
+            active = row['active']
+            if 'active' in data:
+                active = 1 if data.get('active') in (True, 'true', '1', 1) else 0
+            db.execute('''UPDATE wheel_prizes SET kind=?,title=?,image_id=?,image_url=?,weight=?,amount=?,percent=?,min_deposit=?,gift_id=?,
+                          gift_name=?,gift_price=?,wager_multiplier=?,gift_expires_days=?,promo_days=?,active=? WHERE id=?''',
+                       (values['kind'], values['title'], image_id or '', image_url or '', values['weight'], values['amount'], values['percent'],
+                        values['min_deposit'], values['gift_id'], values['gift_name'], values['gift_price'], values['wager_multiplier'],
+                        values['gift_expires_days'], values['promo_days'], active, prize_id))
+            if row['image_id'] and row['image_id'] != image_id:
+                db.execute('DELETE FROM wheel_images WHERE id=?', (row['image_id'],))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'wheel_prize_update', f'{prize_id}:{values["title"][:150]}'))
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/wheel/prizes/<int:prize_id>/delete')
+@admin_required
+def admin_wheel_delete_prize(prize_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM wheel_prizes WHERE id=?', (prize_id,)).fetchone()
+        if not row:
+            return error('Приз не найден.', 404)
+        # Past spins keep their title; the prize row can go.
+        db.execute('DELETE FROM wheel_prizes WHERE id=?', (prize_id,))
+        if row['image_id']:
+            db.execute('DELETE FROM wheel_images WHERE id=?', (row['image_id'],))
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'wheel_prize_delete', f'{prize_id}:{(row["title"] or "")[:150]}'))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/wheel/settings')
+@admin_required
+def admin_wheel_settings():
+    data = request.get_json(silent=True) or {}
+    current = wheel_settings()
+    if 'public' in data:
+        current['public'] = bool(data.get('public'))
+    if 'channel' in data:
+        channel = str(data.get('channel') or '').strip().lstrip('@')
+        if channel and not re.fullmatch(r'[A-Za-z0-9_]{3,40}', channel):
+            return error('Имя канала: латиница, цифры и _ (например case_app).')
+        current['channel'] = channel
+    save_document('wheel_settings', current)
+    return jsonify(ok=True, settings=current)
+
+
+@app.post('/api/admin/wheel/codes')
+@admin_required
+def admin_wheel_create_code():
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code') or '').strip().upper() or ('WHEEL-' + secrets.token_hex(3).upper())
+    if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+        return error('Код: 3–32 символа, только A-Z, 0-9, _ и -.')
+    try:
+        max_uses = int(data.get('max_uses', 1))
+        days = int(data.get('expires_in_days') or 0)
+    except (TypeError, ValueError):
+        return error('Проверьте лимит и срок действия.')
+    if not 0 <= max_uses <= 1000000:
+        return error('Лимит активаций: от 0 до 1 000 000. 0 — без лимита.')
+    if not 0 <= days <= 3650:
+        return error('Срок действия: от 0 до 3650 дней.')
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat() if days else None
+    try:
+        with connect() as db:
+            db.execute('INSERT INTO promo_codes(code,reward_type,amount,gift_id,gift_name,gift_image_url,gift_price,wager_multiplier,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,reward_json,assigned_user_id,source_label,description,expires_at,gift_expires_days,activation_min_deposit,author_user_id,balance_target) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       (code, 'wheel', 0, '', '', '', 0, 0.0, max_uses, session['uid'], 0, 0, 0, '{}', 0,
+                        'Колесо', 'Код для прокрутки колеса.', expires_at, 0, 0, 0, 'main'))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'wheel_code_create', code))
+    except Exception as exc:
+        if 'unique' in str(exc).lower() or 'duplicate' in str(exc).lower():
+            return error('Такой промокод уже существует.', 409)
+        raise
+    return jsonify(ok=True, code=code)
+
+
+try:
+    seed_wheel_prizes()
+except Exception as _wheel_seed_exc:  # never block startup on seed
+    print('wheel seed skipped:', _wheel_seed_exc)
 
 
 

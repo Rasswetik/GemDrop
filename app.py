@@ -14996,6 +14996,7 @@ def youtube_public_feed(channel_id):
         description = ''
         thumbnail_url = ''
         views = 0
+        likes = None
         if group is not None:
             description = str(group.findtext('media:description', default='', namespaces=ns) or '')
             thumbnail = group.find('media:thumbnail', ns)
@@ -15003,6 +15004,12 @@ def youtube_public_feed(channel_id):
                 thumbnail_url = str(thumbnail.attrib.get('url') or '')
             community = group.find('media:community', ns)
             statistics = community.find('media:statistics', ns) if community is not None else None
+            rating = community.find('media:starRating', ns) if community is not None else None
+            if rating is not None:
+                try:
+                    likes = max(0, int(rating.attrib.get('count') or 0))
+                except (TypeError, ValueError):
+                    likes = None
             if statistics is not None:
                 try:
                     views = max(0, int(statistics.attrib.get('views') or 0))
@@ -15018,7 +15025,7 @@ def youtube_public_feed(channel_id):
             title=title or 'Видео',
             thumbnail_url=safe_image(thumbnail_url) or ('https://i.ytimg.com/vi/' + video_id + '/mqdefault.jpg'),
             published_at=str(entry.findtext('atom:published', default='', namespaces=ns) or ''),
-            views=views,
+            views=views, likes=likes,
             gemdrop=('gemdrop' in title.casefold() or '#gemdrop' in description.casefold()),
             url=video_url or ('https://www.youtube.com/watch?v=' + video_id),
         ))
@@ -15153,10 +15160,11 @@ def youtube_api_gemdrop_videos(channel):
     details = youtube_api_get('videos', {
         'part': 'statistics', 'id': ','.join(x['video_id'] for x in matches)
     })
-    views = {str(x.get('id') or ''): int((x.get('statistics') or {}).get('viewCount') or 0)
-             for x in details.get('items') or []}
+    stats = {str(x.get('id') or ''): (x.get('statistics') or {}) for x in details.get('items') or []}
     for item in matches:
-        item['views'] = views.get(item['video_id'], 0)
+        st = stats.get(item['video_id'], {})
+        item['views'] = int(st.get('viewCount') or 0)
+        item['likes'] = int(st['likeCount']) if st.get('likeCount') is not None else None
     return matches
 
 

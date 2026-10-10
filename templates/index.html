@@ -11001,7 +11001,7 @@ html.hw body.studio #upgradePage .ug-pick-label{color:#ffb23e!important}
 .hw-halo{transform-box:fill-box;transform-origin:center;animation:hwHalo 6s ease-in-out infinite}
 @keyframes hwHalo{0%{transform:scale(1);opacity:.85}22%{transform:scale(1.04);opacity:.97}45%{transform:scale(1.06);opacity:1}68%{transform:scale(1.02);opacity:.9}86%{transform:scale(1.005);opacity:.86}100%{transform:scale(1);opacity:.85}}
 
-/* 17. Wheel rotation (Limbo ring, Arena wheel) — 5 frames, 24s. */
+/* 17. Wheel rotation (Limbo ring) — 5 frames, 24s. */
 .hw-spin{transform-box:fill-box;transform-origin:center;animation:hwSpin 24s linear infinite}
 @keyframes hwSpin{0%{transform:rotate(0)}25%{transform:rotate(90deg)}50%{transform:rotate(180deg)}75%{transform:rotate(270deg)}100%{transform:rotate(360deg)}}
 .hw-spin.slow{animation-duration:46s}
@@ -11096,6 +11096,22 @@ html.hw body.studio #upgradePage .ug-pick-label{color:#ffb23e!important}
  65%{transform:translate(30px,-72vh) rotate(4deg);opacity:.2}
  85%{transform:translate(-8px,-98vh) rotate(-2deg);opacity:.16}
  100%{transform:translate(12px,-122vh) rotate(0deg);opacity:0}}
+
+/* 27. Arena puck — 9 frames, 10s: bounces between the zones, squashes a little on every wall hit. */
+.hw-puck{animation:hwPuck 10s linear infinite}
+@keyframes hwPuck{
+ 0%{transform:translate(188px,86px)}
+ 12%{transform:translate(246px,40px)}
+ 24%{transform:translate(296px,92px)}
+ 38%{transform:translate(252px,146px)}
+ 52%{transform:translate(176px,128px)}
+ 66%{transform:translate(70px,104px)}
+ 80%{transform:translate(112px,34px)}
+ 92%{transform:translate(168px,60px)}
+ 100%{transform:translate(188px,86px)}}
+/* 28. Arena zone breathing — 4 frames, 6s: the coloured zones glow in turn. */
+.hw-zone{animation:hwZone 6s ease-in-out infinite;animation-delay:var(--d,0s)}
+@keyframes hwZone{0%,100%{filter:brightness(1)}30%{filter:brightness(1.18)}55%{filter:brightness(1.05)}80%{filter:brightness(.94)}}
 
 @keyframes hwRkCard{0%{transform:translate(24px,150px) rotate(-1deg) scale(.7);opacity:0}4.0%{transform:translate(24.0px,150.0px) rotate(-0.2deg) scale(0.78);opacity:1}9.5%{transform:translate(31.8px,149.9px) rotate(-1.6deg) scale(0.78);opacity:1}15.0%{transform:translate(45.2px,149.2px) rotate(-4.3deg) scale(0.79);opacity:1}20.5%{transform:translate(62.1px,147.4px) rotate(-7.6deg) scale(0.80);opacity:1}26.0%{transform:translate(81.7px,144.2px) rotate(-11.3deg) scale(0.81);opacity:1}31.5%{transform:translate(103.2px,139.1px) rotate(-15.4deg) scale(0.83);opacity:1}37.0%{transform:translate(126.0px,131.8px) rotate(-20.0deg) scale(0.84);opacity:1}42.5%{transform:translate(149.4px,122.1px) rotate(-25.1deg) scale(0.86);opacity:1}48.0%{transform:translate(172.8px,109.7px) rotate(-30.9deg) scale(0.88);opacity:1}53.5%{transform:translate(195.1px,94.5px) rotate(-37.6deg) scale(0.89);opacity:1}59.0%{transform:translate(215.5px,76.5px) rotate(-44.7deg) scale(0.91);opacity:1}64.5%{transform:translate(233.7px,59.6px) rotate(-40.7deg) scale(0.93);opacity:1}70.0%{transform:translate(250.1px,46.6px) rotate(-35.8deg) scale(0.95);opacity:1}75.5%{transform:translate(264.8px,37.0px) rotate(-30.4deg) scale(0.97);opacity:1}81.0%{transform:translate(278.3px,29.8px) rotate(-25.7deg) scale(0.99);opacity:1}86.5%{transform:translate(291.2px,23.9px) rotate(-23.9deg) scale(1.02);opacity:1}92.0%{transform:translate(304.0px,18.0px) rotate(-26.5deg) scale(1.04);opacity:1}96%{transform:translate(314.0px,12.0px) rotate(-30deg) scale(1.06);opacity:0}100%{transform:translate(24px,150px) rotate(-1deg) scale(.7);opacity:0}}
 
@@ -11543,9 +11559,16 @@ ${U('hwCandle',54,118,14,36)}${U('hwCandy',256,126,18,22)}${bat(262,40,32,.6)}${
 limbo:()=>`${sky()}<circle cx="160" cy="98" r="58" fill="none" stroke="#3a1250" stroke-width="18"/><circle class="hw-spin" cx="160" cy="98" r="58" fill="none" stroke="#ff8a1f" stroke-width="18" stroke-dasharray="130 240" stroke-linecap="round"/><circle cx="160" cy="98" r="48" fill="#1b0a30" opacity=".7"/>
 <g class="hw-ptr"><path d="M148 30h24l-12 20z" fill="#ffd873" stroke="${OUT}" stroke-width="2" stroke-linejoin="round"/></g>
 <g class="hw-bob">${U('hwGhost',134,64,52,60)}</g>${bat(30,26,32,.4)}${bat(250,70,26,1.4)}${ground}`,
-arena:()=>`${sky()}<g class="hw-spin slow"><path d="M160 98V34A64 64 0 0 1 224 98Z" fill="#ff8a1f" stroke="${OUT}" stroke-width="2"/><path d="M160 98H224A64 64 0 0 1 160 162Z" fill="#7a2a7a" stroke="${OUT}" stroke-width="2"/><path d="M160 98V162A64 64 0 0 1 96 98Z" fill="#8cb82e" stroke="${OUT}" stroke-width="2"/><path d="M160 98H96A64 64 0 0 1 160 34Z" fill="#d6361f" stroke="${OUT}" stroke-width="2"/></g>
-<circle cx="160" cy="98" r="22" fill="#1b0a30" stroke="#ffb23e" stroke-width="3"/>${U('hwPump',144,84,32,28,'class="hw-bob"')}
-<g class="hw-ptr"><path d="M150 24h20l-10 18z" fill="#f4e8cf" stroke="${OUT}" stroke-width="2" stroke-linejoin="round"/></g>${bat(22,24,36,.2)}${bat(250,58,30,.9)}${ground}`,
+arena:()=>{const C='188 86',Z=(pts,col,i)=>`<polygon class="hw-zone" style="--d:${-i*1.1}s" points="${pts}" fill="${col}" stroke="${OUT}" stroke-width="2.200" stroke-linejoin="round"/>`;
+ const av=(x,y,id,w,h,i)=>`<g class="hw-bob" style="--d:${-i*.9}s"><circle cx="${x}" cy="${y+2}" r="17" fill="#000" opacity=".28"/><circle cx="${x}" cy="${y}" r="16" fill="#1b0a30" stroke="#ffe9c0" stroke-width="2.200"/>${U(id,x-w/2,y-h/2+1,w,h)}</g>`;
+ return `<rect width="320" height="180" fill="#1a0a24"/>
+${Z('188,86 0,12 182,12','#ff8a1f',0)}${Z('188,86 182,12 320,12 320,57','#7a2a7a',1)}${Z('188,86 320,57 320,168 260,168','#7fa826',2)}${Z('188,86 260,168 97,168','#d6361f',3)}${Z('188,86 97,168 0,168 0,12','#b9591a',4)}
+<g fill="none" stroke="#ffe9c0" stroke-opacity=".13" stroke-width="1"><path d="M0 44H320M0 78H320M0 112H320M0 146H320M46 12V168M92 12V168M138 12V168M184 12V168M230 12V168M276 12V168"/></g>
+<circle cx="188" cy="86" r="24" fill="#1b0a30" fill-opacity=".62" stroke="#ffe9c0" stroke-opacity=".8" stroke-width="2.200" stroke-dasharray="5 6"/>
+${av(104,56,'hwGhost',20,23,0)}${av(262,52,'hwPump',24,21,1)}${av(270,122,'hwSkull',19,21,2)}${av(130,134,'hwGemBare',17,22,3)}
+<g class="hw-puck"><ellipse cx="0" cy="11" rx="11" ry="3.600" fill="#000" opacity=".38"/><circle r="17" fill="url(#hwGlowO)"/><circle r="8.500" fill="#fff4dc" stroke="#7a2205" stroke-width="2"/><path d="M-5 0H5M0-5V5" stroke="#cf4c0e" stroke-width="1.600" stroke-linecap="round"/></g>
+${bat(18,16,34,.3)}${bat(262,72,26,2.6)}
+<rect x="1" y="13" width="318" height="154" fill="none" stroke="#ffe9c0" stroke-opacity=".22" stroke-width="2"/>`},
 hilo:()=>`${sky()}<g transform="rotate(-9 108 96)"><rect x="68" y="42" width="80" height="104" rx="11" fill="#fff4dc" stroke="${OUT}" stroke-width="2.400"/>${U('hwPump',84,68,48,43)}<path d="M80 60l5-8 5 8z" fill="#e2560a"/></g>
 <g transform="rotate(8 212 96)"><rect x="172" y="42" width="80" height="104" rx="11" fill="#2a1236" stroke="#ff7a1a" stroke-width="2.400"/>${U('hwSkull',190,66,44,48)}<path d="M182 60l5-8 5 8z" fill="#ffb23e"/></g>
 <g fill="none" stroke="#ffd873" stroke-width="3.400" stroke-linecap="round" stroke-linejoin="round" class="hw-bob"><path d="M160 62l-10 12h20zM160 132l-10-12h20z"/></g>${bat(262,16,30,.2)}${ground}`,

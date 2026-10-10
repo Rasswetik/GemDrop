@@ -9888,10 +9888,22 @@ function floatText(x,y,txt,col){
  anim(t,[{transform:`translate(${x}px,${y}px) scale(.6)`,opacity:0},{transform:`translate(${x}px,${y-18}px) scale(1.15)`,opacity:1,offset:.25},{transform:`translate(${x}px,${y-50}px) scale(1)`,opacity:0}],{duration:1500,easing:'ease-out'}).then(()=>t.remove());
 }
 async function catRun(k,y0,y1,ms,ease,flip){
- let c=st.cats[k];st.catBusy[k]=true;
- [c.rot,c.sq].forEach(e=>{try{e.getAnimations().forEach(a=>a.cancel())}catch(_){}});
- c.rot.style.transform=flip?'rotate(180deg)':'rotate(0deg)';
- c.pos.style.display='';c.cat.classList.add('run');
+ let c=st.cats[k],wasBusy=!!st.catBusy[k]&&c.pos.style.display!=='none',cur=null;
+ if(wasBusy){try{let m=new DOMMatrixReadOnly(getComputedStyle(c.pos).transform);cur=m.f}catch(_){cur=null}}
+ st.catBusy[k]=true;
+ [c.pos,c.rot,c.sq].forEach(e=>{try{e.getAnimations().forEach(a=>a.cancel())}catch(_){}});
+ let want=flip?'rotate(180deg)':'rotate(0deg)',had=c.rot.style.transform||'rotate(0deg)';
+ // a cat that is already on the lane keeps running from where it is (no teleport) and turns around smoothly
+ if(cur!==null&&cur>-85&&cur<385){
+  ms=Math.max(260,ms*Math.abs(y1-cur)/Math.max(1,Math.abs(y1-y0)));y0=cur;
+  commit(c.pos,`translate(${cx(k)}px,${cur}px)`);
+  c.pos.style.display='';c.cat.classList.add('run');
+  if(had!==want){await anim(c.rot,[{transform:had},{transform:want}],{duration:240,easing:'ease-in-out'})}
+  c.rot.style.transform=want;
+ }else{
+  c.rot.style.transform=want;
+  c.pos.style.display='';c.cat.classList.add('run');
+ }
  let t0=`translate(${cx(k)}px,${y0}px)`,t1=`translate(${cx(k)}px,${y1}px)`;
  commit(c.pos,t0);
  await anim(c.pos,[{transform:t0},{transform:t1}],{duration:ms,easing:ease||'linear'});
@@ -9972,7 +9984,7 @@ async function playStep(res){
   anim($('rdHam'),[{transform:'translateX(0)'},{transform:'translateX(-2px)'},{transform:'translateX(2px)'},{transform:'translateX(-2px)'},{transform:'translateX(0)'}],{duration:240,iterations:2});
   await run;
   cat.cat.classList.remove('run');
-  await Promise.all([anim(cat.sq,[{transform:'translateY(0) scale(1)'},{transform:'translateY(12px) scale(1.2)',offset:.45},{transform:'translateY(6px) scale(1.1)'}],{duration:340,easing:'ease-out'}),(async()=>{await wait(150);setPose('caught');anim(hop,[{transform:'translateY(0)'},{transform:'translateY(-30px)',offset:.4,easing:'ease-out'},{transform:'translateY(0)',easing:'ease-in'}],{duration:480});puff(cx(k),GY,6)})()]);
+  await Promise.all([anim(cat.sq,[{transform:'translateY(0) scale(1)'},{transform:'translateY(12px) scale(1.2)',offset:.45},{transform:'translateY(6px) scale(1.1)'}],{duration:340,easing:'ease-out'}),(async()=>{await wait(150);setPose('caught');dizzy(cx(k)-18,GY-34);anim(hop,[{transform:'translateY(0)'},{transform:'translateY(-30px)',offset:.4,easing:'ease-out'},{transform:'translateY(0)',easing:'ease-in'}],{duration:480});puff(cx(k),GY,6)})()]);
   try{tgHaptic('error')}catch(e){}
   anim(cat.sq,[{transform:'translateY(6px) scale(1.1)'},{transform:'translateY(10px) scale(1.16)'},{transform:'translateY(5px) scale(1.08)'},{transform:'translateY(10px) scale(1.16)'},{transform:'translateY(6px) scale(1.1)'}],{duration:720});
   await wait(800);
@@ -9980,6 +9992,12 @@ async function playStep(res){
   await wait(500);
  }
  st.stepLane=0;
+}
+function dizzy(x,y){
+ let g=fxAdd(`<g><g class="rd-dz">${[0,1,2].map(i=>{let a=i*2.094;return `<path transform="translate(${(Math.cos(a)*24).toFixed(1)} ${(Math.sin(a)*8).toFixed(1)})" d="M0-6 1.6-1.6 6 0 1.6 1.6 0 6-1.6 1.6-6 0-1.6-1.6Z" fill="#ffe27a" stroke="#b97d12" stroke-width="1"/>`}).join('')}</g></g>`);
+ g.style.transform=`translate(${x}px,${y}px)`;
+ anim(g.firstElementChild,[{transform:'rotate(0deg)'},{transform:'rotate(720deg)'}],{duration:2200,easing:'linear'});
+ anim(g,[{opacity:0,transform:`translate(${x}px,${y+8}px)`},{opacity:1,transform:`translate(${x}px,${y}px)`,offset:.15},{opacity:1,transform:`translate(${x}px,${y}px)`,offset:.8},{opacity:0,transform:`translate(${x}px,${y-6}px)`}],{duration:2200}).then(()=>g.remove());
 }
 function tgHaptic(kind){try{window.tg?.HapticFeedback?.notificationOccurred?.(kind)}catch(e){}}
 async function playBurrow(){
@@ -11936,26 +11954,26 @@ syncWheelNav();
 body #profilePage{max-width:1232px!important;width:100%!important;margin:0 auto!important;display:grid;gap:16px}
 body #profilePage.hidden{display:none!important}
 #profilePage .pf-top{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:20px;align-items:stretch}
-#profilePage .pf-card{position:relative;border:1px solid rgba(120,135,200,.16)!important;border-radius:24px!important;background:linear-gradient(180deg,rgba(24,28,52,.92),rgba(14,16,32,.94))!important;box-shadow:0 18px 40px -22px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.04)!important;padding:22px!important;margin:0!important;min-width:0}
+#profilePage .pf-card{position:relative;border:1px solid rgba(255,255,255,.07)!important;border-radius:20px!important;background:#10132a!important;box-shadow:none!important;padding:22px!important;margin:0!important;min-width:0}
 #profilePage .pf-user{display:flex!important;flex-direction:column;justify-content:center;gap:18px;text-align:left!important;overflow:hidden}
-#profilePage .pf-user::before{content:'';position:absolute;inset:-40% -20% auto -20%;height:70%;background:radial-gradient(60% 60% at 30% 40%,rgba(71,176,245,.22),transparent 70%);pointer-events:none}
+#profilePage .pf-user::before{display:none}
 #profilePage .pf-user-main{position:relative;display:flex;align-items:center;gap:18px}
-#profilePage .pf-user-main #bigAvatar{flex:none;width:92px!important;height:92px!important;margin:0!important;font-size:38px;border:3px solid rgba(71,176,245,.55);box-shadow:0 0 0 4px rgba(71,176,245,.12),0 10px 26px rgba(0,0,0,.45)}
+#profilePage .pf-user-main #bigAvatar{flex:none;width:92px!important;height:92px!important;margin:0!important;font-size:38px;border:2px solid rgba(255,255,255,.12);box-shadow:none}
 #profilePage .pf-user-id{display:grid;gap:7px;min-width:0;justify-items:start}
 #profilePage .pf-user-id h1{margin:0!important;font-size:24px!important;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #profilePage .pf-user-id .handle{margin:0!important;font-size:13px;color:#8d96b8}
 #profilePage .pf-user-id .profile-balance{margin:2px 0 0!important;width:auto!important;min-height:38px;padding:0 14px!important;border-radius:999px!important}
 #profilePage .pf-user .level-progress-button{position:relative;width:100%!important;margin:0!important}
-#profilePage .pf-settings h2{margin:0 0 16px;font-size:18px;font-weight:800}
+#profilePage .pf-settings h2{margin:0 0 16px;font-size:16px;font-weight:700;color:#dfe5fb}
 #profilePage .pf-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:4px 0 10px}
 #profilePage .pf-row-t{display:grid;gap:3px;min-width:0}
 #profilePage .pf-row-t b{font-size:14.5px;font-weight:700;color:#e8ecff}
 #profilePage .pf-row-t small{font-size:12px;color:#7f88ad;line-height:1.35}
 #profilePage .pf-promo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
-#profilePage .pf-promo input{width:100%!important;height:48px;min-width:0;margin:0!important;padding:0 16px;border-radius:14px;border:1px solid rgba(255,255,255,.09);background:#0b0d1b;color:#fff;font-size:15px;font-weight:600;outline:0;text-transform:uppercase;transition:border-color .2s,box-shadow .2s}
+#profilePage .pf-promo input{width:100%!important;height:48px;min-width:0;margin:0!important;padding:0 16px;border-radius:14px;border:1px solid rgba(255,255,255,.09);background:#0b0d1d;color:#e8ecff;font-size:15px;font-weight:500;outline:0;text-transform:uppercase;transition:border-color .2s,box-shadow .2s}
 #profilePage .pf-promo input::placeholder{text-transform:none;color:#6c7597;font-weight:500}
-#profilePage .pf-promo input:focus{border-color:rgba(71,176,245,.55);box-shadow:0 0 0 3px rgba(71,176,245,.12)}
-#profilePage .pf-promo button{height:48px;padding:0 22px;border:0;border-radius:14px;background:linear-gradient(180deg,#3fa6ee,#2a82cf);color:#fff;font-weight:800;font-size:14px;cursor:pointer;transition:transform .15s,filter .2s}
+#profilePage .pf-promo input:focus{border-color:rgba(71,176,245,.4);box-shadow:none}
+#profilePage .pf-promo button{height:48px;padding:0 22px;border:0;border-radius:14px;background:#2b6fa8;color:#eaf3fb;font-weight:700;font-size:14px;cursor:pointer;transition:transform .15s,filter .2s}
 #profilePage .pf-promo button:active{transform:scale(.97)}
 #profilePage .pf-promo button:disabled{opacity:.55}
 #profilePage .pf-promo-err{margin-top:8px;color:#ff8d9d;font-size:12.5px;font-weight:600}
@@ -11977,6 +11995,14 @@ body #profilePage.hidden{display:none!important}
  #profilePage .pf-user-id h1{font-size:21px!important}
 }
 @media(max-width:380px){#profilePage .pf-promo{grid-template-columns:1fr}#profilePage .pf-promo button{width:100%}}
+
+#profilePage .pf-user .profile-balance{background:#171b36!important;border:1px solid rgba(255,255,255,.08)!important;box-shadow:none!important}
+#profilePage .pf-user .profile-balance,#profilePage .pf-user .profile-balance span{font-weight:600!important}
+#profilePage .pf-user .level-progress-button{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+#profilePage .pf-user .level-track{height:6px!important;background:#1b2040!important}
+#profilePage .pf-user .level-track i{background:#4a8fc7!important;box-shadow:none!important}
+#profilePage .pf-actions .profile-logout{background:transparent!important;border-color:rgba(255,255,255,.1)!important;color:#aab2d0!important}
+#profilePage .pf-roles button{background:#141834!important;border:1px solid rgba(255,255,255,.07)!important;color:#cfd6f2!important;box-shadow:none!important}
 </style>
 <style id="card-art-fit-v1">
 #gamesPage .game-card.gc-wide .gc-art-road svg{transform:scale(1.42);transform-origin:50% 0}

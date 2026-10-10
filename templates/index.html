@@ -10917,7 +10917,6 @@ ready(()=>{
  preset('Сутки',()=>Date.now()+864e5);preset('7 дней',()=>Date.now()+7*864e5);
  preset('До 1 ноября',()=>{const n=new Date();let y=n.getMonth()>=10?n.getFullYear()+1:n.getFullYear();return new Date(y,10,1,0,0).getTime()});
  g('hwOff').onclick=()=>{g('hwEnabled').checked=false;save()};
- load().catch(()=>{});
 });
 })();
 </script><style id="game-guides">

@@ -104,6 +104,12 @@ def postgres_pool():
                     'bash render-build.sh (or python -m pip install "psycopg[binary,pool]>=3.2,<4").'
                 ) from exc
             from psycopg.rows import dict_row
+            import logging as _logging
+            _pl = _logging.getLogger('psycopg.pool')       # make pool/connect errors visible in the Render log
+            if not _pl.handlers:
+                _h = _logging.StreamHandler(); _h.setFormatter(_logging.Formatter('[%(asctime)s] POOL %(levelname)s: %(message)s'))
+                _pl.addHandler(_h)
+            _pl.setLevel(_logging.WARNING)
             _pool = ConnectionPool(
                 DATABASE_URL, min_size=1,
                 max_size=int(os.environ.get('DB_POOL_MAX', '12')),
@@ -2322,7 +2328,7 @@ MAINT_OPEN_PREFIXES = ('/api/maintenance', '/api/ui/', '/api/auth', '/api/logout
 @app.before_request
 def gate_ban_and_maintenance():
     path = request.path
-    if not path.startswith('/api/'):
+    if not path.startswith('/api/') or path == '/api/halloween':   # the theme poll must stay DB-free and never be gated
         return None
     try:
         uid = int(session.get('uid') or 0)
@@ -2384,8 +2390,26 @@ def admin_maintenance_set():
                    now=int(time.time() * 1000))
 
 
+_hw_cache = {'t': 0.0, 'doc': None}
+
+
+def _halloween_doc(fresh=False):
+    """The event document, cached for a few seconds: every client polls it, so it must not cost a DB connection each time.
+    On a DB outage the last known value (or 'off') is served instead of an error."""
+    now = time.time()
+    if not fresh and _hw_cache['doc'] is not None and now - _hw_cache['t'] < 8:
+        return _hw_cache['doc']
+    try:
+        doc = read_document('halloween') or {}
+    except Exception:
+        app.logger.warning('halloween: database unavailable, serving cached state')
+        return _hw_cache['doc'] if _hw_cache['doc'] is not None else {}
+    _hw_cache['doc'], _hw_cache['t'] = doc, now
+    return doc
+
+
 def halloween_state(fresh=False):
-    doc = read_document('halloween') or {}
+    doc = _halloween_doc(fresh)
     def _ms(key):
         try:
             return max(0, int(doc.get(key) or 0))
@@ -2430,7 +2454,8 @@ def admin_halloween_set():
     save_document('halloween', dict(enabled=bool(data.get('enabled')), starts_at=starts, ends_at=ends,
                                     effects=bool(data.get('effects', True)),
                                     updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
-    return jsonify(ok=True, **halloween_state())
+    _hw_cache['doc'] = None
+    return jsonify(ok=True, **halloween_state(fresh=True))
 
 
 def ban_user_view(user_id):

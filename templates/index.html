@@ -12463,3 +12463,57 @@ st.classList.remove('swap')};
 if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()};
 })();
 </script>
+
+<style id="arena-v3">
+/* Arena v3: status card, arena floor with radar, calmer panels */
+@keyframes avRadar{to{transform:rotate(360deg)}}
+@keyframes avPing{0%{transform:scale(.35);opacity:.55}100%{transform:scale(1);opacity:0}}
+@keyframes avDot{50%{opacity:.35;transform:scale(.7)}}
+@keyframes avShine{0%{transform:translateX(-130%) skewX(-18deg)}55%,100%{transform:translateX(330%) skewX(-18deg)}}
+@keyframes avRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+#arenaPage .arena-title{margin-bottom:10px}
+#arenaPage .arena-summary{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:center;margin:0 0 12px;padding:14px 16px;border-radius:20px;border:1px solid #232a3b;background:radial-gradient(120% 140% at 100% 0%,rgba(71,176,245,.14),transparent 60%),linear-gradient(160deg,#141a2a,#0f121b);overflow:hidden;animation:avRise .45s cubic-bezier(.2,.8,.2,1) both}
+#arenaPage .arena-summary #arenaRound{grid-column:1;grid-row:1;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#7f8ca3;font-weight:800}
+#arenaPage .arena-summary #arenaTimer{grid-column:1;grid-row:2;justify-self:start;display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;border-radius:14px;line-height:1.25;max-width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);color:#dbe6f2;font-size:11px;font-weight:800}
+#arenaPage .arena-summary #arenaTimer:before{content:'';width:7px;height:7px;border-radius:50%;background:#47b0f5;box-shadow:0 0 10px #47b0f5;animation:avDot 1.6s ease-in-out infinite}
+#arenaPage .arena-summary b{grid-column:2;grid-row:1/3;font-size:28px;line-height:1;letter-spacing:-.02em;background:linear-gradient(180deg,#fff 20%,#9fd8ff);-webkit-background-clip:text;background-clip:text;color:transparent;text-align:right}
+#arenaPage .arena-stage{border-radius:26px;border:1px solid #232a3b;background:linear-gradient(180deg,#131a2a,#0d111a);box-shadow:0 22px 50px rgba(0,0,0,.4),inset 0 1px rgba(255,255,255,.06)}
+#arenaPage .arena-segments{border-radius:16px;background-color:#0f1420;background-image:linear-gradient(rgba(120,160,220,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,220,.07) 1px,transparent 1px);background-size:32px 32px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08),inset 0 0 50px rgba(0,0,0,.35)}
+#arenaPage .arena-stage:not(.has-players) .arena-segments:before{content:'';position:absolute;left:50%;top:50%;width:150%;aspect-ratio:1;margin:-75% 0 0 -75%;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 80%,rgba(71,176,245,.07) 94%,rgba(120,210,255,.2) 99.6%,transparent 100%);animation:avRadar 5s linear infinite;pointer-events:none}
+#arenaPage .arena-stage:not(.has-players) .arena-segments:after{content:'';position:absolute;left:50%;top:50%;width:46%;aspect-ratio:1;margin:-23% 0 0 -23%;border-radius:50%;border:2px solid rgba(110,200,255,.4);animation:avPing 3.2s ease-out infinite;pointer-events:none}
+#arenaPage .arena-empty{inset:22%;z-index:3}
+#arenaPage .arena-empty b{font-size:20px;letter-spacing:-.01em;text-shadow:0 2px 16px rgba(0,0,0,.6)}
+#arenaPage .arena-empty span{color:#b3c2d4;text-shadow:0 1px 10px rgba(0,0,0,.7)}
+#arenaPage .arena-bet-panel,#arenaPage .arena-players-panel,#arenaPage .arena-recent-panel{border:1px solid #232a3b!important;border-radius:22px!important;background:linear-gradient(165deg,#131827,#0f121b)!important;box-shadow:none!important}
+#arenaPage .arena-bet-head label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#7f8ca3;font-weight:800}
+#arenaPage .arena-bet-field input{border-radius:14px!important;background:#0b0e16!important;border:1px solid #232a3b!important;font-weight:800}
+#arenaPage .arena-bet-field input:focus{border-color:#47b0f5!important;box-shadow:0 0 0 3px rgba(71,176,245,.16)!important}
+#arenaPage .arena-bet-row>button{border:1px solid #232a3b!important;border-radius:14px!important;background:#151b2a!important;color:#cdd8e6!important;transition:background .2s,border-color .2s,transform .18s}
+#arenaPage .arena-bet-row>button:hover{border-color:#3a4a68!important;background:#1a2236!important}
+#arenaPage .arena-bet-row>button[data-arena-bet=max]{color:#f0c46a!important;border-color:rgba(240,196,106,.35)!important}
+#arenaPage .arena-gift-btn{border-color:#2b3550!important;background:#101524!important}
+#arenaPage .arena-join{position:relative;overflow:hidden;height:52px;border-radius:16px!important;font-size:16px;font-weight:850;letter-spacing:.01em}
+#arenaPage .arena-join:not(:disabled):after{content:'';position:absolute;top:0;bottom:0;left:0;width:30%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);animation:avShine 3.6s ease-in-out infinite}
+#arenaPage .panel-head h2{font-size:15px}
+#arenaPage .panel-head>span{min-width:26px;padding:3px 9px;border-radius:999px;background:rgba(71,176,245,.12);color:#8cc8f5;font-size:11px;font-weight:850;text-align:center}
+#arenaPage .arena-player,#arenaPage .arena-recent-row{border-radius:14px!important;padding:9px 8px!important;border:0!important;transition:background .25s}
+#arenaPage .arena-player:hover,#arenaPage .arena-recent-row:hover{background:rgba(255,255,255,.04)}
+#arenaPage .arena-player+.arena-player{border-top:0!important}
+#arenaPage .arena-player-avatar,#arenaPage .arena-recent-avatar{box-shadow:0 0 0 2px #0f121b,0 0 0 3px rgba(255,255,255,.1)}
+#arenaPage .arena-player.winner{background:rgba(240,196,106,.08)}
+#arenaPage .empty{border:1px dashed #263048;border-radius:16px;padding:18px 10px;color:#7f8ca3;text-align:center;background:rgba(255,255,255,.015)}
+@media(max-width:560px){
+#arenaPage .arena-summary{padding:13px 15px}
+#arenaPage .arena-summary b{font-size:26px}
+#arenaPage .arena-stage{border-radius:22px}
+}
+@media(prefers-reduced-motion:reduce){#arenaPage .arena-summary,#arenaPage .arena-segments:before,#arenaPage .arena-segments:after,#arenaPage .arena-join:after,#arenaPage .arena-summary #arenaTimer:before{animation:none!important}}
+</style>
+<style id="phone-ug-v1">
+/* phones: bigger Upgrade wheel and bigger Upgrade preview card */
+@media(max-width:560px){
+#upgradePage .ug-wheel{width:min(calc(100vw - 44px),380px,max(270px,calc(100dvh - 400px)))!important;margin:0 auto 18px!important}
+#upgradePage .ug-card{padding-top:18px!important}
+body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale(1.24)!important;transform-origin:56% 40%!important}
+}
+</style>

@@ -276,6 +276,7 @@ def _initialize_schema():
             state TEXT NOT NULL DEFAULT 'active', mult_x100 INTEGER NOT NULL DEFAULT 100,
             payout INTEGER NOT NULL DEFAULT 0, cursor INTEGER NOT NULL DEFAULT 0,
             fairness_id TEXT NOT NULL DEFAULT '', bonus_used INTEGER NOT NULL DEFAULT 0,
+            prize_name TEXT NOT NULL DEFAULT '', prize_image TEXT NOT NULL DEFAULT '', prize_price INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_road_games_user ON road_games(user_id, id DESC);
@@ -780,7 +781,8 @@ def _initialize_schema():
             ('bonus_unlock_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('limbo_bets', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
-        ensure_columns('road_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('road_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0'), ('prize_name', "TEXT NOT NULL DEFAULT ''"),
+                                      ('prize_image', "TEXT NOT NULL DEFAULT ''"), ('prize_price', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('hilo_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('giveaways', [
             ('allow_repeat_winners', 'INTEGER NOT NULL DEFAULT 1'),
@@ -9922,6 +9924,7 @@ GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': '
 
 GAME_BADGES = ('new', 'hot', 'top', 'beta', 'soon')
 GAME_LAYOUT_DEFAULT_ORDER = ('road', 'limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
+GAME_LAYOUT_DEFAULT_WIDE = {'arena': True}
 GAME_LAYOUT_DEFAULT_BADGES = {'road': 'new', 'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
 
 
@@ -9943,7 +9946,9 @@ def game_layout():
     raw = stored.get('badges') if isinstance(stored.get('badges'), dict) else None
     source = raw if raw is not None else GAME_LAYOUT_DEFAULT_BADGES
     badges = {key: source.get(key) for key in GAME_KEYS if source.get(key) in GAME_BADGES}
-    return dict(order=order, badges=badges)
+    wide_raw = stored.get('wide') if isinstance(stored.get('wide'), dict) else GAME_LAYOUT_DEFAULT_WIDE
+    wide = {key: True for key in GAME_KEYS if wide_raw.get(key) is True}
+    return dict(order=order, badges=badges, wide=wide)
 
 
 def is_admin_session():
@@ -10039,6 +10044,43 @@ def road_state_payload(db, uid):
                 wins=feed, history=[road_row_view(r) for r in mine], available=game_available('road'))
 
 
+def road_pay(db, uid, game, payout, state, mult_x100):
+    """Caller owns the transaction. A win arrives as a Telegram gift when it reaches the cheapest
+    gift (the rest goes to the balance), otherwise it stays in TON - same as Hi-Lo/Mines."""
+    bonus_origin = bool(int(game['bonus_used'] or 0))
+    label = 'Hamster Road x%.2f' % (mult_x100 / 100)
+    prize_info = crash_prize_preview(payout)
+    remainder = max(0, payout - prize_info['price_cents']) if prize_info else payout
+    if prize_info:
+        moved = db.execute("""UPDATE road_games SET state=?,steps=?,mult_x100=?,payout=?,prize_name=?,prize_image=?,prize_price=?,
+                              finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'""",
+                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES, mult_x100, payout, prize_info['name'][:140],
+                            prize_info['image_url'], prize_info['price_cents'], game['id']))
+    else:
+        moved = db.execute("""UPDATE road_games SET state=?,steps=?,mult_x100=?,payout=?,finished_at=CURRENT_TIMESTAMP
+                              WHERE id=? AND state='active'""",
+                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES, mult_x100, payout, game['id']))
+    if not moved.rowcount:
+        raise ValueError('Раунд уже завершён.')
+    prize = None
+    if prize_info:
+        bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
+        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                      VALUES(?,?,?,?,?,'game',?,?,?,?)""",
+                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id'], bo, br, bp))
+        if remainder:
+            credit_game_balance(db, uid, remainder, bonus_origin)
+            record_transaction(db, uid, 'road_win', remainder, 'road_game', game['id'],
+                               f'{label}: остаток после подарка {prize_info["name"]}')
+        record_transaction(db, uid, 'road_gift_win', 0, 'road_game', game['id'], f'{prize_info["name"]} · {label}')
+        prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
+    else:
+        credit_game_balance(db, uid, payout, bonus_origin)
+        record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'], label)
+    return prize, remainder
+
+
 @app.get('/api/road/state')
 @login_required
 def road_state():
@@ -10132,10 +10174,9 @@ def road_step():
             payout = min(int(game['bet']) * mult // 100, ROAD_MAX_PAYOUT_CENTS)
             finished = steps >= ROAD_LANES or payout >= ROAD_MAX_PAYOUT_CENTS
             if finished:
-                db.execute("""UPDATE road_games SET steps=?,mult_x100=?,cursor=?,state='won',payout=?,finished_at=CURRENT_TIMESTAMP
-                              WHERE id=? AND state='active'""", (steps, mult, cursor, payout, game['id']))
-                credit_game_balance(db, uid, payout, bool(game['bonus_used']))
-                record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'], 'Hamster Road · x%.2f' % (mult / 100))
+                db.execute("UPDATE road_games SET cursor=? WHERE id=? AND state='active'", (cursor, game['id']))
+                prize, remainder = road_pay(db, uid, game, payout, 'won', mult)
+                result.update(prize=prize, remainder=remainder / 100)
                 outcome['result'] = 'won'
                 fairness_mark_settled(db, 'road', game['id'], outcome, cursor)
             else:
@@ -10163,7 +10204,8 @@ def road_step():
         payload = road_state_payload(db, uid)
         row = db.execute('SELECT * FROM road_games WHERE id=?', (game_id,)).fetchone()
         fair_view = fairness_public(fairness_get(db, game='road', game_ref=str(game_id)), result.get('finished'))
-    return jsonify(ok=True, step=result, game=road_row_view(row), fairness=fair_view, user=profile(), **payload)
+    return jsonify(ok=True, step=result, game=road_row_view(row), fairness=fair_view, user=profile(),
+                   bonus_origin=bool(int(row['bonus_used'] or 0)), **payload)
 
 
 @app.post('/api/road/cashout')
@@ -10182,14 +10224,7 @@ def road_cashout():
             db.rollback()
             return error('Заберите выигрыш после первого шага.', 409)
         payout = min(int(game['bet']) * int(game['mult_x100']) // 100, ROAD_MAX_PAYOUT_CENTS)
-        moved = db.execute("""UPDATE road_games SET state='cashed',payout=?,finished_at=CURRENT_TIMESTAMP
-                              WHERE id=? AND state='active'""", (payout, game['id']))
-        if not moved.rowcount:
-            db.rollback()
-            return error('Раунд уже завершён.', 409)
-        credit_game_balance(db, uid, payout, bool(game['bonus_used']))
-        record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'],
-                           'Hamster Road · x%.2f' % (int(game['mult_x100']) / 100))
+        prize, remainder = road_pay(db, uid, game, payout, 'cashed', int(game['mult_x100']))
         fair = fairness_get(db, proof_id=game['fairness_id'])
         try:
             outcome = json.loads(fair['outcome_json'] or '{}')
@@ -10209,7 +10244,8 @@ def road_cashout():
         payload = road_state_payload(db, uid)
         row = db.execute('SELECT * FROM road_games WHERE id=?', (game_id,)).fetchone()
         fair_view = fairness_public(fairness_get(db, game='road', game_ref=str(game_id)), True)
-    return jsonify(ok=True, game=road_row_view(row), payout=payout / 100, fairness=fair_view, user=profile(), **payload)
+    return jsonify(ok=True, game=road_row_view(row), payout=payout / 100, prize=prize, remainder=remainder / 100,
+                   fairness=fair_view, user=profile(), bonus_origin=bool(int(row['bonus_used'] or 0)), **payload)
 
 
 
@@ -12759,11 +12795,13 @@ def save_admin_section_settings():
             if value not in GAME_BADGES:
                 return error('Значок: new, hot, top, beta или soon.')
             badges[key] = value
-        save_document('game_layout', dict(order=order, badges=badges))
+        wide = {key: True for key, value in (layout.get('wide') or {}).items() if key in GAME_KEYS and value is True} \
+            if isinstance(layout.get('wide', {}), dict) else {}
+        save_document('game_layout', dict(order=order, badges=badges, wide=wide))
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'game_layout',
-                        json.dumps(dict(order=order, badges=badges), ensure_ascii=False)))
+                        json.dumps(dict(order=order, badges=badges, wide=wide), ensure_ascii=False)))
     if has_sections:
         save_document('section_settings', updated)
     if 'black_backgrounds_enabled' in data:

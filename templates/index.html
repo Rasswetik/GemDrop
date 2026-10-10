@@ -4573,7 +4573,7 @@ html.perf-lite .gc-art-road *{animation:none!important}
 <div class="pf-actions"><button id="profileLogout" class="profile-logout" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10"/><path d="M14 8l4 4-4 4M9 12h9"/></svg><span>Выйти</span></button></div>
 </section>
 <section id="adminPage" class="hidden"><button id="adminHome" class="back">← В главное меню</button><div class="admin-heading"><span>УПРАВЛЕНИЕ</span><h1>Админ-панель</h1><p>Игроки, награды и настройки GemDrop</p></div><div class="panel admin-display-panel"><h2>Отображение</h2><label class="toggle-row"><span>Кнопка админ-панели в профиле</span><input id="adminDisplayVisible" type="checkbox"></label></div><div class="admin-menu">
-<div class="admin-group"><h2>Событие</h2><div class="admin-actions"><button id="openXhuntAdmin" class="xh-admin-btn">X-Hunt <span id="xhAdminChip" class="xh-live hidden">LIVE</span> <span>→</span></button></div></div>
+<div class="admin-group"><h2>Событие</h2><div class="admin-actions"><button id="openXhuntAdmin" class="xh-admin-btn"><svg class="xh-logo" viewBox="0 0 120 120" aria-hidden="true"><use href="#xhLogo"/></svg><span>X-Hunt</span> <span id="xhAdminChip" class="xh-live hidden">LIVE</span> <span style="margin-left:auto">→</span></button></div></div>
 <div class="admin-group"><h2>Игроки и награды</h2><div class="admin-actions"><button id="openUsers">Пользователи <span>→</span></button><button id="openCreatorsAdmin">Управление авторами <span>→</span></button><button id="openPromocodes">Промокоды <span>→</span></button><button id="openGiveawaysAdmin">Розыгрыши <span>→</span></button><button id="openRewardTasksAdmin">Задания и билеты <span>→</span></button><button id="openWheelAdmin">Колесо призов <span>→</span></button><button id="openFreebetsAdmin">Freebet <span>→</span></button><button id="openLevelsAdmin">Уровни и награды <span>→</span></button><button id="openWithdrawals">Выводы <span>→</span></button></div></div>
 <div class="admin-group"><h2>Экономика и игры</h2><div class="admin-actions"><button id="openTransactions">История пополнений <span>→</span></button><button id="openDepositSettings">Управление пополнением <span>→</span></button><button id="openRtp">Отдача игры <span>→</span></button><button id="openRollAdmin">Roll и шансы <span>→</span></button><button id="openGameHistory">История игр <span>→</span></button><button id="openWinsAdmin">Последние победы <span>→</span></button></div></div>
 <div class="admin-group"><h2>Система</h2><div class="admin-actions"><button id="openPortal">Portal Market <span>→</span></button><button id="openGamesAdmin">Управление играми <span>→</span></button><button id="openSectionSettings">Управление разделами <span>→</span></button><button id="openTransferSettings">Управление переводами <span>→</span></button><button id="openLoaderSettings">Экран загрузки <span>→</span></button><button id="openPostAdmin">Публикации <span>→</span></button><button id="openExternalChannels">Сторонние каналы <span>→</span></button><button id="openBroadcastAdmin">Рассылка <span>→</span></button><button id="openGiftEmojiAdmin">Эмодзи подарков <span>→</span></button><button id="openAntifraud">Мульти-аккаунты и баны <span>→</span></button><button id="openMaintenance">Технические работы <span>→</span></button><button id="openHalloween">Halloween Event <span>→</span></button><button id="openBotSettings">Настройки бота <span>→</span></button></div></div>
@@ -12519,70 +12519,152 @@ if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()};
 body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale(1.24)!important;transform-origin:56% 40%!important}
 }
 </style>
+<svg id="xhDefs" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false"><defs>
+<linearGradient id="xhA" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#47b0f5"/><stop offset=".55" stop-color="#9a7bff"/><stop offset="1" stop-color="#feca58"/></linearGradient>
+<linearGradient id="xhG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe38a"/><stop offset="1" stop-color="#e8a53a"/></linearGradient>
+<linearGradient id="xhSw" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#47b0f5" stop-opacity="0"/><stop offset="1" stop-color="#47b0f5" stop-opacity=".6"/></linearGradient>
+<symbol id="xhLogo" viewBox="0 0 120 120">
+<circle cx="60" cy="60" r="55" fill="none" stroke="url(#xhA)" stroke-width="2.4" stroke-dasharray="3 9" stroke-linecap="round" opacity=".85"><animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="24s" repeatCount="indefinite"/></circle>
+<circle cx="60" cy="60" r="45" fill="#0f1224" fill-opacity=".9" stroke="#47b0f5" stroke-opacity=".38" stroke-width="1.5"/>
+<g><animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="3.4s" repeatCount="indefinite"/><path d="M60 60L60 15A45 45 0 0 1 99 37.5Z" fill="url(#xhSw)"/><path d="M60 60L99 37.5" stroke="#9fdcff" stroke-width="1.6" stroke-linecap="round"/></g>
+<path d="M24 40V28Q24 24 28 24H40M80 24H92Q96 24 96 28V40M96 80V92Q96 96 92 96H80M40 96H28Q24 96 24 92V80" fill="none" stroke="#feca58" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="stroke-opacity" values="1;.4;1" dur="1.8s" repeatCount="indefinite"/></path>
+<path d="M60 7v9M60 104v9M7 60h9M104 60h9" stroke="#47b0f5" stroke-width="3" stroke-linecap="round" opacity=".75"/>
+<circle cx="60" cy="60" r="25" fill="none" stroke="#9a7bff" stroke-width="2"><animate attributeName="r" values="25;52" dur="2.2s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;0" dur="2.2s" repeatCount="indefinite"/></circle>
+<circle cx="60" cy="60" r="25" fill="#101326" stroke="url(#xhA)" stroke-width="3.5"/>
+<g transform="translate(60 60)"><g><animateTransform attributeName="transform" type="scale" values="1;1.14;1" dur="1.8s" repeatCount="indefinite"/><path d="M-11-11L11 11" stroke="#fff" stroke-width="8.5" stroke-linecap="round"/><path d="M11-11L-11 11" stroke="url(#xhA)" stroke-width="8.5" stroke-linecap="round"/></g></g>
+<circle r="3.4" fill="#feca58"><animateMotion dur="4.2s" repeatCount="indefinite" path="M60 5A55 55 0 1 1 59.9 5"/></circle>
+</symbol></defs></svg>
 <div id="xhModal" class="modal xh-modal hidden" role="dialog" aria-modal="true" aria-labelledby="xhTitle"><div class="modal-card xh-card"><button id="xhClose" class="xh-close" type="button" aria-label="Закрыть">×</button><div id="xhBody"></div></div></div>
+<div id="xhPop" class="xh-pop hidden"><div id="xhPopCard" class="xh-pop-card" role="dialog" aria-modal="true"><div id="xhPopBody" class="xh-pop-scroll"></div><div id="xhPopFoot" class="xh-pop-foot"></div></div></div>
 <style id="xhunt-v1">
-/* ---- X-Hunt: games-menu strip ---- */
-.xh-strip{position:relative;display:flex;align-items:center;gap:12px;width:100%;margin:0 0 14px;padding:10px 14px 10px 10px;border:1px solid rgba(71,176,245,.34);border-radius:18px;background:linear-gradient(100deg,rgba(71,176,245,.16),rgba(124,92,255,.14) 55%,rgba(254,202,88,.10));color:var(--text,#f4f5f7);text-align:left;cursor:pointer;overflow:hidden;box-shadow:0 10px 30px rgba(8,10,25,.35),inset 0 1px 0 rgba(255,255,255,.08);-webkit-tap-highlight-color:transparent;transition:transform .18s ease,border-color .2s ease}
-.xh-strip:active{transform:scale(.985)}
-.xh-strip:before{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.10) 48%,transparent 66%);transform:translateX(-120%);animation:xhSheen 4.6s ease-in-out infinite;pointer-events:none}
-@keyframes xhSheen{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+/* ===== X-Hunt v2 ===== */
+.xh-strip{position:relative;z-index:2;display:flex;align-items:center;gap:12px;width:100%;min-height:72px;margin:0 0 14px;padding:10px 14px 10px 10px;border:1px solid rgba(124,160,255,.38);border-radius:20px;background:linear-gradient(100deg,rgba(71,176,245,.20),rgba(124,92,255,.18) 55%,rgba(254,202,88,.14));color:var(--text,#f4f5f7);text-align:left;cursor:pointer;overflow:hidden;box-shadow:0 12px 32px rgba(8,10,25,.4),inset 0 1px 0 rgba(255,255,255,.1);-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;transition:transform .16s ease,box-shadow .2s ease}
+.xh-strip>*{pointer-events:none}
+.xh-strip:active{transform:scale(.98)}
+.xh-strip:after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(110deg,transparent 35%,rgba(255,255,255,.13) 50%,transparent 65%);transform:translateX(-130%);animation:xhSheen 4.2s ease-in-out infinite;pointer-events:none}
+@keyframes xhSheen{0%,50%{transform:translateX(-130%)}100%{transform:translateX(130%)}}
 .xh-strip.hidden{display:none}
-.xh-strip-ico{flex:0 0 44px;width:44px;height:44px}
-.xh-strip-copy{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
-.xh-strip-copy b{display:flex;align-items:center;gap:8px;font-size:14px;letter-spacing:.06em;font-weight:800}
-.xh-strip-copy small{color:#b7c4d4;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.xh-strip-copy small em{font-style:normal;color:#fff;font-weight:700}
-.xh-strip-go{flex:0 0 auto;color:#47b0f5;font-size:20px;font-weight:700}
+.xh-strip.xh-flash{animation:xhFlashBg .9s ease-out}
+@keyframes xhFlashBg{0%{box-shadow:0 0 0 0 rgba(254,202,88,.7),0 12px 32px rgba(8,10,25,.4)}100%{box-shadow:0 0 0 14px rgba(254,202,88,0),0 12px 32px rgba(8,10,25,.4)}}
+.xh-strip-ico{flex:0 0 54px;width:54px;height:54px;filter:drop-shadow(0 4px 14px rgba(124,92,255,.55))}
+.xh-strip-copy{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
+.xh-strip-copy b{display:flex;align-items:center;gap:8px;font-size:15px;letter-spacing:.08em;font-weight:900}
+.xh-strip-copy small{color:#b9c6d8;font-size:12.5px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xh-strip-copy small em{font-style:normal;color:#fff;font-weight:800;font-variant-numeric:tabular-nums}
+.xh-strip-go{flex:0 0 34px;width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.1);color:#9fd4ff;font-size:20px;font-weight:800;animation:xhNudge 1.8s ease-in-out infinite}
+@keyframes xhNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
 .xh-live{display:inline-flex;align-items:center;gap:5px;padding:2px 7px 2px 6px;border-radius:99px;background:rgba(255,77,98,.16);color:#ff7387;font-size:9.5px;font-weight:800;letter-spacing:.1em}
-.xh-live:before{content:"";width:6px;height:6px;border-radius:50%;background:#ff4d62;box-shadow:0 0 0 0 rgba(255,77,98,.7);animation:xhPulse 1.5s ease-out infinite}
+.xh-live:before{content:"";width:6px;height:6px;border-radius:50%;background:#ff4d62;animation:xhPulse 1.5s ease-out infinite}
 @keyframes xhPulse{0%{box-shadow:0 0 0 0 rgba(255,77,98,.65)}100%{box-shadow:0 0 0 8px rgba(255,77,98,0)}}
-.xh-spin{transform-origin:50% 50%;animation:xhSpin 14s linear infinite}
-.xh-spin-rev{transform-origin:50% 50%;animation:xhSpin 9s linear infinite reverse}
-@keyframes xhSpin{to{transform:rotate(360deg)}}
-.xh-ping{transform-origin:50% 50%;animation:xhRing 2.4s ease-out infinite}
-@keyframes xhRing{0%{transform:scale(.55);opacity:.85}100%{transform:scale(1.25);opacity:0}}
-/* ---- modal ---- */
-.xh-modal{z-index:60}
-.xh-card{scrollbar-width:none}.xh-card::-webkit-scrollbar{display:none}
-.xh-card{position:relative;width:min(100%,400px)!important;padding:0!important;text-align:left!important;background:linear-gradient(180deg,#171a2e,#10121f 60%)!important;border:1px solid rgba(71,176,245,.28)!important;overflow-x:hidden}
-.xh-close{position:absolute;top:10px;right:12px;z-index:3;width:32px;height:32px;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#dfe7f2;font-size:22px;line-height:30px;cursor:pointer}
-.xh-hero{position:relative;padding:22px 18px 14px;text-align:center;background:radial-gradient(120% 90% at 50% 0%,rgba(71,176,245,.26),transparent 70%)}
-.xh-hero svg.xh-art{display:block;width:104px;height:104px;margin:0 auto 6px}
-.xh-hero h2{margin:0;font-size:22px;letter-spacing:.12em;font-weight:900;background:linear-gradient(90deg,#47b0f5,#9a7bff 60%,#feca58);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* shared logo */
+.xh-logo{display:block;overflow:visible}
+.xh-float{animation:xhFloat 3.6s ease-in-out infinite}
+@keyframes xhFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+/* ===== popup (announce / results / win) ===== */
+.xh-pop{position:fixed;inset:0;z-index:9700;display:grid;place-items:center;padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom));background:rgba(5,6,14,.74);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);animation:xhFade .25s ease-out}
+.xh-pop.hidden{display:none}
+@keyframes xhFade{from{opacity:0}to{opacity:1}}
+.xh-pop-card{position:relative;display:flex;flex-direction:column;width:min(100%,372px);max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));border-radius:28px;background:linear-gradient(180deg,#1a1d36,#10121f 62%);border:1px solid rgba(130,160,255,.34);box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04) inset,0 0 70px rgba(100,110,255,.22);overflow:hidden;animation:xhPopIn .5s cubic-bezier(.2,1.25,.4,1)}
+@keyframes xhPopIn{0%{opacity:0;transform:translateY(26px) scale(.9)}100%{opacity:1;transform:none}}
+.xh-pop-card:before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1.5px;background:conic-gradient(from var(--xh-a,0deg),transparent 0 62%,rgba(71,176,245,.9) 78%,rgba(154,123,255,.9) 88%,rgba(254,202,88,.9) 96%,transparent);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:xhSpinA 5s linear infinite;pointer-events:none;z-index:3}
+@property --xh-a{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes xhSpinA{to{--xh-a:360deg}}
+.xh-pop-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:0 18px 6px;position:relative;z-index:1}
+.xh-pop-scroll::-webkit-scrollbar{display:none}
+.xh-pop-foot{position:relative;z-index:2;display:grid;gap:8px;padding:12px 18px max(16px,env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(16,18,31,0),#10121f 28%)}
+.xh-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:52px;padding:0 18px;border:0;border-radius:16px;font:inherit;font-size:16px;font-weight:800;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:transform .15s ease,filter .15s ease}
+.xh-btn:active{transform:scale(.97)}
+.xh-btn.pri{background:linear-gradient(90deg,#3aa8f5,#7c5cff 70%,#c06bff);color:#fff;box-shadow:0 10px 28px rgba(110,100,255,.45)}
+.xh-btn.gold{background:linear-gradient(90deg,#feca58,#ff9a4c);color:#2a1700;box-shadow:0 10px 28px rgba(255,170,80,.4)}
+.xh-btn.ghost{min-height:44px;background:rgba(255,255,255,.07);color:#c7d2e2;font-size:14.5px;font-weight:700}
+.xh-hero2{position:relative;padding:26px 0 8px;text-align:center}
+.xh-hero2 .xh-glow{position:absolute;left:50%;top:6px;width:240px;height:240px;margin-left:-120px;border-radius:50%;background:radial-gradient(circle,rgba(110,120,255,.42),rgba(71,176,245,.14) 45%,transparent 70%);animation:xhBreath 3.4s ease-in-out infinite;pointer-events:none}
+@keyframes xhBreath{0%,100%{transform:scale(.92);opacity:.8}50%{transform:scale(1.08);opacity:1}}
+.xh-hero2 .xh-logo{position:relative;width:112px;height:112px;margin:0 auto 6px}
+.xh-tag2{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:99px;background:rgba(254,202,88,.12);border:1px solid rgba(254,202,88,.35);color:#ffd777;font-size:10.5px;font-weight:800;letter-spacing:.16em}
+.xh-title2{margin:10px 0 0;font-size:34px;line-height:1;font-weight:900;letter-spacing:.1em;background:linear-gradient(100deg,#47b0f5 0%,#9a7bff 38%,#feca58 52%,#9a7bff 66%,#47b0f5 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:xhShine 3.8s linear infinite}
+@keyframes xhShine{to{background-position:-250% 0}}
+.xh-sub2{margin:9px 0 0;color:#b9c6d8;font-size:14.5px;line-height:1.4}
+.xh-pills{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0 0}
+.xh-pill2{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:15px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);animation:xhRise .5s both}
+.xh-pill2 small{color:#8793a6;font-size:9.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.xh-pill2 b{font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;color:#fff}
+.xh-pill2.gold b{color:#feca58}
+@keyframes xhRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.xh-lbl2{margin:16px 2px 8px;color:#8d9ab0;font-size:10.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+.xh-prize-hero{position:relative;display:flex;align-items:center;gap:12px;padding:12px;border-radius:18px;background:linear-gradient(110deg,rgba(254,202,88,.16),rgba(124,92,255,.14));border:1px solid rgba(254,202,88,.42);overflow:hidden;animation:xhRise .55s .12s both}
+.xh-prize-hero:after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,rgba(255,255,255,.14) 50%,transparent 65%);transform:translateX(-130%);animation:xhSheen 3.6s ease-in-out infinite;pointer-events:none}
+.xh-prize-hero .xh-prize-img{flex:0 0 58px;width:58px;height:58px;border-radius:15px}
+.xh-prize-hero b{display:block;font-size:17px;line-height:1.2}
+.xh-prize-hero small{color:#c9b98a;font-size:12px}
+.xh-modes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.xh-mode{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:9px 2px 7px;border:1px solid color-mix(in srgb,var(--c) 38%,transparent);border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,var(--c) 16%,transparent),color-mix(in srgb,var(--c) 5%,transparent));color:#e8eef8;font:inherit;cursor:default;touch-action:manipulation;-webkit-tap-highlight-color:transparent;animation:xhRise .5s both;min-width:0}
+button.xh-mode{cursor:pointer}
+button.xh-mode:active{transform:scale(.95)}
+.xh-mode-ico{display:grid;place-items:center;width:40px;height:40px;border-radius:13px;background:color-mix(in srgb,var(--c) 22%,#0e1022);color:var(--c);box-shadow:0 0 18px color-mix(in srgb,var(--c) 30%,transparent)}
+.xh-mode-ico svg{width:24px;height:24px}
+.xh-mode span.nm{max-width:100%;font-size:10.5px;font-weight:800;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xh-mode.off{filter:grayscale(1);opacity:.45}
+.xh-mode.off:after{content:"скоро";position:absolute;top:3px;right:5px;font-size:8px;font-weight:800;color:#9aa;letter-spacing:.06em}
+.xh-podium{display:grid;gap:8px;margin:14px 0 4px}
+.xh-win-row{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);animation:xhRise .5s both}
+.xh-win-row.p1{background:linear-gradient(100deg,rgba(254,202,88,.18),rgba(255,255,255,.04));border-color:rgba(254,202,88,.45)}
+.xh-medal{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:900;color:#2a1700;background:linear-gradient(135deg,#ffe38a,#e8a53a)}
+.p2 .xh-medal{background:linear-gradient(135deg,#f1f4fa,#a9b4c6)}
+.p3 .xh-medal{background:linear-gradient(135deg,#f3c29a,#b8723a)}
+.xh-win-row .xh-who-copy small{display:block;margin-top:2px}
+.xh-code{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:10px 12px;border-radius:14px;background:rgba(0,0,0,.28);border:1px dashed rgba(254,202,88,.5)}
+.xh-code code{font-size:17px;font-weight:900;letter-spacing:.06em;color:#feca58}
+.xh-code button{min-height:36px;padding:0 14px;border:0;border-radius:11px;background:rgba(254,202,88,.18);color:#ffd777;font:inherit;font-weight:800;cursor:pointer}
+.xh-spark{position:absolute;bottom:-10px;width:5px;height:5px;border-radius:50%;opacity:0;pointer-events:none;animation:xhSpark linear infinite;z-index:0}
+@keyframes xhSpark{0%{opacity:0;transform:translateY(0) scale(.6)}15%{opacity:.9}100%{opacity:0;transform:translateY(-420px) scale(1.2)}}
+.xh-confetti{position:fixed;top:-12px;width:9px;height:14px;border-radius:2px;z-index:9800;pointer-events:none;animation:xhConf linear forwards}
+@keyframes xhConf{0%{transform:translate3d(0,0,0) rotate(0)}100%{transform:translate3d(var(--dx),105vh,0) rotate(var(--rot))}}
+.xh-trophy{filter:drop-shadow(0 6px 22px rgba(254,202,88,.6))}
+/* ===== details modal ===== */
+.xh-card{position:relative;width:min(100%,400px)!important;padding:0!important;text-align:left!important;background:linear-gradient(180deg,#171a2e,#10121f 60%)!important;border:1px solid rgba(130,160,255,.3)!important;overflow-x:hidden;scrollbar-width:none}
+.xh-card::-webkit-scrollbar{display:none}
+.xh-close{position:absolute;top:10px;right:10px;z-index:5;width:42px;height:42px;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#e6edf8;font-size:26px;line-height:40px;cursor:pointer;touch-action:manipulation}
+.xh-hero{position:relative;padding:20px 18px 8px;text-align:center}
+.xh-hero .xh-glow{position:absolute;left:50%;top:0;width:220px;height:220px;margin-left:-110px;border-radius:50%;background:radial-gradient(circle,rgba(110,120,255,.36),transparent 68%);animation:xhBreath 3.4s ease-in-out infinite;pointer-events:none}
+.xh-hero .xh-logo{position:relative;width:92px;height:92px;margin:0 auto 4px}
+.xh-hero h2{margin:6px 0 0;font-size:24px;letter-spacing:.12em;font-weight:900;background:linear-gradient(100deg,#47b0f5 0%,#9a7bff 38%,#feca58 52%,#9a7bff 66%,#47b0f5 100%);background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:xhShine 3.8s linear infinite}
 .xh-hero p{margin:6px 0 0;color:#b4c0cf;font-size:13.5px;line-height:1.4}
-.xh-hero .xh-tag{display:inline-flex;margin-bottom:8px}
-.xh-sec{padding:0 16px 14px}
-.xh-count{margin:2px 0 0;text-align:center;font-variant-numeric:tabular-nums;font-size:34px;font-weight:900;letter-spacing:.02em;color:#fff}
-.xh-count small{display:block;margin-bottom:2px;color:#8793a6;font-size:10.5px;font-weight:700;letter-spacing:.14em}
+.xh-hero .xh-tag{display:inline-flex;margin-bottom:6px}
+.xh-sec{padding:0 16px 12px;position:relative}
+.xh-count{margin:2px 0 0;text-align:center;font-variant-numeric:tabular-nums;font-size:36px;font-weight:900;letter-spacing:.03em;color:#fff}
+.xh-count small{display:block;margin-bottom:2px;color:#8793a6;font-size:10.5px;font-weight:800;letter-spacing:.16em}
+.xh-count.low{color:#ff8a8a;animation:xhBlink 1s steps(2) infinite}
+@keyframes xhBlink{50%{opacity:.55}}
 .xh-target{margin:6px 0 2px;text-align:center}
-.xh-target b{font-size:44px;font-weight:900;line-height:1;background:linear-gradient(90deg,#feca58,#ff8a4c);-webkit-background-clip:text;background-clip:text;color:transparent}
-.xh-target small{display:block;margin-top:3px;color:#8793a6;font-size:10.5px;font-weight:700;letter-spacing:.14em}
-.xh-bar{height:8px;margin:10px 0 0;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
-.xh-bar i{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#47b0f5,#9a7bff,#feca58);transition:width .6s ease}
+.xh-target b{font-size:46px;font-weight:900;line-height:1;background:linear-gradient(90deg,#feca58,#ff8a4c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.xh-target small{display:block;margin-top:3px;color:#8793a6;font-size:10.5px;font-weight:800;letter-spacing:.16em}
+.xh-bar{position:relative;height:9px;margin:10px 0 0;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.xh-bar i{position:relative;display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#47b0f5,#9a7bff,#feca58);transition:width .8s cubic-bezier(.2,.9,.3,1)}
+.xh-bar i:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);transform:translateX(-100%);animation:xhBarShine 2s ease-in-out infinite}
+@keyframes xhBarShine{to{transform:translateX(100%)}}
 .xh-bar-note{margin-top:5px;color:#8793a6;font-size:11.5px;text-align:center}
-.xh-box{margin-bottom:10px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.035)}
+.xh-box{margin-bottom:10px;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.035);animation:xhRise .5s both}
 .xh-box h3{margin:0 0 9px;color:#8d9ab0;font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.xh-box.flash{animation:xhBoxFlash .9s ease-out}
+@keyframes xhBoxFlash{0%{background:rgba(254,202,88,.28);border-color:rgba(254,202,88,.7)}100%{background:rgba(255,255,255,.035)}}
 .xh-prize{display:flex;align-items:center;gap:11px;padding:6px 0}
 .xh-prize+.xh-prize{border-top:1px solid rgba(255,255,255,.06)}
 .xh-place{flex:0 0 26px;width:26px;height:26px;display:grid;place-items:center;border-radius:9px;background:#21253e;color:#feca58;font-size:12px;font-weight:900}
-.xh-prize-img{flex:0 0 44px;width:44px;height:44px;border-radius:12px;background:#12142333 center/contain no-repeat;display:grid;place-items:center;overflow:hidden}
+.xh-prize-img{flex:0 0 44px;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;overflow:hidden}
 .xh-prize-img img{width:100%;height:100%;object-fit:contain}
 .xh-prize-img.ico{background:linear-gradient(135deg,#1f2a4a,#2c1f4a);color:#feca58;font-size:20px;font-weight:900}
 .xh-prize-copy{min-width:0;flex:1}
 .xh-prize-copy b{display:block;font-size:14.5px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xh-prize-copy small{color:#8d9ab0;font-size:11.5px}
 .xh-who{display:flex;align-items:center;gap:11px}
-.xh-ava{flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:#25294a center/cover no-repeat;display:grid;place-items:center;color:#cdd6e5;font-weight:800;overflow:hidden}
+.xh-ava{flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:#25294a;display:grid;place-items:center;color:#cdd6e5;font-weight:800;overflow:hidden}
 .xh-ava img{width:100%;height:100%;object-fit:cover}
 .xh-who-copy{min-width:0;flex:1}
 .xh-who-copy b{display:block;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xh-who-copy small{color:#8d9ab0;font-size:11.5px}
 .xh-x{flex:0 0 auto;font-size:20px;font-weight:900;color:#feca58;font-variant-numeric:tabular-nums}
 .xh-empty{color:#8d9ab0;font-size:13px;text-align:center;padding:4px 0}
-.xh-chips{display:flex;flex-wrap:wrap;gap:6px}
-.xh-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border:1px solid rgba(71,176,245,.34);border-radius:99px;background:rgba(71,176,245,.10);color:#cfe8fb;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
-.xh-chip.off{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#76819a;cursor:default}
-.xh-chip.on{border-color:#47b0f5;background:rgba(71,176,245,.28);color:#fff}
 .xh-min{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#b4c0cf;font-size:13px}
 .xh-min b{color:#fff;font-size:15px}
 .xh-top-row{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:13px}
@@ -12590,13 +12672,18 @@ body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale
 .xh-top-row .n{flex:0 0 20px;color:#8d9ab0;font-weight:800}
 .xh-top-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xh-top-row .xx{font-weight:800;color:#feca58;font-variant-numeric:tabular-nums}
-.xh-me{border-color:rgba(254,202,88,.35);background:rgba(254,202,88,.07)}
-.xh-go{display:block;width:calc(100% - 32px);margin:2px 16px 16px;padding:13px;border:0;border-radius:14px;background:linear-gradient(90deg,#47b0f5,#7c5cff);color:#fff;font-weight:800;font-size:15px;cursor:pointer}
-.xh-won{margin:0 16px 12px;padding:10px 12px;border-radius:14px;background:rgba(36,201,121,.12);border:1px solid rgba(36,201,121,.35);color:#8ff0bb;font-size:13px;text-align:center}
-@media(max-width:380px){.xh-count{font-size:30px}.xh-target b{font-size:38px}}
-/* ---- admin ---- */
-.xh-admin-btn{position:relative;overflow:hidden;background:linear-gradient(100deg,rgba(71,176,245,.2),rgba(124,92,255,.18))!important;border:1px solid rgba(71,176,245,.45)!important}
-.xh-admin-btn .xh-live{margin-left:8px}
+.xh-me{border-color:rgba(254,202,88,.38);background:rgba(254,202,88,.07)}
+.xh-modal-foot{position:sticky;bottom:0;z-index:4;padding:14px 16px max(16px,env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(16,18,31,0),#10121f 32%)}
+.xh-chips{display:flex;flex-wrap:wrap;gap:6px}
+.xh-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 11px 7px 8px;border:1px solid rgba(71,176,245,.34);border-radius:99px;background:rgba(71,176,245,.10);color:#cfe8fb;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.xh-chip svg{width:16px;height:16px}
+.xh-chip.on{border-color:#47b0f5;background:rgba(71,176,245,.28);color:#fff}
+@media(max-width:380px){.xh-count{font-size:30px}.xh-target b{font-size:38px}.xh-title2{font-size:30px}.xh-modes{gap:6px}}
+@media(prefers-reduced-motion:reduce){.xh-pop-card,.xh-pop-card:before,.xh-title2,.xh-hero h2,.xh-glow,.xh-float,.xh-strip:after,.xh-strip-go,.xh-prize-hero:after,.xh-bar i:after,.xh-spark,.xh-pill2,.xh-mode,.xh-box,.xh-win-row{animation:none!important}}
+/* ===== admin ===== */
+.xh-admin-btn{position:relative;overflow:hidden;display:flex;align-items:center;gap:10px;background:linear-gradient(100deg,rgba(71,176,245,.22),rgba(124,92,255,.2))!important;border:1px solid rgba(124,160,255,.5)!important}
+.xh-admin-btn svg.xh-logo{width:30px;height:30px;flex:0 0 30px}
+.xh-admin-btn .xh-live{margin-left:6px}
 #xhuntAdminPage .xh-form{display:grid;gap:14px}
 #xhuntAdminPage .xh-field{display:grid;gap:7px}
 #xhuntAdminPage .xh-field>label:not(.xh-check),#xhuntAdminPage .xh-lbl{color:#9aa7ba;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
@@ -12610,6 +12697,7 @@ body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale
 #xhuntAdminPage .xh-reward>b{font-size:13px}
 #xhuntAdminPage .xh-check{display:flex;align-items:center;gap:10px;color:#cfd7e4;font-size:13.5px}
 #xhuntAdminPage .xh-check input{width:18px;height:18px;accent-color:#47b0f5}
+#xhuntAdminPage .xh-notify{display:grid;gap:10px;padding:12px;border-radius:16px;background:rgba(124,92,255,.08);border:1px solid rgba(124,92,255,.28)}
 #xhuntAdminPage .xh-live-card{display:grid;gap:10px}
 #xhuntAdminPage .xh-live-card h2 .xh-live{margin-left:10px;vertical-align:middle}
 #xhuntAdminPage .xh-live-card .xh-actions{display:flex;flex-wrap:wrap;gap:8px}
@@ -12621,60 +12709,104 @@ body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale
 </style>
 <script id="xhunt-js">
 (()=>{
-const SEEN_KEY='xhSeenEvent',SEEN_RES='xhSeenResult';
+const NS='http://www.w3.org/2000/svg';
+const SEEN_KEY='xhSeenEvent',SEEN_RES='xhSeenResult',SEEN_WIN='xhSeenWin';
 const GAME_PAGE={mines:'minesPage',upgrade:'upgradePage',crash:'crashPage',arena:'arenaPage',hilo:'hiloPage',limbo:'limboPage',road:'roadPage'};
-const ALL_MODES=[['mines','Mines'],['upgrade','Upgrade'],['crash','Crash'],['arena','Arena'],['hilo','Hi-Lo'],['limbo','Limbo'],['road','Hamster Road']];
-const ART='<svg class="xh-art" viewBox="0 0 120 120" aria-hidden="true"><defs><linearGradient id="xhg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#47b0f5"/><stop offset=".6" stop-color="#9a7bff"/><stop offset="1" stop-color="#feca58"/></linearGradient></defs><circle class="xh-ping" cx="60" cy="60" r="46" fill="none" stroke="#47b0f5" stroke-width="2"/><g class="xh-spin"><circle cx="60" cy="60" r="50" fill="none" stroke="url(#xhg)" stroke-width="2.4" stroke-dasharray="6 9" stroke-linecap="round"/></g><g class="xh-spin-rev"><circle cx="60" cy="60" r="38" fill="none" stroke="#47b0f5" stroke-opacity=".5" stroke-width="1.6" stroke-dasharray="2 7" stroke-linecap="round"/></g><circle cx="60" cy="60" r="27" fill="#121427" stroke="url(#xhg)" stroke-width="2.6"/><path d="M60 24v14M60 82v14M24 60h14M82 60h14" stroke="url(#xhg)" stroke-width="3" stroke-linecap="round"/><path d="M50 49l20 22M70 49L50 71" stroke="#fff" stroke-width="5.2" stroke-linecap="round"/></svg>';
-const ICON='<svg class="xh-strip-ico" viewBox="0 0 120 120" aria-hidden="true"><use href="#xhIco"/></svg>';
-const state={ev:null,last:null,at:0,t0:0,timer:0,poll:0,busy:false};
+const ICO={
+ mines:'<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-width="3"/>',
+ upgrade:'<path d="M6 11l6-6 6 6M6 18l6-6 6 6"/>',
+ crash:'<path d="M12 3c3.5 2.5 5 6 4.5 11h-9C7 9 8.5 5.5 12 3zM7.5 14 5 17l2.5-.5M16.5 14 19 17l-2.5-.5M10 18c0 1.8.8 3 2 3.5 1.2-.5 2-1.7 2-3.5"/>',
+ arena:'<rect x="3" y="4" width="18" height="16" rx="5"/><circle cx="12" cy="12" r="3"/><path d="M5 8l7 4 7-4M5 16l7-4 7 4"/>',
+ hilo:'<rect x="5" y="3" width="10" height="14" rx="2.5"/><path d="M9 21h8a2.5 2.5 0 0 0 2.5-2.5V8M10 8l-2 2.5L10 13"/>',
+ limbo:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v3M12 12l4.2-3.2M7 20l1.4-2.4"/>',
+ road:'<circle cx="12" cy="14" r="6.2"/><circle cx="7.4" cy="7.4" r="2.4"/><circle cx="16.6" cy="7.4" r="2.4"/><path d="M10 13.4h.01M14 13.4h.01M11 16.2q1 .8 2 0"/>'};
+const META={mines:['Mines','Mines','#2bd9a0'],upgrade:['Upgrade','Upgrade','#9a7bff'],crash:['Crash','Crash','#ff7a7a'],arena:['Arena','Arena','#feca58'],hilo:['Hi-Lo','Hi-Lo','#d46bff'],limbo:['Limbo','Limbo','#47b0f5'],road:['Hamster Road','Hamster','#ffa24a']};
+const ALL_MODES=Object.keys(META).map(k=>[k,META[k][0]]);
+const state={ev:null,last:null,mine:null,at:0,open:false,busy:false,prevLead:null,popKind:null};
 const $x=id=>document.getElementById(id);
 const el=(tag,cls,text)=>{let e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
 const fx=n=>{n=Number(n||0);return n>=100?n.toFixed(0):n>=10?n.toFixed(1).replace(/\.0$/,''):n.toFixed(2).replace(/\.?0+$/,'')};
 const fm=n=>Number(n||0).toFixed(2).replace(/\.?0+$/,'');
+function iconSvg(key,cls){let s=document.createElementNS(NS,'svg');s.setAttribute('viewBox','0 0 24 24');s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.8');s.setAttribute('stroke-linecap','round');s.setAttribute('stroke-linejoin','round');s.setAttribute('aria-hidden','true');if(cls)s.setAttribute('class',cls);s.innerHTML=ICO[key]||'';return s}
+function logoSvg(cls){let s=document.createElementNS(NS,'svg');s.setAttribute('viewBox','0 0 120 120');s.setAttribute('class','xh-logo '+(cls||''));s.setAttribute('aria-hidden','true');let u=document.createElementNS(NS,'use');u.setAttribute('href','#xhLogo');s.appendChild(u);return s}
+function trophySvg(){let s=document.createElementNS(NS,'svg');s.setAttribute('viewBox','0 0 120 120');s.setAttribute('class','xh-logo xh-trophy xh-float');s.setAttribute('aria-hidden','true');s.innerHTML='<path d="M36 20h48v28a24 24 0 0 1-48 0z" fill="url(#xhG)"/><path d="M36 30H22c0 14 6 24 18 26M84 30h14c0 14-6 24-18 26" fill="none" stroke="#ffd777" stroke-width="5" stroke-linecap="round"/><rect x="54" y="70" width="12" height="17" fill="#e8a53a"/><rect x="38" y="87" width="44" height="11" rx="4" fill="url(#xhG)"/><g transform="translate(60 40)"><g><animateTransform attributeName="transform" type="scale" values="1;1.25;1" dur="1.6s" repeatCount="indefinite"/><path d="M0-12l3.6 8 8.6.8-6.5 5.7 1.9 8.5L0 6l-7.6 4.9 1.9-8.5-6.5-5.7 8.6-.8z" fill="#fff" opacity=".95"/></g></g><circle cx="26" cy="22" r="2.5" fill="#feca58"><animate attributeName="opacity" values="0;1;0" dur="1.8s" repeatCount="indefinite"/></circle><circle cx="96" cy="16" r="2" fill="#9fd4ff"><animate attributeName="opacity" values="0;1;0" dur="2.1s" begin=".5s" repeatCount="indefinite"/></circle><circle cx="100" cy="70" r="2.2" fill="#feca58"><animate attributeName="opacity" values="0;1;0" dur="1.9s" begin="1s" repeatCount="indefinite"/></circle>';return s}
 function left(){if(!state.ev||!state.ev.end_at)return null;let s=state.ev.seconds_left-Math.floor((Date.now()-state.at)/1000);return Math.max(0,s)}
 function clock(s){if(s==null)return'∞';let d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),c=s%60,p=v=>String(v).padStart(2,'0');return(d?d+'д ':'')+(d||h?p(h)+':':'')+p(m)+':'+p(c)}
+function dur(s){if(s==null)return'без лимита';let d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.ceil(s%3600/60);if(m===60){m=0;h++}return d?d+' д '+h+' ч':h?h+' ч'+(m?' '+m+' мин':''):Math.max(1,m)+' мин'}
 function ava(r){let a=el('div','xh-ava');if(r&&r.photo_url){let i=new Image();i.src=r.photo_url;i.alt='';i.referrerPolicy='no-referrer';i.onerror=()=>{i.remove();a.textContent=(r.name||'?').slice(0,1).toUpperCase()};a.append(i)}else a.textContent=(r&&r.name||'?').slice(0,1).toUpperCase();return a}
-function prizeIcon(r){let box=el('div','xh-prize-img');if(r.image_url){let i=new Image();i.src=r.image_url;i.alt='';i.referrerPolicy='no-referrer';box.append(i)}else{box.classList.add('ico');box.textContent=r.type==='promo'?'%':'★'}return box}
+function prizeIcon(r){let box=el('div','xh-prize-img');if(r.image_url){let i=new Image();i.src=r.image_url;i.alt='';i.referrerPolicy='no-referrer';i.onerror=()=>{i.remove();box.classList.add('ico');box.textContent='★'};box.append(i)}else{box.classList.add('ico');box.textContent=r.type==='promo'?'%':'★'}return box}
 function prizeRow(r,place){let row=el('div','xh-prize');if(place)row.append(el('span','xh-place',String(place)));row.append(prizeIcon(r));let c=el('div','xh-prize-copy');c.append(el('b','',r.title||'Приз'),el('small','',r.subtitle||''));row.append(c);return row}
-function ensureDefs(){if($x('xhIcoDefs'))return;let d=document.createElement('div');d.id='xhIcoDefs';d.style.cssText='position:absolute;width:0;height:0;overflow:hidden';d.innerHTML='<svg width="0" height="0"><defs><linearGradient id="xhg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#47b0f5"/><stop offset=".6" stop-color="#9a7bff"/><stop offset="1" stop-color="#feca58"/></linearGradient><symbol id="xhIco" viewBox="0 0 120 120"><g class="xh-spin"><circle cx="60" cy="60" r="50" fill="none" stroke="url(#xhg2)" stroke-width="5" stroke-dasharray="10 14" stroke-linecap="round"/></g><circle cx="60" cy="60" r="29" fill="#121427" stroke="url(#xhg2)" stroke-width="5"/><path d="M60 14v18M60 88v18M14 60h18M88 60h18" stroke="url(#xhg2)" stroke-width="6" stroke-linecap="round"/><path d="M48 47l24 26M72 47L48 73" stroke="#fff" stroke-width="9" stroke-linecap="round"/></symbol></defs></svg>';document.body.append(d)}
-/* ---------- strip on the games page ---------- */
-function ensureStrip(){let s=$x('xhStrip');if(s)return s;let page=$x('gamesPage');if(!page)return null;s=el('button','xh-strip hidden');s.id='xhStrip';s.type='button';s.setAttribute('aria-label','X-Hunt');let h=page.querySelector('h1');h?h.after(s):page.prepend(s);s.onclick=()=>openModal();return s}
-function paintStrip(){let chip=$x('xhAdminChip');if(chip)chip.classList.toggle('hidden',!state.ev);let s=ensureStrip();if(!s)return;let ev=state.ev;if(!ev){s.classList.add('hidden');return}ensureDefs();s.classList.remove('hidden');s.replaceChildren();let ico=document.createElementNS('http://www.w3.org/2000/svg','svg');ico.setAttribute('class','xh-strip-ico');ico.setAttribute('viewBox','0 0 120 120');ico.innerHTML='<use href="#xhIco"/>';let copy=el('div','xh-strip-copy');let b=el('b','','X-HUNT');b.append(el('span','xh-live','LIVE'));let sm=el('small');copy.append(b,sm);s.append(ico,copy,el('span','xh-strip-go','›'));paintStripText()}
-function paintStripText(){let s=$x('xhStrip'),ev=state.ev;if(!s||!ev)return;let sm=s.querySelector('small');if(!sm)return;sm.replaceChildren();let lead=ev.leader?'лидер x'+fx(ev.leader.x):'лидера пока нет';if(ev.finish_by==='target'){let a=el('em','','Цель x'+fx(ev.target_x));sm.append(a,document.createTextNode(' · '+lead))}else{let l=left();sm.append(el('em','',clock(l)),document.createTextNode(' · '+lead))}}
-/* ---------- modal ---------- */
-function modeChips(ev,clickable){let box=el('div','xh-chips');for(let m of ev.modes||[]){let c=el(clickable&&m.available?'button':'span','xh-chip'+(m.available?'':' off'),m.label+(m.available?'':' · скоро'));if(clickable&&m.available){c.type='button';c.onclick=()=>{closeModal();goGame(m.key)}}box.append(c)}return box}
-function goGame(key){let page=GAME_PAGE[key];try{if(page)show(page)}catch(e){}}
-function boxWith(title){let b=el('div','xh-box');b.append(el('h3','',title));return b}
-function topList(ev){let b=boxWith('Топ участников');if(!ev.top||!ev.top.length){b.append(el('div','xh-empty','Пока никто не поймал множитель'));return b}ev.top.forEach((r,i)=>{let row=el('div','xh-top-row');row.append(el('span','n',String(i+1)),el('span','nm',r.name||'Игрок'),el('span','xx','x'+fx(r.x)));b.append(row)});return b}
-function render(variant){let body=$x('xhBody');if(!body)return;body.replaceChildren();let ev=state.ev;if(!ev){let r=state.last;if(r){renderResult(body,r);return}body.append(el('div','xh-hero',''));let e=el('div','xh-sec');e.append(el('div','xh-empty','Сейчас X-Hunt не проходит'));body.append(e);return}
-ensureDefs();let hero=el('div','xh-hero');hero.innerHTML=ART;let tag=el('div','xh-tag');tag.append(el('span','xh-live','LIVE'));let h=el('h2','','X-HUNT');h.id='xhTitle';let p=el('p','',variant==='announce'?'Начался новый X-Hunt! Лови множитель и забирай приз.':ev.finish_by==='target'?'Первый, кто поймает целевой множитель, забирает приз.':'Лучший множитель до конца таймера забирает приз.');hero.append(tag,h,p);body.append(hero);
-let sec=el('div','xh-sec');
-if(ev.finish_by==='target'){let t=el('div','xh-target');t.append(el('small','','НУЖНО ПОЙМАТЬ'),el('b','','x'+fx(ev.target_x)));sec.append(t);let best=ev.leader?ev.leader.x:0,pct=Math.max(2,Math.min(100,best/ev.target_x*100));let bar=el('div','xh-bar');bar.append(document.createElement('i'));bar.firstChild.style.width=(ev.leader?pct:0)+'%';sec.append(bar,el('div','xh-bar-note',ev.leader?'Лучший сейчас: x'+fx(best)+' из x'+fx(ev.target_x):'Пока никто не поймал даже 1.01'));if(ev.end_at){let c=el('div','xh-count');c.id='xhCount';c.append(el('small','','ДЕДЛАЙН'),el('span','',clock(left())));sec.append(c)}}
-else{let c=el('div','xh-count');c.id='xhCount';c.append(el('small','','ДО КОНЦА'),el('span','',clock(left())));sec.append(c)}
-body.append(sec);
-let s2=el('div','xh-sec');
-let lb=boxWith(ev.finish_by==='target'?'Ближе всех':'Сейчас лидирует');if(ev.leader){let w=el('div','xh-who');w.append(ava(ev.leader));let c=el('div','xh-who-copy');c.append(el('b','',ev.leader.name||'Игрок'),el('small','',ev.leader.mode_label||''));w.append(c,el('span','xh-x','x'+fx(ev.leader.x)));lb.append(w)}else lb.append(el('div','xh-empty','Лидера пока нет — стань первым!'));s2.append(lb);
-if(ev.me){let me=boxWith('Твой результат');me.classList.add('xh-me');let r=el('div','xh-min');r.append(el('span','',ev.me.rank+' место · '+(ev.me.mode_label||'')),el('b','','x'+fx(ev.me.x)));me.append(r);s2.append(me)}
-let pb=boxWith(ev.finish_by==='target'||(ev.rewards||[]).length<2?'Приз':'Призы');(ev.rewards||[]).forEach((r,i)=>pb.append(prizeRow(r,(ev.rewards||[]).length>1?i+1:0)));s2.append(pb);
-let mb=boxWith('Доступные режимы'+(ev.all_modes?' · все':''));mb.append(modeChips(ev,true));let mn=el('div','xh-min');mn.style.marginTop='10px';mn.append(el('span','','Минимальная ставка'),el('b','',ev.min_bet>0?'от '+fm(ev.min_bet)+' TON':'любая'));mb.append(mn);s2.append(mb);
-if(ev.top&&ev.top.length>1)s2.append(topList(ev));
-body.append(s2);let go=el('button','xh-go','Играть');go.type='button';go.onclick=()=>{closeModal();let av=(ev.modes||[]).filter(m=>m.available);if(av.length===1)goGame(av[0].key);else{try{show('gamesPage')}catch(e){}}};body.append(go)}
-function renderResult(body,r){ensureDefs();let hero=el('div','xh-hero');hero.innerHTML=ART;let h=el('h2','','X-HUNT');h.id='xhTitle';let w=r.winners||[];hero.append(h,el('p','',r.reason==='cancelled'?'Событие завершено без наград.':w.length?'Событие завершено. Поздравляем победителей!':'Событие завершено — победителя нет.'));body.append(hero);let sec=el('div','xh-sec');if(w.length){let b=boxWith('Победители');w.forEach(x=>{let row=el('div','xh-who');row.style.padding='6px 0';row.append(ava(x));let c=el('div','xh-who-copy');c.append(el('b','',x.name||'Игрок'),el('small','',(x.place||1)+' место · '+(x.reward&&x.reward.title||'')+(x.mode_label?' · '+x.mode_label:'')));row.append(c,el('span','xh-x','x'+fx(x.x)));b.append(row)});sec.append(b)}body.append(sec);let go=el('button','xh-go','Отлично');go.type='button';go.onclick=closeModal;body.append(go)}
-function openModal(variant){ensureDefs();render(variant);let m=$x('xhModal');m.classList.remove('hidden');state.open=true;fetchState()}
-function closeModal(){$x('xhModal').classList.add('hidden');state.open=false}
-/* ---------- polling ---------- */
-function anyBlockingModal(){return !!document.querySelector('.modal:not(.hidden):not(#xhModal)')}
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
-function afterState(){paintStrip();let ev=state.ev;if(state.open)render();
- if(ev){if(String(ev.id)!==lsGet(SEEN_KEY)&&!anyBlockingModal()&&!state.open&&typeof user!=='undefined'&&user){lsSet(SEEN_KEY,String(ev.id));openModal('announce')}}
- else if(state.last&&String(state.last.id)!==lsGet(SEEN_RES)&&!anyBlockingModal()&&!state.open&&typeof user!=='undefined'&&user){lsSet(SEEN_RES,String(state.last.id));if(String(state.last.id)===lsGet(SEEN_KEY)||(state.last.winners||[]).length)openModal()}}
-async function fetchState(){if(state.busy||typeof user==='undefined'||!user)return;state.busy=true;try{let d=await api('/api/xhunt/state',{timeoutMs:8000});state.ev=d.active?d.event:null;state.last=d.last||null;state.at=Date.now();afterState()}catch(e){}finally{state.busy=false}}
-function tick(){let ev=state.ev;if(!ev)return;let l=left();let c=$x('xhCount');if(c&&c.lastChild)c.lastChild.textContent=clock(l);paintStripText();if(l===0&&ev.end_at&&Date.now()-state.at>1500)fetchState()}
-let n=0;setInterval(()=>{n++;if(document.hidden)return;tick();let every=state.open?4:(state.ev?10:20);if(n%every===0)fetchState()},1000);
+function modeTile(m,clickable,i){let on=m.available!==false;let t=el(clickable&&on?'button':'div','xh-mode'+(on?'':' off'));if(t.tagName==='BUTTON')t.type='button';t.style.setProperty('--c',META[m.key][2]);t.style.animationDelay=(0.18+i*0.05)+'s';t.title=m.label;let ic=el('span','xh-mode-ico');ic.append(iconSvg(m.key));t.append(ic,el('span','nm',META[m.key][1]));if(clickable&&on)t.onclick=()=>{closeModal();goGame(m.key)};return t}
+function modesGrid(ev,clickable){let g=el('div','xh-modes');(ev.modes||[]).forEach((m,i)=>g.append(modeTile(m,clickable,i)));return g}
+function goGame(key){let page=GAME_PAGE[key];try{if(page)show(page)}catch(e){}}
+/* ---------- strip on the games page ---------- */
+function ensureStrip(){let s=$x('xhStrip');if(s)return s;let page=$x('gamesPage');if(!page)return null;s=el('button','xh-strip hidden');s.id='xhStrip';s.type='button';s.setAttribute('aria-label','Открыть X-Hunt');let h=page.querySelector('h1');h?h.after(s):page.prepend(s);return s}
+document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#xhStrip'))openModal()});
+function paintStrip(){let chip=$x('xhAdminChip');if(chip)chip.classList.toggle('hidden',!state.ev);let s=ensureStrip();if(!s)return;let ev=state.ev;if(!ev){s.classList.add('hidden');return}
+ s.classList.remove('hidden');if(!s.firstChild){let copy=el('div','xh-strip-copy');let b=el('b','','X-HUNT');b.append(el('span','xh-live','LIVE'));copy.append(b,el('small'));s.append(logoSvg('xh-strip-ico'),copy,el('span','xh-strip-go','›'))}
+ paintStripText();let key=ev.id+':'+(ev.leader?ev.leader.user_id+':'+ev.leader.x:'');if(state.prevLead!==null&&state.prevLead!==key){s.classList.remove('xh-flash');void s.offsetWidth;s.classList.add('xh-flash')}state.prevLead=key}
+function paintStripText(){let s=$x('xhStrip'),ev=state.ev;if(!s||!ev)return;let sm=s.querySelector('small');if(!sm)return;sm.replaceChildren();let lead=ev.leader?'лидер x'+fx(ev.leader.x):'лидера пока нет';if(ev.finish_by==='target')sm.append(el('em','','Цель x'+fx(ev.target_x)),document.createTextNode(' · '+lead));else sm.append(el('em','',clock(left())),document.createTextNode(' · '+lead))}
+/* ---------- details modal ---------- */
+function boxWith(title,i){let b=el('div','xh-box');b.style.animationDelay=(i||0)*0.07+'s';b.append(el('h3','',title));return b}
+function topList(ev,i){let b=boxWith('Топ участников',i);if(!ev.top||!ev.top.length){b.append(el('div','xh-empty','Пока никто не поймал множитель'));return b}ev.top.forEach((r,k)=>{let row=el('div','xh-top-row');row.append(el('span','n',String(k+1)),el('span','nm',r.name||'Игрок'),el('span','xx','x'+fx(r.x)));b.append(row)});return b}
+function render(){let body=$x('xhBody');if(!body)return;let keep=$x('xhModal').querySelector('.modal-card').scrollTop;body.replaceChildren();let ev=state.ev;
+ if(!ev){let e=el('div','xh-sec');e.style.paddingTop='56px';e.append(el('div','xh-empty','Сейчас X-Hunt не проходит'));body.append(e);let f=el('div','xh-modal-foot');let b=el('button','xh-btn ghost','Закрыть');b.type='button';b.onclick=closeModal;f.append(b);body.append(f);return}
+ let hero=el('div','xh-hero');hero.append(el('div','xh-glow'),logoSvg('xh-float'));let tag=el('div','xh-tag');tag.append(el('span','xh-live','LIVE'));let h=el('h2','','X-HUNT');h.id='xhTitle';hero.append(tag,h,el('p','',ev.finish_by==='target'?'Первый, кто поймает целевой множитель, забирает приз.':'Лучший множитель до конца таймера забирает приз.'));body.append(hero);
+ let sec=el('div','xh-sec');
+ if(ev.finish_by==='target'){let t=el('div','xh-target');t.append(el('small','','НУЖНО ПОЙМАТЬ'),el('b','','x'+fx(ev.target_x)));sec.append(t);let best=ev.leader?ev.leader.x:0,pct=Math.max(3,Math.min(100,best/ev.target_x*100));let bar=el('div','xh-bar');let fill=document.createElement('i');bar.append(fill);setTimeout(()=>fill.style.width=(ev.leader?pct:0)+'%',60);sec.append(bar,el('div','xh-bar-note',ev.leader?'Лучший сейчас: x'+fx(best)+' из x'+fx(ev.target_x):'Пока никто не поймал даже 1.01'));if(ev.end_at){let c=el('div','xh-count');c.id='xhCount';c.append(el('small','','ДЕДЛАЙН'),el('span','',clock(left())));sec.append(c)}}
+ else{let c=el('div','xh-count');c.id='xhCount';c.append(el('small','','ДО КОНЦА'),el('span','',clock(left())));sec.append(c)}
+ body.append(sec);let s2=el('div','xh-sec');let n=0;
+ let lb=boxWith(ev.finish_by==='target'?'Ближе всех':'Сейчас лидирует',n++);lb.id='xhLead';if(state.flashLead){lb.classList.add('flash');state.flashLead=false}
+ if(ev.leader){let w=el('div','xh-who');w.append(ava(ev.leader));let c=el('div','xh-who-copy');c.append(el('b','',ev.leader.name||'Игрок'),el('small','',ev.leader.mode_label||''));w.append(c,el('span','xh-x','x'+fx(ev.leader.x)));lb.append(w)}else lb.append(el('div','xh-empty','Лидера пока нет — стань первым!'));s2.append(lb);
+ if(ev.me){let me=boxWith('Твой результат',n++);me.classList.add('xh-me');let r=el('div','xh-min');r.append(el('span','',ev.me.rank+' место · '+(ev.me.mode_label||'')),el('b','','x'+fx(ev.me.x)));me.append(r);s2.append(me)}
+ let pb=boxWith((ev.rewards||[]).length<2?'Приз':'Призы',n++);(ev.rewards||[]).forEach((r,i)=>pb.append(prizeRow(r,(ev.rewards||[]).length>1?i+1:0)));s2.append(pb);
+ let mb=boxWith('Режимы'+(ev.all_modes?' · все':''),n++);mb.append(modesGrid(ev,true));let mn=el('div','xh-min');mn.style.marginTop='12px';mn.append(el('span','','Минимальная ставка'),el('b','',ev.min_bet>0?'от '+fm(ev.min_bet)+' TON':'любая'));mb.append(mn);s2.append(mb);
+ if(ev.top&&ev.top.length>1)s2.append(topList(ev,n++));
+ body.append(s2);let foot=el('div','xh-modal-foot');let go=el('button','xh-btn pri','Играть');go.type='button';go.onclick=()=>{closeModal();let av=(ev.modes||[]).filter(m=>m.available);if(av.length===1)goGame(av[0].key);else{try{show('gamesPage')}catch(e){}}};foot.append(go);body.append(foot);
+ $x('xhModal').querySelector('.modal-card').scrollTop=keep}
+function openModal(){closePop();render();$x('xhModal').classList.remove('hidden');state.open=true;fetchState()}
+function closeModal(){$x('xhModal').classList.add('hidden');state.open=false;setTimeout(nextPopup,300)}
+/* ---------- popups: announce / results / win ---------- */
+const pop=()=>$x('xhPop');
+function sparks(card,n,cols){for(let i=0;i<n;i++){let s=el('i','xh-spark');s.style.left=Math.random()*100+'%';s.style.background=cols[i%cols.length];s.style.animationDuration=(3.5+Math.random()*3.5)+'s';s.style.animationDelay=(Math.random()*4)+'s';s.style.width=s.style.height=(3+Math.random()*4)+'px';card.append(s)}}
+function confetti(){let cols=['#feca58','#47b0f5','#9a7bff','#ff7a7a','#2bd9a0','#ffffff'];for(let i=0;i<46;i++){let c=el('i','xh-confetti');c.style.left=Math.random()*100+'vw';c.style.background=cols[i%cols.length];c.style.setProperty('--dx',(Math.random()*160-80)+'px');c.style.setProperty('--rot',(Math.random()*900-450)+'deg');c.style.animationDuration=(2.2+Math.random()*2)+'s';c.style.animationDelay=(Math.random()*.6)+'s';document.body.append(c);setTimeout(()=>c.remove(),5200)}}
+function popOpen(kind,bodyNodes,footNodes,sparkCols){let p=pop(),card=$x('xhPopCard'),body=$x('xhPopBody'),foot=$x('xhPopFoot');card.querySelectorAll('.xh-spark').forEach(x=>x.remove());body.replaceChildren(...bodyNodes);foot.replaceChildren(...footNodes);sparks(card,16,sparkCols||['#47b0f5','#9a7bff','#feca58']);body.scrollTop=0;state.popKind=kind;p.classList.remove('hidden');let first=foot.querySelector('button');if(first)setTimeout(()=>{try{first.focus({preventScroll:true})}catch(e){}},400)}
+function closePop(){let p=pop();if(!p||p.classList.contains('hidden'))return;p.classList.add('hidden');state.popKind=null;setTimeout(nextPopup,350)}
+function btn(cls,text,fn){let b=el('button','xh-btn '+cls,text);b.type='button';b.onclick=fn;return b}
+function heroBlock(tagText,tagGold,title,sub,art){let h=el('div','xh-hero2');h.append(el('div','xh-glow'),art||logoSvg('xh-float'));let t=el('div','xh-tag2',tagText);if(!tagGold)t.style.cssText='';h.append(t,el('h2','xh-title2',title),el('p','xh-sub2',sub));return h}
+function showAnnounce(ev){let hero=heroBlock('НОВОЕ СОБЫТИЕ',true,'X-HUNT',ev.finish_by==='target'?'Охота началась! Первый, кто поймает цель, забирает приз.':'Охота началась! Лучший множитель забирает приз.');
+ let pills=el('div','xh-pills');let a=el('div','xh-pill2'+(ev.finish_by==='target'?' gold':''));a.style.animationDelay='.05s';if(ev.finish_by==='target'){a.append(el('small','','Нужно поймать'),el('b','','x'+fx(ev.target_x)))}else{a.append(el('small','','Длится'),el('b','',dur(left())))}
+ let b=el('div','xh-pill2');b.style.animationDelay='.1s';b.append(el('small','','Ставка от'),el('b','',ev.min_bet>0?fm(ev.min_bet)+' TON':'любая'));pills.append(a,b);
+ let nodes=[hero,pills];let r0=(ev.rewards||[])[0];if(r0){nodes.push(el('div','xh-lbl2','Главный приз'));let ph=el('div','xh-prize-hero');ph.append(prizeIcon(r0));let c=el('div','xh-prize-copy');c.append(el('b','',r0.title),el('small','',r0.subtitle+((ev.rewards||[]).length>1?' · и призы за 2–'+(ev.rewards||[]).length+' места':'')));ph.append(c);nodes.push(ph)}
+ nodes.push(el('div','xh-lbl2','Режимы охоты'),modesGrid(ev,false));
+ popOpen('announce',nodes,[btn('pri','Подробнее и лидеры',()=>{closePop();setTimeout(openModal,120)}),btn('ghost','Позже',closePop)])}
+function showResults(last){let w=last.winners||[];let hero=heroBlock('ИТОГИ',true,'X-HUNT',w.length?'Охота завершена! Поздравляем победителей.':'Охота завершена — победителя нет.');let nodes=[hero];if(w.length){let pod=el('div','xh-podium');w.slice(0,3).forEach((x,i)=>{let row=el('div','xh-win-row p'+(x.place||i+1));row.style.animationDelay=(.1+i*.09)+'s';row.append(el('span','xh-medal',String(x.place||i+1)),ava(x));let c=el('div','xh-who-copy');c.append(el('b','',x.name||'Игрок'),el('small','',((x.reward&&x.reward.title)||'')+(x.mode_label?' · '+x.mode_label:'')));row.append(c,el('span','xh-x','x'+fx(x.x)));pod.append(row)});nodes.push(pod)}
+ popOpen('results',nodes,[btn('pri','Отлично',closePop)])}
+function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(t).then(()=>true).catch(()=>false)}catch(e){}return Promise.resolve(false)}
+function showWin(my){confetti();let place=my.place||1;let hero=heroBlock(place+' МЕСТО',true,'ПОБЕДА!','Вы поймали x'+fx(my.x)+(my.mode_label?' в режиме '+my.mode_label:'')+' и выиграли в X-Hunt.',trophySvg());let nodes=[hero];let r=my.reward||{};nodes.push(el('div','xh-lbl2','Ваша награда'));let ph=el('div','xh-prize-hero');ph.append(prizeIcon(r));let c=el('div','xh-prize-copy');c.append(el('b','',r.title||'Приз'),el('small','',r.subtitle||''));ph.append(c);nodes.push(ph);
+ let note=r.type==='catalog'||r.type==='fragment'?'Подарок уже в вашем инвентаре.':r.type==='promo'?'Введите промокод в разделе «Бонусы».':'Награда уже зачислена на баланс.';
+ if(my.code){let box=el('div','xh-code');box.append(el('code','',my.code));let cb=el('button','','Копировать');cb.type='button';cb.onclick=async()=>{let ok=await copyText(my.code);cb.textContent=ok?'Скопировано':'Выделите код';setTimeout(()=>cb.textContent='Копировать',1800)};box.append(cb);nodes.push(box)}
+ let nt=el('p','xh-sub2',note);nt.style.cssText='text-align:center;margin:12px 0 4px';nodes.push(nt);
+ let main=r.type==='catalog'||r.type==='fragment'?btn('gold','Открыть инвентарь',()=>{closePop();try{show('profilePage')}catch(e){}}):r.type==='promo'?btn('gold','Ввести промокод',()=>{closePop();try{show('bonusPage')}catch(e){}}):btn('gold','Отлично',closePop);
+ popOpen('win',nodes,[main,btn('ghost','Закрыть',closePop)],['#feca58','#ffd777','#ff9a4c','#9a7bff'])}
+/* ---------- polling ---------- */
+function anyBlockingModal(){return !!document.querySelector('.modal:not(.hidden):not(#xhModal)')||!!document.querySelector('#walletModal:not(.hidden)')}
+function nextPopup(){if(typeof user==='undefined'||!user)return;let p=pop();if(!p||!p.classList.contains('hidden')||state.open||anyBlockingModal())return;
+ let m=state.mine;if(m&&String(m.event_id)!==lsGet(SEEN_WIN)){lsSet(SEEN_WIN,String(m.event_id));lsSet(SEEN_RES,String(m.event_id));showWin(m);return}
+ let ev=state.ev;if(ev){if(ev.notify_start!==false&&String(ev.id)!==lsGet(SEEN_KEY)){lsSet(SEEN_KEY,String(ev.id));showAnnounce(ev)}return}
+ let last=state.last;if(last&&last.notify_end!==false&&last.reason!=='cancelled'&&String(last.id)!==lsGet(SEEN_RES)){lsSet(SEEN_RES,String(last.id));showResults(last)}}
+async function fetchState(){if(state.busy||typeof user==='undefined'||!user)return;state.busy=true;try{let d=await api('/api/xhunt/state',{timeoutMs:8000});let prev=state.ev;state.ev=d.active?d.event:null;state.last=d.last||null;state.mine=d.my_win||null;state.at=Date.now();
+  if(prev&&state.ev&&prev.id===state.ev.id){let a=prev.leader?prev.leader.user_id+':'+prev.leader.x:'',b=state.ev.leader?state.ev.leader.user_id+':'+state.ev.leader.x:'';if(a!==b)state.flashLead=true}
+  paintStrip();if(state.open)render();nextPopup()}catch(e){}finally{state.busy=false}}
+function tick(){let ev=state.ev;if(!ev)return;let l=left();let c=$x('xhCount');if(c&&c.lastChild){c.lastChild.textContent=clock(l);c.classList.toggle('low',l!=null&&l<=60)}paintStripText();if(l===0&&ev.end_at&&Date.now()-state.at>1500)fetchState()}
+let n=0;setInterval(()=>{n++;if(document.hidden)return;tick();let every=state.open?4:(state.ev?10:20);if(n%every===0)fetchState();if(n%3===0)nextPopup()},1000);
 setTimeout(fetchState,1200);setTimeout(fetchState,4000);
+try{if(typeof dialogObserver!=='undefined')dialogObserver.observe($x('xhModal'),{attributes:true,attributeFilter:['class']})}catch(e){}
 $x('xhClose').onclick=closeModal;$x('xhModal').addEventListener('click',e=>{if(e.target.id==='xhModal')closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&state.open)closeModal()});
+$x('xhPop').addEventListener('click',e=>{if(e.target.id==='xhPop')closePop()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(state.popKind)closePop();else if(state.open)closeModal()}});
 /* ---------- admin ---------- */
 const A={cfg:null,data:null,finish:'time',modes:new Set(),all:true,rewards:[{type:'ton'},{type:'none'},{type:'none'}]};
 const TYPE_OPTS=[['none','— нет —'],['ton','TON на основной баланс'],['bonus','TON на бонусный баланс'],['catalog','Подарок из Portal'],['fragment','Подарок Telegram (NFT, ссылка)'],['promo','Личный промокод']];
@@ -12693,10 +12825,10 @@ function adminHTML(d){const body=$x('xhAdminBody');body.replaceChildren();A.data
  else{body.append(formCard(d))}
  let hist=el('div','panel');hist.append(el('h2','','Прошлые события'));let list=el('div','xh-hist');(d.history||[]).forEach(e=>{let it=el('div','xh-hist-item');let w=(e.winners||[]);it.innerHTML='';let b=el('b','','X-Hunt #'+e.id);it.append(b,document.createTextNode(' · '+(e.finish_by==='target'?'цель x'+fx(e.target_x):'по времени')+' · '+(e.reason==='cancelled'?'отменён':w.length?'победитель: '+(w[0].name||'Игрок')+' (x'+fx(w[0].x)+')':'без победителя')));list.append(it)});if(!list.children.length)list.append(el('div','xh-hint','Пока ничего не было.'));hist.append(list);body.append(hist);
  let chip=$x('xhAdminChip');if(chip)chip.classList.toggle('hidden',!d.active)}
-function formCard(d){const last=d.last_config||{};if(!A.cfg){A.cfg=true;A.finish=last.finish_by||'time';A.all=last.all_modes!==undefined?!!last.all_modes:true;A.modes=new Set(last.modes||ALL_MODES.map(m=>m[0]));A.rewards=[...(last.rewards||[]),{type:'none'},{type:'none'},{type:'none'}].slice(0,3).map((r,i)=>i===0&&(!r||r.type==='none')?{type:'ton'}:r);A.v={hours:last.duration_min?Math.floor(last.duration_min/60):1,minutes:last.duration_min?last.duration_min%60:0,target:last.target_x||'',deadline:last.deadline_hours||0,min_bet:last.min_bet!=null?last.min_bet:'0.5',tg:!!last.telegram,adm:!!last.include_admins}}
+function formCard(d){const last=d.last_config||{};if(!A.cfg){A.cfg=true;A.finish=last.finish_by||'time';A.all=last.all_modes!==undefined?!!last.all_modes:true;A.modes=new Set(last.modes||ALL_MODES.map(m=>m[0]));A.rewards=[...(last.rewards||[]),{type:'none'},{type:'none'},{type:'none'}].slice(0,3).map((r,i)=>i===0&&(!r||r.type==='none')?{type:'ton'}:r);A.v={hours:last.duration_min?Math.floor(last.duration_min/60):1,minutes:last.duration_min?last.duration_min%60:0,target:last.target_x||'',deadline:last.deadline_hours||0,min_bet:last.min_bet!=null?last.min_bet:'0.5',tg:!!last.telegram,adm:!!last.include_admins,ns:last.notify_start!==false,ne:last.notify_end!==false}}
  const v=A.v;const card=el('div','panel xh-form');card.append(el('h2','','Запустить X-Hunt'));
  // modes
- let fm1=el('div','xh-field');fm1.append(el('label','','Режимы'));let chips=el('div','xh-chips');const paintChips=()=>{chips.replaceChildren();let all=el('button','xh-chip'+(A.all?' on':''),'Все режимы');all.type='button';all.onclick=()=>{A.all=!A.all;if(A.all)A.modes=new Set(ALL_MODES.map(m=>m[0]));paintChips()};chips.append(all);ALL_MODES.forEach(([k,t])=>{let c=el('button','xh-chip'+(A.modes.has(k)?' on':''),t);c.type='button';c.onclick=()=>{A.modes.has(k)?A.modes.delete(k):A.modes.add(k);A.all=A.modes.size===ALL_MODES.length;paintChips()};chips.append(c)})};paintChips();fm1.append(chips,el('div','xh-hint','Режим, выключенный в «Управлении играми», останется в списке с пометкой «скоро» — ставки в нём не принимаются.'));card.append(fm1);
+ let fm1=el('div','xh-field');fm1.append(el('label','','Режимы'));let chips=el('div','xh-chips');const paintChips=()=>{chips.replaceChildren();let all=el('button','xh-chip'+(A.all?' on':''),'Все режимы');all.type='button';all.onclick=()=>{A.all=!A.all;if(A.all)A.modes=new Set(ALL_MODES.map(m=>m[0]));paintChips()};chips.append(all);ALL_MODES.forEach(([k,t])=>{let c=el('button','xh-chip'+(A.modes.has(k)?' on':''));c.append(iconSvg(k),document.createTextNode(t));c.type='button';c.onclick=()=>{A.modes.has(k)?A.modes.delete(k):A.modes.add(k);A.all=A.modes.size===ALL_MODES.length;paintChips()};chips.append(c)})};paintChips();fm1.append(chips,el('div','xh-hint','Режим, выключенный в «Управлении играми», останется в списке с пометкой «скоро» — ставки в нём не принимаются.'));card.append(fm1);
  // finish
  let ff=el('div','xh-field');ff.append(el('label','','Чем заканчивается'));let seg=el('div','xh-seg');let bt=el('button','','По времени'),bx=el('button','','По достижению X');bt.type=bx.type='button';seg.append(bt,bx);let fin=el('div','xh-field');ff.append(seg,fin);
  const paintFinish=()=>{bt.classList.toggle('active',A.finish==='time');bx.classList.toggle('active',A.finish==='target');fin.replaceChildren();
@@ -12709,13 +12841,13 @@ function formCard(d){const last=d.last_config||{};if(!A.cfg){A.cfg=true;A.finish
  // rewards
  let fr=el('div','xh-field');fr.append(el('label','','Награды'));let rbox=el('div','xh-field');fr.append(rbox);const paintRewards=()=>{rbox.replaceChildren();let n=A.finish==='target'?1:3;for(let i=0;i<n;i++)rbox.append(rewardEditor(i))};card.append(fr);
  // options
- let fo=el('div','xh-field');const chk=(label,key)=>{let l=el('label','xh-check');let c=el('input');c.type='checkbox';c.checked=!!v[key];c.onchange=()=>v[key]=c.checked;l.append(c,el('span','',label));return l};fo.append(chk('Разослать анонс в Telegram всем игрокам','tg'),chk('Засчитывать администраторов (для теста)','adm'),el('div','xh-hint','Внутри приложения уведомление всплывает у всех автоматически — один раз для каждого события.'));card.append(fo);
+ let fo=el('div','xh-field');const chk=(label,key)=>{let l=el('label','xh-check');let c=el('input');c.type='checkbox';c.checked=!!v[key];c.onchange=()=>v[key]=c.checked;l.append(c,el('span','',label));return l};let nb=el('div','xh-notify');nb.append(el('div','xh-lbl','Уведомления'),chk('Уведомить всех при старте (всплывающее окно в приложении)','ns'),chk('Уведомить всех при окончании (итоги и победители)','ne'),chk('Дублировать в Telegram (старт и итоги всем игрокам)','tg'),el('div','xh-hint','Победитель всегда получает личное окно в приложении и сообщение в Telegram. Промокод виден только ему.'));fo.append(nb,chk('Засчитывать администраторов (для теста)','adm'));card.append(fo);
  paintFinish();
- let go=el('button','primary','Запустить X-Hunt');go.type='button';let st=el('div','notice hidden');st.setAttribute('role','status');go.onclick=async()=>{if(!A.modes.size){say(st,'Выберите хотя бы один режим.',true);return}let payload={modes:[...A.modes],all_modes:A.all,finish_by:A.finish,hours:v.hours,minutes:v.minutes,target_x:v.target,deadline_hours:v.deadline,min_bet:v.min_bet||0,rewards:A.rewards.slice(0,A.finish==='target'?1:3),telegram:!!v.tg,include_admins:!!v.adm};go.disabled=true;try{await api('/api/admin/xhunt/start',{method:'POST',body:JSON.stringify(payload)});A.cfg=null;toast('X-Hunt запущен');await loadAdmin();fetchState()}catch(e){say(st,e.message,true)}finally{go.disabled=false}};card.append(go,st);return card}
+ let go=el('button','primary','Запустить X-Hunt');go.type='button';let st=el('div','notice hidden');st.setAttribute('role','status');go.onclick=async()=>{if(!A.modes.size){say(st,'Выберите хотя бы один режим.',true);return}let payload={modes:[...A.modes],all_modes:A.all,finish_by:A.finish,hours:v.hours,minutes:v.minutes,target_x:v.target,deadline_hours:v.deadline,min_bet:v.min_bet||0,rewards:A.rewards.slice(0,A.finish==='target'?1:3),telegram:!!v.tg,notify_start:!!v.ns,notify_end:!!v.ne,include_admins:!!v.adm};go.disabled=true;try{await api('/api/admin/xhunt/start',{method:'POST',body:JSON.stringify(payload)});A.cfg=null;toast('X-Hunt запущен');await loadAdmin();fetchState()}catch(e){say(st,e.message,true)}finally{go.disabled=false}};card.append(go,st);return card}
 function say(n,t,err){n.textContent=t;n.classList.remove('hidden');n.classList.toggle('error',!!err)}
 async function stop(award){try{await api('/api/admin/xhunt/stop',{method:'POST',body:JSON.stringify({award})});toast(award?'X-Hunt завершён':'X-Hunt отменён');await loadAdmin();fetchState()}catch(e){toast(e.message)}}
 async function loadAdmin(){try{let d=await api('/api/admin/xhunt');adminHTML(d)}catch(e){let b=$x('xhAdminBody');if(b)b.replaceChildren(el('div','notice error',e.message))}}
-window.XH={open:openModal,loadAdmin,refresh:fetchState};
+window.XH={open:openModal,loadAdmin,refresh:fetchState,popup:{announce:()=>state.ev&&showAnnounce(state.ev),results:()=>state.last&&showResults(state.last),win:()=>state.mine&&showWin(state.mine)}};
 setInterval(()=>{let pg=$x('xhuntAdminPage');if(!document.hidden&&pg&&!pg.classList.contains('hidden')&&A.data&&A.data.active)loadAdmin()},10000);
 const ob=$x('openXhuntAdmin');if(ob)ob.onclick=()=>{show('xhuntAdminPage');loadAdmin()};
 const bk=$x('xhuntAdminBack');if(bk)bk.onclick=()=>show('adminPage');

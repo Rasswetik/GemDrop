@@ -20450,6 +20450,8 @@ def xhunt_normalize_config(data):
         rewards.pop()
     cfg['rewards'] = rewards
     cfg['telegram'] = bool(data.get('telegram'))
+    cfg['notify_start'] = bool(data.get('notify_start', True))
+    cfg['notify_end'] = bool(data.get('notify_end', True))
     cfg['include_admins'] = bool(data.get('include_admins'))
     return cfg
 
@@ -20620,6 +20622,32 @@ def xhunt_grant(db, uid, reward, event_id, place):
     return result
 
 
+def xhunt_broadcast(db, admin_id, text, exclude=()):
+    """Queue one Telegram message for every player through the regular broadcast worker."""
+    skip = {int(x) for x in exclude}
+    rows = [r for r in db.execute('SELECT id FROM users ORDER BY id DESC LIMIT 20000').fetchall() if int(r['id']) not in skip]
+    if not rows:
+        return 0
+    bc = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
+                    (int(admin_id or 0), text, '[]', '[]', len(rows), 0, int(time.time())))
+    for r in rows:
+        db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bc.lastrowid, int(r['id'])))
+    NOTIFY_WAKE.set()
+    return len(rows)
+
+
+def xhunt_results_text(paid, reason):
+    medals = {1: '🥇', 2: '🥈', 3: '🥉'}
+    if not paid:
+        return '🏁 <b>X-Hunt завершён</b>\n\nВ этот раз победителя нет. Следующая охота будет скоро — следите за разделом «Игры»!'
+    lines = ['🏁 <b>X-Hunt завершён!</b>', '']
+    for w in paid[:3]:
+        who = escape(str(w.get('name') or 'Игрок'))
+        lines.append(f'{medals.get(w["place"], "🏆")} <b>{who}</b> — x{w["x"]:g} ({escape(str(w.get("mode_label") or ""))}) · {escape(w["reward"]["title"])}')
+    lines += ['', 'Поздравляем победителей! Следующая охота будет скоро — следите за разделом «Игры».']
+    return '\n'.join(lines)
+
+
 def xhunt_finish(db, ev, winners, reason):
     """Atomically close an active event and pay the prizes. winners: [(row, reward), ...]"""
     now = _xhunt_now()
@@ -20645,7 +20673,12 @@ def xhunt_finish(db, ev, winners, reason):
                       f'Награда: <b>{escape(given["reward"]["title"])}</b>{extra}\n\n'
                       + ('Подарок уже в вашем инвентаре.' if reward.get('type') in ('catalog', 'fragment') else
                          'Промокод можно ввести в разделе «Бонусы».' if given['code'] else 'Награда уже зачислена на баланс.')))
-    db.execute('UPDATE xhunt_events SET winners_json=? WHERE id=?', (json.dumps(dict(reason=reason, winners=paid), ensure_ascii=False), ev['id']))
+    cfg = xhunt_event_config(ev)
+    notify_end = bool(cfg.get('notify_end', True)) and reason != 'cancelled'
+    db.execute('UPDATE xhunt_events SET winners_json=? WHERE id=?',
+               (json.dumps(dict(reason=reason, winners=paid, notify_end=notify_end), ensure_ascii=False), ev['id']))
+    if notify_end and cfg.get('telegram'):
+        xhunt_broadcast(db, ev['created_by'], xhunt_results_text(paid, reason), exclude=[w['user_id'] for w in paid])
     for uid, text in notes:
         notify_user_async(uid, text, miniapp_markup('Открыть GemDrop', 'profile'), 'HTML', db=db)
     return paid
@@ -20688,6 +20721,7 @@ def xhunt_event_view(db, ev, uid=0, admin=False):
     view = dict(id=int(ev['id']), state=ev['state'], finish_by=cfg.get('finish_by', 'time'),
                 start_at=_xhunt_iso(start), end_at=_xhunt_iso(end), target_x=cfg.get('target_x') or 0,
                 min_bet=cfg.get('min_bet') or 0, modes=modes, all_modes=bool(cfg.get('all_modes')),
+                notify_start=bool(cfg.get('notify_start', True)),
                 rewards=[xhunt_reward_view(r) for r in (cfg.get('rewards') or [])],
                 seconds_left=max(0, int((end - _xhunt_now()).total_seconds())) if (active and end) else 0)
     if active:
@@ -20706,9 +20740,27 @@ def xhunt_event_view(db, ev, uid=0, admin=False):
         except (TypeError, ValueError):
             doc = {}
         view['reason'] = doc.get('reason', '') if isinstance(doc, dict) else ''
-        view['winners'] = doc.get('winners', []) if isinstance(doc, dict) else []
+        view['notify_end'] = bool(doc.get('notify_end', True)) if isinstance(doc, dict) else True
+        view['winners'] = [{k: v for k, v in w.items() if k != 'code'} for w in (doc.get('winners', []) if isinstance(doc, dict) else [])]
         view['finished_at'] = _xhunt_iso(ev['finished_at'])
     return view
+
+
+def xhunt_my_win(db, uid):
+    """The newest prize this player won in the last 7 days (with the personal promo code, if any)."""
+    for row in db.execute("SELECT * FROM xhunt_events WHERE state='finished' ORDER BY id DESC LIMIT 6").fetchall():
+        fin = parse_datetime_utc(row['finished_at'])
+        if not fin or _xhunt_now() - fin > timedelta(days=7):
+            break
+        try:
+            doc = json.loads(row['winners_json'] or '{}')
+        except (TypeError, ValueError):
+            continue
+        for w in (doc.get('winners') or []) if isinstance(doc, dict) else []:
+            if int(w.get('user_id') or 0) == int(uid):
+                return dict(event_id=int(row['id']), place=w.get('place'), reward=w.get('reward'), code=w.get('code') or '',
+                            x=w.get('x'), mode_label=w.get('mode_label') or '', finished_at=_xhunt_iso(row['finished_at']))
+    return None
 
 
 @app.get('/api/xhunt/state')
@@ -20729,7 +20781,8 @@ def xhunt_state():
             if row and fin and _xhunt_now() - fin < timedelta(hours=24):
                 last = xhunt_event_view(db, row, uid, admin)
         view = xhunt_event_view(db, ev, uid, admin) if ev else None
-    return jsonify(ok=True, active=bool(view), event=view, last=last)
+        mine = xhunt_my_win(db, uid)
+    return jsonify(ok=True, active=bool(view), event=view, last=last, my_win=mine)
 
 
 @app.get('/api/admin/xhunt')
@@ -20773,14 +20826,8 @@ def admin_xhunt_start():
         event_id = cur.lastrowid
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], session['uid'], 'xhunt_start', json.dumps(dict(id=event_id, finish_by=cfg['finish_by'], modes=cfg['modes']))))
-        if cfg.get('telegram'):
-            rows = db.execute('SELECT id FROM users ORDER BY id DESC LIMIT 20000').fetchall()
-            text = xhunt_announce_text(cfg, end)
-            bc = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
-                            (session['uid'], text, '[]', '[]', len(rows), 0, int(time.time())))
-            for r in rows:
-                db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bc.lastrowid, int(r['id'])))
-            NOTIFY_WAKE.set()
+        if cfg.get('telegram') and cfg.get('notify_start'):
+            xhunt_broadcast(db, session['uid'], xhunt_announce_text(cfg, end))
         view = xhunt_event_view(db, xhunt_active_event(db), session['uid'], True)
     return jsonify(ok=True, event=view)
 

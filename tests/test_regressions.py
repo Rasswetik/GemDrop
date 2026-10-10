@@ -1088,6 +1088,7 @@ class RegressionTests(unittest.TestCase):
         with m.connect() as db:
             db.execute("UPDATE xhunt_events SET state='finished' WHERE state='active'")
         cfg = {'modes': ['limbo', 'road'], 'finish_by': 'time', 'minutes': 5, 'min_bet': '0.50',
+               'telegram': True, 'notify_end': True,
                'rewards': [{'type': 'ton', 'amount': '5'}, {'type': 'promo', 'promo_kind': 'bonus', 'amount': '2'}]}
         self.post('/api/admin/xhunt/start', cfg, 403)
         patcher = patch.object(m, 'ADMIN_IDS', {self.uid})   # the background loop shares this module state
@@ -1128,6 +1129,19 @@ class RegressionTests(unittest.TestCase):
         after = self.client.get('/api/xhunt/state').get_json()
         self.assertFalse(after['active'])
         self.assertEqual(after['last']['winners'][0]['name'], 'Winner')
+        self.assertTrue(after['last']['notify_end'])
+        self.assertTrue(all('code' not in w for w in after['last']['winners']))   # promo codes are private
+        self.assertIsNone(after['my_win'])
+        other_client = m.app.test_client()
+        with other_client.session_transaction() as sess:
+            sess['uid'] = other
+        mine = other_client.get('/api/xhunt/state').get_json()['my_win']
+        self.assertEqual(mine['place'], 2)
+        self.assertTrue(mine['code'].startswith('XH-'))
+        with m.connect() as db:
+            texts = [r['text'] for r in db.execute('SELECT text FROM broadcasts').fetchall()]
+        self.assertTrue(any('X-Hunt завершён' in t for t in texts))
+        self.assertTrue(any('X-Hunt начался' in t for t in texts))
 
         tcfg = {'modes': ['limbo'], 'finish_by': 'target', 'target_x': '10', 'min_bet': '0',
                 'rewards': [{'type': 'bonus', 'amount': '3'}]}

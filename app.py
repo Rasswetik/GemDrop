@@ -23,6 +23,8 @@ from copy import deepcopy
 from urllib.parse import parse_qsl, quote_plus
 
 import requests
+
+import notice_defs
 from flask import Flask, jsonify, request, session, send_file, g, has_request_context
 
 
@@ -800,7 +802,7 @@ def _initialize_schema():
             ('fragment_symbol', "TEXT NOT NULL DEFAULT ''"), ('price_source', "TEXT NOT NULL DEFAULT ''"),
         ])
         ensure_columns('giveaway_prizes', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
-        ensure_columns('user_notifications', [('giveaway_id', 'INTEGER')])
+        ensure_columns('user_notifications', [('giveaway_id', 'INTEGER'), ('vars', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('source_label', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('deposit_mirror', 'INTEGER NOT NULL DEFAULT 0')])
@@ -955,6 +957,7 @@ def _initialize_schema():
         CREATE INDEX IF NOT EXISTS user_events_retention ON user_events(created_at);
         CREATE INDEX IF NOT EXISTS notification_retention ON user_notifications(created_at);
         """)
+        ensure_columns('broadcasts', [('source_chat', 'BIGINT NOT NULL DEFAULT 0'), ('source_ids', "TEXT NOT NULL DEFAULT ''")])
         db.execute('CREATE INDEX IF NOT EXISTS inventory_user ON inventory(user_id,id DESC)')
         db.execute('CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals(referrer_id)')
         db.execute('CREATE INDEX IF NOT EXISTS withdrawals_status ON withdrawals(status,id DESC)')
@@ -2642,7 +2645,7 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
             if amount: text += f'\nСумма: {int(amount)/100:+.2f} TON'
             if amount and balance_after is not None:
                 text += f'\n\nТекущий баланс: {int(balance_after)/100:.2f} TON'
-        add_user_notification(db, user_id, kind, text)
+        add_user_notification(db, user_id, kind, text, vars={'gift_name': str(details or '')} if kind == 'withdrawal_request' else None)
 
 
 # Routine actions are not stored: rounds, upgrade_spins and transactions already hold them.
@@ -2684,7 +2687,7 @@ def log_event(db,user_id,kind,**details):
         other = db.execute('SELECT name,username FROM users WHERE id=?', (other_id,)).fetchone() if other_id else None
         if other: notification_details['person'] = '@'+other['username'] if other['username'] else other['name']
     text = activity_notification_text(kind, notification_details)
-    if text: add_user_notification(db, user_id, kind, text)
+    if text: add_user_notification(db, user_id, kind, text, vars=notification_details if kind == 'transfer_received' else None)
 
 
 IMPORTANT_NOTIFICATION_KINDS = (
@@ -2698,15 +2701,15 @@ IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIF
 NOTIFY_WAKE = __import__('threading').Event()
 
 
-def add_user_notification(db, user_id, kind, text):
+def add_user_notification(db, user_id, kind, text, vars=None):
     if kind not in IMPORTANT_NOTIFICATION_KINDS: return
     NOTIFY_WAKE.set()
     # These actions already have a dedicated Telegram message.
     delivered_elsewhere = {'deposit','ton_deposit','promo_issued','giveaway_win',
                           'withdrawal_approved','withdrawal_rejected','withdrawal_access','admin_level'}
     state='pending' if BOT_TOKEN and kind not in delivered_elsewhere else 'none'
-    db.execute('INSERT INTO user_notifications(user_id,kind,text,delivery_state) VALUES(?,?,?,?)',
-               (user_id, kind, str(text)[:1000],state))
+    db.execute('INSERT INTO user_notifications(user_id,kind,text,delivery_state,vars) VALUES(?,?,?,?,?)',
+               (user_id, kind, str(text)[:1000], state, json.dumps(vars, ensure_ascii=False, default=str)[:2000] if vars else ''))
 
 
 def activity_notification_text(kind, d):
@@ -5005,6 +5008,7 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
             record_transaction(db,uid,'daily_top_reward',cents,'daily_top',f'{period_key}:{mode}',
                                f'Награда за ТОП дня {title} ({period_label}): {reward.get("amount")} GRAM')
         detail=f'🏆 Вы заняли ТОП дня в {title} ({period_label}). Награда: {reward.get("amount")} GRAM.'
+        top_vars={'variant': 'balance', 'title': str(title), 'period': str(period_label), 'amount': str(reward.get('amount'))}
     else:
         source='daily_top_fragment' if reward_type=='fragment' else 'daily_top_catalog'
         cur=db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
@@ -5019,7 +5023,9 @@ def _settle_daily_top_period(db, mode, start_utc, end_utc, reward):
         record_transaction(db,uid,'daily_top_reward',0,'inventory',cur.lastrowid,
                            f'Награда за ТОП дня {title} ({period_label}): {reward.get("gift_name") or "Подарок"}')
         detail=f'🏆 Вы заняли ТОП дня в {title} ({period_label}). Подарок «{reward.get("gift_name") or "Подарок"}» добавлен в инвентарь.'
-    add_user_notification(db,uid,'daily_top_reward',detail)
+        top_vars={'variant': 'gift', 'title': str(title), 'period': str(period_label), 'gift_id': str(reward.get('gift_id') or ''),
+                  'gift_name': str(reward.get('gift_name') or 'Подарок')}
+    add_user_notification(db,uid,'daily_top_reward',detail,vars=top_vars)
     return True
 
 
@@ -8334,7 +8340,8 @@ def freebet_reward_html(reward, fallback=''):
     for it in items:
         icon = icons.get(it['kind'], '•')
         if it.get('kind') in ('gift', 'wager_gift'):
-            icon = gift_custom_emoji_html(it.get('gift_id'), it.get('title'), icon)
+            gid = str(it.get('gift_id') or '') or gift_id_for_name(it.get('title'))
+            icon = gift_custom_emoji_html(gid, it.get('title'), icon) if gid else icon
         lines.append(f"{icon} <b>{escape(it['title'])}</b> — {escape(it['detail'])}")
     return '\n'.join(lines)
 
@@ -8404,7 +8411,7 @@ def try_activate_freebet(user_id, code):
         db.execute('UPDATE freebets SET uses_count=uses_count+1 WHERE code=?', (code,))
         db.commit()
         return {'status': 'ok', 'reward': reward,
-                'text': f'🎁 <b>Фрибет активирован!</b>\n\n<b>Вы получили:</b>\n{freebet_reward_html(reward, freebet_reward_text(promo))}\n\nНаграда уже зачислена в GemDrop. Откройте приложение и нажмите «Забрать».',
+                'text': render_notice('freebet_activated', None, {'reward': freebet_reward_html(reward, freebet_reward_text(promo))}),
                 'reply_markup': freebet_play_keyboard(), 'parse_mode': 'HTML'}
     except Exception:
         try:
@@ -8905,6 +8912,322 @@ def admin_save_gift_emoji():
     return jsonify(ok=True, item=record)
 
 
+# ---------------- admin: notification texts ----------------
+def _notice_item_view(spec, overrides):
+    custom = overrides.get(spec['key']) if isinstance(overrides.get(spec['key']), str) else ''
+    text = custom if custom.strip() else spec['text']
+    return dict(key=spec['key'], group=spec['group'], title=spec['title'], when=spec['when'],
+                default=spec['text'], text=text, custom=bool(custom.strip()), fragment=bool(spec.get('hidden')),
+                vars=[dict(name=k, desc=v, html=(k in spec['html'])) for k, v in spec['vars'].items()],
+                preview=notice_preview(spec['key'], text))
+
+
+@app.get('/api/admin/notice-templates')
+@admin_required
+def admin_notice_templates():
+    overrides = notice_overrides()
+    groups = []
+    for name in notice_defs.GROUP_ORDER:
+        items = [_notice_item_view(d, overrides) for d in notice_defs.NOTICE_DEFS if d['group'] == name]
+        if items:
+            groups.append(dict(name=name, items=items))
+    return jsonify(groups=groups, custom_count=sum(1 for v in overrides.values() if isinstance(v, str) and v.strip()))
+
+
+@app.post('/api/admin/notice-templates')
+@admin_required
+def admin_notice_template_save():
+    data = request.get_json(silent=True) or {}
+    key = str(data.get('key') or '')
+    text = str(data.get('text') or '').replace('\r\n', '\n')
+    if key not in notice_defs.NOTICE_BY_KEY:
+        return error('Неизвестное уведомление.', 404)
+    try:
+        notice_validate_text(key, text)
+    except ValueError as exc:
+        return error(str(exc))
+    doc = read_document('notice_templates') or {}
+    texts = doc.get('texts') if isinstance(doc.get('texts'), dict) else {}
+    if not text.strip() or text == notice_defs.NOTICE_BY_KEY[key]['text']:
+        texts.pop(key, None)
+    else:
+        texts[key] = text
+    save_document('notice_templates', dict(texts=texts, updated_at=datetime.now(timezone.utc).isoformat()))
+    remember_emojis(emojis_in_post(text))
+    return jsonify(ok=True, item=_notice_item_view(notice_defs.NOTICE_BY_KEY[key], texts))
+
+
+@app.post('/api/admin/notice-templates/reset')
+@admin_required
+def admin_notice_template_reset():
+    data = request.get_json(silent=True) or {}
+    key = str(data.get('key') or '')
+    doc = read_document('notice_templates') or {}
+    texts = doc.get('texts') if isinstance(doc.get('texts'), dict) else {}
+    if key == '*':
+        texts = {}
+    elif key in notice_defs.NOTICE_BY_KEY:
+        texts.pop(key, None)
+    else:
+        return error('Неизвестное уведомление.', 404)
+    save_document('notice_templates', dict(texts=texts, updated_at=datetime.now(timezone.utc).isoformat()))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/notice-templates/preview')
+@admin_required
+def admin_notice_template_preview():
+    data = request.get_json(silent=True) or {}
+    key = str(data.get('key') or '')
+    if key not in notice_defs.NOTICE_BY_KEY:
+        return error('Неизвестное уведомление.', 404)
+    text = str(data.get('text') or '')
+    try:
+        notice_validate_text(key, text)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc), html=notice_preview(key, text))
+    return jsonify(ok=True, html=notice_preview(key, text))
+
+
+@app.post('/api/admin/notice-templates/test')
+@admin_required
+def admin_notice_template_test():
+    """Send the current text (with example values) to the admin in Telegram, so premium emoji can be seen for real."""
+    data = request.get_json(silent=True) or {}
+    key = str(data.get('key') or '')
+    if key not in notice_defs.NOTICE_BY_KEY:
+        return error('Неизвестное уведомление.', 404)
+    text = str(data.get('text') if data.get('text') is not None else notice_defs.NOTICE_BY_KEY[key]['text'])
+    try:
+        notice_validate_text(key, text)
+        body = custom_emoji_html(notice_preview(key, text))
+        ids = [m.group(1) for m in CUSTOM_EMOJI_TAG_RE.finditer(body)]
+        body, _ = resolve_post_custom_emojis(body) if ids else (body, [])
+        sent = telegram_api('sendMessage', {'chat_id': session['uid'], 'text': body, 'parse_mode': 'HTML',
+                                             'link_preview_options': {'is_disabled': True}}, timeout=(3, 12))
+    except ValueError as exc:
+        return error(str(exc))
+    except RuntimeError as exc:
+        return error('Telegram не принял сообщение: ' + str(exc), 409)
+    shown = set()
+    for entity in (sent or {}).get('entities') or []:
+        if entity.get('type') == 'custom_emoji' and entity.get('custom_emoji_id'):
+            shown.add(str(entity['custom_emoji_id']))
+    return jsonify(ok=True, emoji_requested=len(set(ids)), emoji_delivered=len(shown))
+
+
+# ---------------- admin: premium emoji library ----------------
+_EMOJI_THUMBS = {}
+
+
+@app.get('/api/admin/emoji-library')
+@admin_required
+def admin_emoji_library():
+    """Everything the editor can insert: saved emoji, gift bindings and the verified starter set."""
+    with connect() as db:
+        rows = db.execute("SELECT payload FROM app_documents WHERE name LIKE 'saved_emoji:%' ORDER BY name").fetchall()
+    saved = {}
+    for row in rows:
+        try:
+            item = json.loads(row['payload'])
+        except (TypeError, ValueError):
+            continue
+        if re.fullmatch(r'[0-9]{5,30}', str(item.get('id') or '')) and item.get('emoji'):
+            saved[str(item['id'])] = dict(id=str(item['id']), emoji=str(item['emoji']))
+    starter_ids = {e[0]: e for e in notice_defs.STARTER_EMOJIS}
+    items = []
+    for eid, item in saved.items():
+        label = starter_ids[eid][2] if eid in starter_ids else ''
+        items.append(dict(id=eid, emoji=item['emoji'], label=label, starter=eid in starter_ids))
+    gifts = []
+    for gift in read_catalog().get('gifts', []):
+        gid = str(gift.get('id') or '')
+        rec = gift_emoji_record(gid)
+        if rec.get('emoji_id'):
+            gifts.append(dict(id=str(rec['emoji_id']), emoji=str(rec.get('emoji') or ''), label=str(gift.get('name') or ''),
+                              image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url'))))
+    return jsonify(items=items, gifts=gifts, starter_total=len(starter_ids),
+                   starter_loaded=sum(1 for e in starter_ids if e in saved), notice=EMOJI_NOTICE)
+
+
+@app.post('/api/admin/emojis/starter')
+@admin_required
+def admin_import_starter_emojis():
+    ids = [e[0] for e in notice_defs.STARTER_EMOJIS]
+    try:
+        resolved = fetch_custom_emoji_map(ids)
+    except RuntimeError as exc:
+        return error('Не удалось проверить emoji в Telegram: ' + str(exc), 409)
+    remember_emojis(resolved.values())
+    labels = {e[0]: e[2] for e in notice_defs.STARTER_EMOJIS}
+    missing = [dict(id=i, label=labels[i]) for i in ids if i not in resolved]
+    return jsonify(ok=True, added=len(resolved), total=len(ids), missing=missing)
+
+
+@app.post('/api/admin/emojis/pack')
+@admin_required
+def admin_import_emoji_pack():
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get('link') or '').strip()
+    match = re.search(r'(?:t\.me|telegram\.me)/addemoji/([A-Za-z0-9_]{3,64})', raw) or re.fullmatch(r'([A-Za-z0-9_]{3,64})', raw)
+    if not match:
+        return error('Вставьте ссылку на набор вида https://t.me/addemoji/НАЗВАНИЕ.')
+    try:
+        pack = telegram_api('getStickerSet', {'name': match.group(1)}, timeout=(3, 15)) or {}
+    except RuntimeError as exc:
+        return error('Набор не найден или недоступен: ' + str(exc), 404)
+    if pack.get('sticker_type') != 'custom_emoji':
+        return error('Это не набор premium emoji (нужна ссылка t.me/addemoji/…).')
+    stickers = [s for s in (pack.get('stickers') or []) if s.get('custom_emoji_id')]
+    remember_emojis([dict(id=str(s['custom_emoji_id']), emoji=str(s.get('emoji') or '')) for s in stickers])
+    return jsonify(ok=True, title=str(pack.get('title') or ''), added=len(stickers))
+
+
+@app.get('/api/admin/emoji-thumb/<emoji_id>')
+@admin_required
+def admin_emoji_thumb(emoji_id):
+    """Static preview of a premium emoji (the animated file is not used) so the editor can show real icons."""
+    if not re.fullmatch(r'[0-9]{5,30}', emoji_id) or not BOT_TOKEN:
+        return ('', 404)
+    cached = _EMOJI_THUMBS.get(emoji_id)
+    if cached is None:
+        try:
+            stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [emoji_id]}) or []
+            sticker = stickers[0] if stickers else {}
+            thumb = (sticker.get('thumbnail') or {}).get('file_id')
+            if not thumb and not sticker.get('is_animated') and not sticker.get('is_video'):
+                thumb = sticker.get('file_id')
+            if not thumb:
+                _EMOJI_THUMBS[emoji_id] = (b'', '')
+                return ('', 404)
+            info = telegram_api('getFile', {'file_id': thumb})
+            blob = requests.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{info["file_path"]}', timeout=(3, 10))
+            blob.raise_for_status()
+            cached = (blob.content[:400000], blob.headers.get('Content-Type') or 'image/webp')
+        except (RuntimeError, requests.RequestException, KeyError, TypeError):
+            return ('', 404)
+        if len(_EMOJI_THUMBS) > 600:
+            _EMOJI_THUMBS.clear()
+        _EMOJI_THUMBS[emoji_id] = cached
+    if not cached[0]:
+        return ('', 404)
+    response = app.response_class(cached[0], mimetype=cached[1])
+    response.headers['Cache-Control'] = 'private, max-age=86400'
+    return response
+
+
+# ---------------- channel posts (source for "copy a post from the channel" broadcasts) ----------------
+CHANNEL_POSTS_DOC = 'channel_posts'
+_POST_MEDIA_KINDS = ('photo', 'video', 'animation', 'document', 'audio', 'voice', 'video_note', 'sticker', 'poll')
+
+
+def record_channel_post(chat, message_id, post):
+    """Remember a channel post the bot saw (channel_post update or a post forwarded to the bot by an admin)."""
+    try:
+        chat_id = int(chat.get('id'))
+        message_id = int(message_id)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    kind = next((k for k in _POST_MEDIA_KINDS if post.get(k)), 'text')
+    text = str(post.get('text') or post.get('caption') or '')
+    entities = post.get('entities') if post.get('text') else post.get('caption_entities')
+    premium = any((e or {}).get('type') == 'custom_emoji' for e in entities or [])
+    group = str(post.get('media_group_id') or '')
+    doc = read_document(CHANNEL_POSTS_DOC) or {}
+    items = doc.get('items') if isinstance(doc.get('items'), list) else []
+    entry = next((i for i in items if i.get('chat_id') == chat_id and
+                  ((group and i.get('media_group_id') == group) or message_id in (i.get('message_ids') or []))), None)
+    if entry is None:
+        entry = dict(chat_id=chat_id, chat_title=str(chat.get('title') or chat.get('username') or 'Канал')[:80],
+                     chat_username=str(chat.get('username') or ''), message_ids=[], media_group_id=group,
+                     kind=kind, text='', premium=False, date=int(time.time()))
+        items.insert(0, entry)
+    if message_id not in entry['message_ids']:
+        entry['message_ids'] = sorted(entry['message_ids'] + [message_id])[:100]
+    if text and not entry.get('text'):
+        entry['text'] = text[:400]
+    entry['premium'] = bool(entry.get('premium') or premium)
+    if entry['kind'] == 'text' and kind != 'text':
+        entry['kind'] = kind
+    entry['count'] = len(entry['message_ids'])
+    doc['items'] = items[:60]
+    save_document(CHANNEL_POSTS_DOC, doc)
+    return entry
+
+
+def _post_link(entry):
+    ids = entry.get('message_ids') or []
+    if not ids:
+        return ''
+    if entry.get('chat_username'):
+        return f'https://t.me/{entry["chat_username"]}/{ids[0]}'
+    cid = str(entry.get('chat_id'))
+    return f'https://t.me/c/{cid[4:]}/{ids[0]}' if cid.startswith('-100') else ''
+
+
+@app.get('/api/admin/broadcast/channel-posts')
+@admin_required
+def admin_channel_posts():
+    doc = read_document(CHANNEL_POSTS_DOC) or {}
+    items = []
+    for entry in doc.get('items') or []:
+        items.append(dict(entry, link=_post_link(entry)))
+    return jsonify(items=items, bot_ready=bool(BOT_TOKEN),
+                   hint='Бот должен быть администратором канала: тогда новые посты появляются здесь сами. '
+                        'Старый пост можно добавить ссылкой или переслав его боту командой /copypost.')
+
+
+@app.post('/api/admin/broadcast/channel-post/resolve')
+@admin_required
+def admin_channel_post_resolve():
+    """Find a post by its link, show it to the admin (this proves the bot can copy it) and remember it."""
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get('link') or '').strip()
+    match = re.search(r'(?:t\.me|telegram\.me)/c/(\d{5,15})/(\d{1,12})', raw)
+    if match:
+        from_chat = int('-100' + match.group(1)); mid = int(match.group(2)); username = ''
+    else:
+        match = re.search(r'(?:t\.me|telegram\.me)/([A-Za-z][A-Za-z0-9_]{3,31})/(\d{1,12})', raw)
+        if not match:
+            return error('Вставьте ссылку на пост канала: https://t.me/канал/123')
+        username = match.group(1); from_chat = '@' + username; mid = int(match.group(2))
+    doc = read_document(CHANNEL_POSTS_DOC) or {}
+    for entry in doc.get('items') or []:
+        same_chat = (username and entry.get('chat_username', '').lower() == username.lower()) or entry.get('chat_id') == from_chat
+        if same_chat and mid in (entry.get('message_ids') or []):
+            return jsonify(ok=True, item=dict(entry, link=_post_link(entry)))
+    try:
+        chat = telegram_api('getChat', {'chat_id': from_chat}) or {}
+        copied = telegram_api('copyMessage', {'chat_id': session['uid'], 'from_chat_id': chat.get('id'), 'message_id': mid},
+                              timeout=(3, 15))
+    except RuntimeError as exc:
+        return error('Бот не смог открыть этот пост: ' + str(exc) + '. Добавьте бота администратором канала.', 409)
+    entry = record_channel_post(chat, mid, {'text': '(пост по ссылке)'}) or {}
+    return jsonify(ok=True, item=dict(entry, link=_post_link(entry)), preview_sent=bool(copied))
+
+
+@app.post('/api/admin/broadcast/channel-post/preview')
+@admin_required
+def admin_channel_post_preview():
+    """Copy the post to the admin's own chat exactly as users will receive it."""
+    data = request.get_json(silent=True) or {}
+    try:
+        chat_id = int(data.get('chat_id'))
+        ids = [int(x) for x in (data.get('message_ids') or [])][:100]
+    except (TypeError, ValueError):
+        return error('Некорректный пост.')
+    if not ids:
+        return error('Некорректный пост.')
+    try:
+        if len(ids) == 1:
+            telegram_api('copyMessage', {'chat_id': session['uid'], 'from_chat_id': chat_id, 'message_id': ids[0]}, timeout=(3, 15))
+        else:
+            telegram_api('copyMessages', {'chat_id': session['uid'], 'from_chat_id': chat_id, 'message_ids': ids}, timeout=(3, 20))
+    except RuntimeError as exc:
+        return error('Telegram не смог скопировать пост: ' + str(exc), 409)
+    return jsonify(ok=True)
+
+
 def _broadcast_filter_values(data):
     filters = data if isinstance(data, dict) else {}
     def money(name):
@@ -9020,7 +9343,36 @@ def _bc_upload_photo(item):
     return name, bytes(blob), mime
 
 
+def _bc_field(b, name, default=None):
+    try:
+        value = b[name]
+    except (KeyError, IndexError, TypeError):
+        return default
+    return default if value is None else value
+
+
+def _bc_copy_one(b, user_id):
+    """Re-send an existing channel post (text, entities incl. premium emoji, media, albums) as is."""
+    try:
+        ids = [int(x) for x in json.loads(_bc_field(b, 'source_ids', '') or '[]')]
+        markup = {'inline_keyboard': json.loads(b['buttons'] or '[]')}
+    except (TypeError, ValueError, KeyError):
+        return False, dict(code=400, description='bad source', retry=0), []
+    chat = int(user_id)
+    from_chat = int(_bc_field(b, 'source_chat', 0))
+    if len(ids) == 1:
+        payload = dict(chat_id=chat, from_chat_id=from_chat, message_id=ids[0])
+        if markup['inline_keyboard']:
+            payload['reply_markup'] = markup
+        ok, res = _bc_call('copyMessage', payload)
+    else:
+        ok, res = _bc_call('copyMessages', dict(chat_id=chat, from_chat_id=from_chat, message_ids=ids[:100]))
+    return ok, res, []
+
+
 def _bc_send_one(b, user_id):
+    if int(_bc_field(b, 'source_chat', 0) or 0):
+        return _bc_copy_one(b, user_id)
     text, chat = b['text'] or '', int(user_id)
     try:
         markup = {'inline_keyboard': json.loads(b['buttons'] or '[]')} or None
@@ -9158,10 +9510,23 @@ def admin_broadcast_send():
     try:
         raw_buttons = json.loads(data.get('buttons') or '[]') if multipart else (data.get('buttons') or [])
         raw_filters = json.loads(data.get('filters') or '{}') if multipart else (data.get('filters') or {})
+        raw_source = json.loads(data.get('source') or 'null') if (multipart and isinstance(data.get('source'), str)) else data.get('source')
     except (TypeError, ValueError):
         return error('Некорректные кнопки или фильтры.')
+    source = None
+    if isinstance(raw_source, dict) and raw_source.get('chat_id'):
+        try:
+            source = dict(chat_id=int(raw_source['chat_id']),
+                          message_ids=[int(x) for x in (raw_source.get('message_ids') or [])][:100],
+                          preview=str(raw_source.get('preview') or '')[:200])
+        except (TypeError, ValueError):
+            return error('Некорректный пост канала.')
+        if not source['message_ids']:
+            return error('Некорректный пост канала.')
     files = [f for f in (request.files.getlist('photos') if multipart else []) if f and getattr(f, 'filename', '')]
-    if not raw_text and not files:
+    if source:
+        raw_text, files = '', []
+    if not raw_text and not files and not source:
         return error('Введите текст или добавьте фото.')
     if len(raw_text) > 4096:
         return error('Текст рассылки должен быть не длиннее 4096 символов.')
@@ -9198,6 +9563,8 @@ def admin_broadcast_send():
 
     staged_user_id = None
     file_ids = []
+    if source and len(source['message_ids']) > 1:
+        buttons = []          # Telegram cannot attach buttons to a copied album
     if uploads:
         if not BOT_TOKEN:
             return error('BOT_TOKEN не настроен — фото рассылки нельзя загрузить в Telegram.', 503)
@@ -9219,9 +9586,10 @@ def admin_broadcast_send():
     now = int(time.time())
     with connect() as db:
         cur = db.execute(
-            'INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
-            (session['uid'], text, json.dumps(file_ids, ensure_ascii=False), json.dumps(buttons, ensure_ascii=False),
-             len(rows), 1 if staged_user_id is not None else 0, now))
+            'INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at,source_chat,source_ids) VALUES(?,?,?,?,?,?,?,?,?)',
+            (session['uid'], source['preview'] if source else text, json.dumps(file_ids, ensure_ascii=False), json.dumps(buttons, ensure_ascii=False),
+             len(rows), 1 if staged_user_id is not None else 0, now,
+             source['chat_id'] if source else 0, json.dumps(source['message_ids']) if source else ''))
         bid = cur.lastrowid
         for row in rows:
             uid = int(row['id'])
@@ -9297,7 +9665,8 @@ def admin_post_draft():
 
 def emoji_admin_keyboard():
     return {'inline_keyboard': [[{'text': 'Определить ещё', 'callback_data': 'admin:emoji'}],
-                                [{'text': 'Импортировать пост', 'callback_data': 'admin:post'}]]}
+                                [{'text': 'Импортировать пост', 'callback_data': 'admin:post'}],
+                                [{'text': 'Скопировать пост для рассылки', 'callback_data': 'admin:copypost'}]]}
 
 
 def handle_admin_emoji_message(message):
@@ -9306,16 +9675,33 @@ def handle_admin_emoji_message(message):
         return None
     command = str(message.get('text') or '').split(maxsplit=1)
     command = command[0].split('@')[0].lower() if command else ''
-    if command in ('/emoji', '/post', '/cancel'):
-        mode = {'/emoji': 'emoji', '/post': 'post', '/cancel': ''}[command]
+    if command in ('/emoji', '/post', '/copypost', '/cancel'):
+        mode = {'/emoji': 'emoji', '/post': 'post', '/copypost': 'copypost', '/cancel': ''}[command]
         save_document('bot_input:' + str(uid), {'mode': mode})
+        if mode == 'copypost':
+            return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
+                        text='Перешлите сюда пост из канала (альбом — целиком). Я запомню его: в админке в «Рассылке» '
+                             'появится кнопка «Скопировать пост из канала», и пост уйдёт пользователям с premium emoji, '
+                             'форматированием и вложениями. Для выхода: /cancel.')
         return dict(method='sendMessage', chat_id=uid,
                     text=('Отправьте или перешлите пост с premium emoji. Его текст и форматирование появятся в редакторе Post. Текущий черновик будет заменён.' if mode == 'post' else
                           'Пришлите premium emoji, сообщение с ними или custom emoji стикер. Для выхода: /cancel.' if mode else 'Готово. Режим ввода закрыт.'))
     if command.startswith('/'):
         return None
-    html, emojis = telegram_message_html(message)
     mode = (read_document('bot_input:' + str(uid)) or {}).get('mode')
+    if mode == 'copypost':
+        origin = message.get('forward_origin') or {}
+        src_chat = origin.get('chat') if origin.get('type') == 'channel' else message.get('forward_from_chat')
+        src_id = origin.get('message_id') if origin.get('type') == 'channel' else message.get('forward_from_message_id')
+        if not src_chat or not src_id:
+            return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
+                        text='Это не пересланный пост канала. Перешлите сообщение прямо из канала (у него должна быть подпись канала).')
+        entry = record_channel_post(src_chat, src_id, message) or {}
+        premium = ' ✨ premium emoji' if entry.get('premium') else ''
+        return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
+                    text=f'Пост сохранён для рассылки ({entry.get("chat_title", "канал")}, сообщений: {entry.get("count", 1)}){premium}.\n'
+                         'Откройте в админке Рассылка → «Скопировать пост из канала».')
+    html, emojis = telegram_message_html(message)
     if not mode and not emojis:
         return None
     remember_emojis(emojis)
@@ -9393,6 +9779,98 @@ def normalize_post_buttons(raw):
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Editable bot notification texts (registry lives in notice_defs.py)
+# ---------------------------------------------------------------------------
+NOTICE_VAR_RE = re.compile(r'\{([a-z_]+)\}')
+_GIFT_NAME_INDEX = {'at': 0.0, 'map': {}}
+
+
+def _gift_base_name(name):
+    return re.sub(r'\s*#\s*\d+\s*$', '', str(name or '')).strip().casefold()
+
+
+def gift_id_for_name(name):
+    """Catalog gift id for a (possibly numbered, e.g. 'Plush Pepe #1234') gift name."""
+    base = _gift_base_name(name)
+    if not base:
+        return ''
+    if time.time() - _GIFT_NAME_INDEX['at'] > 60:
+        try:
+            index = {}
+            for gift in read_catalog().get('gifts', []):
+                key = _gift_base_name(gift.get('name'))
+                if key and key not in index:
+                    index[key] = str(gift.get('id') or '')
+            _GIFT_NAME_INDEX.update(at=time.time(), map=index)
+        except Exception:
+            _GIFT_NAME_INDEX.update(at=time.time(), map={})
+    return _GIFT_NAME_INDEX['map'].get(base, '')
+
+
+def gift_html(gift_id='', name='', link='', default='🎁', bold=True):
+    """'<premium emoji of this exact gift> <b>Name</b>' — falls back to a normal emoji when none is bound."""
+    gid = str(gift_id or '').strip() or gift_id_for_name(name)
+    icon = gift_custom_emoji_html(gid, name, default) if gid else default
+    label = escape(str(name or 'Подарок'))
+    label = f'<b>{label}</b>' if bold else label
+    if link and re.match(r'^https://', str(link), re.I):
+        label = f'<a href="{escape(str(link), quote=True)}">{label}</a>'
+    return f'{icon} {label}' if icon else label
+
+
+def notice_overrides():
+    try:
+        doc = read_document('notice_templates') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        doc = {}
+    texts = doc.get('texts') if isinstance(doc, dict) else {}
+    return texts if isinstance(texts, dict) else {}
+
+
+def _notice_fill(template, values, html_values):
+    merged = {k: escape(str(v)) for k, v in (values or {}).items()}
+    merged.update({k: str(v) for k, v in (html_values or {}).items()})
+    return NOTICE_VAR_RE.sub(lambda m: merged.get(m.group(1), m.group(0)), template)
+
+
+def render_notice(key, values=None, html_values=None):
+    """Final HTML of a bot notification: the admin's text if one is saved, otherwise the default."""
+    spec = notice_defs.NOTICE_BY_KEY[key]
+    override = notice_overrides().get(key)
+    if isinstance(override, str) and override.strip():
+        rendered = _notice_fill(override, values, html_values)
+        try:
+            validate_greeting(rendered)
+            return rendered
+        except ValueError:
+            app.logger.warning('Notice template %s is invalid, default text used', key)
+    return _notice_fill(spec['text'], values, html_values)
+
+
+def notice_validate_text(key, text):
+    """Raise ValueError when the admin's text cannot be sent to Telegram."""
+    spec = notice_defs.NOTICE_BY_KEY.get(key)
+    if not spec:
+        raise ValueError('Неизвестное уведомление.')
+    text = str(text or '')
+    if len(text) > 3500:
+        raise ValueError('Текст слишком длинный: максимум 3500 символов.')
+    html_values = {k: spec['example'][k] for k in spec['html'] if k in spec['example']}
+    values = {k: spec['example'].get(k, k) for k in spec['vars'] if k not in spec['html']}
+    rendered = _notice_fill(text, values, html_values)
+    validate_greeting(rendered)
+    return rendered
+
+
+def notice_preview(key, text=None):
+    spec = notice_defs.NOTICE_BY_KEY[key]
+    body = spec['text'] if text is None else text
+    html_values = {k: spec['example'][k] for k in spec['html'] if k in spec['example']}
+    values = {k: spec['example'].get(k, k) for k in spec['vars'] if k not in spec['html']}
+    return _notice_fill(body, values, html_values)
+
+
 def notification_premium_html(text):
     """Only expand explicitly requested custom emoji tokens.
 
@@ -9429,6 +9907,63 @@ def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
     return False
 
 
+def giveaway_announcement_html(giveaway_id):
+    """Telegram text of a new giveaway, built from the editable templates (each prize shows its own gift emoji)."""
+    with connect() as db:
+        g = db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,)).fetchone()
+        prizes = db.execute('SELECT * FROM giveaway_prizes WHERE giveaway_id=? ORDER BY position,id', (giveaway_id,)).fetchall()
+    if not g:
+        return None
+    lines, total_len = [], 0
+    for index, prize in enumerate(prizes, 1):
+        price = int(prize['floor_price'] or 0)
+        link = str(prize['fragment_url'] or '')
+        line = render_notice('giveaway_prize_line', {'index': index, 'quantity': int(prize['quantity'] or 1)}, {
+            'gift': gift_html(prize['gift_id'], prize['gift_name']),
+            'price_text': escape(f' · {price/100:.2f} TON') if price else '',
+            'link': ('\n' + escape(link)) if link else ''})
+        if total_len + len(line) > 2800:
+            lines.append('Все призы — в розыгрыше.')
+            break
+        total_len += len(line)
+        lines.append(line)
+    description = str(g['description'] or '').strip()
+    ends_line = ''
+    end = parse_datetime_utc(g['ends_at']) if g['ends_at'] else None
+    if end:
+        ends_line = '\n\n⏰ Итоги: ' + end.astimezone(timezone(timedelta(hours=3))).strftime('%d.%m.%Y в %H:%M') + ' МСК'
+    return render_notice('giveaway_started', {'title': g['title']},
+                         {'description': (escape(description) + '\n\n') if description else '',
+                          'prizes': '\n'.join(lines), 'ends_line': escape(ends_line)})
+
+
+def activity_notice_html(row):
+    """Template-based Telegram text for an activity notification, or None to use the stored text."""
+    kind = str(row['kind'])
+    try:
+        data = json.loads(row['vars'] or '{}') if row['vars'] else {}
+    except (TypeError, ValueError):
+        data = {}
+    if kind == 'giveaway_started' and row['giveaway_id']:
+        return giveaway_announcement_html(int(row['giveaway_id']))
+    if kind == 'promo_wager_burn':
+        return render_notice('promo_wager_burn')
+    if kind == 'transfer_received' and data:
+        person = str(data.get('person') or '')
+        return render_notice('transfer_received', {'amount': f'{float(data.get("amount") or 0):.2f}',
+                                                   'balance': f'{float(data.get("balance") or 0):.2f}'},
+                             {'person_line': ('\nОтправитель: ' + escape(person)) if person else ''})
+    if kind == 'daily_top_reward' and data:
+        if data.get('variant') == 'gift':
+            return render_notice('daily_top_reward_gift', {'title': data.get('title'), 'period': data.get('period')},
+                                 {'gift': gift_html(data.get('gift_id'), data.get('gift_name') or 'Подарок', bold=False)})
+        return render_notice('daily_top_reward_balance', {'title': data.get('title'), 'period': data.get('period'),
+                                                         'amount': data.get('amount')})
+    if kind == 'withdrawal_request' and data.get('gift_name'):
+        return render_notice('withdrawal_request', None, {'gift': gift_html('', data.get('gift_name'))})
+    return None
+
+
 def deliver_activity_notifications():
     if not BOT_TOKEN: return
     # Claim committed rows before network I/O; separate workers cannot send the same row.
@@ -9447,8 +9982,14 @@ def deliver_activity_notifications():
                    'promo_issued':'bonuses','referral_bonus':'bonuses','level_claim':'levels','reward_task_claim':'giveaways',
                    'giveaway_enter':'giveaways','upgrade':'profile','daily_top_reward':'profile'}
         markup = miniapp_markup('Открыть розыгрыш', f'giveaways&giveaway={row["giveaway_id"]}') if row['kind'] == 'giveaway_started' else miniapp_markup('Открыть', actions.get(row['kind'], ''))
-        heading, separator, body = str(row['text']).partition('\n')
-        formatted = '<b>' + escape(heading) + '</b>' + (separator + escape(body) if separator else '')
+        try:
+            formatted = activity_notice_html(row)
+        except Exception:
+            app.logger.exception('Notification template failed for %s', row['kind'])
+            formatted = None
+        if not formatted:
+            heading, separator, body = str(row['text']).partition('\n')
+            formatted = '<b>' + escape(heading) + '</b>' + (separator + escape(body) if separator else '')
         if row['kind'] == 'giveaway_started':
             formatted = re.sub(r'(?m)^https://t\.me/nft/([A-Za-z0-9-]+)$',
                                lambda m: f'<a href="{m.group(0)}">🔗 Посмотреть подарок</a>', formatted)
@@ -9525,20 +10066,18 @@ def deposit_notification_text(amount_cents, balance_cents, bonus_cents=0):
 
 
 def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
-    bonus_line = f'\n🎁 Бонус: <b>+{format_ton_cents(bonus_cents)} TON</b>' if bonus_cents else ''
-    text = (f'✅ <b>Ваш баланс пополнен на {format_ton_cents(amount_cents)} TON.</b>'
-            f'{bonus_line}\n\nТекущий баланс: <b>{format_ton_cents(balance_cents)} TON</b>')
+    bonus_line = render_notice('deposit_bonus_line', {'bonus': format_ton_cents(bonus_cents)}) if bonus_cents else ''
+    text = render_notice('deposit', {'amount': format_ton_cents(amount_cents), 'balance': format_ton_cents(balance_cents)},
+                         {'bonus_line': bonus_line})
     notify_user_async(user_id, text, miniapp_markup('Открыть'), 'HTML')
 
 
 def notify_promo_async(user_id, code, action='bonuses'):
-    safe_code = escape(str(code))
     if action == 'levels':
-        text = (f'🎟 <b>Вам выдан промокод за уровень</b>\n\n<code>{safe_code}</code>\n\n'
-                'Введите его в разделе «Бонусы». Код всегда можно увидеть снова: нажмите на этот уровень в списке уровней.')
+        text = render_notice('promo_level', {'code': str(code)})
         notify_user_async(user_id, text, miniapp_markup('🎁 Ввести промокод', 'bonuses'), 'HTML')
         return
-    text = f'🎟 <b>Вам выдан промокод</b>\n\n<code>{safe_code}</code>\n\nОткройте GemDrop, чтобы забрать награду.'
+    text = render_notice('promo_issued', {'code': str(code)})
     notify_user_async(user_id, text, miniapp_markup('🎁 Забрать', action), 'HTML')
 
 
@@ -9546,15 +10085,15 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     """Send one Telegram message for all places won in a single giveaway."""
     if not winnings:
         return
-    lines = [f'🏆 <b>Вы выиграли в розыгрыше «{escape(str(giveaway_title))}»!</b>', '']
+    lines = []
     for win in winnings[:20]:
         price = int(win.get('price_cents') or 0)
         price_text = f' · {format_ton_cents(price)} TON' if price else ''
-        icon = gift_custom_emoji_html(win.get('gift_id'), win.get('name'), '🎁')
-        lines.append(f'#{int(win.get("rank") or 0)} — {icon} <b>{escape(str(win.get("name") or "Подарок"))}</b>{price_text}')
+        lines.append(render_notice('giveaway_win_line', {'rank': int(win.get('rank') or 0)},
+                                   {'gift': gift_html(win.get('gift_id'), win.get('name') or 'Подарок'), 'price_text': escape(price_text)}))
     if len(winnings) > 20:
         lines.append(f'…и ещё {len(winnings)-20} приз(ов).')
-    lines.extend(['', 'Награда уже добавлена в ваш инвентарь GemDrop.'])
+    body = render_notice('giveaway_win', {'title': str(giveaway_title)}, {'prizes': '\n'.join(lines)})
     keyboard = []
     if WEBAPP_URL.startswith('https://'):
         keyboard.append([{'text': '🎁 Открыть инвентарь', 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
@@ -9569,7 +10108,7 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
         if len(keyboard) >= 8:
             break
     markup = {'inline_keyboard': keyboard} if keyboard else None
-    notify_user_async(user_id, '\n'.join(lines), markup, 'HTML', db=db)
+    notify_user_async(user_id, body, markup, 'HTML', db=db)
 
 
 def notify_level_up_async(user_id, level):
@@ -13631,13 +14170,13 @@ def _promo_poll_close(db,poll_id,reason='manual'):
 def _notify_promo_poll_result(summary):
     if not summary or not summary.get('created_by'):return
     winner=summary.get('results',[{}])[0] if summary.get('results') else {}
-    lines=[f"📊 <b>Опрос «{escape(str(summary.get('title') or 'Опрос'))}» завершён</b>",
-           f"Всего голосов: <b>{int(summary.get('uses_count') or 0)}</b>"]
+    lines=[]
     for item in summary.get('results') or []:
         lines.append(f"• {escape(str(item.get('name') or 'Вариант'))}: <b>{int(item.get('votes') or 0)}</b> · {float(item.get('percent') or 0):g}%")
-    if winner:
-        lines.append(f"\nЛидер: <b>{escape(str(winner.get('name') or '—'))}</b>")
-    try: notify_user_async(int(summary['created_by']),'\n'.join(lines),None,'HTML')
+    leader_line = f"\n\nЛидер: <b>{escape(str(winner.get('name') or '—'))}</b>" if winner else ''
+    poll_text = render_notice('poll_finished', {'title': str(summary.get('title') or 'Опрос'), 'total': int(summary.get('uses_count') or 0)},
+                              {'results': '\n'.join(lines), 'leader_line': leader_line})
+    try: notify_user_async(int(summary['created_by']),poll_text,None,'HTML')
     except Exception: app.logger.exception('Poll result notification failed')
 
 
@@ -14123,6 +14662,11 @@ def admin_publish_post():
         with connect() as db:
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'channel_post', f'{settings["chat_id"]}:{(sent or {}).get("message_id", "")}'))
+        try:
+            if (sent or {}).get('message_id') and (sent or {}).get('chat'):
+                record_channel_post(sent['chat'], sent['message_id'], sent)
+        except Exception:
+            app.logger.exception('Failed to remember published post')
         return jsonify(ok=True, message_id=(sent or {}).get('message_id'), warnings=warnings, premium_emoji_verified=bool((expected or expected_icons) and not missing_text and not missing_icons), premium_emoji_transport=(transport_used if expected else 'reply_markup' if expected_icons else transport_used))
     except RuntimeError as exc:
         # If a multi-step publish managed to send media before Telegram rejected
@@ -15569,9 +16113,7 @@ def admin_creator_add(user_id):
     if not previous.get('active'):
         notify_user_async(
             user_id,
-            '🎬 <b>Вы подключены к программе авторов GemDrop.</b>\n\n'
-            'В профиле появилась отдельная «Панель автора». Через неё можно включать demo-режим '
-            'и управлять демонстрационным балансом и подарками.',
+            render_notice('creator_connected'),
             miniapp_markup('Открыть программу', 'creator'),
             'HTML')
     return jsonify(ok=True, creator=dict(id=user_id, name=user['name'], username=user['username'] or '',
@@ -15604,9 +16146,8 @@ def admin_creator_level(user_id):
                   if promoted else '')
         notify_user_async(
             user_id,
-            f'✨ <b>Уровень автора изменён</b>\n\n'
-            f'{escape(CREATOR_LEVELS[old]["name"])} → <b>{escape(CREATOR_LEVELS[raw_level]["name"])}</b>\n'
-            f'{escape(CREATOR_LEVELS[raw_level]["description"])}{refill}',
+            render_notice('creator_level', {'old': CREATOR_LEVELS[old]['name'], 'new': CREATOR_LEVELS[raw_level]['name'],
+                                            'description': CREATOR_LEVELS[raw_level]['description']}, {'refill': refill}),
             miniapp_markup('Открыть панель автора', 'creator'),
             'HTML')
     return jsonify(ok=True, creator_level=record['creator_level'],
@@ -15654,9 +16195,9 @@ def admin_creator_restore_limit(user_id):
     total = cfg['daily_budget_cents'] / 100
     notify_user_async(
         user_id,
-        '✅ <b>Лимит восстановлен.</b>\n\n'
-        + ('Шкала восстановлена полностью. ' if percent >= 100 else f'Шкала восстановлена на {percent:g}%. ')
-        + f'Сейчас: {usage["budget_used"]:.2f} / {total:.2f} TON.',
+        render_notice('creator_limit_restored',
+                      {'what': 'Шкала восстановлена полностью.' if percent >= 100 else f'Шкала восстановлена на {percent:g}%.',
+                       'used': f'{usage["budget_used"]:.2f}', 'total': f'{total:.2f}'}),
         miniapp_markup('Открыть панель автора', 'creator'),
         'HTML')
     return jsonify(ok=True, percent=percent, limit_usage=usage)
@@ -15670,7 +16211,7 @@ def admin_creator_remove(user_id):
     if previous.get('active'):
         notify_user_async(
             user_id,
-            'К сожалению, вы были отключены от программы авторов GemDrop.',
+            render_notice('creator_removed'),
             None,
             'HTML')
     return jsonify(ok=True)
@@ -16713,9 +17254,9 @@ def admin_user_withdrawal_access(user_id):
                   admin_id=session['uid'])
         db.commit()
     if enabled:
-        notify_user_async(user_id, '✅ <b>Вывод подарков доступен</b>', miniapp_markup('Открыть', 'profile'), 'HTML')
+        notify_user_async(user_id, render_notice('withdrawal_enabled'), miniapp_markup('Открыть', 'profile'), 'HTML')
     else:
-        notify_user_async(user_id, f'⚠️ <b>Вывод временно недоступен</b>\n\n{escape(reason)}', miniapp_markup('Открыть', 'profile'), 'HTML')
+        notify_user_async(user_id, render_notice('withdrawal_disabled', {'reason': reason}), miniapp_markup('Открыть', 'profile'), 'HTML')
     return jsonify(ok=True, enabled=enabled, reason='' if enabled else reason,
                    min_ton_connect_deposit_override=(None if current_override is None else int(current_override)/100),
                    min_ton_connect_deposit_effective=effective_min/100,
@@ -16736,7 +17277,7 @@ def admin_user_stars_withdrawal_unlock(user_id):
         log_event(db, user_id, 'withdrawal_access', enabled=True, reason='Ограничение Stars снято',
                   admin_id=session['uid'])
         db.commit()
-    notify_user_async(user_id, '✅ <b>Ограничение вывода после оплаты Stars снято администратором.</b>',
+    notify_user_async(user_id, render_notice('stars_unlock'),
                       miniapp_markup('Открыть', 'profile'), 'HTML')
     return jsonify(ok=True)
 
@@ -17787,7 +18328,7 @@ def approve_withdrawal(withdrawal_id):
                    (session['uid'], row['user_id'], 'withdrawal_approved', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_approved', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
-        notify_user_async(row['user_id'], f'✅ <b>Вывод выполнен</b>\n\n🎁 {escape(row["gift_name"])}',
+        notify_user_async(row['user_id'], render_notice('withdrawal_done', None, {'gift': gift_html(row['gift_id'], row['gift_name'])}),
                           miniapp_markup('Открыть', 'profile'), 'HTML')
         return jsonify(ok=True)
     finally:
@@ -17823,7 +18364,7 @@ def reject_withdrawal(withdrawal_id):
                    (session['uid'], row['user_id'], 'withdrawal_rejected', str(withdrawal_id)))
         record_transaction(db, row['user_id'], 'withdrawal_rejected', 0, 'withdrawal', withdrawal_id, row['gift_name'])
         db.commit()
-        notify_user_async(row['user_id'], f'↩️ <b>Вывод отклонён</b>\n\n🎁 {escape(row["gift_name"])}\n\nПодарок возвращён в ваш инвентарь.',
+        notify_user_async(row['user_id'], render_notice('withdrawal_rejected', None, {'gift': gift_html(row['gift_id'], row['gift_name'])}),
                           miniapp_markup('Открыть', 'profile'), 'HTML')
         return jsonify(ok=True)
     finally:
@@ -18496,23 +19037,19 @@ def _relayer_credit(info,baseline=False):
         db.execute('UPDATE relayer_gift_events SET portal_price=? WHERE external_key=?',(portal_price,info['external_key']))
         db.commit()
     finally: db.close()
-    gift_name=escape(str(info.get('gift_name') or 'Telegram NFT'))
     number=str(info.get('fragment_number') or '').strip()
     raw_name=str(info.get('gift_name') or 'Telegram NFT')
     already_numbered=bool(number and re.search(r'(?:#|\b)'+re.escape(number)+r'\b',raw_name))
-    display_name=gift_name + (f' #{escape(number)}' if number and not already_numbered else '')
+    display_name=raw_name + (f' #{number}' if number and not already_numbered else '')
     telegram_link=str(info.get('telegram_url') or info.get('external_url') or '')
-    if re.match(r'^https://t\.me/nft/[A-Za-z0-9_-]+$',telegram_link,re.I):
-        gift_line=f'<a href="{escape(telegram_link, quote=True)}"><b>{display_name}</b></a>'
-    else:
-        gift_line=f'<b>{display_name}</b>'
+    link_ok=telegram_link if re.match(r'^https://t\.me/nft/[A-Za-z0-9_-]+$',telegram_link,re.I) else ''
+    gift_line=gift_html(info.get('gift_id'),display_name,link=link_ok)
     if mode=='inventory':
-        text=f'🎁 <b>Ваш подарок был доставлен</b>\n\n{gift_line}\nПодарок добавлен в ваш инвентарь GemDrop.'
-        if price>0: text+=f'\nОценочная стоимость: <b>{price/100:.2f} TON</b>'
-        text+='\n\nНажмите на название подарка, чтобы открыть сам NFT в Telegram.'
+        price_line=render_notice('gift_price_line',{'price':f'{price/100:.2f}'}) if price>0 else ''
+        text=render_notice('gift_delivered',None,{'gift':gift_line,'price_line':price_line})
         markup=miniapp_markup('🎁 Открыть инвентарь','profile')
     else:
-        text=f'✅ <b>Подарок конвертирован в баланс</b>\n\n{gift_line}\nЗачислено: <b>{price/100:.2f} TON</b>'
+        text=render_notice('gift_converted',{'price':f'{price/100:.2f}'},{'gift':gift_line})
         markup=miniapp_markup('Открыть GemDrop','profile')
     try: notify_user_async(uid,text,markup,'HTML')
     except Exception: app.logger.exception('Gift deposit notification failed')
@@ -18641,7 +19178,7 @@ def _complete_auto_withdrawal(withdrawal_id,row,provider,info=None,paid=0):
         db.commit()
     if provider=='relayer':_relayer_auto_log(withdrawal_id,row,'completed',info or {},paid)
     if changed:
-        notify_user_async(int(row['user_id']),f'✅ <b>Ваш подарок успешно выведен</b>\\n\\n🎁 {escape(str(row.get("gift_name") or "NFT"))}',
+        notify_user_async(int(row['user_id']),render_notice('withdrawal_auto_done',None,{'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'NFT')}),
                           miniapp_markup('Открыть GemDrop','profile'),'HTML')
     return dict(ok=True,status='completed',provider=provider)
 
@@ -18657,9 +19194,7 @@ async def _relayer_auto_withdraw_one_async(withdrawal_id,client=None,gifts=None)
         _,info=_relayer_match_withdrawal(row,gifts)
         if not info:
             _relayer_auto_log(withdrawal_id,row,'not_found',error_text='Подарок не найден на Relayer. Переходим в Portal Market.')
-            notify_user_async(int(row['user_id']),
-                f'🔎 <b>Подарок не найден на Relayer</b>\\n\\n🎁 {escape(str(row.get("gift_name") or "Подарок"))}\\n'
-                'Пробуем купить самый доступный подходящий подарок через Portal Market.',
+            notify_user_async(int(row['user_id']),render_notice('relayer_not_found',None,{'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
                 miniapp_markup('Открыть GemDrop','profile'),'HTML')
             return _portal_fallback_withdraw(withdrawal_id,row)
         _relayer_auto_log(withdrawal_id,row,'sending',info,info.get('transfer_stars') or 0)
@@ -19107,8 +19642,7 @@ def process_stars_successful_payment(message, payment):
         until_text = lock_until.strftime('%d.%m.%Y') if lock_until else ''
         notify_user_async(
             uid,
-            f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\n\n'
-            f'Вывод подарков ограничен на {STARS_WITHDRAWAL_DAYS} дней — до <b>{until_text}</b>.',
+            render_notice('stars_paid', {'days': STARS_WITHDRAWAL_DAYS, 'until': until_text}),
             miniapp_markup('Открыть', 'profile'), 'HTML')
     return credited
 
@@ -19726,8 +20260,7 @@ def _portal_manual(withdrawal_id,row,status,message,stage='error',**kwargs):
     if first_notice:
         notify_user_async(
             int(row['user_id']),
-            '⚠️ <b>Автоматический вывод не завершён</b>\n\n'
-            'Заявка сохранена и помечена для ручного вывода администратором. Повторно запрашивать подарок не нужно.',
+            render_notice('portal_manual', None, {'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
             miniapp_markup('Открыть GemDrop', 'profile'), 'HTML')
     return dict(ok=False,status=status,error=message,manual_required=True,provider='portal')
 
@@ -19746,8 +20279,7 @@ def _portal_finish(withdrawal_id,row,nft,ids):
     append_portal_log(f'Вывод #{withdrawal_id}: Portal Market подтвердил отправку пользователю {row["user_id"]}.')
     if changed:
         notify_user_async(int(row['user_id']),
-            f'✅ <b>Ваш подарок выведен через Portal Market</b>\n\n🎁 {escape(str(row.get("gift_name") or "Подарок"))}\n\n'
-            'Если подарок не появился сразу, отправьте любое сообщение боту @GiftsToPortals.',
+            render_notice('portal_done', None, {'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
             miniapp_markup('Открыть GemDrop','profile'),'HTML')
     return dict(ok=True,status='completed',provider='portal',manual_required=False)
 
@@ -19787,8 +20319,7 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
             if first:
                 append_portal_log(f'Вывод #{withdrawal_id}: ждём активацию Portal пользователем {row["user_id"]}.')
                 notify_user_async(int(row['user_id']),
-                    '🎁 <b>Для вывода через Portal Market нужен один шаг</b>\n\n'
-                    'Отправьте любое сообщение боту @GiftsToPortals. После этого GemDrop автоматически продолжит вывод.',
+                    render_notice('portal_waiting', None, {'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
                     miniapp_markup('Открыть GemDrop','profile'),'HTML')
             return dict(ok=True,status='portal_waiting_recipient',provider='portal',manual_required=False)
         source=str(old.get('source') or '');price=_portal_decimal(old.get('purchase_price') or 0)
@@ -19810,9 +20341,7 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
                     if candidate and old.get('source')!='market':
                         notify_user_async(
                             int(row['user_id']),
-                            '🔎 <b>Подарок не найден на Relayer</b>\n\n'
-                            'GemDrop нашёл подходящий подарок на Portal Market и автоматически покупает его для вашего вывода. '
-                            'Для отправки через Portal может понадобиться написать любое сообщение боту @GiftsToPortals.',
+                            render_notice('portal_market_buy', None, {'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
                             miniapp_markup('Открыть GemDrop','profile'),'HTML')
                 if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found','В Portal Market нет подходящего подарка этой коллекции.','lookup')
                 nft=candidate;price=Decimal('0') if source=='owned' else _portal_decimal(nft.get('price'))
@@ -20081,6 +20610,13 @@ def telegram_webhook():
     if not WEBAPP_URL.startswith('https://'):
         return error('Укажите HTTPS URL приложения.', 503)
     update = request.get_json(silent=True) or {}
+    channel_post = update.get('channel_post') or {}
+    if channel_post:
+        try:
+            record_channel_post(channel_post.get('chat') or {}, channel_post.get('message_id'), channel_post)
+        except Exception:
+            app.logger.exception('Failed to remember channel post')
+        return jsonify(ok=True)
     message = update.get('message') or {}
     sender = message.get('from') or {}
     chat = message.get('chat') or {}
@@ -20126,7 +20662,7 @@ def telegram_webhook():
         callback_id = str(callback.get('id') or '')
         callback_data = str(callback.get('data') or '')
         uid = int(callback['from']['id'])
-        if callback_data in ('admin:emoji', 'admin:post'):
+        if callback_data in ('admin:emoji', 'admin:post', 'admin:copypost'):
             if uid not in ADMIN_IDS or ((callback.get('message') or {}).get('chat') or {}).get('type') != 'private':
                 return jsonify(method='answerCallbackQuery', callback_query_id=callback_id, text='Нет доступа.')
             try:
@@ -20134,7 +20670,7 @@ def telegram_webhook():
             except RuntimeError:
                 pass
             command_message = {'from': {'id': uid}, 'chat': {'type': 'private'},
-                               'text': '/emoji' if callback_data == 'admin:emoji' else '/post'}
+                               'text': {'admin:emoji': '/emoji', 'admin:post': '/post', 'admin:copypost': '/copypost'}[callback_data]}
             return jsonify(**handle_admin_emoji_message(command_message))
         if callback_data.startswith('start:'):
             try:
@@ -20586,7 +21122,7 @@ def xhunt_grant(db, uid, reward, event_id, place):
     kind = reward.get('type')
     title = f'X-Hunt #{event_id}, {place} место'
     view = xhunt_reward_view(reward)
-    result = dict(place=place, user_id=uid, reward=view, code='')
+    result = dict(place=place, user_id=uid, reward=view, code='', gift_id=str(reward.get('gift_id') or '') if kind in ('catalog', 'fragment') else '')
     if kind in ('ton', 'bonus'):
         cents = ton_to_cents(reward.get('amount') or 0)
         credit_promo_balance(db, uid, cents, 'bonus' if kind == 'bonus' else 'main')
@@ -20629,7 +21165,7 @@ def xhunt_broadcast(db, admin_id, text, exclude=()):
     if not rows:
         return 0
     bc = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
-                    (int(admin_id or 0), text, '[]', '[]', len(rows), 0, int(time.time())))
+                    (int(admin_id or 0), custom_emoji_html(text), '[]', '[]', len(rows), 0, int(time.time())))
     for r in rows:
         db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bc.lastrowid, int(r['id'])))
     NOTIFY_WAKE.set()
@@ -20639,13 +21175,14 @@ def xhunt_broadcast(db, admin_id, text, exclude=()):
 def xhunt_results_text(paid, reason):
     medals = {1: '🥇', 2: '🥈', 3: '🥉'}
     if not paid:
-        return '🏁 <b>X-Hunt завершён</b>\n\nВ этот раз победителя нет. Следующая охота будет скоро — следите за разделом «Игры»!'
-    lines = ['🏁 <b>X-Hunt завершён!</b>', '']
+        return render_notice('xhunt_results_empty')
+    lines = []
     for w in paid[:3]:
-        who = escape(str(w.get('name') or 'Игрок'))
-        lines.append(f'{medals.get(w["place"], "🏆")} <b>{who}</b> — x{w["x"]:g} ({escape(str(w.get("mode_label") or ""))}) · {escape(w["reward"]["title"])}')
-    lines += ['', 'Поздравляем победителей! Следующая охота будет скоро — следите за разделом «Игры».']
-    return '\n'.join(lines)
+        lines.append(render_notice('xhunt_winner_line',
+                                   {'medal': medals.get(w['place'], '🏆'), 'name': str(w.get('name') or 'Игрок'),
+                                    'x': f'{w["x"]:g}', 'mode': str(w.get('mode_label') or '')},
+                                   {'prize': xhunt_prize_html({'type': w['reward'].get('type'), 'gift_id': w.get('gift_id')}, w['reward'])}))
+    return render_notice('xhunt_results', None, {'winners': '\n'.join(lines)})
 
 
 def xhunt_finish(db, ev, winners, reason):
@@ -20668,11 +21205,12 @@ def xhunt_finish(db, ev, winners, reason):
                      x=row['x100'] / 100, mode=row['mode'], mode_label=XHUNT_MODE_LABELS.get(row['mode'], row['mode']))
         paid.append(given)
         extra = f'\n🎟 Ваш промокод: <code>{escape(given["code"])}</code>' if given['code'] else ''
+        note = ('Подарок уже в вашем инвентаре.' if reward.get('type') in ('catalog', 'fragment') else
+                'Промокод можно ввести в разделе «Бонусы».' if given['code'] else 'Награда уже зачислена на баланс.')
         notes.append((row['user_id'],
-                      f'🏆 <b>Вы победили в X-Hunt!</b>\n\n{place} место · <b>x{row["x100"]/100:g}</b> ({XHUNT_MODE_LABELS.get(row["mode"], row["mode"])})\n'
-                      f'Награда: <b>{escape(given["reward"]["title"])}</b>{extra}\n\n'
-                      + ('Подарок уже в вашем инвентаре.' if reward.get('type') in ('catalog', 'fragment') else
-                         'Промокод можно ввести в разделе «Бонусы».' if given['code'] else 'Награда уже зачислена на баланс.')))
+                      render_notice('xhunt_win', {'place': place, 'x': f'{row["x100"]/100:g}',
+                                                  'mode': XHUNT_MODE_LABELS.get(row['mode'], row['mode']), 'note': note},
+                                    {'prize': xhunt_prize_html(reward, given['reward'], given.get('gift_id')), 'code_line': extra})))
     cfg = xhunt_event_config(ev)
     notify_end = bool(cfg.get('notify_end', True)) and reason != 'cancelled'
     db.execute('UPDATE xhunt_events SET winners_json=? WHERE id=?',
@@ -20832,16 +21370,24 @@ def admin_xhunt_start():
     return jsonify(ok=True, event=view)
 
 
+def xhunt_prize_html(reward, view=None, gift_id=''):
+    """Prize as HTML: gifts carry their own premium emoji, everything else is bold text."""
+    reward = reward if isinstance(reward, dict) else {}
+    view = view or xhunt_reward_view(reward)
+    if reward.get('type') in ('catalog', 'fragment') or (view.get('type') in ('catalog', 'fragment')):
+        return gift_html(reward.get('gift_id') or gift_id, view.get('title') or 'Подарок')
+    return f'<b>{escape(view.get("title") or "Приз")}</b>'
+
+
 def xhunt_announce_text(cfg, end):
     modes = 'все режимы' if cfg.get('all_modes') else ', '.join(XHUNT_MODE_LABELS.get(m, m) for m in cfg.get('modes') or [])
-    first = xhunt_reward_view((cfg.get('rewards') or [{}])[0])
+    first_raw = (cfg.get('rewards') or [{}])[0]
     if cfg.get('finish_by') == 'target':
         goal = f'Первый, кто поймает <b>x{cfg.get("target_x"):g}</b>, забирает приз.'
     else:
         goal = f'Лучший множитель за {cfg.get("duration_min")} мин. забирает приз.'
-    return (f'🎯 <b>X-Hunt начался!</b>\n\n{goal}\nРежимы: {escape(modes)}\n'
-            f'Минимальная ставка: {cfg.get("min_bet") or 0:g} TON\n'
-            f'Награда: <b>{escape(first["title"])}</b>\n\nОткройте «Игры» в GemDrop.')
+    return render_notice('xhunt_start', {'modes': modes, 'min_bet': f'{cfg.get("min_bet") or 0:g} TON'},
+                         {'goal': goal, 'prize': xhunt_prize_html(first_raw)})
 
 
 @app.post('/api/admin/xhunt/stop')
@@ -20906,20 +21452,13 @@ def daily_top_settlement_loop():
 
 def creator_limit_refill_text(level):
     cfg = CREATOR_LEVELS[creator_level_key(level)]
-    parts = [
-        '♻️ <b>Дневной лимит автора восстановлен</b>',
-        '',
-        f'Уровень: <b>{escape(cfg["name"])}</b>',
-        f'Шкала: <b>0 / {cfg["daily_budget_cents"]/100:.2f} TON</b>',
-    ]
+    wager_line = ''
     if int(cfg.get('wager_daily_limit') or 0):
-        parts.append(
-            f'Отыгрышные подарки: <b>0 / {int(cfg["wager_daily_limit"])}</b> · '
-            f'{cfg["wager_gift_min_cents"]/100:.0f}–{cfg["wager_gift_max_cents"]/100:.0f} TON · '
-            f'X от {int(cfg["wager_min_x"])}'
-        )
-    parts.extend(['', 'Новый дневной лимит уже доступен в панели автора.'])
-    return '\n'.join(parts)
+        wager_line = (f'\nОтыгрышные подарки: <b>0 / {int(cfg["wager_daily_limit"])}</b> · '
+                      f'{cfg["wager_gift_min_cents"]/100:.0f}–{cfg["wager_gift_max_cents"]/100:.0f} TON · '
+                      f'X от {int(cfg["wager_min_x"])}')
+    return render_notice('creator_refill', {'level': cfg['name'], 'budget': f'{cfg["daily_budget_cents"]/100:.2f}'},
+                         {'wager_line': wager_line})
 
 
 def creator_daily_limit_refill_loop():
@@ -21009,7 +21548,7 @@ def configure_bot():
             response = requests.post(f'https://api.telegram.org/bot{BOT_TOKEN}/setWebhook',
                                      json={'url': WEBAPP_URL + '/telegram/webhook',
                                            'secret_token': WEBHOOK_SECRET,
-                                           'allowed_updates': ['message', 'callback_query', 'pre_checkout_query'],
+                                           'allowed_updates': ['message', 'callback_query', 'pre_checkout_query', 'channel_post'],
                                            'max_connections': 40,
                                            'drop_pending_updates': False}, timeout=(3, 6))
             response.raise_for_status()

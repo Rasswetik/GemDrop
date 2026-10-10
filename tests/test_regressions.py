@@ -712,9 +712,10 @@ class RegressionTests(unittest.TestCase):
             self.assertIsNone(remove_args[2])
 
     def test_stars_payment_notification_uses_real_newlines(self):
-        source=Path(m.__file__).read_text(encoding='utf-8')
-        self.assertIn("f'⭐ <b>Оплата Telegram Stars подтверждена.</b>\\n\\n'",source)
-        self.assertNotIn("подтверждена.</b>\\\\n\\\\n",source)
+        m.save_document('notice_templates', {'texts': {}})
+        spec = m.notice_defs.NOTICE_BY_KEY['stars_paid']
+        self.assertIn('Оплата Telegram Stars подтверждена.</b>\n\n', spec['text'])
+        self.assertNotIn('\\n', spec['text'])
 
     def test_creator_panel_can_hide_and_reveal_with_secret_code(self):
         with patch.object(m,'ADMIN_IDS',{self.uid}):
@@ -1159,6 +1160,100 @@ class RegressionTests(unittest.TestCase):
             paid = json.loads(db.execute('SELECT winners_json FROM xhunt_events WHERE id=?', (started['event']['id'],)).fetchone()['winners_json'])['winners']
             self.assertEqual([p['user_id'] for p in paid], [winner])
             self.assertEqual(db.execute('SELECT bonus_balance FROM users WHERE id=?', (winner,)).fetchone()['bonus_balance'], 300)
+
+
+    # ---------------- notification templates / premium emoji / channel posts ----------------
+    def test_notice_defaults_overrides_and_escaping(self):
+        m.save_document('notice_templates', {'texts': {}})
+        default = m.render_notice('deposit', {'amount': '25.00', 'balance': '31.40'}, {'bonus_line': ''})
+        self.assertIn('25.00', default)
+        m.save_document('notice_templates', {'texts': {'deposit': '<b>Привет</b> {amount} [emoji:5438496463044752972:⭐]'}})
+        custom = m.render_notice('deposit', {'amount': '<i>7</i>', 'balance': '1'}, {'bonus_line': ''})
+        self.assertIn('&lt;i&gt;7&lt;/i&gt;', custom)          # placeholder values are escaped
+        self.assertIn('emoji-id="5438496463044752972"', m.notification_premium_html(custom))  # token becomes a premium emoji when sent
+        # a broken admin text never breaks delivery: the default is used
+        m.save_document('notice_templates', {'texts': {'deposit': '<b>не закрыто {amount}'}})
+        self.assertEqual(m.render_notice('deposit', {'amount': '25.00', 'balance': '31.40'}, {'bonus_line': ''}), default)
+        m.save_document('notice_templates', {'texts': {}})
+
+    def test_every_notice_default_renders_and_validates(self):
+        for spec in m.notice_defs.NOTICE_DEFS:
+            html = m.notice_validate_text(spec['key'], spec['text'])
+            self.assertTrue(html)
+            self.assertNotRegex(m.notice_preview(spec['key']), r'\{[a-z_]+\}')   # every placeholder has an example value
+        keys = [d['key'] for d in m.notice_defs.NOTICE_DEFS]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertGreaterEqual(len(m.notice_defs.STARTER_EMOJIS), 20)
+
+    def test_gift_html_binds_emoji_to_the_gift_by_id_and_name(self):
+        m.save_document('portal_catalog', {'gifts': [{'id': 'qa-pepe', 'name': 'QA Pepe', 'price_ton': 3}]})
+        m.save_document('gift_emoji:qa-pepe', dict(gift_id='qa-pepe', gift_name='QA Pepe', emoji_id='5438496463044752972', emoji='⭐'))
+        by_id = m.gift_html('qa-pepe', 'QA Pepe')
+        self.assertIn('emoji-id="5438496463044752972"', by_id)
+        by_name = m.gift_html('', 'QA Pepe #1234')            # inventory names carry the serial number
+        self.assertIn('emoji-id="5438496463044752972"', by_name)
+        self.assertNotIn('emoji-id', m.gift_html('', 'Unknown gift'))
+
+    def test_notice_admin_api_saves_previews_and_resets(self):
+        self.assertEqual(self.client.get('/api/admin/notice-templates').status_code, 403)
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            data = self.client.get('/api/admin/notice-templates').get_json()
+            self.assertTrue(data['groups'])
+            self.post('/api/admin/notice-templates', {'key': 'deposit', 'text': '<b>Готово</b> {amount} [emoji:5368324170671202286:👍]'})
+            item = next(i for g in self.client.get('/api/admin/notice-templates').get_json()['groups'] for i in g['items'] if i['key'] == 'deposit')
+            self.assertTrue(item['custom'])
+            self.post('/api/admin/notice-templates', {'key': 'deposit', 'text': '<b>сломано'}, 400)
+            self.post('/api/admin/notice-templates', {'key': 'nope', 'text': 'x'}, 404)
+            preview = self.post('/api/admin/notice-templates/preview', {'key': 'deposit', 'text': 'Баланс {amount}'})
+            self.assertIn('25', preview['html'])
+            self.post('/api/admin/notice-templates/reset', {'key': '*'})
+            self.assertEqual(self.client.get('/api/admin/notice-templates').get_json()['custom_count'], 0)
+
+    def test_channel_posts_are_remembered_merged_and_copied(self):
+        m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
+        chat = {'id': -100777000111, 'title': 'QA channel', 'username': 'qa_channel'}
+        m.record_channel_post(chat, 5, {'text': 'Привет', 'entities': [{'type': 'custom_emoji', 'custom_emoji_id': '5424972470023104089'}]})
+        m.record_channel_post(chat, 6, {'photo': [{}], 'caption': 'Альбом', 'media_group_id': 'G1'})
+        m.record_channel_post(chat, 7, {'photo': [{}], 'media_group_id': 'G1'})
+        items = m.read_document(m.CHANNEL_POSTS_DOC)['items']
+        self.assertEqual(len(items), 2)
+        album = next(i for i in items if i['media_group_id'] == 'G1')
+        self.assertEqual(album['message_ids'], [6, 7])
+        self.assertTrue(next(i for i in items if i['message_ids'] == [5])['premium'])
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            listed = self.client.get('/api/admin/broadcast/channel-posts').get_json()['items']
+            self.assertEqual(listed[0]['link'].split('/')[2:4], ['t.me', 'qa_channel'])
+        calls = []
+        def fake(method, payload, files=None):
+            calls.append((method, payload)); return True, {}
+        broadcast = {'id': 1, 'text': '', 'photos': '[]', 'buttons': '[]', 'source_chat': chat['id'], 'source_ids': json.dumps([5])}
+        with patch.object(m, '_bc_call', fake), patch.object(m, 'BOT_TOKEN', 'x'):
+            ok, _result, _cached = m._bc_send_one(broadcast, 12345)
+        self.assertTrue(ok)
+        self.assertEqual(calls[0][0], 'copyMessage')
+        self.assertEqual(calls[0][1]['from_chat_id'], chat['id'])
+        broadcast['source_ids'] = json.dumps([6, 7])
+        calls.clear()
+        with patch.object(m, '_bc_call', fake), patch.object(m, 'BOT_TOKEN', 'x'):
+            m._bc_send_one(broadcast, 12345)
+        self.assertEqual(calls[0][0], 'copyMessages')
+
+    def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
+        m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
+        chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}
+        with patch.object(m, 'BOT_TOKEN', 'x'), patch.object(m, 'WEBAPP_URL', 'https://example.test'):
+            headers = {'X-Telegram-Bot-Api-Secret-Token': m.WEBHOOK_SECRET}
+            r = self.client.post('/telegram/webhook', json={'channel_post': {'message_id': 9, 'chat': chat, 'text': 'hello'}}, headers=headers)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(m.read_document(m.CHANNEL_POSTS_DOC)['items'][0]['message_ids'], [9])
+        admin = 777000111
+        with patch.object(m, 'ADMIN_IDS', {admin}):
+            m.handle_admin_emoji_message({'from': {'id': admin}, 'chat': {'type': 'private'}, 'text': '/copypost'})
+            reply = m.handle_admin_emoji_message({'from': {'id': admin}, 'chat': {'type': 'private'}, 'text': 'old',
+                                                  'forward_origin': {'type': 'channel', 'chat': chat, 'message_id': 3}})
+        self.assertIn('сохранён', reply['text'])
+        ids = [i for it in m.read_document(m.CHANNEL_POSTS_DOC)['items'] for i in it['message_ids']]
+        self.assertIn(3, ids)
 
 
 if __name__ == '__main__':

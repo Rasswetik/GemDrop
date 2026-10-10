@@ -2683,6 +2683,24 @@ def hw_pet_enabled(doc=None):
     return bool(doc.get('pet_enabled', True))
 
 
+def hw_pet_gift_amount(doc=None):
+    """Pumpkins the pet hands out after the player has lost a lot («Кристаллик зажарился»)."""
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return max(0, min(100000, int(float(str(doc.get('pet_gift_amount', 30))))))
+    except (TypeError, ValueError):
+        return 30
+
+
+def hw_pet_fry_need(doc=None):
+    """How many pumpkins must be earned from losses since the previous gift before the next one."""
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return max(1, min(10000000, int(float(str(doc.get('pet_fry_need', 300))))))
+    except (TypeError, ValueError):
+        return 300
+
+
 def hw_welcome_lot(doc, bought):
     amount = hw_welcome_amount(doc)
     if not amount:
@@ -3001,6 +3019,50 @@ def halloween_tour_finish():
     return jsonify(ok=True, reward=reward, pumpkins=pump)
 
 
+@app.post('/api/halloween/pet-gift')
+@login_required
+def halloween_pet_gift():
+    """The pet got «fried» by a long losing streak and pays a small pumpkin gift.
+    The server decides: at most once a day, and only after enough pumpkins were earned from losses since the previous gift."""
+    s, err = hw_visible_or_error()
+    if err:
+        return err
+    if not hw_pet_enabled():
+        return error('Кристаллик сейчас отдыхает.', 403)
+    uid = int(session['uid'])
+    amount = hw_pet_gift_amount()
+    need = hw_pet_fry_need()
+    today = time.strftime('%Y-%m-%d', time.gmtime())
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hw_ensure_pumpkin_row(db, uid)
+        pump = hw_pumpkin_balance(db, uid)
+        last = db.execute("SELECT outcome FROM hw_claims WHERE user_id=? AND button_id='~fried' ORDER BY day DESC LIMIT 1", (uid,)).fetchone()
+        try:
+            base = int(str(last['outcome']).replace('earned:', '')) if last else 0
+        except ValueError:
+            base = 0
+        if pump['earned'] - base < need:
+            db.rollback()
+            return error('Рано: Кристаллик ещё не прожарился.', 409)
+        got = db.execute("INSERT OR IGNORE INTO hw_claims(user_id,button_id,day,outcome) VALUES(?,?,?,?)", (uid, '~fried', today, 'earned:%d' % pump['earned']))
+        if not got.rowcount:
+            db.rollback()
+            return error('Сегодня подарок уже был.', 409)
+        if amount > 0:
+            hw_add_pumpkins(db, uid, amount, earned=False)
+        pump = hw_pumpkin_balance(db, uid)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween pet gift failed')
+        return error('Не удалось выдать подарок. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, reward=amount, pumpkins=pump)
+
+
 @app.post('/api/halloween/claim')
 @login_required
 def halloween_claim():
@@ -3134,7 +3196,7 @@ def admin_halloween_config():
         lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
         totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
     return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), welcome_enabled=bool(doc.get('welcome_enabled', True)),
-                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), pet_gift_amount=hw_pet_gift_amount(doc), pet_fry_need=hw_pet_fry_need(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
                    holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
 
 
@@ -3163,6 +3225,15 @@ def admin_halloween_config_set():
         doc['welcome_enabled'] = bool(data.get('welcome_enabled'))
     if 'pet_enabled' in data:
         doc['pet_enabled'] = bool(data.get('pet_enabled'))
+    for key, label, top in (('pet_gift_amount', 'Подарок питомца', 100000), ('pet_fry_need', 'Порог «зажарки»', 10000000)):
+        if key in data:
+            try:
+                val = int(float(str(data.get(key)).replace(',', '.')))
+            except ValueError:
+                return error(label + ': целое число.')
+            if not (0 if key == 'pet_gift_amount' else 1) <= val <= top:
+                return error(label + ': число вне допустимых границ.')
+            doc[key] = val
     if 'welcome_amount' in data:
         try:
             amount = round(float(str(data.get('welcome_amount')).replace(',', '.')), 2)

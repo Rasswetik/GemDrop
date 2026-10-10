@@ -1469,6 +1469,31 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual([l['price'] for l in lots], sorted(l['price'] for l in lots))
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_pet_fried_gift_is_checked_by_the_server(self):
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        now = int(time.time() * 1000)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': now + 600000, 'mode': 'full'})
+        self.post('/api/admin/halloween/config', {'pet_enabled': True, 'pet_gift_amount': 40, 'pet_fry_need': 300})
+        cfg = self.client.get('/api/admin/halloween/config').get_json()
+        self.assertEqual((cfg['pet_gift_amount'], cfg['pet_fry_need']), (40, 300))
+        self.post('/api/admin/halloween/config', {'pet_fry_need': 0}, 400)
+        self.post('/api/halloween/pet-gift', {}, 409)                       # nothing was lost yet: the pet is not fried
+        with m.connect() as db:
+            m.hw_add_pumpkins(db, self.uid, 320, earned=True)
+            db.commit()
+        got = self.post('/api/halloween/pet-gift', {})
+        self.assertEqual(got['reward'], 40)
+        self.assertEqual(got['pumpkins']['earned'], 320)
+        self.post('/api/halloween/pet-gift', {}, 409)                       # once a day and only after a fresh streak
+        with m.connect() as db:
+            m.hw_add_pumpkins(db, self.uid, 400, earned=True)
+            db.commit()
+        self.post('/api/halloween/pet-gift', {}, 409)                       # still the same day
+        self.post('/api/admin/halloween/config', {'pet_enabled': False})
+        self.post('/api/halloween/pet-gift', {}, 403)
+        self.post('/api/admin/halloween/config', {'pet_enabled': True})
+        self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

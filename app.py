@@ -3422,10 +3422,10 @@ def readiness():
     try:
         with connect() as db:
             db.execute('SELECT 1').fetchone()
-    except Exception:
+    except Exception as exc:
         app.logger.exception('Database readiness failed')
-        return jsonify(status='unavailable'), 503
-    return jsonify(status='ok', build=BUILD_ID)
+        return jsonify(status='unavailable', backend='postgres' if DATABASE_URL else 'sqlite', reason=type(exc).__name__), 503
+    return jsonify(status='ok', backend='postgres' if DATABASE_URL else 'sqlite', build=BUILD_ID)
 
 
 @app.get('/api/build')
@@ -20820,7 +20820,8 @@ def telegram_webhook():
 
 
 def database_busy(exc):
-    app.logger.warning('Database temporarily unavailable: %s', type(exc).__name__)
+    # Log the real reason (wrong DATABASE_URL, DB asleep, pool exhausted, SQLite locked…): the class name alone hides it.
+    app.logger.warning('Database temporarily unavailable: %s: %s', type(exc).__name__, str(exc)[:300])
     response = jsonify(error='Сервер занят. Повторите запрос через несколько секунд.')
     response.status_code = 503
     response.headers['Retry-After'] = '2'

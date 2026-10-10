@@ -4286,6 +4286,7 @@ body.studio #profilePage #inventoryGrid .gift>small{margin-top:2px!important;pad
 #roadPage .rd-chip.on{color:#7bf5c6;border-color:rgba(63,217,160,.5);background:rgba(10,40,32,.72)}
 #roadPage .rd-banner{position:absolute;left:50%;top:36%;transform:translate(-50%,-50%) scale(.82);opacity:0;pointer-events:none;text-align:center;padding:11px 24px 12px;border-radius:20px;background:rgba(14,10,24,.86);border:1.5px solid rgba(255,255,255,.14);box-shadow:0 12px 34px rgba(0,0,0,.5);transition:opacity .22s,transform .3s cubic-bezier(.2,1.4,.4,1);min-width:210px}
 #roadPage .rd-banner.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#roadPage .rd-banner b:empty{display:none}
 #roadPage .rd-banner b{display:block;font-size:16px;font-weight:900;letter-spacing:.01em}
 #roadPage .rd-banner span{display:block;margin-top:4px;white-space:nowrap;font-size:19px;font-weight:900;font-variant-numeric:tabular-nums}
 #roadPage .rd-banner.win{border-color:rgba(63,217,160,.6)}#roadPage .rd-banner.win b{color:#9bf7d6}#roadPage .rd-banner.win span{color:#7bf5a8;text-shadow:0 0 18px rgba(63,230,120,.45)}
@@ -9939,7 +9940,7 @@ async function playStep(res){
   catLeave(k,34,-90);
   await wait(260);
  }else{
-  const run=catRun(k,-80,122,760,'cubic-bezier(.3,.1,.7,1)',false);
+  const run=catRun(k,-80,98,760,'cubic-bezier(.3,.1,.7,1)',false);
   await arrive;setPose('idle');
   anim($('rdHam'),[{transform:'translateX(0)'},{transform:'translateX(-2px)'},{transform:'translateX(2px)'},{transform:'translateX(-2px)'},{transform:'translateX(0)'}],{duration:240,iterations:2});
   await run;
@@ -9948,7 +9949,7 @@ async function playStep(res){
   try{tgHaptic('error')}catch(e){}
   anim(cat.sq,[{transform:'translateY(6px) scale(1.1)'},{transform:'translateY(10px) scale(1.16)'},{transform:'translateY(5px) scale(1.08)'},{transform:'translateY(10px) scale(1.16)'},{transform:'translateY(6px) scale(1.1)'}],{duration:720});
   await wait(800);
-  catLeave(k,122,-90);
+  catLeave(k,98,-90);
   await wait(500);
  }
  st.stepLane=0;
@@ -10038,7 +10039,7 @@ function winWindow(payout,prize,remainder,bonus){
  try{reward({awarded:prize||null,payout:prize?remainder:payout,bonus_origin:!!bonus})}catch(e){}
 }
 async function finishRound(kind,payout,bet,extra){
- if(kind==='lost'){showBanner('lose','Кот поймал хомяка','−'+fmt(bet)+' TON');await wait(1900)}
+ if(kind==='lost'){showBanner('lose','','−'+fmt(bet)+' TON');await wait(1900)}
  else{
   extra=extra||{};
   showBanner('win',kind==='won'?'Нора достигнута!':'Выигрыш забран','x'+(payout/bet).toFixed(2));
@@ -11906,6 +11907,9 @@ syncWheelNav();
 #depositModal #depositGiftStep .deposit-head{padding-left:50px!important}
 #depositModal #depositGiftStep .deposit-head h2{font-size:18px!important;white-space:nowrap}
 #depositModal #depositGiftStep .deposit-back{top:10px!important;left:10px!important}
+#roadPage #rdHam[data-pose=caught] .rd-p-caught{transform:translateX(9px)}
+#roadPage .rd-banner{top:17%!important;padding:8px 20px 9px!important}
+#roadPage .rd-banner span{font-size:18px!important}
 </style>
 <style id="game-sizes-v1">
 /* two columns everywhere: a normal card is one cell, a double card is two cells wide with the SAME height */

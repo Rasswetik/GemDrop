@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import re
+from datetime import timedelta
 from pathlib import Path
 import sys
 import tempfile
@@ -1147,20 +1148,49 @@ class RegressionTests(unittest.TestCase):
 
         tcfg = {'modes': ['limbo'], 'finish_by': 'target', 'target_x': '10', 'min_bet': '0',
                 'rewards': [{'type': 'bonus', 'amount': '3'}]}
-        if True:
-            self.post('/api/admin/xhunt/start', dict(tcfg, target_x='1'), 400)
-            started = self.post('/api/admin/xhunt/start', tcfg)
+        with m.connect() as db:
+            db.execute('DELETE FROM limbo_bets')   # rounds of the previous event share the same second
+        self.post('/api/admin/xhunt/start', dict(tcfg, target_x='1'), 400)
+        started = self.post('/api/admin/xhunt/start', tcfg)
+        self.assertEqual(started['event']['confirm_seconds'], 90)      # 1.5 minute countdown by default
+        with m.connect() as db:   # bets below are back-dated, keep them inside the event window
+            db.execute('UPDATE xhunt_events SET start_at=? WHERE id=?', (m._daily_top_db_string(m._xhunt_now() - timedelta(minutes=10)), started['event']['id']))
         with m.connect() as db:
             self.assertIsNone(m.xhunt_tick(db))
             now = m._daily_top_db_string(m._xhunt_now())
             db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,800,1,1,800,?)', (other, now))
             self.assertIsNone(m.xhunt_tick(db))
             db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,1200,1,1,1200,?)', (winner, now))
+            self.assertIsNone(m.xhunt_tick(db))                          # target reached: countdown runs, event is still on
+            self.assertIsNotNone(m.xhunt_active_event(db))
+        lock = self.client.get('/api/xhunt/state').get_json()['event']['lock']
+        self.assertEqual((lock['user_id'], lock['x']), (winner, 12.0))
+        self.assertTrue(0 < lock['seconds_left'] <= 90)
+        # a higher X by somebody else takes the lead and restarts the countdown
+        with m.connect() as db:
+            old = m._daily_top_db_string(m._xhunt_now() - timedelta(seconds=80))
+            db.execute('UPDATE limbo_bets SET created_at=? WHERE multiplier_x100=1200', (old,))
+            self.assertIsNone(m.xhunt_tick(db))
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,1500,1,1,1500,?)', (other, now))
+            self.assertIsNone(m.xhunt_tick(db))
+        lock = self.client.get('/api/xhunt/state').get_json()['event']['lock']
+        self.assertEqual((lock['user_id'], lock['x']), (other, 15.0))
+        self.assertGreater(lock['seconds_left'], 60)
+        # nobody beats the leader for 90 seconds: the event ends and he wins
+        with m.connect() as db:
+            db.execute('UPDATE limbo_bets SET created_at=? WHERE multiplier_x100=1500', (m._daily_top_db_string(m._xhunt_now() - timedelta(seconds=95)),))
             m.xhunt_tick(db)
         with m.connect() as db:
             paid = json.loads(db.execute('SELECT winners_json FROM xhunt_events WHERE id=?', (started['event']['id'],)).fetchone()['winners_json'])['winners']
-            self.assertEqual([p['user_id'] for p in paid], [winner])
-            self.assertEqual(db.execute('SELECT bonus_balance FROM users WHERE id=?', (winner,)).fetchone()['bonus_balance'], 300)
+            self.assertEqual([p['user_id'] for p in paid], [other])
+            self.assertEqual(db.execute('SELECT bonus_balance FROM users WHERE id=?', (other,)).fetchone()['bonus_balance'], 300)
+        # confirm_seconds = 0 keeps the old "first to reach the target wins at once" behaviour
+        quick = self.post('/api/admin/xhunt/start', dict(tcfg, confirm_seconds=0))
+        with m.connect() as db:
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,2000,1,1,2000,?)',
+                       (winner, m._daily_top_db_string(m._xhunt_now())))
+            m.xhunt_tick(db)
+            self.assertIsNone(m.xhunt_active_event(db))
 
 
     # ---------------- notification templates / premium emoji / channel posts ----------------
@@ -1279,11 +1309,28 @@ class RegressionTests(unittest.TestCase):
         b = html.index('</script>', html.index('<script id="halloween-js">'))
         seg = html[a:b]
         self.assertFalse(re.search('[\U0001F300-\U0001FAFF\u2600-\u27BF]', seg), 'no regular emoji in the Halloween theme')
-        for kf in ('hwFlapL', 'hwFly', 'hwGhostDrift', 'hwFlicker', 'hwFlame', 'hwThread', 'hwBub', 'hwSpark'):
+        for kf in ('hwFlapL', 'hwFly', 'hwGhostDrift', 'hwFlicker', 'hwFlame', 'hwBub', 'hwSpark', 'hwRkCard', 'hwTumble', 'hwFloat'):
             self.assertIn('@keyframes ' + kf, seg)
+        self.assertNotIn('hwThread', seg)              # no hanging spiders any more
+        self.assertNotIn('hw-web', seg)
+        for needle in ("gemSym('hwGem'", 'id="hwRocket"', 'id="hwMini"', 'Halloween<', "hwEventPage", 'hwAdminsOnly'):
+            self.assertIn(needle, html)
         for cold in ('#3b1766', '#9b5cff', '#c77dff', '#190c30'):
             self.assertNotIn(cold, seg)
         self.assertNotIn('.gif', html[html.index('<style id="loader-svg-v1">'):html.index('</style>', html.index('<style id="loader-svg-v1">'))])
+
+    def test_halloween_admins_only_banner_and_event_page(self):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.assertTrue(self.post('/api/admin/halloween', {'enabled': True, 'admins_only': True, 'starts_at': 0, 'ends_at': 0})['active'])
+            self.assertTrue(self.client.get('/api/halloween').get_json()['active'])
+            player = m.app.test_client()
+            with player.session_transaction() as sess:
+                sess['uid'] = self.uid + 777
+            self.assertFalse(player.get('/api/halloween').get_json()['active'])      # players see the normal site
+            self.assertFalse(self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': 0})['admins_only'])
+            self.assertTrue(player.get('/api/halloween').get_json()['active'])
+            self.assertEqual(player.post('/api/admin/halloween/banner', json={'remove': True}).status_code, 403)
+            self.post('/api/admin/halloween', {'enabled': False})
 
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})

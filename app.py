@@ -2408,7 +2408,8 @@ def _halloween_doc(fresh=False):
     return doc
 
 
-def halloween_state(fresh=False):
+def halloween_state(fresh=False, for_admin=False):
+    """Event state. `active` is the raw schedule; `visible` additionally honours «только для админов»."""
     doc = _halloween_doc(fresh)
     def _ms(key):
         try:
@@ -2417,16 +2418,29 @@ def halloween_state(fresh=False):
             return 0
     enabled, starts, ends = bool(doc.get('enabled')), _ms('starts_at'), _ms('ends_at')
     effects = bool(doc.get('effects', True))   # ambient animation (bats, ghosts, fog); the theme itself stays
+    admins_only = bool(doc.get('admins_only'))
+    banner_id = str(doc.get('banner_id') or '')
+    if not re.fullmatch(r'[0-9a-f]{8,40}', banner_id):
+        banner_id = ''
     now = int(time.time() * 1000)
     active = enabled and (not starts or now >= starts) and (not ends or now < ends)
-    return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, effects=effects, now=now)
+    return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, effects=effects, now=now,
+                admins_only=admins_only, banner_id=banner_id,
+                banner_url=('/api/wheel/image/' + banner_id) if banner_id else '',
+                launch_id=_ms('launch_id'))
 
 
 @app.get('/api/halloween')
 def public_halloween():
     s = halloween_state()
-    response = jsonify(active=s['active'], starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'])
+    admin = is_admin_session()
+    # «Только для администраторов»: обычные игроки видят обычный сайт, админы — событие с меткой предпросмотра.
+    visible = bool(s['active'] and (admin or not s['admins_only']))
+    response = jsonify(active=visible, starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'],
+                       admins_only=bool(s['admins_only'] and admin), banner_url=s['banner_url'] if visible else '',
+                       launch_id=s['launch_id'])
     response.headers['Cache-Control'] = 'no-store'
+    response.headers['Vary'] = 'Cookie'
     return response
 
 
@@ -2451,9 +2465,44 @@ def admin_halloween_set():
         return error('Некорректная дата.')
     if starts and ends and ends <= starts:
         return error('Конец должен быть позже начала.')
-    save_document('halloween', dict(enabled=bool(data.get('enabled')), starts_at=starts, ends_at=ends,
-                                    effects=bool(data.get('effects', True)),
+    prev = _halloween_doc(fresh=True)
+    enabled, admins_only = bool(data.get('enabled')), bool(data.get('admins_only'))
+    # launch_id identifies one public "Halloween started" moment; it is renewed only when the event goes live for everyone.
+    was_public = bool(prev.get('enabled')) and not bool(prev.get('admins_only'))
+    launch_id = int(prev.get('launch_id') or 0)
+    if enabled and not admins_only and (not was_public or not launch_id):
+        launch_id = int(time.time() * 1000)
+    save_document('halloween', dict(enabled=enabled, starts_at=starts, ends_at=ends,
+                                    effects=bool(data.get('effects', True)), admins_only=admins_only,
+                                    banner_id=str(prev.get('banner_id') or ''), launch_id=launch_id,
                                     updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
+    _hw_cache['doc'] = None
+    return jsonify(ok=True, **halloween_state(fresh=True))
+
+
+@app.post('/api/admin/halloween/banner')
+@admin_required
+def admin_halloween_banner():
+    """Upload (multipart «image») or remove (JSON {remove:true}) the event banner shown on the event page and card."""
+    prev = dict(_halloween_doc(fresh=True))
+    old_id = str(prev.get('banner_id') or '')
+    file = request.files.get('image') if request.files else None
+    if file is None:
+        if not (request.get_json(silent=True) or {}).get('remove'):
+            return error('Выберите изображение.')
+        new_id = ''
+    else:
+        try:
+            with connect() as db:
+                new_id = wheel_store_image(db, file)
+        except ValueError as exc:
+            return error(str(exc))
+    with connect() as db:
+        if old_id and old_id != new_id and re.fullmatch(r'[0-9a-f]{8,40}', old_id):
+            db.execute('DELETE FROM wheel_images WHERE id=?', (old_id,))
+    prev['banner_id'] = new_id
+    prev['updated_at'] = datetime.now(timezone.utc).isoformat()
+    save_document('halloween', prev)
     _hw_cache['doc'] = None
     return jsonify(ok=True, **halloween_state(fresh=True))
 
@@ -20907,6 +20956,7 @@ XHUNT_MAX_PLACES = 3
 XHUNT_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo')
 XHUNT_PROMO_KINDS = ('balance', 'bonus', 'deposit_bonus')
 XHUNT_FAR = '9999-12-31 23:59:59'
+XHUNT_CONFIRM_SECONDS = 90  # after somebody reaches the target X, rivals get this long to beat him
 
 
 def _xhunt_now():
@@ -21006,6 +21056,11 @@ def xhunt_normalize_config(data):
         if not math.isfinite(target) or not 1.01 <= target <= 1000000:
             raise ValueError('Целевой X: от 1.01 до 1 000 000.')
         cfg['target_x'] = round(target, 2)
+        try:
+            confirm = int(data.get('confirm_seconds', XHUNT_CONFIRM_SECONDS))
+        except (TypeError, ValueError):
+            confirm = XHUNT_CONFIRM_SECONDS
+        cfg['confirm_seconds'] = max(0, min(3600, confirm))
         deadline = max(0, int(data.get('deadline_hours') or 0))
         if deadline > 720:
             raise ValueError('Предельный срок: не больше 720 часов (0 — без ограничения).')
@@ -21144,6 +21199,32 @@ def xhunt_target_winner(db, cfg, start_db, end_db):
     return hits[0] if hits else None
 
 
+def xhunt_confirm_seconds(cfg):
+    try:
+        return max(0, int(cfg.get('confirm_seconds', XHUNT_CONFIRM_SECONDS)))
+    except (TypeError, ValueError):
+        return XHUNT_CONFIRM_SECONDS
+
+
+def xhunt_target_lock(db, cfg, start_db, end_db):
+    """Target mode: the best round that reached the target and the moment the countdown for it runs out.
+
+    Every new best X (higher than the current leader) restarts the countdown; a round that only
+    ties or stays below the leader does not. Returns (row, deadline) or (None, None)."""
+    target = int(round(float(cfg.get('target_x') or 0) * 100))
+    hits = [r for r in xhunt_rows(db, cfg, start_db, end_db) if r['x100'] >= target]
+    if not hits:
+        return None, None
+    hits.sort(key=lambda r: (-r['x100'], r['at'], r['id']))
+    lead = hits[0]
+    try:
+        at = parse_datetime_utc(lead['at'])
+    except Exception:
+        at = None
+    secs = xhunt_confirm_seconds(cfg)
+    return lead, ((at + timedelta(seconds=secs)) if at else _xhunt_now())
+
+
 def xhunt_event_bounds(row, cfg):
     start = parse_datetime_utc(row['start_at'])
     end = parse_datetime_utc(row['end_at']) if row['end_at'] else None
@@ -21271,7 +21352,13 @@ def xhunt_tick(db):
     start_db = _daily_top_db_string(start)
     rewards = cfg.get('rewards') or []
     if cfg.get('finish_by') == 'target':
-        win = xhunt_target_winner(db, cfg, start_db, _daily_top_db_string(end) if end else '')
+        end_db = _daily_top_db_string(end) if end else ''
+        if xhunt_confirm_seconds(cfg) > 0:
+            win, deadline = xhunt_target_lock(db, cfg, start_db, end_db)
+            if win and not (now >= deadline or (end and now >= end)):
+                return None  # countdown is running: somebody may still beat the leader
+        else:
+            win = xhunt_target_winner(db, cfg, start_db, end_db)
         if win:
             u = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (win['user_id'],)).fetchone()
             win.update(name=(u['name'] if u else '') or 'Игрок', username=(u['username'] if u else '') or '',
@@ -21305,6 +21392,16 @@ def xhunt_event_view(db, ev, uid=0, admin=False):
         view['top'] = [xhunt_public_row(r) for r in ranked[:5]]
         view['leader'] = view['top'][0] if view['top'] else None
         view['players'] = len(ranked)
+        if view['finish_by'] == 'target':
+            view['confirm_seconds'] = xhunt_confirm_seconds(cfg)
+            lock, deadline = xhunt_target_lock(db, cfg, start_db, end_db) if view['confirm_seconds'] > 0 else (None, None)
+            if lock:
+                u = next((r for r in ranked if r['user_id'] == lock['user_id']), None) or {}
+                view['lock'] = dict(user_id=lock['user_id'], name=u.get('name', ''), username=u.get('username', ''),
+                                    photo_url=u.get('photo_url', ''), x=lock['x100'] / 100, mode=lock['mode'],
+                                    mode_label=XHUNT_MODE_LABELS.get(lock['mode'], lock['mode']),
+                                    ends_at=_xhunt_iso(deadline),
+                                    seconds_left=max(0, int((deadline - _xhunt_now()).total_seconds())))
         if uid:
             mine = next((i for i, r in enumerate(ranked) if r['user_id'] == uid), None)
             view['me'] = dict(rank=mine + 1, x=ranked[mine]['x100'] / 100, mode_label=XHUNT_MODE_LABELS.get(ranked[mine]['mode'], '')) if mine is not None else None
@@ -21421,7 +21518,9 @@ def xhunt_announce_text(cfg, end):
     modes = 'все режимы' if cfg.get('all_modes') else ', '.join(XHUNT_MODE_LABELS.get(m, m) for m in cfg.get('modes') or [])
     first_raw = (cfg.get('rewards') or [{}])[0]
     if cfg.get('finish_by') == 'target':
-        goal = f'Первый, кто поймает <b>x{cfg.get("target_x"):g}</b>, забирает приз.'
+        secs = xhunt_confirm_seconds(cfg)
+        goal = (f'Поймайте <b>x{cfg.get("target_x"):g}</b> — и если за {secs} сек. никто не перебьёт ваш X, приз ваш.'
+                if secs else f'Первый, кто поймает <b>x{cfg.get("target_x"):g}</b>, забирает приз.')
     else:
         goal = f'Лучший множитель за {cfg.get("duration_min")} мин. забирает приз.'
     return render_notice('xhunt_start', {'modes': modes, 'min_bet': f'{cfg.get("min_bet") or 0:g} TON'},
@@ -21445,7 +21544,7 @@ def admin_xhunt_stop():
             xhunt_finish(db, ev, [(ranked[i], rewards[i]) for i in range(min(len(ranked), len(rewards)))], 'manual')
         elif award and cfg.get('finish_by') == 'target':
             start, _ = xhunt_event_bounds(ev, cfg)
-            win = xhunt_target_winner(db, cfg, _daily_top_db_string(start), '')
+            win = xhunt_target_lock(db, cfg, _daily_top_db_string(start), '')[0]
             if win:
                 u = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (win['user_id'],)).fetchone()
                 win.update(name=(u['name'] if u else '') or 'Игрок', username=(u['username'] if u else '') or '',

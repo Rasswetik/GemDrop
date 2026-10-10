@@ -1376,6 +1376,30 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/halloween/hub').get_json()['pumpkins']['balance'], 26)
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_rollout_modes(self):
+        now = int(time.time() * 1000)
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        base = {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': now + 600000}
+        self.post('/api/admin/halloween', dict(base, mode='teaser'), 400)          # a countdown target is required
+        self.post('/api/admin/halloween', dict(base, mode='bogus', opens_at=now + 60000), 400)
+        self.post('/api/admin/halloween', dict(base, mode='teaser', opens_at=now + 3600000))
+        pub = self.client.get('/api/halloween').get_json()
+        self.assertFalse(pub['active']); self.assertTrue(pub['teaser']); self.assertFalse(pub['event_open'])   # normal design, grey button
+        player = m.app.test_client()
+        with player.session_transaction() as sess:
+            sess['uid'] = self.uid + 4242
+        self.assertEqual(player.get('/api/halloween/hub').status_code, 423)
+        self.post('/api/admin/halloween', dict(base, mode='theme', opens_at=now + 3600000))
+        pub = self.client.get('/api/halloween').get_json()
+        self.assertTrue(pub['active']); self.assertFalse(pub['teaser']); self.assertFalse(pub['event_open'])   # theme on, event still locked
+        self.assertEqual(player.get('/api/halloween/hub').status_code, 423)
+        self.post('/api/admin/halloween', dict(base, mode='theme', opens_at=now - 1000))                        # countdown over -> opens by itself
+        pub = self.client.get('/api/halloween').get_json()
+        self.assertTrue(pub['active'] and pub['event_open'])
+        self.post('/api/admin/halloween', dict(base, mode='full'))
+        self.assertTrue(self.client.get('/api/halloween').get_json()['event_open'])
+        self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

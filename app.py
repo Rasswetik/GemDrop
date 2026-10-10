@@ -2450,10 +2450,18 @@ def halloween_state(fresh=False, for_admin=False):
         banner_id = ''
     now = int(time.time() * 1000)
     active = enabled and (not starts or now >= starts) and (not ends or now < ends)
+    # Rollout phases: «full» — theme + event open; «theme» — new design for everyone, event button grey with a countdown;
+    # «teaser» — normal design, only a grey event button with a countdown appears in the games list.
+    mode = str(doc.get('mode') or 'full')
+    mode = mode if mode in ('full', 'theme', 'teaser') else 'full'
+    opens_at = _ms('opens_at')
+    phase = ''
+    if active:
+        phase = 'full' if (mode == 'full' or (opens_at and now >= opens_at)) else mode
     return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, effects=effects, now=now,
                 admins_only=admins_only, banner_id=banner_id,
                 banner_url=('/api/wheel/image/' + banner_id) if banner_id else '',
-                launch_id=_ms('launch_id'))
+                launch_id=_ms('launch_id'), mode=mode, opens_at=opens_at, phase=phase)
 
 
 @app.get('/api/halloween')
@@ -2462,8 +2470,11 @@ def public_halloween():
     admin = is_admin_session()
     # «Только для администраторов»: обычные игроки видят обычный сайт, админы — событие с меткой предпросмотра.
     visible = bool(s['active'] and (admin or not s['admins_only']))
-    response = jsonify(active=visible, starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'],
-                       admins_only=bool(s['admins_only'] and admin), banner_url=s['banner_url'] if visible else '',
+    phase = s['phase'] if visible else ''
+    theme = phase in ('full', 'theme')
+    response = jsonify(active=theme, teaser=(phase == 'teaser'), event_open=(phase == 'full'), opens_at=s['opens_at'] if visible else 0,
+                       starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'],
+                       admins_only=bool(s['admins_only'] and admin), banner_url=s['banner_url'] if theme else '',
                        launch_id=s['launch_id'])
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Vary'] = 'Cookie'
@@ -2498,7 +2509,18 @@ def admin_halloween_set():
     launch_id = int(prev.get('launch_id') or 0)
     if enabled and not admins_only and (not was_public or not launch_id):
         launch_id = int(time.time() * 1000)
+    if str(data.get('mode') or 'full') != str(prev.get('mode') or 'full'):
+        launch_id = int(time.time() * 1000) if (enabled and not admins_only) else launch_id   # the splash replays when a new phase starts
     doc = dict(prev)   # keep the event page content (buttons, rate) that is edited elsewhere
+    opens = _ms(data.get('opens_at', prev.get('opens_at') or 0))
+    if opens is None:
+        return error('Некорректная дата открытия события.')
+    mode = str(data.get('mode') or prev.get('mode') or 'full')
+    if mode not in ('full', 'theme', 'teaser'):
+        return error('Неизвестный режим.')
+    if enabled and mode != 'full' and not opens:
+        return error('Для режимов с серой кнопкой укажите, когда откроется событие.')
+    doc.update(mode=mode, opens_at=opens)
     doc.update(enabled=enabled, starts_at=starts, ends_at=ends, effects=bool(data.get('effects', True)),
                admins_only=admins_only, banner_id=str(prev.get('banner_id') or ''), launch_id=launch_id,
                updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid'])
@@ -2632,7 +2654,7 @@ def hw_accrue_pumpkins(db, uid, loss_cents):
     if not doc.get('enabled'):
         return 0
     s = halloween_state()
-    if not s['active'] or (s['admins_only'] and int(uid) not in ADMIN_IDS):
+    if not s['active'] or s['phase'] not in ('full', 'theme') or (s['admins_only'] and int(uid) not in ADMIN_IDS):
         return 0
     rate = hw_rate(doc)
     if rate <= 0:
@@ -2742,8 +2764,11 @@ def hw_lot_view(row, bought=0, now_ms=None):
 
 def hw_visible_or_error():
     s = halloween_state()
-    if not (s['active'] and (is_admin_session() or not s['admins_only'])):
+    admin = is_admin_session()
+    if not (s['active'] and (admin or not s['admins_only'])):
         return None, error('Событие сейчас не проходит.', 404)
+    if s['phase'] != 'full' and not admin:
+        return None, error('Событие ещё не открыто.', 423)
     return s, None
 
 

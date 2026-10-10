@@ -1048,10 +1048,11 @@ class RegressionTests(unittest.TestCase):
         self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'easy'}, 403)
         with patch.object(m, 'ADMIN_IDS', {self.uid}):
             self.assertEqual(m.road_multiplier_x100('easy', 0), 100)
-            self.assertGreater(m.road_multiplier_x100('impossible', 12), m.road_multiplier_x100('easy', 12))
+            self.assertGreater(m.road_multiplier_x100('impossible', 10), m.road_multiplier_x100('easy', 10))
             cfg = self.client.get('/api/road/state').get_json()['config']
-            self.assertEqual(cfg['lanes'], 12)
-            self.assertEqual(len(cfg['difficulties']['hard']['multipliers']), 12)
+            self.assertEqual(cfg['lanes'], 16)
+            self.assertEqual(len(cfg['difficulties']['hard']['multipliers']), 14)
+            self.assertLess(cfg['difficulties']['impossible']['multipliers'][-1], 200)
             self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'nope'}, 400)
             self.post('/api/road/cashout', {}, 409)
             before = self.balance()

@@ -9611,7 +9611,8 @@ def withdrawal_access_error(db, user_id):
     wager = db.execute('SELECT withdrawal_wager_required,withdrawal_wager_progress FROM users WHERE id=?',(user_id,)).fetchone()
     remaining=max(0,int(wager['withdrawal_wager_required'] or 0)-int(wager['withdrawal_wager_progress'] or 0)) if wager else 0
     if remaining>0:
-        return f'Для вывода нужно сделать ещё оборот {remaining/100:.2f} TON.'
+        return (f'Чтобы вывести подарок, нужно отыграть ещё {remaining/100:.2f} TON с ваших депозитов '
+                f'(каждый депозит отыгрывается минимум на x2).')
     return ''
 
 
@@ -9988,11 +9989,12 @@ def effective_games():
 # The hamster crosses ROAD_LANES lanes one by one. Every step is a provably-fair draw:
 # a cat catches the hamster (round lost) or a STOP barrier drops onto the lane (step
 # survived, the multiplier grows). The cash-out is available after the first step.
-ROAD_LANES = 12
+ROAD_LANES_BY = {'easy': 10, 'medium': 12, 'hard': 14, 'impossible': 16}   # harder = longer road
+ROAD_LANES = max(ROAD_LANES_BY.values())
 ROAD_MAX_PAYOUT_CENTS = 100000
 ROAD_FEED_SIZE = 14
 ROAD_DIFFICULTIES = {          # chance (in 1/10000) that the hamster survives a lane
-    'easy': 9200, 'medium': 8400, 'hard': 7200, 'impossible': 5000,
+    'easy': 8850, 'medium': 8350, 'hard': 7900, 'impossible': 7450,
 }
 ROAD_ODDS_RANGE = 10000
 
@@ -10002,14 +10004,15 @@ def road_multiplier_x100(difficulty, steps):
     if steps <= 0:
         return 100
     p = max(1, ROAD_DIFFICULTIES[difficulty]) / ROAD_ODDS_RANGE
-    return max(100 + steps, int(game_rtp() * 100 / (p ** steps)))
+    return max(100 + steps, int(game_rtp() * 100 / (p ** steps)))  # never below 1.0x + 1c per step
 
 
 def road_config():
-    return dict(lanes=ROAD_LANES, min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
+    return dict(lanes=ROAD_LANES, lanes_by=dict(ROAD_LANES_BY), min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
                 max_payout=ROAD_MAX_PAYOUT_CENTS / 100, rtp=game_rtp(),
                 difficulties={k: dict(survive=v / ROAD_ODDS_RANGE,
-                                      multipliers=[road_multiplier_x100(k, i) / 100 for i in range(1, ROAD_LANES + 1)])
+                                      lanes=ROAD_LANES_BY[k],
+                                      multipliers=[road_multiplier_x100(k, i) / 100 for i in range(1, ROAD_LANES_BY[k] + 1)])
                               for k, v in ROAD_DIFFICULTIES.items()})
 
 
@@ -10054,12 +10057,12 @@ def road_pay(db, uid, game, payout, state, mult_x100):
     if prize_info:
         moved = db.execute("""UPDATE road_games SET state=?,steps=?,mult_x100=?,payout=?,prize_name=?,prize_image=?,prize_price=?,
                               finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='active'""",
-                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES, mult_x100, payout, prize_info['name'][:140],
+                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES_BY.get(game['difficulty'], ROAD_LANES), mult_x100, payout, prize_info['name'][:140],
                             prize_info['image_url'], prize_info['price_cents'], game['id']))
     else:
         moved = db.execute("""UPDATE road_games SET state=?,steps=?,mult_x100=?,payout=?,finished_at=CURRENT_TIMESTAMP
                               WHERE id=? AND state='active'""",
-                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES, mult_x100, payout, game['id']))
+                           (state, int(game['steps']) if state == 'cashed' else ROAD_LANES_BY.get(game['difficulty'], ROAD_LANES), mult_x100, payout, game['id']))
     if not moved.rowcount:
         raise ValueError('Раунд уже завершён.')
     prize = None
@@ -10125,7 +10128,7 @@ def road_start():
         record_transaction(db, uid, 'road_bet', -bet, 'road_game', game_id, 'Hamster Road · ' + difficulty)
         new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(spent[1]),
                                       xp_factor=(0.2 if spent[1] else 1.0))
-        fairness_store(db, proof, str(game_id), 0, dict(difficulty=difficulty, lanes=ROAD_LANES, rolls=[]))
+        fairness_store(db, proof, str(game_id), 0, dict(difficulty=difficulty, lanes=ROAD_LANES_BY[difficulty], rolls=[]))
         db.execute('UPDATE road_games SET fairness_id=? WHERE id=?', (proof['id'], game_id))
         db.commit()
     except Exception:
@@ -10172,7 +10175,7 @@ def road_step():
             steps += 1
             mult = road_multiplier_x100(game['difficulty'], steps)
             payout = min(int(game['bet']) * mult // 100, ROAD_MAX_PAYOUT_CENTS)
-            finished = steps >= ROAD_LANES or payout >= ROAD_MAX_PAYOUT_CENTS
+            finished = steps >= ROAD_LANES_BY[game['difficulty']] or payout >= ROAD_MAX_PAYOUT_CENTS
             if finished:
                 db.execute("UPDATE road_games SET cursor=? WHERE id=? AND state='active'", (cursor, game['id']))
                 prize, remainder = road_pay(db, uid, game, payout, 'won', mult)
@@ -14723,6 +14726,28 @@ def seed_wheel_prizes():
             add('balance', f'{ton} TON на баланс', weight, amount=ton * 100)
 
 
+def wheel_lower_good_odds():
+    """One-time tuning: make the valuable prizes rarer (weights are relative, so scaling them down
+    shifts the odds to the small prizes). Admins can still fine-tune every weight afterwards."""
+    if (read_document('wheel_odds_tuning') or {}).get('v') == 2:
+        return
+    with connect() as db:
+        for p in db.execute('SELECT * FROM wheel_prizes').fetchall():
+            kind, factor = p['kind'], 1.0
+            if kind == 'balance':
+                ton = int(p['amount'] or 0) / 100
+                factor = 1.0 if ton < 3 else 0.5 if ton < 10 else 0.25 if ton < 50 else 0.1
+            elif kind == 'deposit_bonus':
+                pct = float(p['percent'] or 0)
+                factor = 1.0 if pct < 35 else 0.6 if pct < 50 else 0.3
+            elif kind in ('gift', 'wager_gift'):
+                ton = int(p['gift_price'] or 0) / 100
+                factor = 0.6 if ton < 5 else 0.35 if ton < 20 else 0.15
+            if factor != 1.0:
+                db.execute('UPDATE wheel_prizes SET weight=? WHERE id=?', (round(float(p['weight'] or 0) * factor, 6), p['id']))
+    save_document('wheel_odds_tuning', {'v': 2})
+
+
 def wheel_pick(prizes):
     total = sum(max(0.0, float(p['weight'] or 0)) for p in prizes)
     if total <= 0:
@@ -15132,6 +15157,7 @@ def admin_wheel_create_code():
 
 try:
     seed_wheel_prizes()
+    wheel_lower_good_odds()
 except Exception as _wheel_seed_exc:  # never block startup on seed
     print('wheel seed skipped:', _wheel_seed_exc)
 
@@ -18418,6 +18444,21 @@ def _relayer_credit(info,baseline=False):
             db.execute('UPDATE users SET balance=balance+? WHERE id=?',(price,uid))
             record_transaction(db,uid,'gift_deposit',price,'telegram_nft',info['external_key'],f'{info.get("gift_name") or "NFT"} · #{info.get("fragment_number") or "—"}')
             event_status='credited'
+        if price>0:
+            # A gift deposit behaves like any other deposit: the user's active deposit promo code pays its
+            # bonus and the deposit must be wagered x2 before anything can be withdrawn.
+            promo_row=db.execute("""SELECT r.code FROM promo_redemptions r WHERE r.user_id=? AND r.reward_type='deposit_bonus'
+                                    AND r.consumed_at IS NULL AND r.deactivated_at IS NULL
+                                    ORDER BY r.created_at DESC LIMIT 1""",(uid,)).fetchone()
+            if promo_row:
+                promo_bonus,promo_active=_consume_deposit_bonus(db,uid,price,promo_row['code'])
+                if promo_bonus>0:
+                    db.execute('UPDATE users SET bonus_balance=bonus_balance+? WHERE id=?',(promo_bonus,uid))
+                    record_transaction(db,uid,'deposit_promo_bonus',promo_bonus,'telegram_nft',info['external_key'],
+                                       f'Бонус промокода {promo_active["code"]} (пополнение подарком)')
+                    log_event(db,uid,'deposit_confirmed',amount=price/100,bonus=promo_bonus/100,
+                              promo_code=promo_active['code'],transaction=info['external_key'])
+            add_withdrawal_wager_requirement(db,uid,price)
         db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}')))
         db.execute('UPDATE relayer_gift_events SET portal_price=? WHERE external_key=?',(portal_price,info['external_key']))
         db.commit()

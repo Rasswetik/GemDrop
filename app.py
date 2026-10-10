@@ -147,7 +147,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages', 'limbo_bets',
+            'creator_chat_messages', 'limbo_bets', 'road_games',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -270,6 +270,16 @@ def _initialize_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_limbo_bets_user ON limbo_bets(user_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_limbo_bets_won ON limbo_bets(won, id DESC);
+        CREATE TABLE IF NOT EXISTS road_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, bet INTEGER NOT NULL,
+            difficulty TEXT NOT NULL DEFAULT 'easy', steps INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL DEFAULT 'active', mult_x100 INTEGER NOT NULL DEFAULT 100,
+            payout INTEGER NOT NULL DEFAULT 0, cursor INTEGER NOT NULL DEFAULT 0,
+            fairness_id TEXT NOT NULL DEFAULT '', bonus_used INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_road_games_user ON road_games(user_id, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_road_games_state ON road_games(state, id DESC);
         CREATE TABLE IF NOT EXISTS arena_rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT NOT NULL DEFAULT 'open',
@@ -770,6 +780,7 @@ def _initialize_schema():
             ('bonus_unlock_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('limbo_bets', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('road_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('hilo_games', [('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('giveaways', [
             ('allow_repeat_winners', 'INTEGER NOT NULL DEFAULT 1'),
@@ -2537,11 +2548,12 @@ def enforce_available_modes():
                 'hilo' if path.startswith('/api/hilo/') else
                 'crash' if path.startswith('/api/crash/') else
                 'limbo' if path.startswith('/api/limbo/') else
+                'road' if path.startswith('/api/road/') else
                 'upgrade' if path.startswith('/api/upgrade/') else
                 'mines' if path.startswith('/api/game/') else None)
     # A Hi-Lo game that is already running can always be finished or cashed out.
     finishing = ('/api/game/open', '/api/game/cashout', '/api/hilo/state', '/api/hilo/guess',
-                 '/api/hilo/cashout', '/api/hilo/prize')
+                 '/api/hilo/cashout', '/api/hilo/prize', '/api/road/state', '/api/road/step', '/api/road/cashout')
     if game_key and path not in finishing and not game_available(game_key):
         return error('Игра временно недоступна.', 403)
 
@@ -3208,7 +3220,7 @@ def parse_amount(value):
 
 
 
-FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll', 'limbo'}
+FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll', 'limbo', 'road'}
 FAIRNESS_ALGORITHM = 'HMAC-SHA256/rejection-v1'
 
 
@@ -8577,7 +8589,7 @@ def validate_greeting(text):
 
 MINIAPP_DESTINATIONS = {
     'home': 'Главная', 'games': 'Игры', 'mines': 'Мины', 'upgrade': 'Апгрейды',
-    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'giveaways': 'Розыгрыши',
+    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road', 'giveaways': 'Розыгрыши',
     'profile': 'Профиль', 'levels': 'Уровни', 'bonuses': 'Бонусы',
     'creator': 'Панель автора', 'deposit': 'Пополнение',
 }
@@ -9904,13 +9916,13 @@ def loader_catalog():
 
 
 # ======================= Game switches (on / off / admins only) =======================
-GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo')
-GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off', 'limbo': 'admin'}
+GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off', 'limbo': 'admin', 'road': 'admin'}
 
 
 GAME_BADGES = ('new', 'hot', 'top', 'beta', 'soon')
-GAME_LAYOUT_DEFAULT_ORDER = ('limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
-GAME_LAYOUT_DEFAULT_BADGES = {'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
+GAME_LAYOUT_DEFAULT_ORDER = ('road', 'limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
+GAME_LAYOUT_DEFAULT_BADGES = {'road': 'new', 'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
 
 
 def game_layout():
@@ -9964,6 +9976,240 @@ def game_available(key, admin=None):
 def effective_games():
     admin = is_admin_session()
     return {key: game_available(key, admin) for key in GAME_KEYS}
+
+
+
+# ============================== Hamster Road ==============================
+# The hamster crosses ROAD_LANES lanes one by one. Every step is a provably-fair draw:
+# a cat catches the hamster (round lost) or a STOP barrier drops onto the lane (step
+# survived, the multiplier grows). The cash-out is available after the first step.
+ROAD_LANES = 12
+ROAD_MAX_PAYOUT_CENTS = 100000
+ROAD_FEED_SIZE = 14
+ROAD_DIFFICULTIES = {          # chance (in 1/10000) that the hamster survives a lane
+    'easy': 9200, 'medium': 8400, 'hard': 7200, 'impossible': 5000,
+}
+ROAD_ODDS_RANGE = 10000
+
+
+def road_multiplier_x100(difficulty, steps):
+    steps = int(steps)
+    if steps <= 0:
+        return 100
+    p = max(1, ROAD_DIFFICULTIES[difficulty]) / ROAD_ODDS_RANGE
+    return max(100 + steps, int(game_rtp() * 100 / (p ** steps)))
+
+
+def road_config():
+    return dict(lanes=ROAD_LANES, min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
+                max_payout=ROAD_MAX_PAYOUT_CENTS / 100, rtp=game_rtp(),
+                difficulties={k: dict(survive=v / ROAD_ODDS_RANGE,
+                                      multipliers=[road_multiplier_x100(k, i) / 100 for i in range(1, ROAD_LANES + 1)])
+                              for k, v in ROAD_DIFFICULTIES.items()})
+
+
+def road_row_view(row):
+    return dict(id=int(row['id']), bet=int(row['bet']) / 100, difficulty=str(row['difficulty']),
+                steps=int(row['steps']), state=str(row['state']), multiplier=int(row['mult_x100']) / 100,
+                payout=int(row['payout']) / 100, created_at=str(row['created_at'] or ''))
+
+
+def road_active_game(db, uid):
+    return db.execute("SELECT * FROM road_games WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
+
+
+def road_state_payload(db, uid):
+    wins = db.execute("""SELECT g.id,g.bet,g.difficulty,g.steps,g.state,g.mult_x100,g.payout,g.created_at,u.name,u.photo_url
+                         FROM road_games g JOIN users u ON u.id=g.user_id
+                         WHERE g.state IN ('cashed','won') AND g.payout>g.bet ORDER BY g.id DESC LIMIT ?""",
+                      (ROAD_FEED_SIZE,)).fetchall()
+    mine = db.execute("""SELECT id,bet,difficulty,steps,state,mult_x100,payout,created_at FROM road_games
+                         WHERE user_id=? AND state<>'active' ORDER BY id DESC LIMIT 20""", (uid,)).fetchall()
+    feed = []
+    for row in wins:
+        item = road_row_view(row)
+        item.update(profit=(int(row['payout']) - int(row['bet'])) / 100, name=str(row['name'] or '')[:40],
+                    photo_url=str(row['photo_url'] or ''))
+        feed.append(item)
+    game = road_active_game(db, uid)
+    fair = None
+    if game and game['fairness_id']:
+        fair = fairness_public(fairness_get(db, proof_id=game['fairness_id']), False)
+    return dict(config=road_config(), active=road_row_view(game) if game else None, active_fairness=fair,
+                wins=feed, history=[road_row_view(r) for r in mine], available=game_available('road'))
+
+
+@app.get('/api/road/state')
+@login_required
+def road_state():
+    uid = session['uid']
+    with connect() as db:
+        payload = road_state_payload(db, uid)
+    return jsonify(ok=True, user=profile(), **payload)
+
+
+@app.post('/api/road/start')
+@login_required
+def road_start():
+    data = request.get_json(silent=True) or {}
+    uid = session['uid']
+    if creator_demo_active(uid):
+        return error('Hamster Road доступен только в реальном режиме. Отключите демо.', 409)
+    difficulty = str(data.get('difficulty') or 'easy')
+    if difficulty not in ROAD_DIFFICULTIES:
+        return error('Выберите сложность.')
+    try:
+        bet = parse_amount(data.get('bet'))
+    except (ValueError, InvalidOperation, TypeError):
+        return error('Укажите корректную ставку.')
+    if not (MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
+        return error('Ставка от 0.10 до 300 TON.')
+    proof = fairness_make('road', uid, data.get('client_seed'))
+    db = connect()
+    new_level = None
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        if road_active_game(db, uid):
+            db.rollback()
+            return error('Раунд уже идёт. Завершите его или заберите выигрыш.', 409)
+        spent = spend_game_balance(db, uid, bet)
+        if not spent:
+            db.rollback()
+            return error('Недостаточно средств.')
+        cur = db.execute("INSERT INTO road_games(user_id,bet,difficulty,bonus_used) VALUES(?,?,?,?)",
+                         (uid, bet, difficulty, int(spent[1])))
+        game_id = int(cur.lastrowid)
+        record_transaction(db, uid, 'road_bet', -bet, 'road_game', game_id, 'Hamster Road · ' + difficulty)
+        new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(spent[1]),
+                                      xp_factor=(0.2 if spent[1] else 1.0))
+        fairness_store(db, proof, str(game_id), 0, dict(difficulty=difficulty, lanes=ROAD_LANES, rolls=[]))
+        db.execute('UPDATE road_games SET fairness_id=? WHERE id=?', (proof['id'], game_id))
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('Road start failed')
+        return error('Не удалось начать путь. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    if new_level:
+        notify_level_up_async(uid, new_level)
+    with connect() as db:
+        payload = road_state_payload(db, uid)
+    return jsonify(ok=True, user=profile(), new_level=new_level, **payload)
+
+
+@app.post('/api/road/step')
+@login_required
+def road_step():
+    uid = session['uid']
+    db = connect()
+    result = {}
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        game = road_active_game(db, uid)
+        if not game:
+            db.rollback()
+            return error('Нет активного раунда.', 409)
+        fair = fairness_get(db, proof_id=game['fairness_id'])
+        proof = dict(id=str(fair['id']), game='road', user_id=uid, server_seed=str(fair['server_seed']),
+                     client_seed=str(fair['client_seed']), nonce=int(fair['nonce'] or 0))
+        try:
+            outcome = json.loads(fair['outcome_json'] or '{}')
+        except (TypeError, ValueError):
+            outcome = {}
+        rolls = list(outcome.get('rolls') or [])
+        ticket, cursor, _ = fairness_draw(proof, ROAD_ODDS_RANGE, int(game['cursor']))
+        rolls.append(ticket)
+        survive = ticket < ROAD_DIFFICULTIES[game['difficulty']]
+        steps = int(game['steps'])
+        outcome.update(rolls=rolls, upper=ROAD_ODDS_RANGE, survive_below=ROAD_DIFFICULTIES[game['difficulty']])
+        result = dict(lane=steps + 1, caught=not survive)
+        if survive:
+            steps += 1
+            mult = road_multiplier_x100(game['difficulty'], steps)
+            payout = min(int(game['bet']) * mult // 100, ROAD_MAX_PAYOUT_CENTS)
+            finished = steps >= ROAD_LANES or payout >= ROAD_MAX_PAYOUT_CENTS
+            if finished:
+                db.execute("""UPDATE road_games SET steps=?,mult_x100=?,cursor=?,state='won',payout=?,finished_at=CURRENT_TIMESTAMP
+                              WHERE id=? AND state='active'""", (steps, mult, cursor, payout, game['id']))
+                credit_game_balance(db, uid, payout, bool(game['bonus_used']))
+                record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'], 'Hamster Road · x%.2f' % (mult / 100))
+                outcome['result'] = 'won'
+                fairness_mark_settled(db, 'road', game['id'], outcome, cursor)
+            else:
+                db.execute("UPDATE road_games SET steps=?,mult_x100=?,cursor=? WHERE id=? AND state='active'",
+                           (steps, mult, cursor, game['id']))
+                fairness_set_progress(db, fair['id'], cursor, outcome)
+            result.update(multiplier=mult / 100, finished=finished, payout=payout / 100 if finished else 0)
+        else:
+            db.execute("""UPDATE road_games SET state='lost',cursor=?,payout=0,finished_at=CURRENT_TIMESTAMP
+                          WHERE id=? AND state='active'""", (cursor, game['id']))
+            if not int(game['bonus_used']):
+                credit_main_loss_cashback(db, uid, int(game['bet']), 'road', game['id'], 'Hamster Road')
+            outcome['result'] = 'lost'
+            fairness_mark_settled(db, 'road', game['id'], outcome, cursor)
+            result.update(multiplier=int(game['mult_x100']) / 100, finished=True, payout=0)
+        db.commit()
+        game_id = int(game['id'])
+    except Exception:
+        db.rollback()
+        app.logger.exception('Road step failed')
+        return error('Не удалось сделать шаг. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    with connect() as db:
+        payload = road_state_payload(db, uid)
+        row = db.execute('SELECT * FROM road_games WHERE id=?', (game_id,)).fetchone()
+        fair_view = fairness_public(fairness_get(db, game='road', game_ref=str(game_id)), result.get('finished'))
+    return jsonify(ok=True, step=result, game=road_row_view(row), fairness=fair_view, user=profile(), **payload)
+
+
+@app.post('/api/road/cashout')
+@login_required
+def road_cashout():
+    uid = session['uid']
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hilo_lock_user(db, uid)
+        game = road_active_game(db, uid)
+        if not game:
+            db.rollback()
+            return error('Нет активного раунда.', 409)
+        if int(game['steps']) < 1:
+            db.rollback()
+            return error('Заберите выигрыш после первого шага.', 409)
+        payout = min(int(game['bet']) * int(game['mult_x100']) // 100, ROAD_MAX_PAYOUT_CENTS)
+        moved = db.execute("""UPDATE road_games SET state='cashed',payout=?,finished_at=CURRENT_TIMESTAMP
+                              WHERE id=? AND state='active'""", (payout, game['id']))
+        if not moved.rowcount:
+            db.rollback()
+            return error('Раунд уже завершён.', 409)
+        credit_game_balance(db, uid, payout, bool(game['bonus_used']))
+        record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'],
+                           'Hamster Road · x%.2f' % (int(game['mult_x100']) / 100))
+        fair = fairness_get(db, proof_id=game['fairness_id'])
+        try:
+            outcome = json.loads(fair['outcome_json'] or '{}')
+        except (TypeError, ValueError):
+            outcome = {}
+        outcome['result'] = 'cashed'
+        fairness_mark_settled(db, 'road', game['id'], outcome)
+        db.commit()
+        game_id = int(game['id'])
+    except Exception:
+        db.rollback()
+        app.logger.exception('Road cashout failed')
+        return error('Не удалось забрать выигрыш.', 500)
+    finally:
+        db.close()
+    with connect() as db:
+        payload = road_state_payload(db, uid)
+        row = db.execute('SELECT * FROM road_games WHERE id=?', (game_id,)).fetchone()
+        fair_view = fairness_public(fairness_get(db, game='road', game_ref=str(game_id)), True)
+    return jsonify(ok=True, game=road_row_view(row), payout=payout / 100, fairness=fair_view, user=profile(), **payload)
 
 
 

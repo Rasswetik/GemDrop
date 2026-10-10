@@ -1043,6 +1043,40 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('client_seed:fairClientSeed()', page)
         self.assertIn("p.game==='hilo_room'", page)
 
+    def test_road_is_admin_only_provably_fair_and_settles_balance(self):
+        self.assertEqual(m.game_modes()['road'], 'admin')
+        self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'easy'}, 403)
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.assertEqual(m.road_multiplier_x100('easy', 0), 100)
+            self.assertGreater(m.road_multiplier_x100('impossible', 12), m.road_multiplier_x100('easy', 12))
+            cfg = self.client.get('/api/road/state').get_json()['config']
+            self.assertEqual(cfg['lanes'], 12)
+            self.assertEqual(len(cfg['difficulties']['hard']['multipliers']), 12)
+            self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'nope'}, 400)
+            self.post('/api/road/cashout', {}, 409)
+            before = self.balance()
+            started = self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'medium'})
+            self.assertEqual(started['active']['steps'], 0)
+            self.assertAlmostEqual(self.balance(), before - 1.0, places=2)
+            self.assertIsNone(started['active_fairness'].get('server_seed'))
+            self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'medium'}, 409)
+            self.post('/api/road/cashout', {}, 409)
+            with patch.dict(m.ROAD_DIFFICULTIES, {'medium': 10000}):
+                first = self.post('/api/road/step')
+                self.assertFalse(first['step']['caught'])
+                done = self.post('/api/road/cashout')
+            self.assertEqual(done['game']['state'], 'cashed')
+            self.assertGreater(done['payout'], 1.0)
+            self.assertTrue(done['fairness']['commitment_valid'])
+            self.assertAlmostEqual(self.balance(), before - 1.0 + done['payout'], places=2)
+            second = self.post('/api/road/start', {'bet': '1.00', 'difficulty': 'impossible'})
+            with patch.dict(m.ROAD_DIFFICULTIES, {'impossible': 0}):
+                lost = self.post('/api/road/step')
+            self.assertTrue(lost['step']['caught'])
+            self.assertEqual(lost['game']['state'], 'lost')
+            self.assertTrue(lost['fairness']['commitment_valid'])
+            self.assertIsNone(self.client.get('/api/road/state').get_json()['active'])
+
 
 if __name__ == '__main__':
     unittest.main()

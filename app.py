@@ -2392,15 +2392,18 @@ def halloween_state(fresh=False):
         except (TypeError, ValueError):
             return 0
     enabled, starts, ends = bool(doc.get('enabled')), _ms('starts_at'), _ms('ends_at')
+    effects = bool(doc.get('effects', True))   # ambient animation (bats, ghosts, fog); the theme itself stays
     now = int(time.time() * 1000)
     active = enabled and (not starts or now >= starts) and (not ends or now < ends)
-    return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, now=now)
+    return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, effects=effects, now=now)
 
 
 @app.get('/api/halloween')
 def public_halloween():
     s = halloween_state()
-    return jsonify(active=s['active'], starts_at=s['starts_at'], ends_at=s['ends_at'], now=s['now'])
+    response = jsonify(active=s['active'], starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'])
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @app.get('/api/admin/halloween')
@@ -2425,6 +2428,7 @@ def admin_halloween_set():
     if starts and ends and ends <= starts:
         return error('Конец должен быть позже начала.')
     save_document('halloween', dict(enabled=bool(data.get('enabled')), starts_at=starts, ends_at=ends,
+                                    effects=bool(data.get('effects', True)),
                                     updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
     return jsonify(ok=True, **halloween_state())
 
@@ -10460,11 +10464,17 @@ def wallet_balance():
         return error('Не удалось получить баланс кошелька из сети TON.', 502)
 
 
+LOADER_BUILTIN = 'builtin'
+
+
 def loader_settings():
+    """'builtin' = the inline SVG animation (default); anything else is a custom image/GIF path."""
     doc = read_document('loader_settings') or {}
-    path = str(doc.get('path') or '/static/gifs/shard.gif').strip()[:1000]
-    if not (path.startswith('/static/') or path.startswith('https://')):
-        path = '/static/gifs/shard.gif'
+    path = str(doc.get('path') or LOADER_BUILTIN).strip()[:1000]
+    if path == '/static/gifs/shard.gif':      # the old default GIF is replaced by the SVG animation
+        path = LOADER_BUILTIN
+    if path != LOADER_BUILTIN and not (path.startswith('/static/') or path.startswith('https://')):
+        path = LOADER_BUILTIN
     return {'path': path}
 
 
@@ -13386,9 +13396,11 @@ def admin_loader_settings():
 def save_admin_loader_settings():
     data = request.get_json(silent=True) or {}
     path = str(data.get('path') or '').strip()[:1000]
-    if not path:
-        path = '/static/gifs/shard.gif'
-    if path.startswith('/static/'):
+    if not path or path == '/static/gifs/shard.gif':
+        path = LOADER_BUILTIN
+    if path == LOADER_BUILTIN:
+        pass
+    elif path.startswith('/static/'):
         local = (BASE / path.lstrip('/')).resolve()
         static_root = (BASE / 'static').resolve()
         try:

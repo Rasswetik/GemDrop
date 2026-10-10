@@ -1238,6 +1238,34 @@ class RegressionTests(unittest.TestCase):
             m._bc_send_one(broadcast, 12345)
         self.assertEqual(calls[0][0], 'copyMessages')
 
+    def test_halloween_effects_flag_and_public_state(self):
+        now = int(time.time() * 1000)
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/halloween', {'enabled': True, 'effects': False, 'starts_at': 0, 'ends_at': now + 600000})
+        pub = self.client.get('/api/halloween')
+        data = pub.get_json()
+        self.assertTrue(data['active'])
+        self.assertFalse(data['effects'])
+        self.assertEqual(pub.headers.get('Cache-Control'), 'no-store')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/halloween', {'enabled': False, 'starts_at': 0, 'ends_at': 0})
+        data = self.client.get('/api/halloween').get_json()
+        self.assertFalse(data['active'])
+        self.assertTrue(data['effects'])
+
+    def test_loader_defaults_to_builtin_svg_and_maps_legacy_gif(self):
+        m.save_document('loader_settings', {})
+        self.assertEqual(m.loader_settings()['path'], 'builtin')
+        m.save_document('loader_settings', {'path': '/static/gifs/shard.gif'})
+        self.assertEqual(m.loader_settings()['path'], 'builtin')
+        m.save_document('loader_settings', {'path': 'http://evil.test/x.gif'})
+        self.assertEqual(m.loader_settings()['path'], 'builtin')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.assertEqual(self.post('/api/admin/loader-settings', {'path': 'https://cdn.test/a.gif'})['path'], 'https://cdn.test/a.gif')
+            self.assertEqual(self.post('/api/admin/loader-settings', {'path': 'builtin'})['path'], 'builtin')
+            self.post('/api/admin/loader-settings', {'path': 'http://x.test/a.gif'}, 400)
+        self.assertEqual(self.client.get('/api/ui/settings').get_json()['loader_gif'], 'builtin')
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

@@ -1784,6 +1784,7 @@ def profile():
                 active_game_balance=(main_balance if main_balance >= MIN_BET_CENTS else bonus_balance) / 100,
                 active_game_balance_type=('main' if main_balance >= MIN_BET_CENTS else 'bonus'),
                 tickets=(creator['demo_tickets'] if demo else int(user['tickets'] or 0)),
+                pumpkins=hw_user_pumpkins(user['id']),
                 turnover=(creator['demo_turnover_cents']/100 if demo else user['turnover_cents']/100),
                 withdrawal_enabled=(False if demo else bool(user['withdrawal_enabled'])),
                 withdrawal_block_reason=('' if demo else (user['withdrawal_block_reason'] or '')),
@@ -2481,6 +2482,18 @@ def public_halloween():
     return response
 
 
+def hw_user_pumpkins(uid):
+    """Pumpkin balance for the header balance list; None while the event design is not shown to this player."""
+    try:
+        s = halloween_state()
+        if not s['active'] or s['phase'] not in ('full', 'theme') or (s['admins_only'] and not is_admin_session()):
+            return None
+        with connect() as db:
+            return hw_pumpkin_balance(db, uid)['balance']
+    except Exception:
+        return None
+
+
 @app.get('/api/admin/halloween')
 @admin_required
 def admin_halloween_get():
@@ -2976,7 +2989,7 @@ def admin_halloween_images():
             if name.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg')):
                 items.append(dict(url=f'/static/{folder}/{name}', name=name, group='Файлы проекта'))
     with connect() as db:
-        rows = db.execute('SELECT id FROM wheel_images ORDER BY rowid DESC LIMIT 40').fetchall()
+        rows = db.execute('SELECT id FROM wheel_images ORDER BY created_at DESC, id DESC LIMIT 40').fetchall()
     items += [dict(url='/api/wheel/image/' + r['id'], name='Загружено', group='Загруженные') for r in rows]
     return jsonify(ok=True, items=items)
 
@@ -3024,10 +3037,32 @@ def admin_halloween_lot_save():
             db.execute('UPDATE hw_lots SET title=?,reward_json=?,image=?,price=?,size=?,active=?,starts_at=?,ends_at=?,stock=?,per_user=?,sort_order=? WHERE id=?',
                        (v['title'], v['reward_json'], v['image'], v['price'], v['size'], v['active'], v['starts_at'], v['ends_at'], v['stock'], v['per_user'], v['sort_order'], lot_id))
         else:
+            if not v['sort_order']:
+                top = db.execute('SELECT COALESCE(MAX(sort_order),0) AS m FROM hw_lots').fetchone()
+                v['sort_order'] = int(top['m'] or 0) + 10
             cur = db.execute('INSERT INTO hw_lots(title,reward_json,image,price,size,active,starts_at,ends_at,stock,per_user,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                              (v['title'], v['reward_json'], v['image'], v['price'], v['size'], v['active'], v['starts_at'], v['ends_at'], v['stock'], v['per_user'], v['sort_order']))
             lot_id = cur.lastrowid
     return jsonify(ok=True, id=lot_id)
+
+
+@app.post('/api/admin/halloween/lots/order')
+@admin_required
+def admin_halloween_lot_order():
+    ids = []
+    for raw in (request.get_json(silent=True) or {}).get('ids') or []:
+        try:
+            lot_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if lot_id not in ids:
+            ids.append(lot_id)
+    if not ids or len(ids) > 500:
+        return error('Нет лотов для сортировки.')
+    with connect() as db:
+        for pos, lot_id in enumerate(ids):
+            db.execute('UPDATE hw_lots SET sort_order=? WHERE id=?', ((pos + 1) * 10, lot_id))
+    return jsonify(ok=True)
 
 
 @app.delete('/api/admin/halloween/lots/<int:lot_id>')
@@ -21471,6 +21506,14 @@ if DATABASE_URL:
 @app.errorhandler(500)
 def internal_error_handler(exc):
     app.logger.exception('Unhandled server error: %s', exc)
+    if request.path.startswith('/api/admin/'):
+        # Admins see what actually failed instead of a bare «internal error».
+        try:
+            if is_admin_session():
+                cause = getattr(exc, 'original_exception', None) or exc
+                return error(f'Ошибка сервера: {type(cause).__name__}: {str(cause)[:160]}', 500)
+        except Exception:
+            pass
     if request.path.startswith('/api/') or request.path.startswith('/telegram/'):
         return error('Внутренняя ошибка сервера. Ошибка записана в лог.', 500)
     return 'Internal Server Error', 500

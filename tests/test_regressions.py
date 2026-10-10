@@ -1400,6 +1400,21 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(self.client.get('/api/halloween').get_json()['event_open'])
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_lot_order_images_and_header_pumpkins(self):
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        self.assertTrue(self.client.get('/api/admin/halloween/images').get_json()['ok'])        # picker used a SQLite-only column
+        ids = [self.post('/api/admin/halloween/lots', {'title': t, 'price': 10 + i, 'size': 's', 'reward': {'type': 'ton', 'amount': '1'}})['id'] for i, t in enumerate('abc')]
+        order = [x['id'] for x in self.client.get('/api/admin/halloween/config').get_json()['lots']]
+        self.assertEqual(order[-3:], ids)                                                       # new lots go to the end
+        self.post('/api/admin/halloween/lots/order', {'ids': [ids[2], ids[0], ids[1]]})
+        order = [x['id'] for x in self.client.get('/api/admin/halloween/config').get_json()['lots']]
+        self.assertEqual(order[-3:], [ids[2], ids[0], ids[1]])
+        self.post('/api/admin/halloween/lots/order', {'ids': []}, 400)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': int(time.time() * 1000) + 600000, 'mode': 'full'})
+        self.assertIsNotNone(self.client.get('/api/me').get_json()['user'].get('pumpkins'))             # header balance list shows pumpkins
+        self.post('/api/admin/halloween', {'enabled': False})
+        self.assertIsNone(self.client.get('/api/me').get_json()['user'].get('pumpkins'))
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

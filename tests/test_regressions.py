@@ -1266,6 +1266,12 @@ class RegressionTests(unittest.TestCase):
             self.post('/api/admin/loader-settings', {'path': 'http://x.test/a.gif'}, 400)
         self.assertEqual(self.client.get('/api/ui/settings').get_json()['loader_gif'], 'builtin')
 
+    def test_mobile_fullscreen_and_desktop_compact_viewport_logic_shipped(self):
+        html = self.client.get('/').get_data(as_text=True)
+        for needle in ('id="gd-viewport"', 'function gdInitViewport', 'tg.requestFullscreen', 'tg.exitFullscreen',
+                       'html.tg-fs body.studio .studio-header', 'contentSafeAreaInset'):
+            self.assertIn(needle, html)
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

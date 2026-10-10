@@ -38,7 +38,7 @@ CREATOR_CHAT_DIR = DATA / 'creator_chat'
 CREATOR_CHAT_DIR.mkdir(parents=True, exist_ok=True)
 BOT_TOKEN = (os.environ.get('BOT_TOKEN') or os.environ.get('TELEGRAM_BOT_TOKEN') or '').strip()
 WEBAPP_URL = (os.environ.get('WEBAPP_URL') or os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')
-BOT_USERNAME = (os.environ.get('BOT_USERNAME') or '').strip().lstrip('@')
+BOT_USERNAME = (os.environ.get('BOT_USERNAME') or 'gem_drop_robot').strip().lstrip('@')   # fallback: the production bot; getMe overrides it
 BOT_TOKEN_FINGERPRINT = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:16] if BOT_TOKEN else ''
 TONCENTER_API_KEY = (os.environ.get('TONCENTER_API_KEY') or '').strip()
 YOUTUBE_API_KEY = (os.environ.get('YOUTUBE_API_KEY') or '').strip()

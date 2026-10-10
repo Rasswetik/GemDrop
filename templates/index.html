@@ -5483,8 +5483,24 @@ syncFreebetFields();renderPostButtons();
 
 syncPromoRewardFields();syncUserPromoFields();renderBundleEditor('promoBundleItems',promoBundleState);renderBundleEditor('userPromoBundleItems',userPromoBundleState);
 
-function applyMobileInsets(){let top=0,bottom=0;try{if(['android','ios'].includes(tg?.platform)){top=Number(tg?.contentSafeAreaInset?.top||tg?.safeAreaInset?.top||0);bottom=Number(tg?.contentSafeAreaInset?.bottom||tg?.safeAreaInset?.bottom||0)}}catch(e){}document.documentElement.style.setProperty('--tg-safe-top',Math.max(0,top)+'px');document.documentElement.style.setProperty('--tg-safe-bottom',Math.max(0,bottom)+'px')}
-try{tg?.onEvent?.('viewportChanged',applyMobileInsets);tg?.onEvent?.('safeAreaChanged',applyMobileInsets);tg?.onEvent?.('contentSafeAreaChanged',applyMobileInsets)}catch(e){}
+/* Viewport: phones/tablets run fullscreen with the UI pushed below Telegram's own controls; desktop stays a small window. */
+function gdPlatform(){let p=String(tg?.platform||'').toLowerCase();return /^(android|android_x|ios)$/.test(p)?'mobile':(p&&p!=='unknown'?'desktop':'web')}
+function applyMobileInsets(){let top=0,bottom=0,fs=false,r=document.documentElement,kind=gdPlatform();try{
+ fs=kind==='mobile'&&!!tg?.isFullscreen;
+ if(kind==='mobile'){let sa=tg?.safeAreaInset||{},ca=tg?.contentSafeAreaInset||{},cs=getComputedStyle(r),cv=n=>parseFloat(cs.getPropertyValue(n))||0;
+  top=Number(sa.top||0)+Number(ca.top||0)||(cv('--tg-safe-area-inset-top')+cv('--tg-content-safe-area-inset-top'));
+  bottom=Number(sa.bottom||0)+Number(ca.bottom||0)||(cv('--tg-safe-area-inset-bottom')+cv('--tg-content-safe-area-inset-bottom'));
+  if(fs&&top<24)top=Math.max(top,44)}   /* fullscreen with unknown insets: still clear the status bar */
+ }catch(e){}
+ if(!fs&&kind==='mobile'){top=Math.min(top,0)}   /* normal (non-fullscreen) mode: Telegram already draws its header above the app */
+ r.classList.toggle('tg-fs',fs);r.classList.toggle('tg-mobile',kind==='mobile');r.classList.toggle('tg-desktop',kind==='desktop');
+ r.style.setProperty('--tg-safe-top',Math.max(0,top)+'px');r.style.setProperty('--tg-safe-bottom',Math.max(0,bottom)+'px');r.style.setProperty('--gd-fs-gap',fs?'12px':'0px')}
+function gdInitViewport(){let kind=gdPlatform();if(!tg)return;
+ try{if(kind==='mobile'){tg.expand?.();if(tg.isVersionAtLeast?.('8.0')&&!tg.isFullscreen)tg.requestFullscreen?.()}
+  else if(kind==='desktop'){if(tg.isVersionAtLeast?.('8.0')&&tg.isFullscreen)tg.exitFullscreen?.()}}catch(e){}
+ try{if(tg.isVersionAtLeast?.('6.1')){tg.setHeaderColor?.('#0b0c15');tg.setBackgroundColor?.('#0b0c15')}if(tg.isVersionAtLeast?.('7.10'))tg.setBottomBarColor?.('#0b0c15')}catch(e){}
+ applyMobileInsets();[100,500,1500].forEach(t=>setTimeout(applyMobileInsets,t))}
+try{['viewportChanged','safeAreaChanged','contentSafeAreaChanged','fullscreenChanged','fullscreenFailed'].forEach(n=>tg?.onEvent?.(n,applyMobileInsets))}catch(e){}
 async function loadUiSettings(){try{let d=await api('/api/ui/settings',{timeoutMs:2500}),img=$('loaderImage');if(d.sections)applySectionSettings(d.sections);applyGiftDisplaySettings(d);applyGiftDisplaySettings(d);if(d.loader_gif&&d.loader_gif!=='builtin'&&img){let next=new Image;next.onload=()=>{img.src=d.loader_gif;img.hidden=false;$('loader').classList.add('custom-img')};next.src=d.loader_gif}}catch(e){}}
 function loadTonSdk(timeoutMs=2800){if(window.TON_CONNECT_UI)return Promise.resolve(true);if(tonSdkPromise)return tonSdkPromise;tonSdkPromise=new Promise(resolve=>{let done=false,finish=v=>{if(done)return;done=true;resolve(v)};let existing=document.querySelector('script[data-tonconnect-sdk]');let script=existing||document.createElement('script');if(!existing){script.src='https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js';script.async=true;script.dataset.tonconnectSdk='1';document.head.append(script)}script.addEventListener('load',()=>finish(!!window.TON_CONNECT_UI),{once:true});script.addEventListener('error',()=>{script.remove();finish(false)},{once:true});setTimeout(()=>{if(!window.TON_CONNECT_UI)script.remove();finish(!!window.TON_CONNECT_UI)},timeoutMs)}).finally(()=>{if(!window.TON_CONNECT_UI)tonSdkPromise=null});return tonSdkPromise}
 function ldFill(){let src=document.querySelector('#loader .ld-art');if(!src)return;for(let id of ['ldPrevNormal','ldPrevHw']){let el=$(id);if(el&&!el.firstChild)el.innerHTML=src.innerHTML}}
@@ -5618,7 +5634,7 @@ async function pollWebAuth(){if(document.hidden){webAuthTimer=setTimeout(pollWeb
 async function beginWebAuth(){clearTimeout(webAuthTimer);$('loader').classList.add('hidden');$('auth').classList.remove('hidden');$('webAuthPanel').classList.remove('hidden');$('retry').classList.add('hidden');$('authText').textContent='Подтвердите аккаунт через Telegram-бота';$('webAuthStatus').textContent='Создаём код…';$('webAuthCommand').textContent='Получаем код…';$('copyWebCommand').disabled=true;$('webBotLink').classList.add('hidden');$('webAuthRenew').disabled=true;try{let params=new URLSearchParams(location.search),ref=params.get('ref');let d=await api('/api/web-auth/start',{method:'POST',body:JSON.stringify({referrer_id:/^\d{1,20}$/.test(ref||'')?ref:null})});$('webAuthCommand').textContent=d.command;$('copyWebCommand').disabled=false;let link=$('webBotLink');link.classList.toggle('hidden',!d.bot_username);if(d.bot_username){link.href='https://t.me/'+encodeURIComponent(d.bot_username);link.textContent='Открыть @'+d.bot_username+' →'}$('webAuthStatus').textContent='Код действует 5 минут. Ожидаем команду в боте…';webAuthTimer=setTimeout(pollWebAuth,2200)}catch(e){$('webAuthCommand').textContent='Код недоступен';$('webAuthStatus').textContent=e.message}finally{$('webAuthRenew').disabled=false}}
 $('webAuthRenew').onclick=beginWebAuth;
 $('copyWebCommand').onclick=async()=>{try{await navigator.clipboard.writeText($('webAuthCommand').textContent);toast('Команда скопирована')}catch(e){toast('Выделите и скопируйте команду вручную')}};
-async function boot(){try{if(sessionStorage.getItem('gemdrop_manual_logout')==='1'){document.getElementById('loader')?.classList.add('hidden');document.getElementById('content')?.classList.add('hidden');document.getElementById('auth')?.classList.remove('hidden');document.getElementById('webAuthPanel')?.classList.add('hidden');let r=document.getElementById('retry');if(r){r.classList.remove('hidden');r.textContent='Войти снова'}let t=document.getElementById('authText');if(t)t.textContent='Вы вышли из аккаунта.';return}}catch(e){}setProgress(8,'Подключаем Telegram…');$('loader').classList.remove('hidden');loadUiSettings();loadTonSdk();tg?.ready();applyMobileInsets();try{if(tg?.isVersionAtLeast?.('7.7'))tg.enableVerticalSwipes?.();if(tg?.isVersionAtLeast?.('8.0'))tg.exitFullscreen?.()}catch(e){}let initData=tg?.initData;if(!initData){try{await api('/api/me',{timeoutMs:5000});await completeLogin()}catch(e){await beginWebAuth()}return}let params=new URLSearchParams(location.search),ref=params.get('ref'),referrer_id=/^\d{1,20}$/.test(ref||'')?ref:null;try{setProgress(32,'Проверяем аккаунт…');await api('/api/auth',{method:'POST',body:JSON.stringify({initData,referrer_id}),timeoutMs:9000});await completeLogin()}catch(e){$('loader').classList.add('hidden');$('auth').classList.remove('hidden');$('webAuthPanel').classList.add('hidden');$('retry').classList.remove('hidden');$('authText').textContent=e.message}}
+async function boot(){try{if(sessionStorage.getItem('gemdrop_manual_logout')==='1'){document.getElementById('loader')?.classList.add('hidden');document.getElementById('content')?.classList.add('hidden');document.getElementById('auth')?.classList.remove('hidden');document.getElementById('webAuthPanel')?.classList.add('hidden');let r=document.getElementById('retry');if(r){r.classList.remove('hidden');r.textContent='Войти снова'}let t=document.getElementById('authText');if(t)t.textContent='Вы вышли из аккаунта.';return}}catch(e){}setProgress(8,'Подключаем Telegram…');$('loader').classList.remove('hidden');loadUiSettings();loadTonSdk();tg?.ready();try{if(tg?.isVersionAtLeast?.('7.7'))tg.enableVerticalSwipes?.()}catch(e){}gdInitViewport();let initData=tg?.initData;if(!initData){try{await api('/api/me',{timeoutMs:5000});await completeLogin()}catch(e){await beginWebAuth()}return}let params=new URLSearchParams(location.search),ref=params.get('ref'),referrer_id=/^\d{1,20}$/.test(ref||'')?ref:null;try{setProgress(32,'Проверяем аккаунт…');await api('/api/auth',{method:'POST',body:JSON.stringify({initData,referrer_id}),timeoutMs:9000});await completeLogin()}catch(e){$('loader').classList.add('hidden');$('auth').classList.remove('hidden');$('webAuthPanel').classList.add('hidden');$('retry').classList.remove('hidden');$('authText').textContent=e.message}}
 
 let rolls=[],rollIndex=0,rollBoost=1,rollPendingBoost=1,rollBusy=false,rollAngle=0,rollIdleId=0,rollIdleStamp=0,adminRollData=[];
 const rollPalette=['#13badc','#42ca6b','#7732d0','#b7e94d','#e23791','#ce5cd7','#ffae34','#eed559','#239fc5','#315fdb','#24a48f','#3b4452'];
@@ -10634,6 +10650,18 @@ window.ugPaintChance=function(chance){
 #upgradePage .ug-wheel:before{background:radial-gradient(circle,transparent 58%,transparent 60%,var(--ug-glow,#3fd9a026) 72%,transparent 74%)!important;opacity:.35}
 #upgradePage .ug-wheel.ready:before{opacity:.55}
 #upgradePage #upgradeChance{color:var(--ug-win-top,inherit)}
+</style>
+<style id="gd-viewport">
+/* Fullscreen on phones/tablets: everything starts below Telegram's status bar + close/menu pill. */
+html.tg-fs body.studio .studio-header{box-sizing:border-box!important;height:auto!important;padding-top:calc(var(--tg-safe-top,0px) + var(--gd-fs-gap,0px) + 8px)!important;min-height:calc(66px + var(--tg-safe-top,0px) + var(--gd-fs-gap,0px))!important;align-items:center!important;padding-bottom:10px!important}
+html.tg-fs .arena-side-col,html.tg-fs .hl-side-col{top:calc(96px + var(--tg-safe-top,0px))!important}
+html.tg-fs #withdrawalsPage .withdraw-tabs{top:calc(84px + var(--tg-safe-top,0px))!important}
+html.tg-fs #levelNotice.level-notice,html.tg-fs .level-notice{top:calc(12px + var(--tg-safe-top,0px))!important}
+html.tg-fs #toast{top:calc(18px + var(--tg-safe-top,0px))!important}
+html.tg-fs #loader,html.tg-fs #maintScreen{padding-top:var(--tg-safe-top,0px)}
+html.tg-fs .modal,html.tg-fs #depositModal,html.tg-fs #ggModal,html.tg-fs #hlInfoModal,html.tg-fs #publicProfileModal,html.tg-fs #giftModal{padding-top:calc(12px + var(--tg-safe-top,0px))!important}
+html.tg-fs .xh-pop{padding-top:calc(14px + var(--tg-safe-top,0px))}
+html.tg-fs .modal-card,html.tg-fs #giftModal>.modal-card{max-height:calc(100dvh - 24px - var(--tg-safe-top,0px) - var(--tg-safe-bottom,0px))!important}
 </style>
 <style id="halloween-theme">
 /* ===== HALLOWEEN EVENT v2: SVG only, every animation is optional decoration ===== */

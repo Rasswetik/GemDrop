@@ -4929,7 +4929,7 @@ html.perf-lite .gc-art-road *{animation:none!important}
   <div id="giftDepositRates" class="gift-deposit-rates"><div class="empty">Загружаем каталог…</div></div>
 </div>
 </div></div>
-<div id="publicProfileModal" class="modal hidden"><div class="modal-card public-profile-card"><button id="closePublicProfile" class="public-profile-close" type="button" aria-label="Закрыть"><span aria-hidden="true">×</span></button><div class="public-profile-hero"><div id="publicProfileAvatar" class="public-profile-avatar">G</div><div class="public-profile-identity"><span class="public-section-kicker">ПРОФИЛЬ ИГРОКА</span><h2 id="publicProfileName">Игрок</h2><p id="publicProfileHandle">Telegram</p></div></div><div class="public-level-block"><div class="public-level-head"><strong id="publicProfileLevel">Уровень 1</strong><span id="publicProfileLevelValues">0 / — TON</span></div><div class="public-level-track"><i id="publicProfileLevelBar"></i></div></div><div class="public-profile-overview"><div class="public-overview-card"><span class="public-overview-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17 10 11l4 4 6-8"/><path d="M15 7h5v5"/></svg></span><div><small>МАКС. КОЭФФИЦИЕНТ</small><b id="publicMaxX">—</b><span id="publicMaxXSource">Во всех играх</span></div></div></div><div class="pp-tabs" id="ppTabs" role="tablist" aria-label="Режимы"></div><div class="pp-stage" id="ppStage"><div class="pp-hero-ico" id="ppIco"></div><div class="pp-stage-body"><span class="public-section-kicker" id="ppKicker">MINES</span><div class="pp-grid" id="ppGrid"></div></div></div><div id="publicMaxDrop" class="public-max-drop"><div class="public-max-drop-head"><span class="public-section-kicker">МАКСИМАЛЬНЫЙ ДРОП · ВСЕ ИГРЫ</span><span class="public-max-drop-mark">◆</span></div><div id="publicMaxDropBody" class="public-max-drop-body"><span class="public-empty">Пока нет дропа</span></div></div></div></div>
+<div id="publicProfileModal" class="modal hidden"><div class="modal-card public-profile-card"><button id="closePublicProfile" class="public-profile-close" type="button" aria-label="Закрыть"><span aria-hidden="true">×</span></button><div class="public-profile-hero"><div id="publicProfileAvatar" class="public-profile-avatar">G</div><div class="public-profile-identity"><span class="public-section-kicker">ПРОФИЛЬ ИГРОКА</span><h2 id="publicProfileName">Игрок</h2><p id="publicProfileHandle">Telegram</p></div></div><div class="public-level-block"><div class="public-level-head"><strong id="publicProfileLevel">Уровень 1</strong><span id="publicProfileLevelValues">0 / — TON</span></div><div class="public-level-track"><i id="publicProfileLevelBar"></i></div></div><div class="public-profile-overview"><div class="public-overview-card pv-main"><span class="public-overview-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17 10 11l4 4 6-8"/><path d="M15 7h5v5"/></svg></span><div><small>МАКС. КОЭФФИЦИЕНТ</small><b id="publicMaxX">—</b><span id="publicMaxXSource">Во всех играх</span></div></div><div class="pv-tile"><small>ИГР ВСЕГО</small><b id="publicTotalGames">—</b></div><div class="pv-tile"><small>ВИНРЕЙТ</small><b id="publicWinRate">—</b></div></div><div class="pp-tabs" id="ppTabs" role="tablist" aria-label="Режимы"></div><div class="pp-stage" id="ppStage"><div class="pp-hero-ico" id="ppIco"></div><div class="pp-stage-body"><span class="public-section-kicker" id="ppKicker">MINES</span><div class="pp-grid" id="ppGrid"></div></div></div><div id="publicMaxDrop" class="public-max-drop"><div class="public-max-drop-head"><span class="public-section-kicker">МАКСИМАЛЬНЫЙ ДРОП · ВСЕ ИГРЫ</span><span class="public-max-drop-mark">◆</span></div><div id="publicMaxDropBody" class="public-max-drop-body"><span class="public-empty">Пока нет дропа</span></div></div></div></div>
 <div id="promoRewardModal" class="modal hidden"><div class="modal-card"><h2 id="promoRewardHeading">Поздравляем!</h2><div id="promoRewardGift" class="promo-success-gift hidden"><img id="promoRewardGiftImage" src="/static/img/ton.png" alt=""></div><div id="promoRewardGiftName" class="promo-success-name hidden"></div><div id="promoRewardTon" class="promo-success-ton hidden"><span id="promoRewardAmount">0.00</span><img id="promoRewardTonIcon" src="/static/img/ton.png" alt="TON"></div><div id="promoRewardBonus" class="promo-reward-bonus hidden"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M9 17h46v11a5 5 0 0 0 0 10v9H9v-9a5 5 0 0 0 0-10V17Z"/><path d="M32 22v20M23 32h18"/></svg><strong id="promoRewardBonusText"></strong></div><button id="closePromoReward" class="primary">Забрать</button></div></div>
 <div id="topRewardModal" class="modal hidden"><div class="modal-card top-reward-modal-card">
 <div id="topRewardModalCountdown" class="top-reward-modal-countdown">До конца: —</div>
@@ -8254,16 +8254,9 @@ window.hlRender=function(){baseRender();let s=HL.st;if(!s)return;ensureFx();let 
 @media(prefers-reduced-motion:reduce){.pp-ico svg *,.pp-hero-ico svg *{animation:none!important}}
 </style><script>
 var PP_MODE='mines',PP_D=null;
-var PP_C={mines:['#4fd1b0','#a8f3e0'],upgrade:['#8b7cf6','#cfc6ff'],hilo:['#4fd18b','#f0707f'],arena:['#f0a35a','#ffd9a8'],crash:['#62b8ff','#d6efff'],limbo:['#7cf6cd','#c9fff0']};
-var PP_NAME={mines:'Mines',upgrade:'Upgrade',hilo:'Hi-Lo',arena:'Арена',crash:'Crash',limbo:'Limbo'};
-var PP_ICO={
-mines:'<svg viewBox="0 0 64 64"><g class="pi-float"><path d="M32 8 52 24 32 56 12 24Z" fill="var(--c1)" opacity=".88"/><path d="M12 24h40M32 8l-8 16 8 32 8-32Z" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6" stroke-linejoin="round"/></g><path class="pi-spark" d="M54 8v8M50 12h8" stroke="var(--c2)" stroke-width="2" stroke-linecap="round"/></svg>',
-upgrade:'<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="5"/><g class="pi-spin"><circle cx="32" cy="32" r="22" fill="none" stroke="var(--c1)" stroke-width="5" stroke-linecap="round" stroke-dasharray="52 90" transform="rotate(-90 32 32)"/></g><path class="pi-bob" d="M32 41V24m-8 8 8-8 8 8" fill="none" stroke="var(--c2)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-hilo:'<svg viewBox="0 0 64 64"><rect class="pi-card1" x="8" y="13" width="28" height="38" rx="5" fill="rgba(255,255,255,.06)" stroke="var(--c1)" stroke-width="2.4"/><rect class="pi-card2" x="28" y="13" width="28" height="38" rx="5" fill="rgba(16,18,30,.92)" stroke="var(--c2)" stroke-width="2.4"/><path class="pi-up" d="M42 22l-6.5 7.5h13z" fill="var(--c1)"/><path class="pi-down" d="M42 42l-6.5-7.5h13z" fill="var(--c2)"/></svg>',
-arena:'<svg viewBox="0 0 64 64"><g class="pi-sway"><path d="M15 14l30 30M49 14 19 44" stroke="var(--c1)" stroke-width="4" stroke-linecap="round"/><path d="M10 49l9-9M54 49l-9-9M20 53l-7-7M44 53l7-7" stroke="var(--c2)" stroke-width="4" stroke-linecap="round"/></g><circle class="pi-pulse" cx="32" cy="29" r="3.5" fill="var(--c2)"/></svg>'};
+var PP_C={mines:['#4fd1b0','#a8f3e0'],upgrade:['#8b7cf6','#cfc6ff'],hilo:['#4fd18b','#f0707f'],arena:['#f0a35a','#ffd9a8'],crash:['#62b8ff','#d6efff'],limbo:['#7cf6cd','#c9fff0'],road:['#f2b35e','#ffe2a6']};
+var PP_NAME={mines:'Mines',upgrade:'Upgrade',hilo:'Hi-Lo',arena:'Арена',crash:'Crash',limbo:'Limbo',road:'Hamster Road'};
 function ppDeriveMax(d){let s=d?.stats||{},best=null;for(let k in s){let m=/^max_(\w+)_x$/.exec(k);if(!m)continue;let v=Number(s[k]||0);if(v>0&&(!best||v>best.value))best={value:v,source:PP_NAME[m[1]]||m[1]}}return best}
-function ppBuildTabs(){let t=$('ppTabs');if(!t||t.childElementCount)return;for(let m in PP_NAME){let b=document.createElement('button');b.type='button';b.dataset.m=m;b.setAttribute('role','tab');b.style.setProperty('--c1',PP_C[m][0]);b.style.setProperty('--c2',PP_C[m][1]);b.innerHTML='<span class="pp-ico">'+PP_ICO[m]+'</span><small>'+PP_NAME[m]+'</small>';b.onclick=()=>{if(m!==PP_MODE)ppSet(null,m,true)};t.append(b)}}
-function ppSet(d,m,animate){if(d)PP_D=d;d=PP_D;if(!d)return;PP_MODE=m;ppBuildTabs();document.querySelectorAll('#ppTabs button').forEach(b=>{let on=b.dataset.m===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on)});let st=$('ppStage'),fill=()=>{st.style.setProperty('--c1',PP_C[m][0]);st.style.setProperty('--c2',PP_C[m][1]);$('ppIco').style.setProperty('--c1',PP_C[m][0]);$('ppIco').innerHTML=PP_ICO[m];$('ppKicker').textContent=PP_NAME[m].toUpperCase();let s=d.stats||{},x=Number(s['max_'+m+'_x']||s[m+'_max_x']||s['max_x_'+m]||0),drop=d.drops?d.drops[m]:null,cells=[[m==='arena'?'Ставок':'Игр',s[m+'_count']||0],['Побед',s[m+'_wins']||0],['Макс. X',x>0?fmtX(x):'—'],['Лучший дроп',drop!=null?money(drop)+' TON':'—']],g=$('ppGrid');g.replaceChildren();for(let [k,v] of cells){let c=document.createElement('div'),a=document.createElement('small'),b=document.createElement('b');a.textContent=k;b.textContent=v;c.append(a,b);g.append(c)}st.classList.remove('swap')};if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()}
 var hlWinsReq=0;
 async function loadHiloWins(){let n=++hlWinsReq,box=$('hiloWins');if(!box)return;try{let d=await api('/api/hilo/recent-wins');if(n!==hlWinsReq)return;renderTopDrop('hiloTopDrop',d.top_drop,'hilo',d.top_reward,d.top_schedule);box.replaceChildren();if(!d.items?.length){box.innerHTML='<div class="recent-win-empty">Побед в Hi-Lo пока нет</div>';return}for(let w of d.items){let row=document.createElement('div');row.className='recent-win';let av=document.createElement('div');av.className='recent-win-avatar';av.textContent=(w.name||'G').charAt(0).toUpperCase();if(w.photo_url){let im=new Image;im.src=w.photo_url;im.alt='';im.onerror=()=>im.remove();av.replaceChildren(im)}let meta=document.createElement('div');meta.className='recent-win-meta';let name=document.createElement('strong');name.textContent=w.username?'@'+w.username:w.name;av.onclick=name.onclick=()=>openPublicProfile(w.user_id);let sub=document.createElement('div');sub.className='recent-win-sub';let ti=new Image;ti.src=w.bonus_origin?TON2:TON;ti.alt=w.bonus_origin?'Bonus TON':'TON';let bet=document.createElement('span');bet.textContent=money(w.bet)+' '+(w.direction==='hi'?'▲':'▼');let mult=document.createElement('b');mult.textContent=fmtX(w.multiplier);sub.append(ti,bet,mult);meta.append(name,sub);let reward=document.createElement('div');reward.className='recent-win-reward';if(w.gift){reward.classList.add('nft-only');let gi=new Image;gi.className='nft-thumb';gi.src=w.gift.image_url||TON;gi.alt=w.gift.name||'Подарок';gi.onerror=()=>{gi.src=TON};let price=document.createElement('span');price.className='nft-price';let amount=document.createElement('span');amount.textContent=money(w.gift.price_ton);let rt=new Image;rt.src=w.bonus_origin?TON2:TON;rt.alt=w.bonus_origin?'Bonus TON':'TON';price.append(amount,rt);reward.append(gi,price)}else{let plus=document.createElement('span');plus.textContent='+';let amount=document.createElement('span');amount.textContent=money(w.amount);let rt=new Image;rt.src=w.bonus_origin?TON2:TON;rt.alt=w.bonus_origin?'Bonus TON':'TON';reward.append(plus,amount,rt)}row.append(av,meta,reward);box.append(row)}}catch(e){if(n===hlWinsReq)box.innerHTML='<div class="recent-win-empty">Не удалось загрузить победы</div>'}}
 setInterval(()=>{let p=$('hiloPage');if(p&&!p.classList.contains('hidden')&&!document.hidden)loadHiloWins()},20000);
@@ -8315,12 +8308,6 @@ setInterval(()=>{let p=$('hiloPage');if(p&&!p.classList.contains('hidden')&&!doc
 @media(prefers-reduced-motion:reduce){.pp-ico svg *,.pp-hero-ico svg *{animation:none!important}}
 </style><script>
 var bcFiles=[],bcMode='filters',bcMyEmoji=[],bcPollT=0,bcDraftLoaded=false;
-PP_ICO.mines='<svg viewBox="0 0 80 80"><ellipse class="pg-glow" cx="40" cy="45" rx="31" ry="29" fill="#2ff0b0" opacity=".2"/><ellipse cx="40" cy="74" rx="17" ry="2.6" fill="#000" opacity=".3"/><g class="pg-float" stroke-linejoin="round"><path d="M24 12H56L47 29H33Z" fill="#d9fff1"/><path d="M12 29 24 12 33 29Z" fill="#5ff0bd"/><path d="M68 29 56 12 47 29Z" fill="#2fcf98"/><path d="M12 29H33L40 70Z" fill="#1fb98a"/><path d="M33 29H47L40 70Z" fill="#43e0ab"/><path d="M47 29H68L40 70Z" fill="#12926a"/><path d="M24 12H56L68 29 40 70 12 29Z" fill="none" stroke="#f1fff9" stroke-opacity=".9" stroke-width="1.7"/><path d="M29 16.5H35L31.5 25H27Z" fill="#fff" opacity=".7"/></g><path class="pg-twinkle" d="M62 8v10M57 13h10" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/></svg>';
-PP_ICO.upgrade='<svg viewBox="0 0 80 80"><defs><linearGradient id="ppUg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cf6cd"/><stop offset="1" stop-color="#27b98a"/></linearGradient></defs><circle cx="40" cy="40" r="28" fill="none" stroke="#1f2236" stroke-width="10"/><circle class="pg-sweep" cx="40" cy="40" r="28" fill="none" stroke="url(#ppUg)" stroke-width="10" pathLength="100" stroke-dasharray="38 62" transform="rotate(-90 40 40)"/><g class="pg-spin"><path d="M40 5 35 13h10Z" fill="#fff"/></g><g class="pg-float"><path d="M40 51V30m-9 9 9-9 9 9" fill="none" stroke="#cfc6ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></g></svg>';
-PP_ICO.hilo='<svg viewBox="0 0 80 80"><g class="pg-flip"><rect x="17" y="8" width="46" height="64" rx="10" fill="#171a2e" stroke="#8b7cf6" stroke-width="2.4"/><rect x="21" y="12" width="38" height="56" rx="7" fill="none" stroke="rgba(255,255,255,.1)"/><text x="40" y="47" text-anchor="middle" font-size="22" font-weight="800" fill="#e8ecf4" font-family="system-ui,sans-serif">7</text></g><g class="pg-float"><path d="M40 14l-7 9h14z" fill="#4fd18b"/></g><g style="animation:pgFloat 4s ease-in-out infinite reverse"><path d="M40 66l-7-9h14z" fill="#f0707f"/></g></svg>';
-PP_ICO.arena='<svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="30" fill="#f0a35a" opacity=".1"/><g class="pg-clash"><path d="M16 14l40 40" stroke="#ffd9a8" stroke-width="5" stroke-linecap="round"/><path d="M11 49l9-9M20 58l-7-7" stroke="#f0a35a" stroke-width="5" stroke-linecap="round"/></g><g class="pg-clash r"><path d="M64 14 24 54" stroke="#ffd9a8" stroke-width="5" stroke-linecap="round"/><path d="M69 49l-9-9M60 58l7-7" stroke="#f0a35a" stroke-width="5" stroke-linecap="round"/></g><path class="pg-twinkle" d="M40 24v10M35 29h10" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/></svg>';
-PP_ICO.crash='<svg viewBox="0 0 80 80"><defs><linearGradient id="ppCrash" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f91ff"/><stop offset="1" stop-color="#d7f6ff"/></linearGradient></defs><path d="M13 59C25 56 31 48 37 37S50 16 68 13" fill="none" stroke="url(#ppCrash)" stroke-width="6" stroke-linecap="round"/><g class="pg-float" transform="translate(53 25) rotate(-28)"><path d="M-16 0H9L19 7 9 14H-16L-7 7Z" fill="#58baff" stroke="#effcff" stroke-width="1.8"/><circle cx="-2" cy="7" r="4" fill="#20346e"/></g><path class="pg-twinkle" d="M61 44v10M56 49h10" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/></svg>';
-PP_ICO.limbo='<svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="26" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="6"/><circle cx="40" cy="40" r="26" fill="none" stroke="#7cf6cd" stroke-width="6" stroke-linecap="round" stroke-dasharray="110 200" transform="rotate(-90 40 40)"/><path d="M40 40 54 28" stroke="#fff" stroke-width="4" stroke-linecap="round"/><circle cx="40" cy="40" r="4" fill="#fff"/></svg>';
 
 function bcKey(){return 'bcDraft'}
 function bcSaveDraft(){try{localStorage.setItem(bcKey(),JSON.stringify({text:$('broadcastText').value,buttons:broadcastRows}))}catch(e){}}
@@ -12101,6 +12088,13 @@ body.studio[data-page="gamesPage"] #gamesPage .gc-label b{font-size:clamp(16px,5
 body.studio[data-page="gamesPage"] #gamesPage .gc-label span{font-size:clamp(10px,2.9cqw,12.5px)!important}
 @media(max-width:560px){.game-card.is-admin-only:not(.gc-wide)::before{content:'Админ'!important;font-size:9px!important;padding:2px 7px!important;inset:8px 8px auto auto!important}body.studio[data-page="gamesPage"] #gamesPage .game-card:not(.gc-wide) .gc-label span{display:none!important}body.studio[data-page="gamesPage"] #gamesPage .game-card:not(.gc-wide) .gc-label b{font-size:clamp(15px,5.6cqw,20px)!important}#gamesPage .game-card .gc-badge,#gamesPage .game-card .gc-new{transform:scale(.82);transform-origin:0 0}}
 #gamesAdminPage .gm-layout select.gm-size{min-width:92px}
+/* phones: every game card on its own row, normal or double alike */
+@media(max-width:560px){
+body #gamesPage .games-grid{grid-template-columns:minmax(0,1fr)!important;--gc-h:calc(100cqw * .44)}
+body #gamesPage .games-grid .game-card,body #gamesPage .games-grid .game-card.gc-wide,body.studio[data-page="gamesPage"] #gamesPage .game-card,body.studio[data-page="gamesPage"] #gamesPage .game-card.gc-wide{grid-column:1/-1!important;height:var(--gc-h)!important}
+body.studio[data-page="gamesPage"] #gamesPage .game-card:not(.gc-wide) .gc-label span{display:block!important}
+body.studio[data-page="gamesPage"] #gamesPage .game-card:not(.gc-wide) .gc-label b{font-size:clamp(18px,6cqw,24px)!important}
+}
 </style>
 </body></html>
 <style id="twitch-tokenless-final">
@@ -12342,3 +12336,130 @@ html.ugm-lock,html.ugm-lock body{overflow:hidden!important}
 /* '+' glyph of an empty pick keeps the classic blue accent */
 #upgradePage .ug-pick .pick-art span{color:#7cc8f8}
 </style>
+
+<style id="pp-v3">
+/* player profile v3: calmer card, mode accent, 7 modes incl. Hamster Road */
+@keyframes pvIn{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes pvRiseIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pvShine{0%{transform:translateX(-120%)}60%,100%{transform:translateX(320%)}}
+@keyframes pvFloat{50%{transform:translateY(-3px)}}
+@keyframes pvTwinkle{50%{opacity:.2;transform:scale(.7)}}
+@keyframes pvSpin{to{transform:rotate(360deg)}}
+@keyframes pvRise{0%,100%{transform:translateY(2px);opacity:.75}50%{transform:translateY(-3px);opacity:1}}
+@keyframes pvTiltL{50%{transform:rotate(-4deg)}}
+@keyframes pvTiltR{50%{transform:rotate(4deg)}}
+@keyframes pvClash{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(4deg)}}
+@keyframes pvPing{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
+@keyframes pvDraw{0%{stroke-dashoffset:100}55%,85%{stroke-dashoffset:0}100%{stroke-dashoffset:-100}}
+@keyframes pvGauge{0%,100%{stroke-dashoffset:70}50%{stroke-dashoffset:22}}
+@keyframes pvNeedle{0%,100%{transform:rotate(-38deg)}50%{transform:rotate(30deg)}}
+@keyframes pvDash{to{stroke-dashoffset:-22}}
+@keyframes pvBob{0%,100%{transform:translateY(1px)}50%{transform:translateY(-3px)}}
+.pv-float{animation:pvFloat 4.2s ease-in-out infinite}
+.pv-twinkle{animation:pvTwinkle 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center}.pv-twinkle.d2{animation-delay:1.2s}
+.pv-spin{animation:pvSpin 9s linear infinite;transform-box:view-box;transform-origin:40px 40px}
+.pv-rise{animation:pvRise 2.6s ease-in-out infinite}
+.pv-tl{animation:pvTiltL 4.4s ease-in-out infinite;transform-box:view-box;transform-origin:27px 64px}
+.pv-tr{animation:pvTiltR 4.4s ease-in-out infinite;transform-box:view-box;transform-origin:53px 64px}
+.pv-clash{animation:pvClash 3.2s ease-in-out infinite;transform-box:view-box;transform-origin:40px 52px}
+.pv-ping{animation:pvPing 2.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.pv-draw{stroke-dasharray:100;animation:pvDraw 4.6s ease-in-out infinite}
+.pv-gauge{stroke-dasharray:100;animation:pvGauge 4.2s ease-in-out infinite}
+.pv-needle{animation:pvNeedle 4.2s ease-in-out infinite;transform-box:view-box;transform-origin:40px 54px}
+.pv-dash{animation:pvDash 1.1s linear infinite}
+.pv-bob{animation:pvBob 2.4s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.pp-ico svg *,.pp-hero-ico svg *{animation:none!important}}
+
+#publicProfileModal .public-profile-card{width:min(720px,100%)!important;padding:22px!important;border-radius:28px!important;border:1px solid #232a3b!important;background:radial-gradient(110% 60% at 0% 0%,color-mix(in srgb,var(--pc,#4fd1b0) 10%,transparent),transparent 62%),#10131c!important;box-shadow:0 30px 90px rgba(0,0,0,.55)!important;animation:pvIn .38s cubic-bezier(.2,.8,.2,1);transition:background .4s}
+#publicProfileModal:not(.hidden) .public-profile-card>*:not(.public-profile-close){animation:pvRiseIn .5s cubic-bezier(.2,.8,.2,1) both}
+#publicProfileModal:not(.hidden) .public-profile-card>*:nth-child(3){animation-delay:.05s}
+#publicProfileModal:not(.hidden) .public-profile-card>*:nth-child(4){animation-delay:.1s}
+#publicProfileModal:not(.hidden) .public-profile-card>*:nth-child(5){animation-delay:.15s}
+#publicProfileModal:not(.hidden) .public-profile-card>*:nth-child(6){animation-delay:.2s}
+#publicProfileModal:not(.hidden) .public-profile-card>*:nth-child(7){animation-delay:.25s}
+#publicProfileModal .public-profile-close{width:36px!important;height:36px!important;top:14px!important;right:14px!important;outline:0!important;box-shadow:none!important;border-radius:50%!important;border:1px solid #2b3347!important;background:#151a27!important;color:#aab6c8;transition:transform .2s,background .2s,border-color .2s}
+#publicProfileModal .public-profile-close:hover{transform:rotate(90deg);border-color:var(--pc,#4fd1b0)!important}
+#publicProfileModal .public-profile-hero{border-bottom:0!important;padding:2px 52px 4px 2px!important;gap:16px!important}
+#publicProfileModal .public-profile-avatar{width:84px!important;height:84px!important;border-radius:50%!important;border:0!important;box-shadow:0 0 0 3px #10131c,0 0 0 5px color-mix(in srgb,var(--pc,#4fd1b0) 60%,transparent),0 14px 30px rgba(0,0,0,.45)!important;transition:box-shadow .4s}
+@media(min-width:701px){#publicProfileModal .public-profile-hero{grid-template-columns:84px minmax(0,1fr)!important}}
+#publicProfileModal .public-profile-hero h2{font-size:24px}
+#publicProfileModal .public-section-kicker{color:#7f8ca3!important;letter-spacing:.14em}
+#publicProfileModal .public-level-block{margin:14px 0 10px!important;padding:13px 15px!important;border-radius:18px!important;background:#0f121b!important;border:1px solid #232a3b!important}
+#publicProfileModal .public-level-track{height:8px!important;border:0!important;background:#0a0d14!important}
+#publicProfileModal .public-level-track i{position:relative;overflow:hidden;transition:width 1s cubic-bezier(.2,.8,.2,1)}
+#publicProfileModal .public-level-track i:after{content:'';position:absolute;inset:0 auto 0 0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);animation:pvShine 3.4s ease-in-out infinite}
+#publicProfileModal .public-profile-overview{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) minmax(0,1fr);gap:8px;margin:0 0 10px}
+#publicProfileModal .public-overview-card,#publicProfileModal .pv-tile{border:1px solid #232a3b;border-radius:18px;background:#0f121b;padding:12px 14px;min-width:0}
+#publicProfileModal .public-overview-card{grid-template-columns:40px minmax(0,1fr);gap:11px}
+#publicProfileModal .public-overview-icon{width:40px;height:40px;border-radius:12px;background:color-mix(in srgb,var(--pc,#4fd1b0) 14%,#151a27);color:var(--pc,#4fd1b0);transition:background .4s,color .4s}
+#publicProfileModal .pv-tile{display:grid;gap:4px;align-content:center}
+#publicProfileModal .pv-tile small{font-size:9px;letter-spacing:.1em;color:#7f8ca3}
+#publicProfileModal .pv-tile b{font-size:20px;color:#f2f5f9}
+#publicProfileModal .pp-tabs{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:4px!important;margin:0 0 10px!important;padding:5px;border-radius:20px;background:#0c0f17;border:1px solid #1f2535}
+#publicProfileModal .pp-tabs button{position:relative;border:0!important;border-radius:15px;padding:8px 1px 7px!important;background:transparent!important;color:#7f8ca3;transition:background .3s,color .3s,box-shadow .3s}
+#publicProfileModal .pp-tabs button:hover{background:rgba(255,255,255,.04)!important}
+#publicProfileModal .pp-tabs button.on{color:#f2f5f9;background:color-mix(in srgb,var(--c1) 14%,#151a27)!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c1) 42%,transparent)}
+#publicProfileModal .pp-tabs button .pp-ico{width:32px;height:32px;opacity:.6;filter:saturate(.6)}
+#publicProfileModal .pp-tabs button.on .pp-ico{opacity:1;filter:none;transform:scale(1.08)}
+#publicProfileModal .pp-tabs button small{font-size:8.5px;letter-spacing:.04em}
+#publicProfileModal .pp-stage{position:relative;grid-template-columns:104px minmax(0,1fr)!important;gap:16px;padding:16px!important;border-radius:22px;border:1px solid #232a3b;background:linear-gradient(160deg,color-mix(in srgb,var(--c1,#4fd1b0) 8%,#131825),#0f121b);transition:opacity .2s,transform .2s}
+#publicProfileModal .pp-stage:after{display:none}
+#publicProfileModal .pp-stage.swap{opacity:0;transform:translateY(8px)}
+#publicProfileModal .pp-hero-ico{width:104px!important;height:104px!important;padding:12px!important;border-radius:28px;background:radial-gradient(circle at 50% 35%,color-mix(in srgb,var(--c1) 26%,transparent),transparent 70%),#0d1018;border:1px solid color-mix(in srgb,var(--c1) 28%,transparent);animation:none}
+#publicProfileModal .pp-stage-body{gap:10px}
+#publicProfileModal .pp-grid{gap:7px}
+#publicProfileModal .pp-grid>div{padding:10px 12px;border-radius:14px;background:#0d1018;border:1px solid #1d2332}
+#publicProfileModal .pp-grid small{font-size:9px;letter-spacing:.08em}
+#publicProfileModal .pp-grid b{font-size:18px}
+.pp-rate{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;font-size:9px;color:#7f8ca3;letter-spacing:.1em;text-transform:uppercase}
+.pp-rate i{display:block;height:6px;border-radius:99px;background:#1a2030;overflow:hidden}
+.pp-rate u{display:block;height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,var(--c1),var(--c2));transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.pp-rate b{color:#e8edf5;font-size:12px;letter-spacing:0}
+#publicProfileModal .public-max-drop{margin-top:10px!important;padding:14px!important;border-radius:20px!important;background:#0f121b!important;border:1px solid #232a3b!important}
+#publicProfileModal .public-max-drop-body{border-color:#1d2332!important;background:#0c0f17!important;border-radius:14px}
+#publicProfileModal .public-max-drop-body>img{width:56px;height:56px}
+@media(max-width:700px){
+#publicProfileModal .public-profile-card{padding:16px!important;border-radius:24px!important}
+#publicProfileModal .public-profile-avatar{width:68px!important;height:68px!important}
+#publicProfileModal .public-profile-hero{grid-template-columns:68px minmax(0,1fr)!important;gap:13px!important}
+#publicProfileModal .public-profile-hero h2{font-size:20px}
+#publicProfileModal .public-profile-overview{grid-template-columns:1fr 1fr}
+#publicProfileModal .public-overview-card{grid-column:1/-1}
+#publicProfileModal .pp-tabs{grid-template-columns:repeat(8,minmax(0,1fr))!important}
+#publicProfileModal .pp-tabs button{grid-column:span 2}
+#publicProfileModal .pp-tabs button:nth-child(5){grid-column:2/span 2}
+#publicProfileModal .pp-tabs button .pp-ico{width:34px;height:34px}
+#publicProfileModal .pp-tabs button small{font-size:9.5px}
+#publicProfileModal .pp-stage{grid-template-columns:1fr!important;justify-items:stretch;gap:12px;padding:14px!important}
+#publicProfileModal .pp-hero-ico{width:68px!important;height:68px!important;padding:8px!important;border-radius:22px;justify-self:center}
+#publicProfileModal .public-overview-card span{white-space:normal!important}
+#publicProfileModal .pp-grid b{font-size:17px}
+}
+</style>
+<script>
+(function(){
+var S='<svg viewBox="0 0 80 80">',E='</svg>';
+PP_ICO={
+mines:S+'<ellipse cx="40" cy="72" rx="16" ry="2.5" fill="#000" opacity=".28"/><g class="pv-float"><path d="M40 12 62 30 40 66 18 30Z" fill="var(--c1)" opacity=".25"/><path d="M29 30 40 12 51 30Z" fill="#fff" opacity=".4"/><path d="M40 12 62 30H18Z" fill="var(--c2)" opacity=".9"/><path d="M18 30 40 66 29 30Z" fill="var(--c1)"/><path d="M62 30 40 66 51 30Z" fill="var(--c1)" opacity=".65"/><path d="M29 30 40 66 51 30Z" fill="var(--c1)" opacity=".92"/><path d="M29 30 40 12 51 30Z" fill="#fff" opacity=".28"/></g><path class="pv-twinkle" d="M64 10v10M59 15h10" stroke="var(--c2)" stroke-width="2.4" stroke-linecap="round"/><circle class="pv-twinkle d2" cx="14" cy="50" r="2.2" fill="var(--c2)"/>'+E,
+upgrade:S+'<circle cx="40" cy="40" r="27" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width="6"/><g class="pv-spin"><circle cx="40" cy="40" r="27" fill="none" stroke="var(--c1)" stroke-width="6" stroke-linecap="round" stroke-dasharray="62 108" transform="rotate(-90 40 40)"/></g><g class="pv-rise"><path d="M40 53V28M29 39l11-11 11 11" fill="none" stroke="var(--c2)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/></g>'+E,
+hilo:S+'<g class="pv-tl"><rect x="9" y="16" width="35" height="48" rx="8" fill="var(--c1)" fill-opacity=".14" stroke="var(--c1)" stroke-width="2.6"/><path d="M26.500 27 18 38h17Z" fill="var(--c1)"/></g><g class="pv-tr"><rect x="36" y="16" width="35" height="48" rx="8" fill="#10131f" stroke="var(--c2)" stroke-width="2.6"/><path d="M53.500 53 45 42h17Z" fill="var(--c2)"/><circle cx="53.500" cy="30" r="2.400" fill="var(--c2)" opacity=".6"/></g>'+E,
+arena:S+'<circle cx="40" cy="40" r="29" fill="var(--c1)" fill-opacity=".1"/><g class="pv-clash"><path d="M21 17 55 51" stroke="var(--c2)" stroke-width="5" stroke-linecap="round"/><path d="M59 17 25 51" stroke="var(--c1)" stroke-width="5" stroke-linecap="round"/><path d="M15 57l9-9M65 57l-9-9M23 64l-7-7M57 64l7-7" stroke="var(--c1)" stroke-width="4.500" stroke-linecap="round"/></g><circle class="pv-ping" cx="40" cy="34" r="3.500" fill="#fff"/>'+E,
+crash:S+'<path d="M10 66H70M10 66V12" stroke="#fff" stroke-opacity=".12" stroke-width="2.400" stroke-linecap="round" fill="none"/><path d="M14 58C28 56 38 48 46 36S60 18 66 14V66H14Z" fill="var(--c1)" opacity=".12"/><path class="pv-draw" pathLength="100" d="M14 58C28 56 38 48 46 36S60 18 66 14" fill="none" stroke="var(--c1)" stroke-width="5" stroke-linecap="round"/><circle class="pv-ping" cx="66" cy="14" r="5" fill="var(--c2)"/>'+E,
+limbo:S+'<path d="M14 54A26 26 0 0 1 66 54" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="7" stroke-linecap="round"/><path class="pv-gauge" pathLength="100" d="M14 54A26 26 0 0 1 66 54" fill="none" stroke="var(--c1)" stroke-width="7" stroke-linecap="round"/><g class="pv-needle"><path d="M40 54V28" stroke="var(--c2)" stroke-width="4" stroke-linecap="round"/></g><circle cx="40" cy="54" r="5.500" fill="var(--c2)"/><path d="M27 66h26" stroke="var(--c1)" stroke-opacity=".5" stroke-width="3" stroke-linecap="round"/>'+E,
+road:S+'<path d="M5 73 29 53H51L75 73Z" fill="#fff" fill-opacity=".07"/><path class="pv-dash" d="M40 54V74" stroke="var(--c2)" stroke-width="3" stroke-dasharray="6 5" stroke-linecap="round" opacity=".8"/><g class="pv-bob"><circle cx="26" cy="23" r="7.500" fill="var(--c1)"/><circle cx="54" cy="23" r="7.500" fill="var(--c1)"/><circle cx="26" cy="23" r="4" fill="#f4a9a0"/><circle cx="54" cy="23" r="4" fill="#f4a9a0"/><ellipse cx="40" cy="36" rx="20" ry="17" fill="var(--c1)"/><ellipse cx="28" cy="41" rx="7" ry="6" fill="var(--c2)" opacity=".9"/><ellipse cx="52" cy="41" rx="7" ry="6" fill="var(--c2)" opacity=".9"/><ellipse cx="40" cy="42" rx="9" ry="6.500" fill="#fff" opacity=".92"/><circle cx="32.500" cy="32" r="2.600" fill="#1a1208"/><circle cx="47.500" cy="32" r="2.600" fill="#1a1208"/><circle cx="33.300" cy="31.100" r=".9" fill="#fff"/><circle cx="48.300" cy="31.100" r=".9" fill="#fff"/><ellipse cx="40" cy="37.500" rx="2.400" ry="1.800" fill="#c0583e"/><path d="M36.500 42.500q3.500 3 7 0" fill="none" stroke="#7a4a2a" stroke-width="1.600" stroke-linecap="round"/></g>'+E
+};
+var SHORT={road:'Road'};
+function ppCount(el,txt,n,fmt){if(!(n>0)||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches)){el.textContent=txt;return}var t0=performance.now(),D=650;(function f(t){var k=Math.min(1,(t-t0)/D),e=1-Math.pow(1-k,3);el.textContent=k>=1?txt:fmt(n*e);if(k<1&&el.isConnected)requestAnimationFrame(f)})(t0)}
+window.ppBuildTabs=ppBuildTabs=function(){var t=$('ppTabs');if(!t||t.childElementCount)return;for(var m in PP_NAME){(function(m){var b=document.createElement('button');b.type='button';b.dataset.m=m;b.setAttribute('role','tab');b.style.setProperty('--c1',PP_C[m][0]);b.style.setProperty('--c2',PP_C[m][1]);b.innerHTML='<span class="pp-ico">'+PP_ICO[m]+'</span><small>'+(SHORT[m]||PP_NAME[m])+'</small>';b.onclick=function(){if(m!==PP_MODE)ppSet(null,m,true)};t.append(b)})(m)}};
+window.ppSet=ppSet=function(d,m,animate){if(d)PP_D=d;d=PP_D;if(!d)return;PP_MODE=m;ppBuildTabs();document.querySelectorAll('#ppTabs button').forEach(function(b){var on=b.dataset.m===m;b.classList.toggle('on',on);b.setAttribute('aria-selected',on)});
+var s=d.stats||{},tg=0,tw=0;for(var k in PP_NAME){tg+=Number(s[k+'_count']||0);tw+=Number(s[k+'_wins']||0)}
+var tgEl=$('publicTotalGames'),wrEl=$('publicWinRate');if(tgEl)tgEl.textContent=tg?String(tg):'—';if(wrEl)wrEl.textContent=tg?Math.round(tw*100/tg)+'%':'—';
+var st=$('ppStage'),card=st.closest('.public-profile-card'),fill=function(){st.style.setProperty('--c1',PP_C[m][0]);st.style.setProperty('--c2',PP_C[m][1]);if(card)card.style.setProperty('--pc',PP_C[m][0]);$('ppIco').style.setProperty('--c1',PP_C[m][0]);$('ppIco').style.setProperty('--c2',PP_C[m][1]);$('ppIco').innerHTML=PP_ICO[m];$('ppKicker').textContent=PP_NAME[m].toUpperCase();
+var cnt=Number(s[m+'_count']||0),wins=Number(s[m+'_wins']||0),x=Number(s['max_'+m+'_x']||0),drop=d.drops?d.drops[m]:null;
+var cells=[[m==='arena'?'Ставок':'Игр',String(cnt),cnt,function(v){return String(Math.round(v))}],['Побед',String(wins),wins,function(v){return String(Math.round(v))}],['Макс. X',x>0?fmtX(x):'—',0],['Лучший дроп',drop!=null?money(drop)+' TON':'—',0]],g=$('ppGrid');g.replaceChildren();
+cells.forEach(function(c){var cell=document.createElement('div'),a=document.createElement('small'),b=document.createElement('b');a.textContent=c[0];b.textContent=c[1];cell.append(a,b);g.append(cell);if(c[3])ppCount(b,c[1],c[2],c[3])});
+var old=st.querySelector('.pp-rate');if(old)old.remove();var rate=cnt?Math.round(wins*100/cnt):0,r=document.createElement('div');r.className='pp-rate';r.innerHTML='<span>Винрейт</span><i><u></u></i><b>'+(cnt?rate+'%':'—')+'</b>';st.querySelector('.pp-stage-body').append(r);requestAnimationFrame(function(){requestAnimationFrame(function(){var u=r.querySelector('u');if(u)u.style.width=rate+'%'})});
+st.classList.remove('swap')};
+if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()};
+})();
+</script>

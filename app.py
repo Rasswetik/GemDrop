@@ -7588,13 +7588,26 @@ def public_user_profile(user_id):
             if value > 0 and drop_is_after_override(row['created_at']) and (not limbo_drop or value > limbo_drop['price_cents']):
                 limbo_drop = dict(price_cents=value, name='Выигрыш Limbo', image_url='', source='Limbo')
 
+        road_rows = db.execute("""SELECT state,mult_x100,payout,prize_name,prize_image,prize_price,created_at
+                                  FROM road_games WHERE user_id=? AND state IN ('cashed','won','lost')""", (user_id,)).fetchall()
+        road_count, road_wins, max_road_x, road_drop = len(road_rows), 0, 0.0, None
+        for row in road_rows:
+            if row['state'] == 'lost':
+                continue
+            road_wins += 1
+            max_road_x = max(max_road_x, int(row['mult_x100'] or 0) / 100)
+            value = int(row['prize_price'] or 0) or int(row['payout'] or 0)
+            if value > 0 and drop_is_after_override(row['created_at']) and (not road_drop or value > road_drop['price_cents']):
+                road_drop = dict(price_cents=value, name=row['prize_name'] or 'Выигрыш Hamster Road',
+                                 image_url=row['prize_image'] or '', source='Hamster Road')
+
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
         override_name = str(user_row['max_drop_override_name'] or '').strip()
         if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
-        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, arena_drop, hilo_drop, crash_drop, limbo_drop) if x),
+        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, arena_drop, hilo_drop, crash_drop, limbo_drop, road_drop) if x),
                        key=lambda x: x['price_cents'], default=None)
 
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
@@ -7608,15 +7621,17 @@ def public_user_profile(user_id):
                               mines_wins=mines_wins, upgrade_wins=upgrade_wins, arena_wins=arena_wins,
                               hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4),
                               crash_count=crash_count, crash_wins=crash_wins, max_crash_x=round(max_crash_x, 4),
-                              limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4)),
+                              limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4),
+                              road_count=road_count, road_wins=road_wins, max_road_x=round(max_road_x, 4)),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
                               arena=(arena_drop['price_cents']/100 if arena_drop else None),
                               hilo=(hilo_drop['price_cents']/100 if hilo_drop else None),
                               crash=(crash_drop['price_cents']/100 if crash_drop else None),
-                              limbo=(limbo_drop['price_cents']/100 if limbo_drop else None)),
+                              limbo=(limbo_drop['price_cents']/100 if limbo_drop else None),
+                              road=(road_drop['price_cents']/100 if road_drop else None)),
                    max_multiplier=(lambda values: (dict(source=values[0][0], value=round(values[0][1],4)) if values and values[0][1]>0 else None))(
-                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Limbo',max_limbo_x)], key=lambda x:x[1], reverse=True)),
+                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Limbo',max_limbo_x),('Hamster Road',max_road_x)], key=lambda x:x[1], reverse=True)),
                    max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 

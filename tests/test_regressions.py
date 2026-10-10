@@ -1079,5 +1079,73 @@ class RegressionTests(unittest.TestCase):
             self.assertIsNone(self.client.get('/api/road/state').get_json()['active'])
 
 
+    def test_xhunt_time_and_target_events_pay_rewards(self):
+        def row(uid, name):
+            with m.connect() as db:
+                db.execute('INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)', (uid, name, name))
+        winner, other = self.uid + 5000, self.uid + 6000
+        row(winner, 'Winner'); row(other, 'Other')
+        with m.connect() as db:
+            db.execute("UPDATE xhunt_events SET state='finished' WHERE state='active'")
+        cfg = {'modes': ['limbo', 'road'], 'finish_by': 'time', 'minutes': 5, 'min_bet': '0.50',
+               'rewards': [{'type': 'ton', 'amount': '5'}, {'type': 'promo', 'promo_kind': 'bonus', 'amount': '2'}]}
+        self.post('/api/admin/xhunt/start', cfg, 403)
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid})   # the background loop shares this module state
+        patcher.start(); self.addCleanup(patcher.stop)
+        if True:
+            self.post('/api/admin/xhunt/start', dict(cfg, modes=[]), 400)
+            self.post('/api/admin/xhunt/start', dict(cfg, rewards=[{'type': 'none'}]), 400)
+            started = self.post('/api/admin/xhunt/start', cfg)
+            self.post('/api/admin/xhunt/start', cfg, 409)
+        ev = started['event']
+        self.assertEqual(ev['state'], 'active')
+        state = self.client.get('/api/xhunt/state').get_json()
+        self.assertTrue(state['active'])
+        self.assertEqual([x['key'] for x in state['event']['modes']], ['limbo', 'road'])
+        with m.connect() as db:
+            now = m._daily_top_db_string(m._xhunt_now())
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,500,1,1,500,?)', (winner, now))
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,300,1,1,300,?)', (other, now))
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,10,100,9000,1,1,900,?)', (other, now))
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,100000,1,1,900,?)', (self.uid, now))
+        if True:
+            live = self.client.get('/api/xhunt/state').get_json()['event']
+        self.assertEqual(live['leader']['user_id'], winner)       # min bet and admin filtered out
+        self.assertAlmostEqual(live['leader']['x'], 5.0)
+        with m.connect() as db:
+            db.execute("UPDATE xhunt_events SET end_at=? WHERE id=?", (m._daily_top_db_string(m._xhunt_now() + m.timedelta(seconds=1)), ev['id']))
+            time.sleep(2)
+            m.xhunt_tick(db)
+        with m.connect() as db:
+            paid = json.loads(db.execute('SELECT winners_json FROM xhunt_events WHERE id=?', (ev['id'],)).fetchone()['winners_json'])['winners']
+        self.assertEqual([p['user_id'] for p in paid], [winner, other])
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?', (winner,)).fetchone()['balance'], 500)
+            promo = db.execute("SELECT * FROM promo_codes WHERE assigned_user_id=? AND source_label='X-Hunt'", (other,)).fetchone()
+            self.assertEqual((promo['reward_type'], promo['amount'], promo['balance_target']), ('balance', 200, 'bonus'))
+            self.assertIsNone(m.xhunt_tick(db))
+            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM promo_codes WHERE source_label=?', ('X-Hunt',)).fetchone()['n'], 1)
+        after = self.client.get('/api/xhunt/state').get_json()
+        self.assertFalse(after['active'])
+        self.assertEqual(after['last']['winners'][0]['name'], 'Winner')
+
+        tcfg = {'modes': ['limbo'], 'finish_by': 'target', 'target_x': '10', 'min_bet': '0',
+                'rewards': [{'type': 'bonus', 'amount': '3'}]}
+        if True:
+            self.post('/api/admin/xhunt/start', dict(tcfg, target_x='1'), 400)
+            started = self.post('/api/admin/xhunt/start', tcfg)
+        with m.connect() as db:
+            self.assertIsNone(m.xhunt_tick(db))
+            now = m._daily_top_db_string(m._xhunt_now())
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,800,1,1,800,?)', (other, now))
+            self.assertIsNone(m.xhunt_tick(db))
+            db.execute('INSERT INTO limbo_bets(user_id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at) VALUES(?,100,100,1200,1,1,1200,?)', (winner, now))
+            m.xhunt_tick(db)
+        with m.connect() as db:
+            paid = json.loads(db.execute('SELECT winners_json FROM xhunt_events WHERE id=?', (started['event']['id'],)).fetchone()['winners_json'])['winners']
+            self.assertEqual([p['user_id'] for p in paid], [winner])
+            self.assertEqual(db.execute('SELECT bonus_balance FROM users WHERE id=?', (winner,)).fetchone()['bonus_balance'], 300)
+
+
 if __name__ == '__main__':
     unittest.main()

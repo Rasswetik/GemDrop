@@ -281,6 +281,13 @@ def _initialize_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_road_games_user ON road_games(user_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_road_games_state ON road_games(state, id DESC);
+        CREATE TABLE IF NOT EXISTS xhunt_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, state TEXT NOT NULL DEFAULT 'active',
+            config_json TEXT NOT NULL DEFAULT '{}', start_at TEXT NOT NULL, end_at TEXT NOT NULL DEFAULT '',
+            finished_at TEXT NOT NULL DEFAULT '', winners_json TEXT NOT NULL DEFAULT '[]',
+            created_by INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_xhunt_events_state ON xhunt_events(state, id DESC);
         CREATE TABLE IF NOT EXISTS arena_rounds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT NOT NULL DEFAULT 'open',
@@ -20315,6 +20322,525 @@ def portal_auto_loop():
 
 
 
+# ============================== X-Hunt ==============================
+# An admin-started event. Inside its window the best multiplier (X) over the chosen game
+# modes wins a prize ("time" mode), or the first player who reaches the target X wins
+# ("target" mode). The standings are derived from the game tables, so no game code has to
+# report anything; the event is finalised lazily and by a background loop.
+XHUNT_MODE_LABELS = {'mines': 'Mines', 'upgrade': 'Upgrade', 'crash': 'Crash', 'arena': 'Arena',
+                     'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road'}
+XHUNT_MAX_PLACES = 3
+XHUNT_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo')
+XHUNT_PROMO_KINDS = ('balance', 'bonus', 'deposit_bonus')
+XHUNT_FAR = '9999-12-31 23:59:59'
+
+
+def _xhunt_now():
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _xhunt_iso(value):
+    parsed = parse_datetime_utc(value) if isinstance(value, str) else value
+    return parsed.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if parsed else ''
+
+
+def xhunt_normalize_reward(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    kind = str(raw.get('type') or 'none')
+    if kind not in XHUNT_REWARD_TYPES:
+        kind = 'none'
+    reward = {'type': kind}
+    if kind in ('ton', 'bonus'):
+        amount = float(str(raw.get('amount') or '0').replace(',', '.'))
+        if not math.isfinite(amount) or not 0.01 <= amount <= 1000000:
+            raise ValueError('Сумма награды: от 0.01 до 1 000 000 TON.')
+        reward['amount'] = round(amount, 2)
+    elif kind == 'catalog':
+        gift = catalog_giveaway_prize(raw.get('gift_id'))
+        if int(gift.get('floor_price') or 0) <= 0:
+            raise ValueError('У этого подарка нет цены в каталоге.')
+        reward.update(gift)
+        reward['price_ton'] = int(gift['floor_price']) / 100
+    elif kind == 'fragment':
+        gift = fragment_gift_from_url(raw.get('fragment_url'), True, allow_missing_price=True)
+        reward.update(gift)
+        reward['price_ton'] = int(gift.get('floor_price') or 0) / 100
+    elif kind == 'promo':
+        promo_kind = str(raw.get('promo_kind') or 'balance')
+        if promo_kind not in XHUNT_PROMO_KINDS:
+            raise ValueError('Выберите тип личного промокода.')
+        reward['promo_kind'] = promo_kind
+        if promo_kind == 'deposit_bonus':
+            percent = float(str(raw.get('percent') or '0').replace(',', '.'))
+            if not math.isfinite(percent) or not 1 <= percent <= 100:
+                raise ValueError('Бонус к пополнению: от 1% до 100%.')
+            reward['percent'] = round(percent, 2)
+            reward['min_deposit'] = max(0.0, min(1000000.0, float(str(raw.get('min_deposit') or '0').replace(',', '.'))))
+        else:
+            amount = float(str(raw.get('amount') or '0').replace(',', '.'))
+            if not math.isfinite(amount) or not 0.01 <= amount <= 1000000:
+                raise ValueError('Сумма промокода: от 0.01 до 1 000 000 TON.')
+            reward['amount'] = round(amount, 2)
+        reward['expires_days'] = max(0, min(365, int(raw.get('expires_days') or 0)))
+    return reward
+
+
+def _xh_num(v):
+    return f'{float(v or 0):.2f}'.rstrip('0').rstrip('.')
+
+
+def xhunt_reward_view(reward):
+    reward = reward if isinstance(reward, dict) else {}
+    kind = reward.get('type') or 'none'
+    out = dict(type=kind, title='', subtitle='', image_url='', price_ton=0)
+    if kind == 'ton':
+        out.update(title=f'{_xh_num(reward.get("amount"))} TON', subtitle='На основной баланс', image_url='/static/img/ton.png', price_ton=reward.get('amount') or 0)
+    elif kind == 'bonus':
+        out.update(title=f'{_xh_num(reward.get("amount"))} TON', subtitle='На бонусный баланс', image_url='/static/img/ton.png', price_ton=reward.get('amount') or 0)
+    elif kind in ('catalog', 'fragment'):
+        out.update(title=str(reward.get('gift_name') or 'Подарок'),
+                   subtitle='Подарок Portal' if kind == 'catalog' else 'NFT-подарок Telegram',
+                   image_url=reward.get('image_url') or '', price_ton=reward.get('price_ton') or 0)
+    elif kind == 'promo':
+        pk = reward.get('promo_kind')
+        if pk == 'deposit_bonus':
+            out.update(title=f'+{_xh_num(reward.get("percent"))}% к пополнению', subtitle='Личный промокод')
+        else:
+            out.update(title=f'{_xh_num(reward.get("amount"))} TON', price_ton=reward.get('amount') or 0,
+                       subtitle='Личный промокод · ' + ('бонусный баланс' if pk == 'bonus' else 'основной баланс'))
+    return out
+
+
+def xhunt_normalize_config(data):
+    data = data if isinstance(data, dict) else {}
+    all_modes = bool(data.get('all_modes'))
+    modes = [m for m in (data.get('modes') or []) if m in GAME_KEYS]
+    modes = list(dict.fromkeys(modes))
+    if all_modes:
+        modes = list(GAME_KEYS)
+    if not modes:
+        raise ValueError('Выберите хотя бы один режим.')
+    finish_by = 'target' if str(data.get('finish_by')) == 'target' else 'time'
+    cfg = dict(modes=modes, all_modes=all_modes or len(modes) == len(GAME_KEYS), finish_by=finish_by)
+    if finish_by == 'time':
+        minutes = max(0, int(data.get('hours') or 0)) * 60 + max(0, int(data.get('minutes') or 0))
+        if not 1 <= minutes <= 43200:
+            raise ValueError('Длительность: от 1 минуты до 30 дней.')
+        cfg['duration_min'] = minutes
+    else:
+        target = float(str(data.get('target_x') or '0').replace(',', '.'))
+        if not math.isfinite(target) or not 1.01 <= target <= 1000000:
+            raise ValueError('Целевой X: от 1.01 до 1 000 000.')
+        cfg['target_x'] = round(target, 2)
+        deadline = max(0, int(data.get('deadline_hours') or 0))
+        if deadline > 720:
+            raise ValueError('Предельный срок: не больше 720 часов (0 — без ограничения).')
+        cfg['deadline_hours'] = deadline
+    min_bet = float(str(data.get('min_bet') or '0').replace(',', '.'))
+    if not math.isfinite(min_bet) or not 0 <= min_bet <= 1000000:
+        raise ValueError('Минимальная ставка: от 0 до 1 000 000 TON.')
+    cfg['min_bet'] = round(min_bet, 2)
+    raw_rewards = data.get('rewards') if isinstance(data.get('rewards'), list) else []
+    rewards = [xhunt_normalize_reward(r) for r in raw_rewards[:XHUNT_MAX_PLACES]]
+    if finish_by == 'target':
+        rewards = rewards[:1]
+    if not rewards or rewards[0]['type'] == 'none':
+        raise ValueError('Укажите награду за 1 место.')
+    while rewards and rewards[-1]['type'] == 'none':
+        rewards.pop()
+    cfg['rewards'] = rewards
+    cfg['telegram'] = bool(data.get('telegram'))
+    cfg['include_admins'] = bool(data.get('include_admins'))
+    return cfg
+
+
+def xhunt_event_config(row):
+    try:
+        cfg = json.loads(row['config_json'] or '{}')
+    except (TypeError, ValueError):
+        cfg = {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def xhunt_active_event(db):
+    return db.execute("SELECT * FROM xhunt_events WHERE state='active' ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def xhunt_rows(db, cfg, start_db, end_db):
+    """Winning rounds of the chosen modes inside the window: dicts(user_id, mode, bet, x100, at, id)."""
+    modes = set(cfg.get('modes') or [])
+    min_bet = int(round(float(cfg.get('min_bet') or 0) * 100))
+    end_db = end_db or XHUNT_FAR
+    out = []
+
+    def push(mode, rid, uid, bet, x, at):
+        try:
+            x100 = int(round(float(x) * 100))
+        except (TypeError, ValueError):
+            return
+        if x100 > 100 and int(uid) > 0:
+            out.append(dict(user_id=int(uid), mode=mode, bet=int(bet or 0), x100=x100, at=str(at or ''), id=int(rid or 0)))
+
+    if 'mines' in modes:
+        for r in db.execute("""SELECT id,user_id,bet,payout,win_multiplier,COALESCE(settled_at,created_at) AS at FROM rounds
+                               WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift' AND bet>=?
+                                 AND COALESCE(settled_at,created_at)>=? AND COALESCE(settled_at,created_at)<=?""",
+                           (min_bet, start_db, end_db)).fetchall():
+            x = r['win_multiplier'] if r['win_multiplier'] is not None else (int(r['payout'] or 0) / max(1, int(r['bet'] or 1)))
+            push('mines', r['id'], r['user_id'], r['bet'], x, r['at'])
+    if 'upgrade' in modes:
+        for r in db.execute("""SELECT id,user_id,source_price,target_price,result_json,created_at FROM upgrade_spins
+                               WHERE won=1 AND source_price>0 AND source_price>=? AND created_at>=? AND created_at<=?""",
+                           (min_bet, start_db, end_db)).fetchall():
+            if '"reward_type":"wager_progress"' in str(r['result_json'] or '').replace(' ', ''):
+                continue
+            push('upgrade', 0, r['user_id'], r['source_price'], int(r['target_price'] or 0) / int(r['source_price']), r['created_at'])
+    if 'crash' in modes:
+        for r in db.execute("""SELECT round_id,user_id,bet,cashout_x100,created_at FROM crash_bets
+                               WHERE state='won' AND COALESCE(bet_type,'ton')<>'promo_gift' AND bet>=?
+                                 AND created_at>=? AND created_at<=?""", (min_bet, start_db, end_db)).fetchall():
+            push('crash', r['round_id'], r['user_id'], r['bet'], int(r['cashout_x100'] or 0) / 100, r['created_at'])
+    if 'limbo' in modes:
+        for r in db.execute("""SELECT id,user_id,bet,multiplier_x100,created_at FROM limbo_bets
+                               WHERE won=1 AND bet>=? AND created_at>=? AND created_at<=?""", (min_bet, start_db, end_db)).fetchall():
+            push('limbo', r['id'], r['user_id'], r['bet'], int(r['multiplier_x100'] or 0) / 100, r['created_at'])
+    if 'road' in modes:
+        for r in db.execute("""SELECT id,user_id,bet,mult_x100,COALESCE(finished_at,created_at) AS at FROM road_games
+                               WHERE state IN ('cashed','won') AND bet>=? AND COALESCE(finished_at,created_at)>=?
+                                 AND COALESCE(finished_at,created_at)<=?""", (min_bet, start_db, end_db)).fetchall():
+            push('road', r['id'], r['user_id'], r['bet'], int(r['mult_x100'] or 0) / 100, r['at'])
+    if 'hilo' in modes:
+        for r in db.execute("""SELECT id,round_no,user_id,direction,amount,payout,won,created_at FROM hilo_room_bets
+                               WHERE settled=1 AND amount>=? AND created_at>=? AND created_at<=?""", (min_bet, start_db, end_db)).fetchall():
+            if not (r['won'] or int(r['payout'] or 0) > 0):
+                continue
+            base = hilo_room_rank(r['round_no'])
+            if hilo_room_is_push(base, r['direction']):
+                continue
+            push('hilo', r['id'], r['user_id'], r['amount'], hilo_room_step_micro(base, r['direction']) / HILO_MICRO, r['created_at'])
+    if 'arena' in modes:
+        try:
+            s_ts = int(parse_datetime_utc(start_db).timestamp())
+            e_ts = int(parse_datetime_utc(end_db).timestamp()) if end_db != XHUNT_FAR else 4102444800
+        except Exception:
+            s_ts, e_ts = 0, 4102444800
+        for r in db.execute("""SELECT b.round_id,b.user_id,b.amount,r.total_pool,r.settled_at,
+                                      (SELECT COALESCE(SUM(x.amount-x.gift_amount),0) FROM arena_bets x WHERE x.round_id=r.id) AS ton_pool
+                               FROM arena_bets b JOIN arena_rounds r ON r.id=b.round_id
+                               WHERE r.state='settled' AND r.winner_user_id=b.user_id AND b.amount>=?
+                                 AND r.settled_at>=? AND r.settled_at<=?""", (min_bet, s_ts, e_ts)).fetchall():
+            stake, pool = int(r['amount'] or 0), int(r['total_pool'] or 0)
+            if stake <= 0 or pool <= 0:
+                continue
+            ton_pool = max(0, min(pool, int(r['ton_pool'] or 0)))
+            at = datetime.fromtimestamp(int(r['settled_at']), timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            push('arena', r['round_id'], r['user_id'], stake, max(0, pool - arena_fee_cents(ton_pool)) / stake, at)
+    if not cfg.get('include_admins'):
+        out = [x for x in out if x['user_id'] not in ADMIN_IDS]
+    return out
+
+
+def xhunt_standings(db, cfg, start_db, end_db):
+    """Best round per player, best first (ties: earlier round wins)."""
+    best = {}
+    for row in xhunt_rows(db, cfg, start_db, end_db):
+        cur = best.get(row['user_id'])
+        if not cur or (row['x100'], -1) > (cur['x100'], -1) or (row['x100'] == cur['x100'] and row['at'] < cur['at']):
+            best[row['user_id']] = row
+    ranked = sorted(best.values(), key=lambda r: (-r['x100'], r['at'], r['id']))
+    if ranked:
+        ids = [r['user_id'] for r in ranked[:50]]
+        marks = ','.join('?' for _ in ids)
+        users = {int(u['id']): u for u in db.execute(f'SELECT id,name,username,photo_url FROM users WHERE id IN ({marks})', tuple(ids)).fetchall()}
+        for r in ranked[:50]:
+            u = users.get(r['user_id'])
+            r['name'] = (u['name'] if u else '') or 'Игрок'
+            r['username'] = (u['username'] if u else '') or ''
+            r['photo_url'] = (u['photo_url'] if u else '') or ''
+    return ranked
+
+
+def xhunt_target_winner(db, cfg, start_db, end_db):
+    """First round (by time) that reached the target X."""
+    target = int(round(float(cfg.get('target_x') or 0) * 100))
+    hits = [r for r in xhunt_rows(db, cfg, start_db, end_db) if r['x100'] >= target]
+    hits.sort(key=lambda r: (r['at'], r['id']))
+    return hits[0] if hits else None
+
+
+def xhunt_event_bounds(row, cfg):
+    start = parse_datetime_utc(row['start_at'])
+    end = parse_datetime_utc(row['end_at']) if row['end_at'] else None
+    return start, end
+
+
+def xhunt_public_row(r, include_mode=True):
+    return dict(user_id=r['user_id'], name=r.get('name', ''), username=r.get('username', ''), photo_url=r.get('photo_url', ''),
+                x=r['x100'] / 100, mode=r['mode'], mode_label=XHUNT_MODE_LABELS.get(r['mode'], r['mode']))
+
+
+def xhunt_grant(db, uid, reward, event_id, place):
+    """Give one prize to the winner. Returns a dict describing it (also used for the notification text)."""
+    kind = reward.get('type')
+    title = f'X-Hunt #{event_id}, {place} место'
+    view = xhunt_reward_view(reward)
+    result = dict(place=place, user_id=uid, reward=view, code='')
+    if kind in ('ton', 'bonus'):
+        cents = ton_to_cents(reward.get('amount') or 0)
+        credit_promo_balance(db, uid, cents, 'bonus' if kind == 'bonus' else 'main')
+        record_transaction(db, uid, 'xhunt_reward', cents if kind == 'ton' else 0, 'xhunt', event_id,
+                           f'Награда {title}: {reward.get("amount")} TON' + (' (бонусный баланс)' if kind == 'bonus' else ''))
+    elif kind in ('catalog', 'fragment'):
+        reward = refresh_top_reward_price(reward)
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                           external_url,fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url,source_label)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (uid, str(reward.get('gift_id') or ''), str(reward.get('gift_name') or 'Подарок'),
+                          safe_image(reward.get('image_url')), int(reward.get('floor_price') or 0),
+                          'xhunt_fragment' if kind == 'fragment' else 'xhunt_catalog',
+                          str(reward.get('fragment_url') or ''), str(reward.get('fragment_number') or ''),
+                          str(reward.get('fragment_model') or ''), str(reward.get('fragment_backdrop') or ''),
+                          str(reward.get('fragment_symbol') or ''), str(reward.get('price_source') or ''),
+                          safe_image(reward.get('animation_url')), f'X-Hunt #{event_id}'))
+        record_transaction(db, uid, 'xhunt_reward', 0, 'inventory', cur.lastrowid, f'Награда {title}: {reward.get("gift_name") or "Подарок"}')
+    elif kind == 'promo':
+        pk = reward.get('promo_kind')
+        code = unique_promo_code(db, 'XH')
+        expires = (datetime.now(timezone.utc) + timedelta(days=int(reward['expires_days']))).isoformat() if reward.get('expires_days') else None
+        desc = f'Награда X-Hunt #{event_id}, {place} место'
+        if pk == 'deposit_bonus':
+            db.execute("""INSERT INTO promo_codes(code,reward_type,amount,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,
+                          assigned_user_id,source_label,description,expires_at) VALUES(?,'deposit_bonus',0,1,0,?,0,?,?,?,?,?)""",
+                       (code, float(reward.get('percent') or 0), ton_to_cents(reward.get('min_deposit') or 0), uid, 'X-Hunt', desc, expires))
+        else:
+            db.execute("""INSERT INTO promo_codes(code,reward_type,amount,max_uses,created_by,assigned_user_id,source_label,
+                          description,expires_at,balance_target) VALUES(?,'balance',?,1,0,?,?,?,?,?)""",
+                       (code, ton_to_cents(reward.get('amount') or 0), uid, 'X-Hunt', desc, expires, 'bonus' if pk == 'bonus' else 'main'))
+        result['code'] = code
+    return result
+
+
+def xhunt_finish(db, ev, winners, reason):
+    """Atomically close an active event and pay the prizes. winners: [(row, reward), ...]"""
+    now = _xhunt_now()
+    claim = db.execute("UPDATE xhunt_events SET state='finished',finished_at=? WHERE id=? AND state='active'",
+                       (_daily_top_db_string(now), ev['id']))
+    if not claim.rowcount:
+        return None
+    paid, notes = [], []
+    for place, (row, reward) in enumerate(winners, start=1):
+        if not reward or reward.get('type') in (None, 'none'):
+            continue
+        try:
+            given = xhunt_grant(db, row['user_id'], reward, ev['id'], place)
+        except Exception:
+            app.logger.exception('X-Hunt reward failed for event %s place %s', ev['id'], place)
+            continue
+        given.update(name=row.get('name', ''), username=row.get('username', ''), photo_url=row.get('photo_url', ''),
+                     x=row['x100'] / 100, mode=row['mode'], mode_label=XHUNT_MODE_LABELS.get(row['mode'], row['mode']))
+        paid.append(given)
+        extra = f'\n🎟 Ваш промокод: <code>{escape(given["code"])}</code>' if given['code'] else ''
+        notes.append((row['user_id'],
+                      f'🏆 <b>Вы победили в X-Hunt!</b>\n\n{place} место · <b>x{row["x100"]/100:g}</b> ({XHUNT_MODE_LABELS.get(row["mode"], row["mode"])})\n'
+                      f'Награда: <b>{escape(given["reward"]["title"])}</b>{extra}\n\n'
+                      + ('Подарок уже в вашем инвентаре.' if reward.get('type') in ('catalog', 'fragment') else
+                         'Промокод можно ввести в разделе «Бонусы».' if given['code'] else 'Награда уже зачислена на баланс.')))
+    db.execute('UPDATE xhunt_events SET winners_json=? WHERE id=?', (json.dumps(dict(reason=reason, winners=paid), ensure_ascii=False), ev['id']))
+    for uid, text in notes:
+        notify_user_async(uid, text, miniapp_markup('Открыть GemDrop', 'profile'), 'HTML', db=db)
+    return paid
+
+
+def xhunt_tick(db):
+    """Finish the active event when its time is over or somebody hit the target. Cheap when nothing happens."""
+    ev = xhunt_active_event(db)
+    if not ev:
+        return None
+    cfg = xhunt_event_config(ev)
+    start, end = xhunt_event_bounds(ev, cfg)
+    now = _xhunt_now()
+    start_db = _daily_top_db_string(start)
+    rewards = cfg.get('rewards') or []
+    if cfg.get('finish_by') == 'target':
+        win = xhunt_target_winner(db, cfg, start_db, _daily_top_db_string(end) if end else '')
+        if win:
+            u = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (win['user_id'],)).fetchone()
+            win.update(name=(u['name'] if u else '') or 'Игрок', username=(u['username'] if u else '') or '',
+                       photo_url=(u['photo_url'] if u else '') or '')
+            return xhunt_finish(db, ev, [(win, rewards[0])], 'target')
+        if end and now >= end:
+            return xhunt_finish(db, ev, [], 'deadline')
+        return None
+    if end and now >= end:
+        ranked = xhunt_standings(db, cfg, start_db, _daily_top_db_string(end))
+        winners = [(ranked[i], rewards[i]) for i in range(min(len(ranked), len(rewards)))]
+        return xhunt_finish(db, ev, winners, 'time')
+    return None
+
+
+def xhunt_event_view(db, ev, uid=0, admin=False):
+    cfg = xhunt_event_config(ev)
+    start, end = xhunt_event_bounds(ev, cfg)
+    start_db = _daily_top_db_string(start)
+    end_db = _daily_top_db_string(end) if end else ''
+    active = ev['state'] == 'active'
+    modes = [dict(key=k, label=XHUNT_MODE_LABELS[k], available=game_available(k, admin)) for k in (cfg.get('modes') or []) if k in XHUNT_MODE_LABELS]
+    view = dict(id=int(ev['id']), state=ev['state'], finish_by=cfg.get('finish_by', 'time'),
+                start_at=_xhunt_iso(start), end_at=_xhunt_iso(end), target_x=cfg.get('target_x') or 0,
+                min_bet=cfg.get('min_bet') or 0, modes=modes, all_modes=bool(cfg.get('all_modes')),
+                rewards=[xhunt_reward_view(r) for r in (cfg.get('rewards') or [])],
+                seconds_left=max(0, int((end - _xhunt_now()).total_seconds())) if (active and end) else 0)
+    if active:
+        ranked = xhunt_standings(db, cfg, start_db, end_db)
+        view['top'] = [xhunt_public_row(r) for r in ranked[:5]]
+        view['leader'] = view['top'][0] if view['top'] else None
+        view['players'] = len(ranked)
+        if uid:
+            mine = next((i for i, r in enumerate(ranked) if r['user_id'] == uid), None)
+            view['me'] = dict(rank=mine + 1, x=ranked[mine]['x100'] / 100, mode_label=XHUNT_MODE_LABELS.get(ranked[mine]['mode'], '')) if mine is not None else None
+        if admin:
+            view['config'] = cfg
+    else:
+        try:
+            doc = json.loads(ev['winners_json'] or '{}')
+        except (TypeError, ValueError):
+            doc = {}
+        view['reason'] = doc.get('reason', '') if isinstance(doc, dict) else ''
+        view['winners'] = doc.get('winners', []) if isinstance(doc, dict) else []
+        view['finished_at'] = _xhunt_iso(ev['finished_at'])
+    return view
+
+
+@app.get('/api/xhunt/state')
+@login_required
+def xhunt_state():
+    uid = session['uid']
+    admin = uid in ADMIN_IDS
+    with connect() as db:
+        try:
+            xhunt_tick(db)
+        except Exception:
+            app.logger.exception('X-Hunt tick failed')
+        ev = xhunt_active_event(db)
+        last = None
+        if not ev:
+            row = db.execute("SELECT * FROM xhunt_events WHERE state='finished' ORDER BY id DESC LIMIT 1").fetchone()
+            fin = parse_datetime_utc(row['finished_at']) if row else None
+            if row and fin and _xhunt_now() - fin < timedelta(hours=24):
+                last = xhunt_event_view(db, row, uid, admin)
+        view = xhunt_event_view(db, ev, uid, admin) if ev else None
+    return jsonify(ok=True, active=bool(view), event=view, last=last)
+
+
+@app.get('/api/admin/xhunt')
+@admin_required
+def admin_xhunt_get():
+    with connect() as db:
+        try:
+            xhunt_tick(db)
+        except Exception:
+            app.logger.exception('X-Hunt tick failed')
+        ev = xhunt_active_event(db)
+        history = [xhunt_event_view(db, r, session['uid'], True) for r in
+                   db.execute("SELECT * FROM xhunt_events WHERE state<>'active' ORDER BY id DESC LIMIT 8").fetchall()]
+        last = db.execute('SELECT config_json FROM xhunt_events ORDER BY id DESC LIMIT 1').fetchone()
+        view = xhunt_event_view(db, ev, session['uid'], True) if ev else None
+    return jsonify(ok=True, active=bool(view), event=view, history=history,
+                   last_config=(json.loads(last['config_json']) if last else None),
+                   modes=[dict(key=k, label=XHUNT_MODE_LABELS[k]) for k in GAME_KEYS])
+
+
+@app.post('/api/admin/xhunt/start')
+@admin_required
+def admin_xhunt_start():
+    data = request.get_json(silent=True) or {}
+    try:
+        cfg = xhunt_normalize_config(data)
+    except (ValueError, TypeError, InvalidOperation) as exc:
+        return error(str(exc) or 'Проверьте настройки X-Hunt.')
+    now = _xhunt_now()
+    end = None
+    if cfg['finish_by'] == 'time':
+        end = now + timedelta(minutes=cfg['duration_min'])
+    elif cfg.get('deadline_hours'):
+        end = now + timedelta(hours=cfg['deadline_hours'])
+    with connect() as db:
+        if xhunt_active_event(db):
+            return error('X-Hunt уже идёт. Сначала завершите текущий.', 409)
+        cur = db.execute('INSERT INTO xhunt_events(state,config_json,start_at,end_at,created_by) VALUES(?,?,?,?,?)',
+                         ('active', json.dumps(cfg, ensure_ascii=False), _daily_top_db_string(now),
+                          _daily_top_db_string(end) if end else '', session['uid']))
+        event_id = cur.lastrowid
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'xhunt_start', json.dumps(dict(id=event_id, finish_by=cfg['finish_by'], modes=cfg['modes']))))
+        if cfg.get('telegram'):
+            rows = db.execute('SELECT id FROM users ORDER BY id DESC LIMIT 20000').fetchall()
+            text = xhunt_announce_text(cfg, end)
+            bc = db.execute('INSERT INTO broadcasts(admin_id,text,photos,buttons,total,sent,created_at) VALUES(?,?,?,?,?,?,?)',
+                            (session['uid'], text, '[]', '[]', len(rows), 0, int(time.time())))
+            for r in rows:
+                db.execute('INSERT INTO broadcast_items(broadcast_id,user_id) VALUES(?,?)', (bc.lastrowid, int(r['id'])))
+            NOTIFY_WAKE.set()
+        view = xhunt_event_view(db, xhunt_active_event(db), session['uid'], True)
+    return jsonify(ok=True, event=view)
+
+
+def xhunt_announce_text(cfg, end):
+    modes = 'все режимы' if cfg.get('all_modes') else ', '.join(XHUNT_MODE_LABELS.get(m, m) for m in cfg.get('modes') or [])
+    first = xhunt_reward_view((cfg.get('rewards') or [{}])[0])
+    if cfg.get('finish_by') == 'target':
+        goal = f'Первый, кто поймает <b>x{cfg.get("target_x"):g}</b>, забирает приз.'
+    else:
+        goal = f'Лучший множитель за {cfg.get("duration_min")} мин. забирает приз.'
+    return (f'🎯 <b>X-Hunt начался!</b>\n\n{goal}\nРежимы: {escape(modes)}\n'
+            f'Минимальная ставка: {cfg.get("min_bet") or 0:g} TON\n'
+            f'Награда: <b>{escape(first["title"])}</b>\n\nОткройте «Игры» в GemDrop.')
+
+
+@app.post('/api/admin/xhunt/stop')
+@admin_required
+def admin_xhunt_stop():
+    data = request.get_json(silent=True) or {}
+    award = bool(data.get('award'))
+    with connect() as db:
+        ev = xhunt_active_event(db)
+        if not ev:
+            return error('Сейчас нет активного X-Hunt.', 404)
+        cfg = xhunt_event_config(ev)
+        if award and cfg.get('finish_by') == 'time':
+            start, _ = xhunt_event_bounds(ev, cfg)
+            ranked = xhunt_standings(db, cfg, _daily_top_db_string(start), '')
+            rewards = cfg.get('rewards') or []
+            xhunt_finish(db, ev, [(ranked[i], rewards[i]) for i in range(min(len(ranked), len(rewards)))], 'manual')
+        elif award and cfg.get('finish_by') == 'target':
+            start, _ = xhunt_event_bounds(ev, cfg)
+            win = xhunt_target_winner(db, cfg, _daily_top_db_string(start), '')
+            if win:
+                u = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (win['user_id'],)).fetchone()
+                win.update(name=(u['name'] if u else '') or 'Игрок', username=(u['username'] if u else '') or '',
+                           photo_url=(u['photo_url'] if u else '') or '')
+            xhunt_finish(db, ev, [(win, (cfg.get('rewards') or [{}])[0])] if win else [], 'manual')
+        else:
+            xhunt_finish(db, ev, [], 'cancelled')
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], session['uid'], 'xhunt_stop', json.dumps(dict(id=ev['id'], award=award))))
+    return jsonify(ok=True)
+
+
+def xhunt_loop():
+    time.sleep(5)
+    while True:
+        try:
+            with connect() as db:
+                if xhunt_active_event(db):
+                    db.execute('BEGIN IMMEDIATE')
+                    xhunt_tick(db)
+                    db.commit()
+        except Exception:
+            app.logger.exception('X-Hunt loop failed')
+        time.sleep(5)
+
+
 def daily_top_settlement_loop():
     # Finalize expired TOP periods even when nobody currently has the game page open.
     time.sleep(3)
@@ -20503,6 +21029,7 @@ if os.environ.get('RUN_LEGACY_REPAIR', '1') == '1':
 start_background(portal_auto_loop, 660101)
 start_background(level_plan_autoapply_loop, 660107)
 start_background(daily_top_settlement_loop, 661201)
+start_background(xhunt_loop, 661205)
 start_background(broadcast_worker_loop, 661203)
 start_background(relayer_auto_loop, 661204)
 if BOT_TOKEN:

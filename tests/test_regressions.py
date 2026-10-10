@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -1271,6 +1272,18 @@ class RegressionTests(unittest.TestCase):
         for needle in ('id="gd-viewport"', 'function gdInitViewport', 'tg.requestFullscreen', 'tg.exitFullscreen',
                        'html.tg-fs body.studio .studio-header', 'contentSafeAreaInset'):
             self.assertIn(needle, html)
+
+    def test_halloween_theme_is_warm_svg_only_with_frame_tables(self):
+        html = self.client.get('/').get_data(as_text=True)
+        a = html.index('<style id="halloween-theme">')
+        b = html.index('</script>', html.index('<script id="halloween-js">'))
+        seg = html[a:b]
+        self.assertFalse(re.search('[\U0001F300-\U0001FAFF\u2600-\u27BF]', seg), 'no regular emoji in the Halloween theme')
+        for kf in ('hwFlapL', 'hwFly', 'hwGhostDrift', 'hwFlicker', 'hwFlame', 'hwThread', 'hwBub', 'hwSpark'):
+            self.assertIn('@keyframes ' + kf, seg)
+        for cold in ('#3b1766', '#9b5cff', '#c77dff', '#190c30'):
+            self.assertNotIn(cold, seg)
+        self.assertNotIn('.gif', html[html.index('<style id="loader-svg-v1">'):html.index('</style>', html.index('<style id="loader-svg-v1">'))])
 
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})

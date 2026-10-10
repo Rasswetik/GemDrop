@@ -1332,6 +1332,50 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(player.post('/api/admin/halloween/banner', json={'remove': True}).status_code, 403)
             self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_pumpkins_buttons_and_market(self):
+        uid = self.uid
+        patcher = patch.object(m, 'ADMIN_IDS', {uid}); patcher.start(); self.addCleanup(patcher.stop)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': 0})
+        with m.connect() as db:
+            db.execute('INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)', (uid, 'P', 'p'))
+            db.execute('DELETE FROM hw_pumpkins WHERE user_id=?', (uid,)); db.execute('DELETE FROM hw_claims WHERE user_id=?', (uid,))
+            db.execute('DELETE FROM hw_lots'); db.execute('DELETE FROM hw_purchases')
+        self.post('/api/admin/halloween/config', {'rate': 100, 'buttons': [
+            {'id': 'gift1', 'title': 'Подарок дня', 'kind': 'gift', 'mode': 'direct', 'limit': 'daily', 'reward': {'type': 'pumpkins', 'amount': 25}, 'congrats': 'Поздравляем!'},
+            {'id': 'toth', 'title': 'Сладость или гадость', 'kind': 'gift', 'mode': 'choice', 'limit': 'once', 'treat_chance': 100,
+             'treat': {'type': 'ton', 'amount': '0.5'}, 'trick': {'type': 'none'}},
+            {'id': 'go', 'title': 'Играть', 'kind': 'page', 'target': 'mines'}]})
+        self.post('/api/admin/halloween/config', {'buttons': [{'title': 'x', 'kind': 'page', 'target': 'nowhere'}]}, 400)
+        # the schedule form must not wipe the event content
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': 0})
+        self.assertEqual(len(self.client.get('/api/halloween/hub').get_json()['buttons']), 3)
+        with m.connect() as db:
+            m.credit_main_loss_cashback(db, uid, 300, 'test', '1')
+            m.credit_main_loss_cashback(db, uid, 1, 'test', '2')
+            self.assertEqual(m.hw_pumpkin_balance(db, uid)['balance'], 301)   # 100 per TON, remainder carried
+        r = self.post('/api/halloween/claim', {'id': 'gift1'})
+        self.assertEqual(r['reward']['type'], 'pumpkins'); self.assertEqual(r['pumpkins']['balance'], 326)
+        self.post('/api/halloween/claim', {'id': 'gift1'}, 409)
+        self.post('/api/halloween/claim', {'id': 'toth'}, 400)
+        r = self.post('/api/halloween/claim', {'id': 'toth', 'pick': 'trick'})
+        self.assertEqual(r['outcome'], 'treat')
+        self.post('/api/halloween/claim', {'id': 'toth', 'pick': 'treat'}, 409)
+        lot = self.post('/api/admin/halloween/lots', {'title': 'Бонус 1 TON', 'price': 300, 'size': 'm', 'stock': 1, 'per_user': 1,
+                                                       'reward': {'type': 'bonus', 'amount': '1'}})
+        self.post('/api/admin/halloween/lots', {'title': 'bad', 'price': 0, 'reward': {'type': 'ton', 'amount': '1'}}, 400)
+        with m.connect() as db:
+            before = db.execute('SELECT bonus_balance FROM users WHERE id=?', (uid,)).fetchone()['bonus_balance']
+        bought = self.post('/api/halloween/buy', {'lot_id': lot['id']})
+        self.assertEqual(bought['pumpkins']['balance'], 26)
+        with m.connect() as db:
+            after = db.execute('SELECT bonus_balance FROM users WHERE id=?', (uid,)).fetchone()['bonus_balance']
+        self.assertEqual(after - before, 100)
+        self.post('/api/halloween/buy', {'lot_id': lot['id']}, 409)   # sold out / per-user limit
+        pricey = self.post('/api/admin/halloween/lots', {'title': 'Дорого', 'price': 5000, 'reward': {'type': 'tickets', 'amount': 3}})
+        self.post('/api/halloween/buy', {'lot_id': pricey['id']}, 409)   # not enough pumpkins, nothing spent
+        self.assertEqual(self.client.get('/api/halloween/hub').get_json()['pumpkins']['balance'], 26)
+        self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

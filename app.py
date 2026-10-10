@@ -155,7 +155,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages', 'limbo_bets', 'road_games',
+            'creator_chat_messages', 'limbo_bets', 'road_games', 'hw_lots', 'hw_purchases',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -289,6 +289,28 @@ def _initialize_schema():
         );
         CREATE INDEX IF NOT EXISTS idx_road_games_user ON road_games(user_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_road_games_state ON road_games(state, id DESC);
+        CREATE TABLE IF NOT EXISTS hw_pumpkins (
+            user_id INTEGER PRIMARY KEY, balance INTEGER NOT NULL DEFAULT 0, earned INTEGER NOT NULL DEFAULT 0,
+            spent INTEGER NOT NULL DEFAULT 0, residual INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS hw_claims (
+            user_id INTEGER NOT NULL, button_id TEXT NOT NULL, day TEXT NOT NULL,
+            outcome TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, button_id, day)
+        );
+        CREATE TABLE IF NOT EXISTS hw_lots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL DEFAULT '', reward_json TEXT NOT NULL DEFAULT '{}',
+            image TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL DEFAULT 0, size TEXT NOT NULL DEFAULT 's',
+            active INTEGER NOT NULL DEFAULT 1, starts_at INTEGER NOT NULL DEFAULT 0, ends_at INTEGER NOT NULL DEFAULT 0,
+            stock INTEGER NOT NULL DEFAULT 0, sold INTEGER NOT NULL DEFAULT 0, per_user INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS hw_purchases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lot_id INTEGER NOT NULL,
+            price INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_hw_purchases_user ON hw_purchases(user_id, lot_id);
         CREATE TABLE IF NOT EXISTS xhunt_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, state TEXT NOT NULL DEFAULT 'active',
             config_json TEXT NOT NULL DEFAULT '{}', start_at TEXT NOT NULL, end_at TEXT NOT NULL DEFAULT '',
@@ -1860,6 +1882,10 @@ def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', refere
     residual = numerator % 100
     db.execute('UPDATE users SET bonus_balance=bonus_balance+?,loss_cashback_residual=? WHERE id=?',
                (credit, residual, int(user_id)))
+    try:
+        hw_accrue_pumpkins(db, int(user_id), loss_cents)
+    except Exception:
+        app.logger.exception('halloween pumpkin accrual failed')
     if credit:
         note = f'Кэшбэк {LOSS_CASHBACK_PERCENT}% за проигрыш с основного баланса'
         if details:
@@ -2472,10 +2498,11 @@ def admin_halloween_set():
     launch_id = int(prev.get('launch_id') or 0)
     if enabled and not admins_only and (not was_public or not launch_id):
         launch_id = int(time.time() * 1000)
-    save_document('halloween', dict(enabled=enabled, starts_at=starts, ends_at=ends,
-                                    effects=bool(data.get('effects', True)), admins_only=admins_only,
-                                    banner_id=str(prev.get('banner_id') or ''), launch_id=launch_id,
-                                    updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid']))
+    doc = dict(prev)   # keep the event page content (buttons, rate) that is edited elsewhere
+    doc.update(enabled=enabled, starts_at=starts, ends_at=ends, effects=bool(data.get('effects', True)),
+               admins_only=admins_only, banner_id=str(prev.get('banner_id') or ''), launch_id=launch_id,
+               updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid'])
+    save_document('halloween', doc)
     _hw_cache['doc'] = None
     return jsonify(ok=True, **halloween_state(fresh=True))
 
@@ -2505,6 +2532,506 @@ def admin_halloween_banner():
     save_document('halloween', prev)
     _hw_cache['doc'] = None
     return jsonify(ok=True, **halloween_state(fresh=True))
+
+
+# ---------------------------------------------------------------------------
+# Halloween v6: event page buttons, «тыквы» balance and the pumpkin market.
+# ---------------------------------------------------------------------------
+HW_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo', 'pumpkins', 'tickets')
+HW_TARGETS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'market', 'wheel', 'bonus', 'profile', 'giveaways', 'games')
+HW_ICONS = ('pumpkin', 'ghost', 'bat', 'candy', 'cauldron', 'skull', 'hat', 'moon', 'gift', 'spider', 'crystal', 'coin')
+HW_SIZES = ('s', 'm', 'l')
+HW_DEFAULT_RATE = 100   # pumpkins for every 1 TON lost from the main balance
+HW_MAX_BUTTONS = 12
+
+
+def hw_rate(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return max(0, min(100000, int(doc.get('pumpkin_rate', HW_DEFAULT_RATE))))
+    except (TypeError, ValueError):
+        return HW_DEFAULT_RATE
+
+
+def hw_image_ok(value):
+    value = str(value or '').strip()
+    if not value:
+        return ''
+    if re.fullmatch(r'hw:[a-z0-9_]{2,24}', value) and value[3:] in HW_ICONS:
+        return value
+    if re.fullmatch(r'/api/wheel/image/[0-9a-f]{8,40}', value) or re.fullmatch(r'/static/[A-Za-z0-9_./-]{1,120}', value):
+        return value
+    return safe_image(value)
+
+
+def hw_normalize_reward(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    kind = str(raw.get('type') or 'none')
+    if kind in ('pumpkins', 'tickets'):
+        try:
+            amount = int(float(str(raw.get('amount') or '0').replace(',', '.')))
+        except ValueError:
+            amount = 0
+        if not 1 <= amount <= 10000000:
+            raise ValueError('Количество: от 1 до 10 000 000.')
+        return {'type': kind, 'amount': amount}
+    if kind not in HW_REWARD_TYPES:
+        kind = 'none'
+    return xhunt_normalize_reward(dict(raw, type=kind))
+
+
+def hw_reward_view(reward):
+    reward = reward if isinstance(reward, dict) else {}
+    kind = reward.get('type') or 'none'
+    if kind == 'pumpkins':
+        return dict(type=kind, title=f'{int(reward.get("amount") or 0)} тыкв', subtitle='Тыквы события', image_url='hw:pumpkin', price_ton=0)
+    if kind == 'tickets':
+        return dict(type=kind, title=f'{int(reward.get("amount") or 0)} билетов', subtitle='Билеты', image_url='hw:ticket', price_ton=0)
+    view = xhunt_reward_view(reward)
+    if kind == 'none':
+        view['title'] = 'Ничего'
+    return view
+
+
+def hw_grant(db, uid, reward, label):
+    kind = reward.get('type')
+    if kind == 'pumpkins':
+        hw_add_pumpkins(db, uid, int(reward.get('amount') or 0), earned=False)
+        out = dict(reward=hw_reward_view(reward), code='')
+    elif kind == 'tickets':
+        record_tickets(db, uid, int(reward.get('amount') or 0), 'halloween', 'halloween', label, label)
+        out = dict(reward=hw_reward_view(reward), code='')
+    elif kind in (None, 'none'):
+        out = dict(reward=hw_reward_view(reward), code='')
+    else:
+        out = xhunt_grant(db, uid, reward, 0, 0, label=label)
+    return out
+
+
+def hw_ensure_pumpkin_row(db, uid):
+    db.execute('INSERT OR IGNORE INTO hw_pumpkins(user_id) VALUES(?)', (int(uid),))
+
+
+def hw_add_pumpkins(db, uid, amount, earned=True):
+    amount = int(amount)
+    if not amount:
+        return
+    hw_ensure_pumpkin_row(db, uid)
+    db.execute('UPDATE hw_pumpkins SET balance=balance+?,earned=earned+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?',
+               (amount, amount if (earned and amount > 0) else 0, int(uid)))
+
+
+def hw_pumpkin_balance(db, uid):
+    row = db.execute('SELECT balance,earned,spent FROM hw_pumpkins WHERE user_id=?', (int(uid),)).fetchone()
+    return dict(balance=int(row['balance']), earned=int(row['earned']), spent=int(row['spent'])) if row else dict(balance=0, earned=0, spent=0)
+
+
+def hw_accrue_pumpkins(db, uid, loss_cents):
+    """Every lost TON from the main balance pays `pumpkin_rate` pumpkins (sub-pumpkin remainder is carried)."""
+    doc = _halloween_doc()
+    if not doc.get('enabled'):
+        return 0
+    s = halloween_state()
+    if not s['active'] or (s['admins_only'] and int(uid) not in ADMIN_IDS):
+        return 0
+    rate = hw_rate(doc)
+    if rate <= 0:
+        return 0
+    hw_ensure_pumpkin_row(db, uid)
+    lock = ' FOR UPDATE' if DATABASE_URL else ''
+    row = db.execute('SELECT residual FROM hw_pumpkins WHERE user_id=?' + lock, (int(uid),)).fetchone()
+    total = int(loss_cents) * rate + int(row['residual'] or 0)
+    gained, residual = total // 100, total % 100
+    db.execute('UPDATE hw_pumpkins SET balance=balance+?,earned=earned+?,residual=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?',
+               (gained, gained, residual, int(uid)))
+    return gained
+
+
+def hw_normalize_buttons(raw):
+    if not isinstance(raw, list):
+        raise ValueError('Некорректный список кнопок.')
+    out, seen = [], set()
+    for item in raw[:HW_MAX_BUTTONS]:
+        if not isinstance(item, dict):
+            continue
+        bid = re.sub(r'[^a-z0-9_]', '', str(item.get('id') or '').lower())[:20] or secrets.token_hex(4)
+        if bid in seen:
+            bid = secrets.token_hex(4)
+        seen.add(bid)
+        title = re.sub(r'\s+', ' ', str(item.get('title') or '')).strip()[:40]
+        if not title:
+            raise ValueError('У каждой кнопки должно быть название.')
+        kind = 'gift' if item.get('kind') == 'gift' else 'page'
+        btn = dict(id=bid, title=title, kind=kind, icon=hw_image_ok(item.get('icon')) or 'hw:pumpkin',
+                   subtitle=re.sub(r'\s+', ' ', str(item.get('subtitle') or '')).strip()[:60], active=item.get('active') is not False)
+        if kind == 'page':
+            target = str(item.get('target') or '')
+            if target not in HW_TARGETS:
+                raise ValueError(f'Кнопка «{title}»: выберите раздел.')
+            btn['target'] = target
+        else:
+            mode = 'choice' if item.get('mode') == 'choice' else 'direct'
+            limit = str(item.get('limit') or 'once')
+            btn.update(mode=mode, limit=limit if limit in ('once', 'daily', 'unlimited') else 'once',
+                       congrats=str(item.get('congrats') or '').strip()[:160])
+            if mode == 'direct':
+                reward = hw_normalize_reward(item.get('reward'))
+                if reward['type'] == 'none':
+                    raise ValueError(f'Кнопка «{title}»: выберите награду.')
+                btn['reward'] = reward
+            else:
+                treat = hw_normalize_reward(item.get('treat'))
+                trick = hw_normalize_reward(item.get('trick'))
+                if treat['type'] == 'none':
+                    raise ValueError(f'Кнопка «{title}»: выберите награду за «сладость».')
+                try:
+                    chance = float(str(item.get('treat_chance', 50)).replace(',', '.'))
+                except ValueError:
+                    chance = 50.0
+                btn.update(treat=treat, trick=trick, treat_chance=round(max(0.0, min(100.0, chance)), 2),
+                           treat_label=str(item.get('treat_label') or 'Сладость').strip()[:20] or 'Сладость',
+                           trick_label=str(item.get('trick_label') or 'Гадость').strip()[:20] or 'Гадость',
+                           treat_text=str(item.get('treat_text') or '').strip()[:160],
+                           trick_text=str(item.get('trick_text') or '').strip()[:160])
+        out.append(btn)
+    return out
+
+
+def hw_button_public(btn, claimed):
+    view = {k: btn.get(k) for k in ('id', 'title', 'subtitle', 'kind', 'icon', 'target', 'mode', 'limit', 'treat_label', 'trick_label')}
+    view['claimed'] = bool(claimed)
+    if btn.get('kind') == 'gift':
+        pick = btn.get('reward') if btn.get('mode') == 'direct' else btn.get('treat')
+        view['preview'] = hw_reward_view(pick) if btn.get('mode') == 'direct' else None
+    return view
+
+
+def hw_claim_day(btn):
+    if btn.get('limit') == 'daily':
+        return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    return 'once'
+
+
+def hw_claimed_ids(db, uid, buttons):
+    ids = {}
+    for b in buttons:
+        if b.get('kind') != 'gift' or b.get('limit') == 'unlimited':
+            continue
+        ids[b['id']] = hw_claim_day(b)
+    if not ids:
+        return set()
+    rows = db.execute('SELECT button_id,day FROM hw_claims WHERE user_id=?', (int(uid),)).fetchall()
+    return {r['button_id'] for r in rows if ids.get(r['button_id']) == r['day']}
+
+
+def hw_lot_view(row, bought=0, now_ms=None):
+    now_ms = now_ms or int(time.time() * 1000)
+    try:
+        reward = json.loads(row['reward_json'] or '{}')
+    except ValueError:
+        reward = {}
+    view = hw_reward_view(reward)
+    stock, sold = int(row['stock'] or 0), int(row['sold'] or 0)
+    return dict(id=int(row['id']), title=str(row['title'] or view['title']), price=int(row['price']), size=row['size'] if row['size'] in HW_SIZES else 's',
+                image=hw_image_ok(row['image']) or view['image_url'], reward=view, subtitle=view['subtitle'], price_ton=view['price_ton'],
+                stock=stock, left=(max(0, stock - sold) if stock else None), per_user=int(row['per_user'] or 0), bought=int(bought or 0),
+                starts_at=int(row['starts_at'] or 0), ends_at=int(row['ends_at'] or 0),
+                sold_out=bool(stock and sold >= stock), ended=bool(row['ends_at'] and now_ms >= int(row['ends_at'])),
+                upcoming=bool(row['starts_at'] and now_ms < int(row['starts_at'])))
+
+
+def hw_visible_or_error():
+    s = halloween_state()
+    if not (s['active'] and (is_admin_session() or not s['admins_only'])):
+        return None, error('Событие сейчас не проходит.', 404)
+    return s, None
+
+
+@app.get('/api/halloween/hub')
+@login_required
+def halloween_hub():
+    s, err = hw_visible_or_error()
+    if err:
+        return err
+    uid = int(session['uid'])
+    doc = _halloween_doc(fresh=True)
+    try:
+        buttons = hw_normalize_buttons(doc.get('buttons') or [])
+    except ValueError:
+        buttons = []
+    buttons = [b for b in buttons if b.get('active', True)]
+    now_ms = int(time.time() * 1000)
+    with connect() as db:
+        pump = hw_pumpkin_balance(db, uid)
+        claimed = hw_claimed_ids(db, uid, buttons)
+        lots = db.execute('SELECT * FROM hw_lots WHERE active=1 ORDER BY sort_order, id').fetchall()
+        bought = {r['lot_id']: int(r['n']) for r in db.execute('SELECT lot_id,COUNT(*) AS n FROM hw_purchases WHERE user_id=? GROUP BY lot_id', (uid,)).fetchall()}
+    lot_views = [hw_lot_view(r, bought.get(r['id'], 0), now_ms) for r in lots]
+    lot_views = [l for l in lot_views if not l['ended']]
+    resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
+                   lots=lot_views, now=now_ms, ends_at=s['ends_at'])
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.post('/api/halloween/claim')
+@login_required
+def halloween_claim():
+    s, err = hw_visible_or_error()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    bid = str(data.get('id') or '')
+    uid = int(session['uid'])
+    try:
+        buttons = hw_normalize_buttons(_halloween_doc(fresh=True).get('buttons') or [])
+    except ValueError:
+        buttons = []
+    btn = next((b for b in buttons if b['id'] == bid and b.get('kind') == 'gift' and b.get('active', True)), None)
+    if not btn:
+        return error('Подарок не найден.', 404)
+    pick = str(data.get('pick') or '')
+    if btn['mode'] == 'choice' and pick not in ('treat', 'trick'):
+        return error('Выберите вариант.')
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if btn['limit'] != 'unlimited':
+            got = db.execute('INSERT OR IGNORE INTO hw_claims(user_id,button_id,day) VALUES(?,?,?)', (uid, bid, hw_claim_day(btn)))
+            if not got.rowcount:
+                return error('Вы уже забрали этот подарок.' if btn['limit'] == 'once' else 'Сегодня подарок уже получен. Приходите завтра!', 409)
+        if btn['mode'] == 'direct':
+            outcome, reward, text = 'treat', btn['reward'], btn.get('congrats') or ''
+        else:
+            win = secrets.SystemRandom().random() * 100 < float(btn.get('treat_chance', 50))
+            outcome = 'treat' if win else 'trick'
+            reward = btn['treat'] if win else btn['trick']
+            text = btn.get('treat_text' if win else 'trick_text') or ''
+        label = f'Halloween · {btn["title"]}'
+        given = hw_grant(db, uid, reward, label) if reward.get('type') != 'none' else dict(reward=hw_reward_view(reward), code='')
+        if btn['limit'] != 'unlimited':
+            db.execute('UPDATE hw_claims SET outcome=? WHERE user_id=? AND button_id=? AND day=?', (outcome, uid, bid, hw_claim_day(btn)))
+        pump = hw_pumpkin_balance(db, uid)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween claim failed')
+        return error('Не удалось выдать подарок. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, outcome=outcome, reward=given['reward'], code=given.get('code', ''), text=text,
+                   mode=btn['mode'], title=btn['title'], pumpkins=pump)
+
+
+@app.post('/api/halloween/buy')
+@login_required
+def halloween_buy():
+    s, err = hw_visible_or_error()
+    if err:
+        return err
+    try:
+        lot_id = int((request.get_json(silent=True) or {}).get('lot_id') or 0)
+    except (TypeError, ValueError):
+        lot_id = 0
+    uid = int(session['uid'])
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        lock = ' FOR UPDATE' if DATABASE_URL else ''
+        lot = db.execute('SELECT * FROM hw_lots WHERE id=? AND active=1' + lock, (lot_id,)).fetchone()
+        if not lot:
+            return error('Лот не найден.', 404)
+        now_ms = int(time.time() * 1000)
+        if lot['starts_at'] and now_ms < int(lot['starts_at']):
+            return error('Продажа лота ещё не началась.', 409)
+        if lot['ends_at'] and now_ms >= int(lot['ends_at']):
+            return error('Продажа этого лота закончилась.', 409)
+        if lot['stock'] and int(lot['sold']) >= int(lot['stock']):
+            return error('Лот раскуплен.', 409)
+        if lot['per_user']:
+            n = db.execute('SELECT COUNT(*) AS n FROM hw_purchases WHERE user_id=? AND lot_id=?', (uid, lot_id)).fetchone()['n']
+            if int(n) >= int(lot['per_user']):
+                return error('Вы уже купили максимум этого лота.', 409)
+        price = int(lot['price'])
+        hw_ensure_pumpkin_row(db, uid)
+        spent = db.execute('UPDATE hw_pumpkins SET balance=balance-?,spent=spent+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND balance>=?',
+                           (price, price, uid, price))
+        if not spent.rowcount:
+            return error('Не хватает тыкв.', 409)
+        reward = json.loads(lot['reward_json'] or '{}')
+        title = str(lot['title'] or hw_reward_view(reward)['title'])
+        given = hw_grant(db, uid, reward, f'Halloween · маркет: {title}')
+        db.execute('UPDATE hw_lots SET sold=sold+1 WHERE id=?', (lot_id,))
+        db.execute('INSERT INTO hw_purchases(user_id,lot_id,price,title) VALUES(?,?,?,?)', (uid, lot_id, price, title[:120]))
+        pump = hw_pumpkin_balance(db, uid)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween buy failed')
+        return error('Покупка не удалась. Тыквы не списаны.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, reward=given['reward'], code=given.get('code', ''), title=title, price=price, pumpkins=pump)
+
+
+def hw_lot_admin(row):
+    out = hw_lot_view(row)
+    try:
+        out['reward_raw'] = json.loads(row['reward_json'] or '{}')
+    except ValueError:
+        out['reward_raw'] = {}
+    out.update(active=bool(row['active']), sold=int(row['sold'] or 0), image_raw=str(row['image'] or ''), sort_order=int(row['sort_order'] or 0))
+    return out
+
+
+@app.get('/api/admin/halloween/config')
+@admin_required
+def admin_halloween_config():
+    doc = _halloween_doc(fresh=True)
+    try:
+        buttons = hw_normalize_buttons(doc.get('buttons') or [])
+    except ValueError:
+        buttons = []
+    with connect() as db:
+        lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
+        totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
+    return jsonify(ok=True, rate=hw_rate(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+                   holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
+
+
+@app.post('/api/admin/halloween/config')
+@admin_required
+def admin_halloween_config_set():
+    data = request.get_json(silent=True) or {}
+    doc = dict(_halloween_doc(fresh=True))
+    if 'rate' in data:
+        try:
+            rate = int(float(str(data.get('rate')).replace(',', '.')))
+        except ValueError:
+            return error('Курс тыкв: целое число.')
+        if not 0 <= rate <= 100000:
+            return error('Курс тыкв: от 0 до 100 000 за 1 TON.')
+        doc['pumpkin_rate'] = rate
+    if 'buttons' in data:
+        try:
+            doc['buttons'] = hw_normalize_buttons(data.get('buttons'))
+        except (ValueError, TypeError) as exc:
+            return error(str(exc))
+    doc['updated_at'] = datetime.now(timezone.utc).isoformat()
+    save_document('halloween', doc)
+    _hw_cache['doc'] = None
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/halloween/icon')
+@admin_required
+def admin_halloween_icon():
+    file = request.files.get('image') if request.files else None
+    if file is None:
+        return error('Выберите изображение.')
+    try:
+        with connect() as db:
+            image_id = wheel_store_image(db, file)
+    except ValueError as exc:
+        return error(str(exc))
+    return jsonify(ok=True, url='/api/wheel/image/' + image_id)
+
+
+@app.get('/api/admin/halloween/images')
+@admin_required
+def admin_halloween_images():
+    """Pictures an admin can pick for a button or a lot: built-in Halloween art and the files shipped with the project."""
+    items = [dict(url='hw:' + name, name=name, group='Хэллоуин') for name in HW_ICONS]
+    root = os.path.join(app.root_path, 'static')
+    for folder in ('img', 'gifs'):
+        base = os.path.join(root, folder)
+        if not os.path.isdir(base):
+            continue
+        for name in sorted(os.listdir(base)):
+            if name.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg')):
+                items.append(dict(url=f'/static/{folder}/{name}', name=name, group='Файлы проекта'))
+    with connect() as db:
+        rows = db.execute('SELECT id FROM wheel_images ORDER BY rowid DESC LIMIT 40').fetchall()
+    items += [dict(url='/api/wheel/image/' + r['id'], name='Загружено', group='Загруженные') for r in rows]
+    return jsonify(ok=True, items=items)
+
+
+def hw_lot_values(data):
+    title = re.sub(r'\s+', ' ', str(data.get('title') or '')).strip()[:60]
+    try:
+        price = int(float(str(data.get('price') or '0').replace(',', '.')))
+    except ValueError:
+        price = 0
+    if not 1 <= price <= 100000000:
+        raise ValueError('Цена: от 1 тыквы.')
+    reward = hw_normalize_reward(data.get('reward'))
+    if reward['type'] == 'none':
+        raise ValueError('Выберите, что получит покупатель.')
+    size = str(data.get('size') or 's')
+    size = size if size in HW_SIZES else 's'
+
+    def _int(key, hi):
+        try:
+            return max(0, min(hi, int(float(str(data.get(key) or '0')))))
+        except ValueError:
+            return 0
+    starts, ends = _int('starts_at', 4102444800000), _int('ends_at', 4102444800000)
+    if starts and ends and ends <= starts:
+        raise ValueError('Конец продажи должен быть позже начала.')
+    return dict(title=title, reward_json=json.dumps(reward, ensure_ascii=False), image=hw_image_ok(data.get('image')), price=price, size=size,
+                active=1 if data.get('active') is not False else 0, starts_at=starts, ends_at=ends, stock=_int('stock', 1000000),
+                per_user=_int('per_user', 1000), sort_order=_int('sort_order', 100000))
+
+
+@app.post('/api/admin/halloween/lots')
+@admin_required
+def admin_halloween_lot_save():
+    data = request.get_json(silent=True) or {}
+    try:
+        v = hw_lot_values(data)
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    lot_id = int(data.get('id') or 0)
+    with connect() as db:
+        if lot_id:
+            if not db.execute('SELECT 1 FROM hw_lots WHERE id=?', (lot_id,)).fetchone():
+                return error('Лот не найден.', 404)
+            db.execute('UPDATE hw_lots SET title=?,reward_json=?,image=?,price=?,size=?,active=?,starts_at=?,ends_at=?,stock=?,per_user=?,sort_order=? WHERE id=?',
+                       (v['title'], v['reward_json'], v['image'], v['price'], v['size'], v['active'], v['starts_at'], v['ends_at'], v['stock'], v['per_user'], v['sort_order'], lot_id))
+        else:
+            cur = db.execute('INSERT INTO hw_lots(title,reward_json,image,price,size,active,starts_at,ends_at,stock,per_user,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                             (v['title'], v['reward_json'], v['image'], v['price'], v['size'], v['active'], v['starts_at'], v['ends_at'], v['stock'], v['per_user'], v['sort_order']))
+            lot_id = cur.lastrowid
+    return jsonify(ok=True, id=lot_id)
+
+
+@app.delete('/api/admin/halloween/lots/<int:lot_id>')
+@admin_required
+def admin_halloween_lot_delete(lot_id):
+    with connect() as db:
+        db.execute('DELETE FROM hw_lots WHERE id=?', (lot_id,))
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/halloween/pumpkins')
+@admin_required
+def admin_halloween_pumpkins_grant():
+    data = request.get_json(silent=True) or {}
+    try:
+        uid, amount = int(data.get('user_id')), int(float(str(data.get('amount'))))
+    except (TypeError, ValueError):
+        return error('Укажите игрока и количество.')
+    if not amount or abs(amount) > 10000000:
+        return error('Количество: от 1 до 10 000 000.')
+    with connect() as db:
+        if not db.execute('SELECT 1 FROM users WHERE id=?', (uid,)).fetchone():
+            return error('Игрок не найден.', 404)
+        if amount < 0:
+            cur = db.execute('UPDATE hw_pumpkins SET balance=MAX(0,balance+?) WHERE user_id=?' if not DATABASE_URL else 'UPDATE hw_pumpkins SET balance=GREATEST(0,balance+?) WHERE user_id=?', (amount, uid))
+        else:
+            hw_add_pumpkins(db, uid, amount, earned=False)
+        pump = hw_pumpkin_balance(db, uid)
+    return jsonify(ok=True, pumpkins=pump)
 
 
 def ban_user_view(user_id):
@@ -21236,10 +21763,12 @@ def xhunt_public_row(r, include_mode=True):
                 x=r['x100'] / 100, mode=r['mode'], mode_label=XHUNT_MODE_LABELS.get(r['mode'], r['mode']))
 
 
-def xhunt_grant(db, uid, reward, event_id, place):
-    """Give one prize to the winner. Returns a dict describing it (also used for the notification text)."""
+def xhunt_grant(db, uid, reward, event_id, place, label=''):
+    """Give one prize to the winner. Returns a dict describing it (also used for the notification text).
+
+    `label` lets other events (Halloween) reuse the grant with their own wording in the ledger."""
     kind = reward.get('type')
-    title = f'X-Hunt #{event_id}, {place} место'
+    title = label or f'X-Hunt #{event_id}, {place} место'
     view = xhunt_reward_view(reward)
     result = dict(place=place, user_id=uid, reward=view, code='', gift_id=str(reward.get('gift_id') or '') if kind in ('catalog', 'fragment') else '')
     if kind in ('ton', 'bonus'):
@@ -21258,21 +21787,22 @@ def xhunt_grant(db, uid, reward, event_id, place):
                           str(reward.get('fragment_url') or ''), str(reward.get('fragment_number') or ''),
                           str(reward.get('fragment_model') or ''), str(reward.get('fragment_backdrop') or ''),
                           str(reward.get('fragment_symbol') or ''), str(reward.get('price_source') or ''),
-                          safe_image(reward.get('animation_url')), f'X-Hunt #{event_id}'))
+                          safe_image(reward.get('animation_url')), label or f'X-Hunt #{event_id}'))
         record_transaction(db, uid, 'xhunt_reward', 0, 'inventory', cur.lastrowid, f'Награда {title}: {reward.get("gift_name") or "Подарок"}')
     elif kind == 'promo':
         pk = reward.get('promo_kind')
         code = unique_promo_code(db, 'XH')
         expires = (datetime.now(timezone.utc) + timedelta(days=int(reward['expires_days']))).isoformat() if reward.get('expires_days') else None
-        desc = f'Награда X-Hunt #{event_id}, {place} место'
+        desc = label or f'Награда X-Hunt #{event_id}, {place} место'
+        src = 'Halloween' if label else 'X-Hunt'
         if pk == 'deposit_bonus':
             db.execute("""INSERT INTO promo_codes(code,reward_type,amount,max_uses,created_by,bonus_percent,bonus_fixed,min_deposit,
                           assigned_user_id,source_label,description,expires_at) VALUES(?,'deposit_bonus',0,1,0,?,0,?,?,?,?,?)""",
-                       (code, float(reward.get('percent') or 0), ton_to_cents(reward.get('min_deposit') or 0), uid, 'X-Hunt', desc, expires))
+                       (code, float(reward.get('percent') or 0), ton_to_cents(reward.get('min_deposit') or 0), uid, src, desc, expires))
         else:
             db.execute("""INSERT INTO promo_codes(code,reward_type,amount,max_uses,created_by,assigned_user_id,source_label,
                           description,expires_at,balance_target) VALUES(?,'balance',?,1,0,?,?,?,?,?)""",
-                       (code, ton_to_cents(reward.get('amount') or 0), uid, 'X-Hunt', desc, expires, 'bonus' if pk == 'bonus' else 'main'))
+                       (code, ton_to_cents(reward.get('amount') or 0), uid, src, desc, expires, 'bonus' if pk == 'bonus' else 'main'))
         result['code'] = code
     return result
 

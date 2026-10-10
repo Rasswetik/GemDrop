@@ -3374,30 +3374,12 @@ def fairness_details(proof_id):
 
 
 
-def new_design_enabled():
-    try:
-        stored = read_document('design_settings')
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return False
-    return isinstance(stored, dict) and stored.get('new_design') is True
-
-
 @app.get('/')
 def index():
     # index.html is plain HTML/CSS/JS and does not use Jinja syntax.
     # Serving it directly prevents CSS sequences such as '{#' from ever
     # being interpreted as Jinja comments.
-    # Two designs: templates/index.html (classic) and templates/index_new.html (new).
-    # The admin switch lives in /api/admin/design; ?design=new|old previews a design for admins only.
-    templates = BASE / 'templates'
-    use_new = new_design_enabled()
-    preview = request.args.get('design')
-    if preview in ('new', 'old') and is_admin_session():
-        use_new = preview == 'new'
-    page = templates / ('index_new.html' if use_new else 'index.html')
-    if not page.exists():
-        page = templates / 'index.html'
-    response = send_file(page, mimetype='text/html', max_age=0)
+    response = send_file(BASE / 'templates' / 'index.html', mimetype='text/html', max_age=0)
     response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -3420,30 +3402,11 @@ def readiness():
 
 @app.get('/api/build')
 def build_info():
-    template_path = BASE / 'templates' / ('index_new.html' if new_design_enabled() and (BASE / 'templates' / 'index_new.html').exists() else 'index.html')
     try:
-        template_hash = hashlib.sha256(template_path.read_bytes()).hexdigest()[:12]
+        template_hash = hashlib.sha256((BASE / 'templates' / 'index.html').read_bytes()).hexdigest()[:12]
     except OSError:
         template_hash = 'unavailable'
-    return jsonify(build=BUILD_ID, index_sha256=template_hash, design='new' if template_path.name == 'index_new.html' else 'old')
-
-
-@app.get('/api/admin/design')
-@admin_required
-def admin_design_get():
-    return jsonify(new_design=new_design_enabled(), new_design_available=(BASE / 'templates' / 'index_new.html').exists())
-
-
-@app.post('/api/admin/design')
-@admin_required
-def admin_design_save():
-    data = request.get_json(silent=True) or {}
-    if not isinstance(data.get('new_design'), bool):
-        return error('Состояние дизайна должно быть true или false.')
-    if data['new_design'] and not (BASE / 'templates' / 'index_new.html').exists():
-        return error('Файл templates/index_new.html не найден — загрузите его на сервер.')
-    save_document('design_settings', {'new_design': data['new_design']})
-    return jsonify(new_design=data['new_design'])
+    return jsonify(build=BUILD_ID, index_sha256=template_hash)
 
 
 @app.get('/api/me')

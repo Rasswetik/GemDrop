@@ -12056,6 +12056,9 @@ html.hw #depositModal .hw-md-top{opacity:.4}
 .pe-say .pe-act{display:inline-flex;align-items:center;gap:6px;margin-top:8px;min-height:32px;padding:0 13px;border-radius:12px;font:800 12.5px system-ui;color:#fff;border:1px solid #b394ff88;background:linear-gradient(135deg,#8a5cf0,#5b30c8);cursor:pointer}
 .pe-say .pe-act:active{transform:scale(.96)}
 .pe-say.sad{border-color:#7e8cc8cc}.pe-say.huff{border-color:#e08aa8cc}
+.hw-pet.gm{--pw:54px;--ph:66px}
+.hw-pet.gm .pe-say{font-size:12px;padding:7px 10px 8px;max-width:min(200px,calc(100vw - 16px))}
+.hw-pet.gm .pe-body{filter:drop-shadow(0 4px 6px rgba(8,4,20,.45))}
 /* ---- settings block ---- */
 html:not(.hw) #hwPetSettings{display:none}
 #hwPetSettings{display:grid;gap:8px;margin:2px 0 10px;padding:10px 0 2px;border-top:1px solid #ffffff18}
@@ -13247,7 +13250,7 @@ function g3start(){if(!g3raf)g3raf=requestAnimationFrame(g3frame)}
 /* ---------- state ---------- */
 const PET={el:null,say:null,lean:null,sq:null,ready:false,allowed:false,on:false,gone:true,x:0,y:0,vx:0,vy:0,pw:72,ph:88,mode:'rest',base:'idle',why:'',temp:'',tempT:0,
  hits:[],pokes:[],q:[],cur:null,curT:0,typeT:0,talkT:0,lastEnd:0,lastAct:Date.now(),lastPoke:Date.now(),store:{},walk:null,drag:null,raf:0,lt:0,planT:0,
- lockUntil:0,winRun:[],cracks:[],loseRun:[],dizzyRuns:[],busyFry:false,bal:null,pump:null,giftAt:0,bw:0,bh:0,saveT:0,lastLine:'',lastWin:0,pageAt:{},hubAt:0};
+ gm:false,free:null,measure:null,lockUntil:0,winRun:[],cracks:[],loseRun:[],dizzyRuns:[],busyFry:false,bal:null,pump:null,giftAt:0,bw:0,bh:0,saveT:0,lastLine:'',lastWin:0,pageAt:{},hubAt:0};
 const pRand=a=>a[Math.floor(Math.random()*a.length)];
 const pClamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function pRead(){try{return JSON.parse(localStorage.getItem(PETKEY)||'{}')||{}}catch(e){return{}}}
@@ -13298,7 +13301,7 @@ function pShow(it){
  if(ab){ab.textContent=it.act.label+' ›';ab.onclick=e=>{e.stopPropagation();pHide(true);try{it.act.fn()}catch(x){}}}
  tx.textContent=it.text;box.style.width=(box.offsetWidth+1)+'px';box.style.minHeight=box.offsetHeight+'px';
  PET.bw=box.offsetWidth;PET.bh=box.offsetHeight;tx.textContent='';
- const full=it.text,dur=it.ms||(Math.max(3400,1700+full.length*62)+(it.act?3400:0));
+ const full=it.text;let dur=it.ms||(Math.max(3400,1700+full.length*62)+(it.act?3400:0));if(PET.gm&&!it.act)dur=Math.min(dur,2900);
  if(it.mood)pTemp(it.mood,dur+500);
  pPlaceBubble();box.classList.add('on');pTalk(true);
  let n=0;const step=full.length>70?2:1;clearInterval(PET.typeT);
@@ -13355,6 +13358,7 @@ function pWalkTo(x,y,sec){PET.mode='walk';PET.walk={x0:PET.x,y0:PET.y,x1:x,y1:y,
 function pPlan(){clearTimeout(PET.planT);PET.planT=setTimeout(pWander,PET.base==='offended'?9000+Math.random()*9000:4500+Math.random()*8500)}
 function pWander(){
  if(!pCanMove()){pPlan();return}
+ if(PET.gm){const p=pParkSpot();if(Math.hypot(PET.x-p[0],PET.y-p[1])>24)pWalkTo(p[0],p[1],1.1);else pPlan();return}
  const b=pBounds(),r=Math.random();let tx,ty;
  if(PET.base==='offended'||r<.22){tx=Math.random()<.5?b.minX+4:b.maxX-4;ty=Math.random()<.5?b.minY+4:b.maxY-4}
  else if(r<.7){tx=b.minX+Math.random()*(b.maxX-b.minX);ty=b.minY+Math.random()*(b.maxY-b.minY)}
@@ -13481,6 +13485,50 @@ function pForgive(){
  if(!PET.store.offAt)return;PET.store.offAt=0;pSave();
  if(PET.base==='offended')pBase('idle','')}
 
+/* ---------- sections: where the pet sits and how it reacts in every game ---------- */
+const GAME_PAGES=['minesPage','crashPage','upgradePage','arenaPage','hiloPage','limboPage','roadPage','wheelPage'];
+const PLAYER_PAGES=['gamesPage','minesPage','crashPage','upgradePage','arenaPage','hiloPage','limboPage','roadPage','wheelPage','bonusPage','giveawayPage','profilePage','gameHistoryPage','hwEventPage','hwMarketPage'];
+const GAME_REACT={
+ minesPage:{win:{mood:'cool',lines:['Чисто прошёл! Ни одной мины.','Красиво забрал вовремя!','Осторожность окупается.']},loss:{mood:'scared',lines:['Бум! Мина… Я зажмурился.','Ой, мина! В следующий раз повезёт.','Ай, как неожиданно!']},big:{mood:'rich',lines:['Вот это забег по полю! Огромный выигрыш!']}},
+ crashPage:{win:{mood:'happy',lines:['Вовремя забрал! Молодец!','Ракета-тыква взлетела — ты успел!','Забрал до взрыва!']},loss:{mood:'sad',lines:['Ракета улетела без тебя…','Бабах! Не успел забрать.','Чуть-чуть не хватило до выхода.']},big:{mood:'fireworks',lines:['Ракета ушла в космос — и ты вместе с ней!']}},
+ upgradePage:{win:{mood:'magic',lines:['Апгрейд удался! Это магия!','Подарок стал лучше — отлично!']},loss:{mood:'cry',lines:['Апгрейд не удался… Жалко подарок.','Не вышло. Но шанс всегда есть.']},big:{mood:'fireworks',lines:['Вот это апгрейд! Целый салют!']}},
+ arenaPage:{win:{mood:'cool',lines:['Победа на арене! Ты герой!','Так держать — арена твоя!']},loss:{mood:'angry',lines:['Арена несправедлива! Отыграемся.','Ух, обидно проиграть… Реванш?']},big:{mood:'party',lines:['Арена покорена! Праздник!']}},
+ hiloPage:{win:{mood:'happy',lines:['Угадал! Чутьё не подвело.','Выше или ниже — ты знаешь!']},loss:{mood:'think',lines:['Хм, не угадал… Подумай ещё.','Карта оказалась хитрее.']},big:{mood:'rich',lines:['Серия угаданных карт! Богач!']}},
+ limboPage:{win:{mood:'stars',lines:['В яблочко! Шанс сработал!','Лимбо покорено!']},loss:{mood:'worry',lines:['Не повезло с шансом… Пересчитай.','Хм, множитель не дался.']},big:{mood:'fireworks',lines:['Огромный множитель! Салют!']}},
+ roadPage:{win:{mood:'dance',lines:['Хомяк прошёл дорогу! Танцуем!','Дошёл до конца — молодец!']},loss:{mood:'scared',lines:['Хомяка поймали… Ой-ой.','Дорога опасная — не повезло.']},big:{mood:'party',lines:['Хомяк принёс целую гору! Праздник!']}},
+ wheelPage:{win:{mood:'dance',lines:['Колесо подарило! Ура!','Крутанул — и повезло!']},loss:{mood:'sad',lines:['Колесо не в духе сегодня.','В следующий раз крутанёшь лучше.']},big:{mood:'party',lines:['Джекпот на колесе! Праздник!']}}};
+const PAGE_ENTER={
+ gamesPage:{mood:'happy',lines:['Выбирай игру — я болею за тебя!','Столько игр! С какой начнём?','Не забудь заглянуть в событие вверху — там тыквы.']},
+ minesPage:{mood:'focus',lines:['Мины… Открывай по одной и вовремя забирай.','Каждая звёздочка — шаг к призу. Не жадничай.']},
+ crashPage:{mood:'focus',lines:['Crash! Забирай до взрыва.','Ракета-тыква взлетает. Успеешь?']},
+ upgradePage:{mood:'magic',lines:['Апгрейды — риск и награда. Я верю в тебя.','Подарок станет лучше — или нет. Азарт!']},
+ arenaPage:{mood:'focus',lines:['Арена! Покажи им, на что ты способен.','Чем выше ставка — тем громче победа.']},
+ hiloPage:{mood:'think',lines:['Выше или ниже? Доверься чутью.','Карты не врут. Иногда.']},
+ limboPage:{mood:'focus',lines:['Limbo — тут важна выдержка.','Выбери шанс и крути колесо.']},
+ roadPage:{mood:'dance',lines:['Дорога полна сюрпризов. Вперёд, хомяк!','Идём по дороге! Осторожно, ловушки.']},
+ wheelPage:{mood:'magic',lines:['Колесо! Крутани — вдруг сегодня твой день.']},
+ bonusPage:{mood:'yum',lines:['Бонусы — это всегда приятно. Ням!','Загляни в бонусы — там сладкое.']},
+ giveawayPage:{mood:'magic',lines:['Награды и розыгрыши! Вдруг повезёт именно тебе.','Билеты — это шансы. Копи их!']},
+ profilePage:{mood:'shy',lines:['Это твой профиль. В настройках можно меня выключить, но не надо, а?','Ой, ты заглянул в профиль? Здесь всё про тебя.']},
+ gameHistoryPage:{mood:'think',lines:['Посмотрим, как ты играл… Есть чему порадоваться.','История игр — отличная вещь, чтобы делать выводы.']},
+ hwEventPage:{mood:'happy',lines:['Это наш Хэллоуин! Забирай подарки и не пропускай маркет.','Подарки обновляются — заходи почаще.']},
+ hwMarketPage:{mood:'think',lines:['Маркет тыкв! Здесь тыквы превращаются в призы.','Присмотрись к лотам — некоторые ограничены по времени.']}};
+function pParkSpot(){
+ let l=110,r=innerWidth-175;
+ try{const n=document.getElementById('headerNick'),b=document.getElementById('balanceToggle');
+  if(n){const q=n.getBoundingClientRect();if(q.width)l=q.right}
+  if(b){const q=b.getBoundingClientRect();if(q.width)r=q.left}}catch(e){}
+ const bb=pBounds(),x=pClamp((l+r)/2-PET.pw/2,Math.max(0,l+2),Math.max(l+2,r-PET.pw-2));
+ return[pClamp(x,bb.minX,bb.maxX),bb.minY+3]}
+function pGameMode(name){
+ if(!PET.el)return;
+ const on=GAME_PAGES.indexOf(name)>=0;
+ if(on===PET.gm)return;
+ PET.gm=on;PET.el.classList.toggle('gm',on);
+ if(PET.measure)PET.measure();
+ pHide(true);PET.q=PET.q.filter(q=>q.prio>=2&&!on);
+ if(on){PET.free={x:PET.x,y:PET.y};if(PET.mode==='drag')return;const p=pParkSpot();PET.mode='rest';PET.vx=PET.vy=0;pWalkTo(p[0],p[1],.8)}
+ else if(PET.free){const b=pBounds();PET.x=pClamp(PET.free.x,b.minX,b.maxX);PET.y=pClamp(PET.free.y,b.minY,b.maxY);pRender();pDone()}}
 /* ---------- reactions to the game ---------- */
 const THRESHOLDS=[1000,5000,10000,25000,50000,100000];
 const money6=c=>(c/100).toFixed(2).replace(/\.?0+$/,'');
@@ -13501,6 +13549,8 @@ function pOnPumpkins(delta,total){
  const d=n6(delta);
  if(PET.loseRun.length===2||PET.loseRun.length===3){pTemp('worry',3800);pSay(pRand(['Хм… пошла полоса неудач. Не торопись.','Что-то мне тревожно. Может, сделаем паузу? +'+d+' '+tkWord(delta)+' уже в копилке.']),{prio:1,mood:'worry',ms:3400,gap:0,life:8000});return}
  if(PET.loseRun.length>=4){pTemp('cry',4600);pSay(pRand(['Опять проигрыш… Мне тоже больно. Но +'+d+' '+tkWord(delta)+' упало.','Не сдавайся! Я тут, держу кулачки. +'+d+' '+tkWord(delta)+'.']),{prio:1,mood:'cry',ms:3800,gap:0,life:8000,cls:'sad'});return}
+ const gx=GAME_REACT[curPage6()];
+ if(gx){pTemp(gx.loss.mood,3600);pSay(pRand(gx.loss.lines)+' +'+d+' '+tkWord(delta)+'.',{prio:1,mood:gx.loss.mood,ms:3000,gap:0,life:6000,cls:'sad'});return}
  pTemp('sad',4200);
  pSay(pRand(['Не повезло… Зато тебе упало +'+d+' '+tkWord(delta)+'.','Эх, бывает. Держи утешение: +'+d+' '+tkWord(delta)+'.','Не грусти! Я с тобой. +'+d+' '+tkWord(delta)+' уже в копилке.']),{prio:1,mood:'sad',ms:3600,gap:0,life:8000,cls:'sad'})}
 function pOnWin(cents){
@@ -13509,6 +13559,8 @@ function pOnWin(cents){
  const now0=pNow();PET.winRun=PET.winRun.filter(t=>now0-t<20*60000);PET.winRun.push(now0);
  if(cents>=1000){pTemp('fireworks',3800);pSay(pRand(['Феерверк! Вот это выигрыш: +'+money6(cents)+' TON!','Салют в твою честь! +'+money6(cents)+' TON!']),{prio:1,mood:'fireworks',ms:3600,gap:0,life:8000});return}
  if(PET.winRun.length>=3){PET.winRun=[];pTemp('hot',3600);pSay(pRand(['Серия побед! Горячо-горячо!','Ты в ударе! Даже мне жарко!']),{prio:1,mood:'hot',ms:3400,gap:0,life:8000});return}
+ const gx=GAME_REACT[curPage6()];
+ if(gx){const k=cents>=300?gx.big:gx.win;pTemp(k.mood,3400);pSay(pRand(k.lines)+(cents>=100?' +'+money6(cents)+' TON':''),{prio:1,mood:k.mood,ms:3000,gap:0,life:6000});return}
  const big=cents>=300,mid=cents>=100;pTemp(big?'rich':mid?'cool':'happy',3400);
  pSay(big?pRand(['Вот это победа! +'+money6(cents)+' TON!','Ура-а! Я же говорил, что повезёт: +'+money6(cents)+' TON!','Звёзды в глазах! Это было круто!']):pRand(['Победа! Так держать!','Ура, баланс растёт!','Получилось! Продолжаем?']),{prio:1,mood:big?'rich':mid?'cool':'happy',ms:3200,gap:0,life:8000})}
 function petSync(){
@@ -13518,37 +13570,20 @@ function petSync(){
  if(PET.bal==null)PET.bal=bal;else{const d=bal-PET.bal;PET.bal=bal;if(d>=10&&PET.ready)pOnWin(d)}
  if(pump!=null){if(PET.pump==null){PET.pump=pump;const passed=THRESHOLDS.filter(t=>pump>=t).pop()||0;if(passed>(+PET.store.thr||0)){PET.store.thr=passed;pSave()}}
   else{const d=pump-PET.pump;PET.pump=pump;if(d>0&&PET.ready)pOnPumpkins(d,pump)}}}
-const PAGE_LINES={
- gamesPage:['Выбирай игру — я болею за тебя!','Столько игр! С какой начнём?','Не забудь заглянуть в событие вверху — там тыквы.'],
- hwEventPage:['Это наш Хэллоуин! Забирай подарки и не пропускай маркет.','Подарки обновляются — заходи почаще.'],
- hwMarketPage:['Маркет тыкв! Здесь тыквы превращаются в призы.','Присмотрись к лотам — некоторые ограничены по времени.'],
- minesPage:['Мины… Я зажмурюсь, а ты осторожнее!','Каждая звёздочка — это шаг к призу. Не жадничай.'],
- crashPage:['Crash! Лови момент и вовремя забирай.','Ракета-тыква взлетает. Успеешь?'],
- upgradePage:['Апгрейды — риск и награда. Я верю в тебя.'],
- arenaPage:['Арена! Покажи им, на что ты способен.'],
- hiloPage:['Выше или ниже? Доверься чутью.'],
- limboPage:['Limbo — тут важна выдержка.'],
- roadPage:['Дорога полна сюрпризов. Вперёд!'],
- wheelPage:['Колесо! Крутани — вдруг сегодня твой день.'],
- bonusPage:['Бонусы — это всегда приятно.'],
- profilePage:['Это твой профиль. В настройках можно меня выключить, но не надо, а?'],
- giveawayPage:['Розыгрыши! Вдруг повезёт именно тебе.']};
 function petPage(name){
  if(!PET.on||PET.gone||PET.base==='sleep')return;
- const now=pNow(),lines=PAGE_LINES[name];if(!lines)return;
+ const now=pNow(),pe=PAGE_ENTER[name],lines=pe&&pe.lines;if(!lines)return;
  if(now-(PET.pageAt[name]||0)<4*60000)return;PET.pageAt[name]=now;
  if(Math.random()>.55)return;
  setTimeout(()=>{if(name==='hwMarketPage'){const l=pLotHint();if(l&&Math.random()<.8){pTemp('magic',2800);pSay('Вот этот лот тебе по карману: «'+l.title+'»!',{prio:1,mood:'magic',ms:3600,gap:8000,life:9000});return}
    const h=H6.hub;if(h&&h.welcome&&h.welcome.amount>0&&!h.welcome.taken){pSay('Видишь подарок наверху? Он бесплатный — забирай!',{prio:1,mood:'magic',ms:3600,gap:8000,life:9000});return}}
   if(name==='hwMarketPage'){pTemp('think',2800);pSay('Хм… что бы тут выбрать?',{prio:1,mood:'think',ms:2800,gap:8000,life:6000});return}
-  const gm=['minesPage','crashPage','upgradePage','arenaPage','hiloPage','limboPage','roadPage'].indexOf(name)>=0;
-  if(name==='bonusPage'&&Math.random()<.5){pTemp('dance',2800);pSay('Бонусы! Давай станцуем от радости!',{prio:0,mood:'dance',ms:2800,gap:12000});return}
-  pSay(pRand(lines),{prio:0,gap:12000,mood:gm?'focus':''})},700)}
+  pSay(pRand(lines),{prio:0,gap:12000,mood:pe.mood||''})},700)}
 
 /* ---------- own small talk ---------- */
 const TALK=['Знаешь секрет? Каждый проигрыш превращается в тыквы. Ничего не пропадает зря.','В маркете тыквы можно обменять на TON и билеты.','Подарки на странице события обновляются — заходи каждый день.','Меня можно кинуть в угол. Только не сильно!','Хэллоуин — лучшее время года. Согласен?','Если я исчез с экрана — загляни в настройки, вдруг ты меня выключил.','Я — кристалл, но с характером.','Не забывай делать паузы. Игры — это весело, пока ты в ресурсе.'];
 function pTalk0(){
- if(!PET.on||PET.gone||PET.base==='sleep'||PET.cur){return}
+ if(!PET.on||PET.gone||PET.base==='sleep'||PET.cur||PET.gm){return}
  if(pNow()-PET.lastAct>150000)return;
  const h=typeof H6!=='undefined'&&H6.hub;
  if(PET.base==='offended'){pSay(pRand(['Я всё ещё обижен…','Хм. С теми, кто пропускает обучение, я не разговариваю.']),{prio:0,gap:60000,cls:'huff',act:{label:'Пройти обучение',fn:()=>window.hwStartTour&&window.hwStartTour()}});return}
@@ -13583,6 +13618,7 @@ window.hwPet={say:pSay,offend:pOffend,forgive:pForgive,
 function pHidden(){
  let u=null;try{u=user}catch(e){}
  if(!u||document.hidden)return true;
+ {const pg=curPage6();if(pg&&PLAYER_PAGES.indexOf(pg)<0)return true}
  if(document.querySelector('.modal:not(.hidden)'))return true;
  const c=document.body.classList;if(c.contains('hw-dlg-open')||c.contains('hw-tour-open')||c.contains('hw-art-open')||c.contains('hw-splash-open'))return true;
  const ld=document.querySelector('.loader');if(ld&&!ld.classList.contains('hidden')&&getComputedStyle(ld).display!=='none'&&+getComputedStyle(ld).opacity>.05)return true;
@@ -13621,7 +13657,7 @@ function petInit(){
  document.body.append(el);
  PET.el=el;PET.say=el.querySelector('.pe-say');PET.lean=el.querySelector('.pe-lean');PET.sq=el.querySelector('.pe-sq');
  PET.say.addEventListener('click',e=>{if(!e.target.closest('.pe-act'))pHide(true)});
- const measure=()=>{PET.pw=el.offsetWidth||72;PET.ph=el.offsetHeight||88};measure();
+ const measure=()=>{PET.pw=el.offsetWidth||72;PET.ph=el.offsetHeight||88};PET.measure=measure;measure();
  const b=pBounds();
  const sx=PET.store.x,sy=PET.store.y;
  PET.x=pClamp(typeof sx==='number'?sx*innerWidth:b.maxX-8,b.minX,b.maxX);PET.y=pClamp(typeof sy==='number'?sy*innerHeight:b.maxY-90,b.minY,b.maxY);pRender();
@@ -13629,7 +13665,7 @@ function petInit(){
  addEventListener('resize',()=>{measure();const bb=pBounds();PET.x=pClamp(PET.x,bb.minX,bb.maxX);PET.y=pClamp(PET.y,bb.minY,bb.maxY);pRender();pPlaceBubble()});
  ['pointerdown','keydown','touchstart','wheel'].forEach(ev=>addEventListener(ev,pAct,{passive:true,capture:true}));
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){PET.lastAct=pNow();pVis()}});
- if(typeof window.show==='function'){const orig=window.show;window.show=function(name){const r=orig.apply(this,arguments);try{petPage(name)}catch(e){}return r}}
+ if(typeof window.show==='function'){const orig=window.show;window.show=function(name){const r=orig.apply(this,arguments);try{pGameMode(name)}catch(e){}try{petPage(name)}catch(e){}return r}}
  setInterval(pVis,350);setInterval(pCheck,10000);
  setInterval(pTalk0,25000);
  // long absence: he fell asleep while the player was away
@@ -13640,7 +13676,7 @@ function petInit(){
  PET.ready=true;pSettings();ready(pSettings);
  setTimeout(()=>{if(!PET.on)return;
   if(PET.base==='sleep'){pSay('Z-z-z…',{prio:1,wake:true,ms:3000,gap:0,life:60000});return}
-  if(!PET.store.met){setTimeout(()=>{const h=typeof H6!=='undefined'&&H6.hub;if(PET.store.met||PET.base==='offended'||(h&&h.tour&&!h.tour.done&&!PET.store.met&&document.body.classList.contains('hw-tour-open')))return;PET.store.met=1;pSave();pTemp('happy',3000);pSay('Привет! Я Кристаллик — твой питомец на время Хэллоуина. Тащи меня куда хочешь, только не уроняй!',{prio:2,mood:'happy',ms:5200,life:30000})},9000);return}
+  if(!PET.store.met){const meet=()=>{const h=typeof H6!=='undefined'&&H6.hub;if(PET.gm||PET.cur){setTimeout(meet,8000);return}if(PET.store.met||PET.base==='offended'||(h&&h.tour&&!h.tour.done&&!PET.store.met&&document.body.classList.contains('hw-tour-open')))return;PET.store.met=1;pSave();pTemp('happy',3000);pSay('Привет! Я Кристаллик — твой питомец на время Хэллоуина. Тащи меня куда хочешь, только не уроняй!',{prio:2,mood:'happy',ms:5200,life:30000})};setTimeout(meet,9000);return}
   if(PET.base==='offended')return;
   const hr=new Date().getHours(),part=hr<5?'Не спится?':hr<12?'Доброе утро!':hr<18?'Добрый день!':'Добрый вечер!';
   if(pNow()-(+PET.store.greetAt||0)>3*3600*1000){PET.store.greetAt=pNow();pSave();pTemp('happy',2600);pSay(part+' Рад тебя видеть.',{prio:1,mood:'happy',ms:2800,gap:0,life:12000})}

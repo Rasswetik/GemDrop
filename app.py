@@ -14896,7 +14896,18 @@ def wheel_mine():
             prize = db.execute('SELECT * FROM wheel_prizes WHERE id=?', (row['prize_id'],)).fetchone()
             item = dict(id=row['id'], kind=row['prize_kind'], title=row['prize_title'], created_at=row['created_at'],
                         prize=wheel_prize_public(prize) if prize else None, reward=reward, status='received',
-                        spin_code=str(row['code'] or ''))
+                        spin_code=wheel_code_display(str(row['code'] or '')))
+            if not item['spin_code']:
+                # Old spins may have lost the code: recover it from the redemption made by this user.
+                reds = db.execute("SELECT code FROM promo_redemptions WHERE user_id=? AND reward_type='wheel' ORDER BY created_at, code", (uid,)).fetchall()
+                nth = db.execute('SELECT COUNT(*) AS n FROM wheel_spins WHERE user_id=? AND id<=?', (uid, row['id'])).fetchone()['n']
+                if 0 < nth <= len(reds):
+                    item['spin_code'] = wheel_code_display(reds[nth - 1]['code'])
+            if row['prize_kind'] == 'deposit_bonus' and not reward.get('code'):
+                pc = db.execute("SELECT code FROM promo_codes WHERE assigned_user_id=? AND reward_type='deposit_bonus' AND source_label='Колесо' ORDER BY created_at, code", (uid,)).fetchall()
+                dn = db.execute("SELECT COUNT(*) AS n FROM wheel_spins WHERE user_id=? AND prize_kind='deposit_bonus' AND id<=?", (uid, row['id'])).fetchone()['n']
+                if 0 < dn <= len(pc):
+                    reward['code'] = pc[dn - 1]['code']
             if row['prize_kind'] == 'deposit_bonus' and reward.get('code'):
                 promo = db.execute('SELECT * FROM promo_codes WHERE code=?', (reward['code'],)).fetchone()
                 redemption = db.execute('SELECT * FROM promo_redemptions WHERE code=? AND user_id=?', (reward['code'], uid)).fetchone()

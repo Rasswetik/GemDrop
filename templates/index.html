@@ -11640,8 +11640,9 @@ function mineRow(it){
   row.classList.add('wl-tap');
   tx.append(el('em','wl-tap-hint',code?'Нажмите, чтобы увидеть код':'Нажмите для подробностей'));
   const panel=el('div','wl-promo-panel');panel.hidden=true;
-  panel.append(el('div','wl-promo-label',isDep?'Ваш промокод на пополнение':'Код, по которому выпал приз'));
-  panel.append(el('div','wl-promo-code',code||'Код недоступен'));
+  if(code){panel.append(el('div','wl-promo-label',isDep?'Ваш промокод на пополнение':'Код, по которому выпал приз'));
+  panel.append(el('div','wl-promo-code',code))}
+  else panel.append(el('div','wl-promo-label','Приз уже получен и зачислен'));
   if(it.created_at){const d=new Date(String(it.created_at).replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(String(it.created_at))?'':'Z'));if(!isNaN(d))panel.append(el('div','wl-promo-date','Выпал: '+d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})))}
   const a=el('div','wl-row-actions');
   if(code){const c=el('button','wl-copy');c.type='button';c.innerHTML='<span></span>'+COPY_SVG;c.firstChild.textContent='копировать';c.onclick=e=>{e.stopPropagation();copyText(code)};a.append(c)}

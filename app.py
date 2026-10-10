@@ -2476,7 +2476,7 @@ def public_halloween():
     response = jsonify(active=theme, teaser=(phase == 'teaser'), event_open=(phase == 'full'), opens_at=s['opens_at'] if visible else 0,
                        starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'],
                        admins_only=bool(s['admins_only'] and admin), banner_url=s['banner_url'] if theme else '',
-                       launch_id=s['launch_id'])
+                       launch_id=s['launch_id'], pet=bool(theme and hw_pet_enabled()))
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Vary'] = 'Cookie'
     return response
@@ -2632,6 +2632,15 @@ HW_ICON_META = {
     'gemblue': ('Призы', 'Кристалл'),
     'ghost2': ('Персонажи', 'Привидение'),
     'witch': ('Персонажи', 'Ведьма'),
+    'bell': ('Предметы', 'Колокольчик'),
+    'balloon': ('Призы', 'Шарик'),
+    'rocket': ('Предметы', 'Ракета'),
+    'scroll': ('Предметы', 'Свиток'),
+    'shield': ('Призы', 'Щит'),
+    'dice': ('Призы', 'Кубик'),
+    'clover': ('Призы', 'Клевер'),
+    'cherry': ('Сладости', 'Вишня'),
+    'snowghost': ('Предметы', 'Фонарик'),
 }
 HW_ICONS = tuple(HW_ICON_META)
 HW_SIZES = ('s', 'm', 'l')
@@ -2653,6 +2662,36 @@ def hw_tour_reward(doc=None):
         return max(0, min(1000000, int(float(str(doc.get('tour_reward', 100))))))
     except (TypeError, ValueError):
         return 100
+
+
+HW_WELCOME_ID = -1   # virtual market lot «Приветственный подарок»: price 0, once per player, never stored in hw_lots
+
+
+def hw_welcome_amount(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    if not doc.get('welcome_enabled', True):
+        return 0.0
+    try:
+        value = float(str(doc.get('welcome_amount', 0.2)).replace(',', '.'))
+    except ValueError:
+        return 0.0
+    return round(value, 2) if math.isfinite(value) and 0.01 <= value <= 1000 else 0.0
+
+
+def hw_pet_enabled(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    return bool(doc.get('pet_enabled', True))
+
+
+def hw_welcome_lot(doc, bought):
+    amount = hw_welcome_amount(doc)
+    if not amount:
+        return None
+    row = dict(id=HW_WELCOME_ID, title='Приветственный подарок', reward_json=json.dumps(dict(type='bonus', amount=amount)), image='hw:gift', price=0,
+               size='m', stock=0, sold=0, per_user=1, starts_at=0, ends_at=0)
+    view = hw_lot_view(row, bought)
+    view.update(welcome=True, subtitle='Подарок новичку')
+    return view
 
 
 def hw_image_ok(value):
@@ -2920,10 +2959,15 @@ def halloween_hub():
         tour_done = bool(db.execute("SELECT 1 FROM hw_claims WHERE user_id=? AND button_id='~tour'", (uid,)).fetchone())
         lots = db.execute('SELECT * FROM hw_lots WHERE active=1 ORDER BY sort_order, id').fetchall()
         bought = {r['lot_id']: int(r['n']) for r in db.execute('SELECT lot_id,COUNT(*) AS n FROM hw_purchases WHERE user_id=? GROUP BY lot_id', (uid,)).fetchall()}
+        welcome_taken = bool(db.execute("SELECT 1 FROM hw_claims WHERE user_id=? AND button_id='~welcome'", (uid,)).fetchone())
     lot_views = [hw_lot_view(r, bought.get(r['id'], 0), now_ms) for r in lots]
     lot_views = [l for l in lot_views if not l['ended']]
+    welcome = hw_welcome_lot(doc, 1 if welcome_taken else 0)
+    if welcome:
+        lot_views.insert(0, welcome)
     resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
-                   lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)))
+                   lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)),
+                   welcome=dict(amount=hw_welcome_amount(doc), taken=welcome_taken), pet=hw_pet_enabled(doc))
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
@@ -3020,6 +3064,17 @@ def halloween_buy():
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
+        if lot_id == HW_WELCOME_ID:
+            amount = hw_welcome_amount()
+            if not amount:
+                return error('Лот не найден.', 404)
+            got = db.execute("INSERT OR IGNORE INTO hw_claims(user_id,button_id,day,outcome) VALUES(?,?,?,?)", (uid, '~welcome', 'once', 'welcome'))
+            if not got.rowcount:
+                return error('Приветственный подарок уже получен.', 409)
+            given = hw_grant(db, uid, dict(type='bonus', amount=amount), 'Halloween · приветственный подарок')
+            pump = hw_pumpkin_balance(db, uid)
+            db.commit()
+            return jsonify(ok=True, reward=given['reward'], code=given.get('code', ''), title='Приветственный подарок', price=0, pumpkins=pump)
         lock = ' FOR UPDATE' if DATABASE_URL else ''
         lot = db.execute('SELECT * FROM hw_lots WHERE id=? AND active=1' + lock, (lot_id,)).fetchone()
         if not lot:
@@ -3078,7 +3133,8 @@ def admin_halloween_config():
     with connect() as db:
         lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
         totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
-    return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+    return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), welcome_enabled=bool(doc.get('welcome_enabled', True)),
+                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
                    holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
 
 
@@ -3103,6 +3159,18 @@ def admin_halloween_config_set():
         if not 0 <= tour <= 1000000:
             return error('Награда за экскурсию: от 0 до 1 000 000 тыкв.')
         doc['tour_reward'] = tour
+    if 'welcome_enabled' in data:
+        doc['welcome_enabled'] = bool(data.get('welcome_enabled'))
+    if 'pet_enabled' in data:
+        doc['pet_enabled'] = bool(data.get('pet_enabled'))
+    if 'welcome_amount' in data:
+        try:
+            amount = round(float(str(data.get('welcome_amount')).replace(',', '.')), 2)
+        except ValueError:
+            return error('Приветственный подарок: число.')
+        if not math.isfinite(amount) or not 0.01 <= amount <= 1000:
+            return error('Приветственный подарок: от 0.01 до 1000 TON.')
+        doc['welcome_amount'] = amount
     if 'buttons' in data:
         try:
             doc['buttons'] = hw_normalize_buttons(data.get('buttons'))
@@ -3216,6 +3284,76 @@ def admin_halloween_lot_order():
         for pos, lot_id in enumerate(ids):
             db.execute('UPDATE hw_lots SET sort_order=? WHERE id=?', ((pos + 1) * 10, lot_id))
     return jsonify(ok=True)
+
+
+HW_LOT_NAMES = ('Мешочек удачи', 'Дар тыквенной ночи', 'Ведьмин подарок', 'Находка с кладбища', 'Приз из котла', 'Лунный сундучок',
+                'Награда Джека', 'Улов призрака', 'Трофей охотника', 'Тайный подарок', 'Дар Кристаллика', 'Сокровище склепа')
+
+
+def hw_generate_lots(count, low, high, rate, rnd):
+    """Random market lots: prices spread (log-uniform) between low and high, prizes scale with the price so deals stay fair."""
+    out = []
+    rate = max(1, rate)
+    for i in range(count):
+        price = int(math.exp(rnd.uniform(math.log(max(1, low)), math.log(max(1, high)))))
+        step = 1 if price < 20 else 5 if price < 100 else 10 if price < 1000 else 50 if price < 10000 else 500
+        price = max(1, int(round(price / step)) * step)
+        kind = rnd.choices(('bonus', 'ton', 'tickets'), weights=(5, 3, 2))[0]
+        worth = price / (rate * rnd.uniform(1.6, 3.0))   # TON the buyer gets for the price (the house keeps a margin)
+        if kind == 'tickets':
+            amount = max(1, int(round(price / 25)))
+            reward = dict(type='tickets', amount=amount)
+            title = f'{amount} {"билет" if amount % 10 == 1 and amount % 100 != 11 else "билета" if amount % 10 in (2, 3, 4) and not 11 <= amount % 100 <= 14 else "билетов"}'
+            image = rnd.choice(('hw:star', 'hw:envelope', 'hw:key'))
+        else:
+            amount = max(0.01, round(worth * 20) / 20 if worth >= 0.1 else round(worth, 2))
+            reward = dict(type=kind, amount=round(amount, 2))
+            title = (f'{amount:g} TON на баланс' if kind == 'ton' else f'Бонус {amount:g} TON')
+            image = rnd.choice(('hw:coin', 'hw:goldcoin') if amount < 0.5 else ('hw:moneybag', 'hw:chest', 'hw:trophy') if amount < 3 else ('hw:crown', 'hw:trophy', 'hw:gemblue'))
+            if kind == 'bonus':
+                image = rnd.choice(('hw:gift', 'hw:bag', 'hw:cauldron', image))
+        big = price >= high * 0.6
+        out.append(dict(title=title if rnd.random() < 0.6 else rnd.choice(HW_LOT_NAMES), reward=reward, image=image, price=price,
+                        size='l' if big else ('m' if rnd.random() < 0.3 else 's'),
+                        stock=(0 if rnd.random() < 0.5 else rnd.choice((5, 10, 20, 50, 100))), per_user=rnd.choice((0, 0, 1, 1, 3))))
+    out.sort(key=lambda lot: lot['price'])
+    return out
+
+
+@app.post('/api/admin/halloween/lots/generate')
+@admin_required
+def admin_halloween_lots_generate():
+    data = request.get_json(silent=True) or {}
+
+    def _num(key, default, lo, hi):
+        try:
+            value = int(float(str(data.get(key, default)).replace(',', '.')))
+        except ValueError:
+            raise ValueError('Числа введены неверно.')
+        if not lo <= value <= hi:
+            raise ValueError(f'Допустимо от {lo} до {hi}.')
+        return value
+    try:
+        count = _num('count', 6, 1, 40)
+        low = _num('min_price', 20, 1, 100000000)
+        high = _num('max_price', 2000, 1, 100000000)
+    except ValueError as exc:
+        return error(str(exc))
+    if high < low:
+        return error('Максимальная цена не может быть меньше минимальной.')
+    lots = hw_generate_lots(count, low, high, hw_rate(), secrets.SystemRandom())
+    active = 0 if data.get('active') is False else 1
+    ids = []
+    with connect() as db:
+        if data.get('replace'):
+            db.execute('DELETE FROM hw_lots')
+        top = int(db.execute('SELECT COALESCE(MAX(sort_order),0) AS m FROM hw_lots').fetchone()['m'] or 0)
+        for pos, lot in enumerate(lots):
+            cur = db.execute('INSERT INTO hw_lots(title,reward_json,image,price,size,active,starts_at,ends_at,stock,per_user,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                             (lot['title'], json.dumps(lot['reward'], ensure_ascii=False), lot['image'], lot['price'], lot['size'], active, 0, 0,
+                              lot['stock'], lot['per_user'], top + (pos + 1) * 10))
+            ids.append(cur.lastrowid)
+    return jsonify(ok=True, created=len(ids), ids=ids)
 
 
 @app.delete('/api/admin/halloween/lots/<int:lot_id>')

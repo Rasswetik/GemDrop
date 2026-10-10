@@ -1439,6 +1439,36 @@ class RegressionTests(unittest.TestCase):
         self.post('/api/admin/halloween/config', {'buttons': [bad]}, 400)
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_welcome_gift_lot_generator_and_pet_flag(self):
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        now = int(time.time() * 1000)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': now + 600000, 'mode': 'full'})
+        hub = self.client.get('/api/halloween/hub').get_json()
+        gift = hub['lots'][0]
+        self.assertEqual((gift['id'], gift['price'], gift['welcome'], gift['reward']['type']), (-1, 0, True, 'bonus'))
+        self.assertEqual(gift['bought'], 0)
+        self.assertTrue(hub['pet'] and self.client.get('/api/halloween').get_json()['pet'])
+        bought = self.post('/api/halloween/buy', {'lot_id': -1})
+        self.assertEqual(bought['price'], 0)
+        self.post('/api/halloween/buy', {'lot_id': -1}, 409)                                     # once per player
+        self.assertEqual(self.client.get('/api/halloween/hub').get_json()['lots'][0]['bought'], 1)
+        self.post('/api/admin/halloween/config', {'welcome_amount': 0.5, 'pet_enabled': False})
+        cfg = self.client.get('/api/admin/halloween/config').get_json()
+        self.assertEqual((cfg['welcome_amount'], cfg['pet_enabled']), (0.5, False))
+        self.assertFalse(self.client.get('/api/halloween').get_json()['pet'])
+        self.post('/api/admin/halloween/config', {'welcome_amount': 'x'}, 400)
+        self.post('/api/admin/halloween/config', {'welcome_enabled': False})
+        self.assertNotIn(-1, [l['id'] for l in self.client.get('/api/halloween/hub').get_json()['lots']])
+        self.post('/api/admin/halloween/lots/generate', {'count': 0}, 400)
+        self.post('/api/admin/halloween/lots/generate', {'count': 5, 'min_price': 50, 'max_price': 10}, 400)
+        made = self.post('/api/admin/halloween/lots/generate', {'count': 8, 'min_price': 20, 'max_price': 3000, 'replace': True})
+        self.assertEqual(made['created'], 8)
+        lots = self.client.get('/api/admin/halloween/config').get_json()['lots']
+        self.assertEqual(len(lots), 8)
+        self.assertTrue(all(20 <= l['price'] <= 3000 and l['reward_raw']['type'] in ('ton', 'bonus', 'tickets') for l in lots))
+        self.assertEqual([l['price'] for l in lots], sorted(l['price'] for l in lots))
+        self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

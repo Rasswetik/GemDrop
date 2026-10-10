@@ -2574,7 +2574,66 @@ def admin_halloween_banner():
 # ---------------------------------------------------------------------------
 HW_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo', 'pumpkins', 'tickets')
 HW_TARGETS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'market', 'wheel', 'bonus', 'profile', 'giveaways', 'games')
-HW_ICONS = ('pumpkin', 'ghost', 'bat', 'candy', 'cauldron', 'skull', 'hat', 'moon', 'gift', 'spider', 'crystal', 'coin')
+HW_ICON_META = {
+    'pumpkin': ('Основное', 'Тыква'),
+    'ghost': ('Основное', 'Призрак'),
+    'bat': ('Основное', 'Летучая мышь'),
+    'candy': ('Сладости', 'Конфета'),
+    'cauldron': ('Предметы', 'Котёл'),
+    'skull': ('Основное', 'Череп'),
+    'hat': ('Предметы', 'Шляпа ведьмы'),
+    'moon': ('Основное', 'Луна'),
+    'gift': ('Призы', 'Подарок'),
+    'spider': ('Основное', 'Паук'),
+    'crystal': ('Призы', 'Гем'),
+    'coin': ('Призы', 'Монета TON'),
+    'cat': ('Персонажи', 'Чёрный кот'),
+    'owl': ('Персонажи', 'Сова'),
+    'crow': ('Персонажи', 'Ворон'),
+    'bat2': ('Персонажи', 'Летучая мышь'),
+    'mummy': ('Персонажи', 'Мумия'),
+    'zombie': ('Персонажи', 'Рука зомби'),
+    'eye': ('Персонажи', 'Глаз'),
+    'fangs': ('Персонажи', 'Клыки'),
+    'frank': ('Персонажи', 'Франкенштейн'),
+    'jack': ('Персонажи', 'Тыква Джека'),
+    'potion': ('Предметы', 'Зелье'),
+    'poison': ('Предметы', 'Яд'),
+    'broom': ('Предметы', 'Метла'),
+    'tomb': ('Предметы', 'Надгробие'),
+    'candle': ('Предметы', 'Свеча'),
+    'lantern': ('Предметы', 'Фонарь'),
+    'key': ('Предметы', 'Ключ'),
+    'book': ('Предметы', 'Книга заклинаний'),
+    'orb': ('Предметы', 'Хрустальный шар'),
+    'chest': ('Предметы', 'Сундук'),
+    'coffin': ('Предметы', 'Гроб'),
+    'web': ('Предметы', 'Паутина'),
+    'wand': ('Предметы', 'Волшебная палочка'),
+    'bone': ('Предметы', 'Кость'),
+    'ring': ('Предметы', 'Кольцо'),
+    'crown': ('Призы', 'Корона'),
+    'trophy': ('Призы', 'Кубок'),
+    'goldcoin': ('Призы', 'Золотая монета'),
+    'moneybag': ('Призы', 'Мешок монет'),
+    'star': ('Призы', 'Звезда'),
+    'lightning': ('Призы', 'Молния'),
+    'flame': ('Призы', 'Огонь'),
+    'hourglass': ('Предметы', 'Песочные часы'),
+    'mushroom': ('Предметы', 'Мухомор'),
+    'mask': ('Предметы', 'Маска'),
+    'envelope': ('Предметы', 'Письмо'),
+    'lolly': ('Сладости', 'Леденец'),
+    'cupcake': ('Сладости', 'Кекс'),
+    'apple': ('Сладости', 'Яблоко в карамели'),
+    'bag': ('Сладости', 'Мешок конфет'),
+    'candycorn': ('Сладости', 'Кэнди-корн'),
+    'heart': ('Призы', 'Сердце'),
+    'gemblue': ('Призы', 'Кристалл'),
+    'ghost2': ('Персонажи', 'Привидение'),
+    'witch': ('Персонажи', 'Ведьма'),
+}
+HW_ICONS = tuple(HW_ICON_META)
 HW_SIZES = ('s', 'm', 'l')
 HW_DEFAULT_RATE = 100   # pumpkins for every 1 TON lost from the main balance
 HW_MAX_BUTTONS = 12
@@ -2586,6 +2645,14 @@ def hw_rate(doc=None):
         return max(0, min(100000, int(doc.get('pumpkin_rate', HW_DEFAULT_RATE))))
     except (TypeError, ValueError):
         return HW_DEFAULT_RATE
+
+
+def hw_tour_reward(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return max(0, min(1000000, int(float(str(doc.get('tour_reward', 100))))))
+    except (TypeError, ValueError):
+        return 100
 
 
 def hw_image_ok(value):
@@ -2696,7 +2763,7 @@ def hw_normalize_buttons(raw):
         title = re.sub(r'\s+', ' ', str(item.get('title') or '')).strip()[:40]
         if not title:
             raise ValueError('У каждой кнопки должно быть название.')
-        kind = 'gift' if item.get('kind') == 'gift' else 'page'
+        kind = item.get('kind') if item.get('kind') in ('gift', 'article') else 'page'
         btn = dict(id=bid, title=title, kind=kind, icon=hw_image_ok(item.get('icon')) or 'hw:pumpkin',
                    subtitle=re.sub(r'\s+', ' ', str(item.get('subtitle') or '')).strip()[:60], active=item.get('active') is not False)
         if kind == 'page':
@@ -2704,6 +2771,8 @@ def hw_normalize_buttons(raw):
             if target not in HW_TARGETS:
                 raise ValueError(f'Кнопка «{title}»: выберите раздел.')
             btn['target'] = target
+        elif kind == 'article':
+            btn['article'] = hw_normalize_article(item.get('article'), title)
         else:
             mode = 'choice' if item.get('mode') == 'choice' else 'direct'
             limit = str(item.get('limit') or 'once')
@@ -2732,9 +2801,55 @@ def hw_normalize_buttons(raw):
     return out
 
 
+HW_ARTICLE_BLOCKS = ('h', 'p', 'img', 'btn', 'hr')
+
+
+def hw_normalize_article(raw, button_title=''):
+    """A button can open a small page: cover, title and blocks of heading / text / picture / button / divider."""
+    raw = raw if isinstance(raw, dict) else {}
+    blocks = []
+    for item in (raw.get('blocks') or [])[:40]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get('t') or '')
+        if kind not in HW_ARTICLE_BLOCKS:
+            continue
+        if kind == 'h':
+            text = re.sub(r'\s+', ' ', str(item.get('text') or '')).strip()[:120]
+            if text:
+                blocks.append(dict(t='h', text=text))
+        elif kind == 'p':
+            text = '\n'.join(line.rstrip() for line in str(item.get('text') or '').replace('\r', '').split('\n')).strip()[:3000]
+            if text:
+                blocks.append(dict(t='p', text=text))
+        elif kind == 'img':
+            src = hw_image_ok(item.get('src'))
+            if src:
+                blocks.append(dict(t='img', src=src, caption=re.sub(r'\s+', ' ', str(item.get('caption') or '')).strip()[:160]))
+        elif kind == 'btn':
+            text = re.sub(r'\s+', ' ', str(item.get('text') or '')).strip()[:40]
+            target, url = str(item.get('target') or ''), str(item.get('url') or '').strip()
+            if not text:
+                raise ValueError('У кнопки внутри статьи должно быть название.')
+            if url:
+                if not re.fullmatch(r'https://[^\s<>"\']{3,300}', url):
+                    raise ValueError(f'Кнопка «{text}»: ссылка должна начинаться с https://')
+                blocks.append(dict(t='btn', text=text, url=url, target=''))
+            elif target in HW_TARGETS:
+                blocks.append(dict(t='btn', text=text, target=target, url=''))
+            else:
+                raise ValueError(f'Кнопка «{text}»: укажите раздел или ссылку.')
+        else:
+            blocks.append(dict(t='hr'))
+    title = re.sub(r'\s+', ' ', str(raw.get('title') or '')).strip()[:80] or button_title
+    return dict(title=title, cover=hw_image_ok(raw.get('cover')), blocks=blocks)
+
+
 def hw_button_public(btn, claimed):
     view = {k: btn.get(k) for k in ('id', 'title', 'subtitle', 'kind', 'icon', 'target', 'mode', 'limit', 'treat_label', 'trick_label')}
     view['claimed'] = bool(claimed)
+    if btn.get('kind') == 'article':
+        view['article'] = btn.get('article') or dict(title=btn.get('title'), cover='', blocks=[])
     if btn.get('kind') == 'gift':
         pick = btn.get('reward') if btn.get('mode') == 'direct' else btn.get('treat')
         view['preview'] = hw_reward_view(pick) if btn.get('mode') == 'direct' else None
@@ -2802,14 +2917,44 @@ def halloween_hub():
     with connect() as db:
         pump = hw_pumpkin_balance(db, uid)
         claimed = hw_claimed_ids(db, uid, buttons)
+        tour_done = bool(db.execute("SELECT 1 FROM hw_claims WHERE user_id=? AND button_id='~tour'", (uid,)).fetchone())
         lots = db.execute('SELECT * FROM hw_lots WHERE active=1 ORDER BY sort_order, id').fetchall()
         bought = {r['lot_id']: int(r['n']) for r in db.execute('SELECT lot_id,COUNT(*) AS n FROM hw_purchases WHERE user_id=? GROUP BY lot_id', (uid,)).fetchall()}
     lot_views = [hw_lot_view(r, bought.get(r['id'], 0), now_ms) for r in lots]
     lot_views = [l for l in lot_views if not l['ended']]
     resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
-                   lots=lot_views, now=now_ms, ends_at=s['ends_at'])
+                   lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)))
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+
+@app.post('/api/halloween/tour')
+@login_required
+def halloween_tour_finish():
+    """The guided tour was walked to the end: one-time pumpkin gift."""
+    s, err = hw_visible_or_error()
+    if err:
+        return err
+    uid = int(session['uid'])
+    reward = hw_tour_reward()
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        got = db.execute("INSERT OR IGNORE INTO hw_claims(user_id,button_id,day,outcome) VALUES(?,?,?,?)", (uid, '~tour', 'once', 'tour'))
+        if not got.rowcount:
+            db.rollback()
+            return error('Награда за экскурсию уже получена.', 409)
+        if reward > 0:
+            hw_add_pumpkins(db, uid, reward, earned=False)
+        pump = hw_pumpkin_balance(db, uid)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween tour reward failed')
+        return error('Не удалось выдать награду. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, reward=reward, pumpkins=pump)
 
 
 @app.post('/api/halloween/claim')
@@ -2933,7 +3078,7 @@ def admin_halloween_config():
     with connect() as db:
         lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
         totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
-    return jsonify(ok=True, rate=hw_rate(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+    return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
                    holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
 
 
@@ -2950,6 +3095,14 @@ def admin_halloween_config_set():
         if not 0 <= rate <= 100000:
             return error('Курс тыкв: от 0 до 100 000 за 1 TON.')
         doc['pumpkin_rate'] = rate
+    if 'tour_reward' in data:
+        try:
+            tour = int(float(str(data.get('tour_reward')).replace(',', '.')))
+        except ValueError:
+            return error('Награда за экскурсию: целое число.')
+        if not 0 <= tour <= 1000000:
+            return error('Награда за экскурсию: от 0 до 1 000 000 тыкв.')
+        doc['tour_reward'] = tour
     if 'buttons' in data:
         try:
             doc['buttons'] = hw_normalize_buttons(data.get('buttons'))
@@ -2979,7 +3132,7 @@ def admin_halloween_icon():
 @admin_required
 def admin_halloween_images():
     """Pictures an admin can pick for a button or a lot: built-in Halloween art and the files shipped with the project."""
-    items = [dict(url='hw:' + name, name=name, group='Хэллоуин') for name in HW_ICONS]
+    items = [dict(url='hw:' + name, name=HW_ICON_META[name][1], group='Хэллоуин · ' + HW_ICON_META[name][0]) for name in HW_ICONS]
     root = os.path.join(app.root_path, 'static')
     for folder in ('img', 'gifs'):
         base = os.path.join(root, folder)

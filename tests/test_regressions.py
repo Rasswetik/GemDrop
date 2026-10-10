@@ -1415,6 +1415,30 @@ class RegressionTests(unittest.TestCase):
         self.post('/api/admin/halloween', {'enabled': False})
         self.assertIsNone(self.client.get('/api/me').get_json()['user'].get('pumpkins'))
 
+    def test_halloween_tour_reward_and_article_buttons(self):
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        now = int(time.time() * 1000)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': now + 600000, 'mode': 'full'})
+        self.post('/api/admin/halloween/config', {'tour_reward': 'abc'}, 400)
+        self.post('/api/admin/halloween/config', {'tour_reward': 120})
+        self.assertEqual(self.client.get('/api/admin/halloween/config').get_json()['tour_reward'], 120)
+        hub = self.client.get('/api/halloween/hub').get_json()
+        self.assertEqual(hub['tour'], {'done': False, 'reward': 120})
+        first = self.post('/api/halloween/tour', {})
+        self.assertEqual((first['reward'], first['pumpkins']['balance']), (120, 120))
+        self.post('/api/halloween/tour', {}, 409)                                               # one gift per player
+        self.assertTrue(self.client.get('/api/halloween/hub').get_json()['tour']['done'])
+        article = {'title': 'Правила', 'cover': 'hw:book', 'blocks': [
+            {'t': 'h', 'text': 'Привет'}, {'t': 'p', 'text': 'Строка 1\nСтрока 2'}, {'t': 'img', 'src': ''},
+            {'t': 'btn', 'text': 'В Мины', 'target': 'mines'}, {'t': 'btn', 'text': 'Канал', 'url': 'https://t.me/gemdrop'}, {'t': 'hr'}, {'t': 'zzz'}]}
+        self.post('/api/admin/halloween/config', {'buttons': [{'id': 'rules', 'title': 'Правила', 'kind': 'article', 'icon': 'hw:cat', 'article': article}]})
+        btn = [b for b in self.client.get('/api/halloween/hub').get_json()['buttons'] if b['id'] == 'rules'][0]
+        self.assertEqual([b['t'] for b in btn['article']['blocks']], ['h', 'p', 'btn', 'btn', 'hr'])   # empty picture and unknown block dropped
+        self.assertEqual(btn['icon'], 'hw:cat')                                                  # new picture set is accepted
+        bad = {'id': 'x', 'title': 'x', 'kind': 'article', 'article': {'blocks': [{'t': 'btn', 'text': 'a', 'url': 'javascript:alert(1)'}]}}
+        self.post('/api/admin/halloween/config', {'buttons': [bad]}, 400)
+        self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

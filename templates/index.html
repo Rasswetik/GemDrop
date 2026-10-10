@@ -3804,6 +3804,9 @@ body.studio #minesPage #quickBets button[data-bet=max]{background:#382f29!import
 #ggModal,#hlInfoModal{overflow-y:auto!important;overscroll-behavior:contain!important;align-items:flex-start!important;justify-items:center!important;padding-top:max(12px,env(safe-area-inset-top))!important;padding-bottom:max(12px,env(safe-area-inset-bottom))!important;touch-action:pan-y!important}
 #ggModal .modal-card,#hlInfoModal .modal-card{width:min(560px,calc(100vw - 20px))!important;max-height:calc(100dvh - 24px)!important;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;margin:auto!important}
 @supports not (height:100dvh){#ggModal .modal-card,#hlInfoModal .modal-card{max-height:calc(100vh - 24px)!important}}
+/* the modal itself scrolls; the card never has its own max-height (Telegram safe-area padding made the bottom unreachable) */
+#ggModal .modal-card,#hlInfoModal .modal-card,#ggModal .gg,#hlInfoModal .gg{max-height:none!important;overflow:visible!important}
+#ggModal,#hlInfoModal{padding-bottom:calc(max(12px,env(safe-area-inset-bottom)) + 24px)!important;-webkit-overflow-scrolling:touch}
 /* Transfer source and receipt. */
 #transferModal .transfer-source{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:2px}
 #transferModal .transfer-source button{display:flex;align-items:center;gap:8px;min-width:0;padding:9px 10px;border:1px solid rgba(255,255,255,.075);border-radius:12px;background:rgba(255,255,255,.025);color:#a8b0b8;text-align:left;transition:.18s ease}
@@ -11600,7 +11603,7 @@ html.hw-still #hwDlg *{animation:none!important}
  .hw-lot-name{font-size:clamp(12px,9cqw,18px)}
 }
 html.hw body.studio .hw-cfg button.primary,html.hw body.studio .hw-dlg-card button.primary{color:#fff!important;-webkit-text-fill-color:#fff!important}
-html:not(.hw) #hwMarketPage,html:not(.hw) .hw-dlg{display:none!important}
+html:not(.hw) #hwMarketPage,html:not(.hw) .hw-dlg:not(:has(.hw-imgdlg)){display:none!important}
 /* ---- rollout: grey event button with a countdown ---- */
 #hwTeaser{position:relative;grid-column:1/-1;display:flex;align-items:center;gap:14px;width:100%;min-height:96px;padding:14px 16px;border-radius:22px;text-align:left;cursor:pointer;color:#c9ccd8;background:linear-gradient(135deg,#2b2e3a,#1d1f29);border:1px solid #3d4152;box-shadow:0 10px 24px #0007}
 html.hw #hwTeaser{display:none!important}
@@ -11669,6 +11672,78 @@ body.hw-dragging{cursor:grabbing;user-select:none;-webkit-user-select:none}
 .hw-draftbox{justify-items:stretch}.hw-draft-wrap{width:100%;max-width:360px}
 .hw-lot.off .hw-lot-veil{align-items:start!important;padding:6px 0 0!important;font-size:10px!important;color:#ffb3c6!important}
 
+/* event card: title + one timer line */
+#hwEventCard .hw-tx small.hw-timer{display:inline-flex;align-items:center;gap:7px;margin-top:6px;font:800 14px ui-monospace,Menlo,monospace;color:#e9dcff;letter-spacing:.02em}
+#hwEventCard .hw-tx small.hw-timer svg{width:16px;height:16px;flex:none;fill:none;stroke:#c9a7ff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.hw-hero .hw-live.hw-timer{display:inline-flex;align-items:center;gap:7px;font:800 17px ui-monospace,Menlo,monospace;letter-spacing:.02em;color:#f1eaff}
+.hw-hero .hw-live.hw-timer svg{width:18px;height:18px;fill:none;stroke:#c9a7ff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hw-hero .hw-live.hw-timer b{font:inherit}
+.hw-hero-cd{display:none!important}
+
+/* ===== guided tour ===== */
+.hw-sp-card .hw-sp-sec{width:100%;height:48px;margin-top:10px;border-radius:16px;font:800 15px system-ui;color:#f1eaff;background:#ffffff14;border:1px solid #b394ff66;cursor:pointer}
+.hw-tour{position:fixed;inset:0;z-index:60000}
+.hw-tour-block{position:absolute;inset:0;touch-action:none}
+.hw-tour.center .hw-tour-block{background:rgba(8,4,20,.72)}
+.hw-tour-hole{position:fixed;display:none;border-radius:18px;pointer-events:none;box-shadow:0 0 0 9999px rgba(8,4,20,.74),0 0 0 3px #c9a7ff,0 0 26px 6px #8a5cf099;transition:left .3s,top .3s,width .3s,height .3s}
+.hw-tour-card{position:fixed;left:12px;right:12px;display:flex;align-items:flex-end;gap:6px;max-width:520px;margin:0 auto;z-index:2}
+.hw-tour-card.bottom{bottom:calc(14px + env(safe-area-inset-bottom))}
+.hw-tour-card.top{top:calc(76px + env(safe-area-inset-top))}
+.hw-tour-gem{flex:none;width:74px;height:96px;margin-bottom:-2px;filter:drop-shadow(0 8px 12px #000a)}
+.hw-tour-gem svg{width:100%;height:100%}
+.hw-tour-bub{position:relative;flex:1;min-width:0;padding:14px 14px 12px;border-radius:20px;background:linear-gradient(180deg,#2a1a52,#1a1036);border:1px solid #8a5cf0aa;box-shadow:0 16px 40px #000a;color:#f1eaff}
+.hw-tour-bub::before{content:"";position:absolute;left:-7px;bottom:26px;width:14px;height:14px;background:#2a1a52;border-left:1px solid #8a5cf0aa;border-bottom:1px solid #8a5cf0aa;transform:rotate(45deg)}
+.hw-tour-step{font:800 10.5px system-ui;letter-spacing:.12em;text-transform:uppercase;color:#c9a7ff}
+.hw-tour-bub h3{margin:3px 0 4px;font:900 18px system-ui;color:#fff}
+.hw-tour-bub p{margin:0;font-size:13.5px;line-height:1.45;color:#d9ccf5}
+.hw-tour-dots{display:flex;gap:5px;margin:10px 0 2px}.hw-tour-dots i{width:7px;height:7px;border-radius:50%;background:#ffffff30}.hw-tour-dots i.on{background:#ffd89a;transform:scale(1.25)}.hw-tour-dots i.done{background:#a98bff}
+.hw-tour-act{display:flex;gap:8px;margin-top:10px}.hw-tour-act .primary{flex:1;min-height:42px;border-radius:14px}.hw-tour-act .hw-ghost{min-height:42px;padding:0 14px;border-radius:14px}
+.hw-tour-act button.hidden{display:none}
+.hw-tour-cta{display:flex;align-items:center;gap:12px;width:100%;margin:0 0 12px;padding:10px 14px;border-radius:20px;text-align:left;cursor:pointer;color:#f1eaff;background:linear-gradient(135deg,#3b2380,#25154f);border:1px solid #a98bffcc;box-shadow:0 8px 24px #4a2aa844}
+.hw-tour-cta.hidden{display:none}
+.hw-tour-cta-gem{flex:none;width:40px;height:52px}.hw-tour-cta-gem svg{width:100%;height:100%}
+.hw-tour-cta-tx{flex:1;min-width:0;display:grid;gap:2px}.hw-tour-cta-tx b{font:900 15.5px system-ui}.hw-tour-cta-tx small{color:#ffd89a;font-size:12.5px;font-weight:700}
+.hw-tour-cta i{font:900 26px system-ui;color:#c9a7ff;font-style:normal}
+body.hw-tour-open{overflow:hidden}
+html.hw body.studio .hw-tour .hw-tour-act button.primary,.hw-tour .hw-tour-act .primary{color:#fff!important;-webkit-text-fill-color:#fff!important;background:linear-gradient(135deg,#8a5cf0,#5b30c8)!important;border:1px solid #b394ff88!important}
+.hw-tour .hw-tour-act .hw-ghost{flex:none;color:#d9ccf5;background:#ffffff12;border:1px solid #ffffff22}
+html.hw body.studio .hw-tour-cta b{color:#fff!important;-webkit-text-fill-color:#fff!important}
+.hw-mk-grid>.hw-hint{grid-column:1/-1;grid-row:auto;align-self:start}
+.hw-draftbox{overflow:hidden;min-width:0}.hw-draft-wrap{max-width:none}
+
+/* ===== article page ===== */
+.hw-art-sheet{position:fixed;inset:0;z-index:48000;display:flex;flex-direction:column;background:radial-gradient(120% 60% at 50% 0,#33195f 0,#1a0f33 50%,#0f0a1f 100%);color:#f1eaff;opacity:0;transform:translateY(14px);transition:opacity .22s,transform .22s}
+.hw-art-sheet.open{opacity:1;transform:none}
+.hw-art-top{flex:none;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:#150e2ef2;border-bottom:1px solid #3d2c78}
+html.tg-fs .hw-art-top{padding-top:calc(12px + var(--tg-safe-top,0px))}
+.hw-art-back{width:40px;height:40px;border-radius:13px;border:1px solid #4a3590;background:#ffffff10;color:#f1eaff;font:900 20px system-ui;cursor:pointer}
+.hw-art-top b{flex:1;min-width:0;font:900 16px system-ui;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hw-art-pv{font:900 9px system-ui;letter-spacing:.1em;padding:4px 8px;border-radius:999px;background:#ffd89a;color:#3a1f08}
+.hw-art-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.hw-art-page{max-width:640px;margin:0 auto;padding:16px 16px calc(40px + env(safe-area-inset-bottom));display:grid;gap:14px}
+.hw-art-page h1{margin:0;font:900 26px/1.12 system-ui;color:#fff;-webkit-text-fill-color:#fff;background:none}
+.hw-art-cover{border-radius:22px;overflow:hidden;background:#150e2e;border:1px solid #3d2c78;display:grid;place-items:center;min-height:140px}
+.hw-art-cover .hw-art-i{width:100%;height:auto;max-height:300px;object-fit:cover}
+.hw-art-cover svg.hw-art-i{width:62%;max-height:220px;object-fit:contain;padding:14px 0}
+.hw-art-h{margin:6px 0 0;font:900 19px/1.2 system-ui;color:#ffd89a}
+.hw-art-p{margin:0;font-size:15px;line-height:1.55;color:#e4daf7}.hw-art-p.muted{color:#9c8fc0}
+.hw-art-hr{border:0;height:1px;background:linear-gradient(90deg,transparent,#7a55e8,transparent);margin:6px 0}
+.hw-art-fig{margin:0;display:grid;gap:6px;justify-items:center}
+.hw-art-fig .hw-art-i{width:100%;height:auto;border-radius:18px}
+.hw-art-fig.ic .hw-art-i{width:46%;max-width:200px;border-radius:0;filter:drop-shadow(0 8px 12px #0009)}
+.hw-art-fig figcaption{color:#b4a5d8;font-size:12.5px;text-align:center}
+.hw-art-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:52px;padding:0 18px;border-radius:16px;border:1px solid #b394ff88;background:linear-gradient(135deg,#8a5cf0,#5b30c8);color:#fff!important;-webkit-text-fill-color:#fff;font:800 16px system-ui;cursor:pointer;box-shadow:0 10px 24px #4a2aa855}
+.hw-art-btn i{font:900 24px system-ui;font-style:normal;opacity:.85}
+body.hw-art-open{overflow:hidden}
+/* article editor */
+.hw-arted{display:grid;gap:10px;padding:12px;border-radius:16px;background:#0f0a22;border:1px solid #3d2c78}
+.hw-blocks{display:grid;gap:10px}
+.hw-blk{display:grid;gap:8px;padding:10px;border-radius:14px;background:#150e2e;border:1px solid #3d2c78}
+.hw-blk-h{display:flex;align-items:center;gap:6px}.hw-blk-h b{flex:1;font-size:13px;color:#c9a7ff}
+.hw-addrow{display:flex;flex-wrap:wrap;gap:8px}
+.hw-blk textarea{min-height:90px;resize:vertical}
+
 /* ---- Halloween skin for result / reward / deposit windows ---- */
 html.hw .modal:not(.ugm):not(.xh-modal):not(.wl-modal)>.modal-card{position:relative;isolation:isolate;overflow:hidden;background:radial-gradient(120% 60% at 50% 0,#43308a,#221750 56%,#170f34)!important;border:1px solid #8a66f0aa!important;border-radius:26px!important;box-shadow:0 26px 64px #000c,0 0 44px #6b45d64d!important;color:#f1eaff}
 html.hw .modal:not(.hidden):not(.ugm):not(.xh-modal):not(.wl-modal)>.modal-card{animation:hwDlgIn .5s linear both}
@@ -11699,6 +11774,303 @@ html.hw #depositModal .hw-md-top{opacity:.4}
 </style>
 <script id="halloween-js">(()=>{
 const NS='http://www.w3.org/2000/svg',$$=s=>document.querySelector(s),root=document.documentElement;
+/* generated by mkicons.py: the extra Halloween picture set */
+const ICON_DEFS=`
+<linearGradient id="kPur" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c4a4ff"/><stop offset="1" stop-color="#5a32c8"/></linearGradient>
+<linearGradient id="kOra" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffc864"/><stop offset="1" stop-color="#e2610f"/></linearGradient>
+<linearGradient id="kGre" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c2f574"/><stop offset="1" stop-color="#3b9a2a"/></linearGradient>
+<linearGradient id="kRed" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a8a"/><stop offset="1" stop-color="#b3182e"/></linearGradient>
+<linearGradient id="kGld" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0a0"/><stop offset=".55" stop-color="#ffc83a"/><stop offset="1" stop-color="#c9780a"/></linearGradient>
+<linearGradient id="kBon" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#d4c29a"/></linearGradient>
+<linearGradient id="kGry" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9d4ec"/><stop offset="1" stop-color="#6a6285"/></linearGradient>
+<linearGradient id="kDrk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a4880"/><stop offset="1" stop-color="#1a1030"/></linearGradient>
+<linearGradient id="kBrn" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c58d5a"/><stop offset="1" stop-color="#5e3418"/></linearGradient>
+<linearGradient id="kTea" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9af0ea"/><stop offset="1" stop-color="#1f8f9a"/></linearGradient>
+<linearGradient id="kPnk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb0da"/><stop offset="1" stop-color="#c23a86"/></linearGradient>
+<linearGradient id="kBlu" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a6c6ff"/><stop offset="1" stop-color="#2f55c9"/></linearGradient>
+<radialGradient id="kOrb" cx=".38" cy=".3" r=".85"><stop offset="0" stop-color="#f3ebff"/><stop offset=".35" stop-color="#a98bff"/><stop offset="1" stop-color="#3a1f88"/></radialGradient>
+<radialGradient id="kEye" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e3d6ee"/></radialGradient>
+<radialGradient id="kFire" cx=".5" cy=".75" r=".8"><stop offset="0" stop-color="#fff3a8"/><stop offset=".45" stop-color="#ffa21f"/><stop offset="1" stop-color="#d9360d"/></radialGradient>
+
+<symbol id="hwI_cat" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M10 40c-2-9 2-18 8-21l-3-10 8 5c2-.6 4-.6 6 0l8-5-3 10c6 3 10 12 8 21Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M17 12.500l1.800 4.500M31 12.500l-1.800 4.500" stroke="#ff9acb" stroke-width="2" stroke-linecap="round"/>
+<ellipse cx="18.500" cy="27" rx="3.600" ry="4.200" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><ellipse cx="29.500" cy="27" rx="3.600" ry="4.200" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="18.500" cy="27.300" rx="1.100" ry="3.200" fill="#1d0f33"/><ellipse cx="29.500" cy="27.300" rx="1.100" ry="3.200" fill="#1d0f33"/>
+<path d="M22.500 33.500h3l-1.500 2Z" fill="#ff9acb" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><path d="M24 35.500v2M20.500 38c1.500 0 3.500-.5 3.500-2.500 0 2 2 2.500 3.500 2.500" fill="none" stroke="#ffe9f5" stroke-width="1.300" stroke-linecap="round"/>
+<path d="M12 33h-6M12 36l-5 2M36 33h6M36 36l5 2" stroke="#ffffff90" stroke-width="1" stroke-linecap="round"/>
+<path d="M13 24c1-3 3-5 5-6" stroke="#fff" stroke-opacity="0.3" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_owl" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M24 5c11 0 17 8 15 20-1 8-5 15-15 15S10 33 9 25C7 13 13 5 24 5Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 14l4 5M39 14l-4 5" stroke="#5e3418" stroke-width="3.500" stroke-linecap="round"/><path d="M8 11l6 3-3 5ZM40 11l-6 3 3 5Z" fill="#7a4a24" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="24" cy="31" rx="9" ry="10" fill="#f6dcb4" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M18 27q2 1.500 2 3.500M24 26v5M30 27q-2 1.500-2 3.500M19 33q2 1 2 3M27 33q-2 1-2 3" stroke="#b07a4a" stroke-width="1.200" fill="none" stroke-linecap="round"/>
+<circle cx="17" cy="19" r="6.500" fill="#fff6e6" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="31" cy="19" r="6.500" fill="#fff6e6" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="17.500" cy="19.500" r="3.400" fill="#ffb02e"/><circle cx="30.500" cy="19.500" r="3.400" fill="#ffb02e"/><circle cx="17.800" cy="19.800" r="1.800" fill="#1d0f33"/><circle cx="30.200" cy="19.800" r="1.800" fill="#1d0f33"/><circle cx="16.800" cy="18.600" r=".8" fill="#fff"/><circle cx="29.200" cy="18.600" r=".8" fill="#fff"/>
+<path d="M24 22l-2.500 3.500h5Z" fill="#ff8a1f" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M15 41l-1 3M21 41l-.5 3M27 41l.5 3M33 41l1 3" stroke="#ffb02e" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="hwI_crow" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M40 14c-8-5-20-3-26 4-3 4-4 9-3 13L5 38l9-1c3 4 9 5 14 3 8-3 12-11 12-26Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M40 14l6 3-6 3Z" fill="#ffb02e" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="33" cy="15" r="2.600" fill="#ffe46a" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><circle cx="33.400" cy="15.200" r="1.200" fill="#1d0f33"/>
+<path d="M14 30c5 3 11 3 16 0" stroke="#8a74c0" stroke-width="1.600" fill="none" stroke-linecap="round" opacity=".7"/>
+<path d="M18 40l-2 4M24 41l-1 3.500" stroke="#ffb02e" stroke-width="2" stroke-linecap="round"/>
+<path d="M17 21c3-3 8-4 12-3" stroke="#fff" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_bat2" viewBox="0 0 48 48">
+<path d="M24 14C20 8 12 8 3 13c3 1 4 3 4 5 2-1 4 0 5 2 2-1 4 0 5 3 2-1 4 0 7 1Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 14c4-6 12-6 21-1-3 1-4 3-4 5-2-1-4 0-5 2-2-1-4 0-5 3-2-1-4 0-7 1Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="24" cy="27" rx="8" ry="11" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M17.500 10l1.500 6M30.500 10l-1.500 6" stroke="#1d0f33" stroke-width="1.600"/><path d="M16 9l4.500 5L18 17ZM32 9l-4.500 5L30 17Z" fill="#5a4880" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="20.500" cy="24" r="2.200" fill="#ff5a5a"/><circle cx="27.500" cy="24" r="2.200" fill="#ff5a5a"/><circle cx="20.800" cy="23.600" r=".8" fill="#fff"/><circle cx="27.800" cy="23.600" r=".8" fill="#fff"/>
+<path d="M21 30l1.500 3 1.500-3 1.500 3 1.500-3" fill="#fff" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round"/></symbol>
+<symbol id="hwI_mummy" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<rect x="9" y="6" width="30" height="35" rx="13" fill="#efe3c4" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 14l30 4M9 20l30-3M9 26l30 4M10 33l28-3M12 38l24 1" stroke="#b5a47c" stroke-width="2.200" fill="none"/>
+<path d="M11 22q13-8 26 0v5q-13-6-26 0Z" fill="#1d0f33"/>
+<circle cx="19" cy="24.500" r="3.400" fill="#fff"/><circle cx="29" cy="24.500" r="3.400" fill="#fff"/><circle cx="19.500" cy="25" r="1.700" fill="#43b8ff"/><circle cx="28.500" cy="25" r="1.700" fill="#43b8ff"/><circle cx="19.500" cy="25" r=".8" fill="#1d0f33"/><circle cx="28.500" cy="25" r=".8" fill="#1d0f33"/>
+<path d="M14 12c2-2.500 5-4 8-4.500" stroke="#fff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_zombie" viewBox="0 0 48 48">
+<path d="M5 44c2-9 3-14 8-17l-1-9c0-2.500 3-2.500 3.500-.5L17 25l1-15c0-3 3.500-3 3.700 0L22 25l1.500-17c.3-3 4-2.500 3.800.5L26.500 26l2-12c.5-2.500 3.700-1.500 3.400 1l-1.500 14 3-5c1.700-2.700 4.500-.8 3.200 1.700L33 37l-1 7Z" fill="url(#kGre)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M16 20.500l-2.200-.4M21.500 14l.2-1.800M27 17l.8-1.500M32 24l1.200-1" stroke="#245a1a" stroke-width="1.300" stroke-linecap="round"/>
+<path d="M9 36l5 3M10 31l6 1" stroke="#245a1a" stroke-width="1.300" stroke-linecap="round" opacity=".8"/>
+<path d="M13 38l3-3.500 3 3.500Z" fill="#e8d6a8" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" opacity=".0"/>
+<path d="M14 33c1-4 2-6 4-7.500" stroke="#fff" stroke-opacity="0.4" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_eye" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M2 24C8 12 16 7 24 7s16 5 22 17c-6 12-14 17-22 17S8 36 2 24Z" fill="#fff6ff" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="24" cy="24" r="11.500" fill="url(#kPur)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="24" r="6" fill="#1d0f33"/>
+<path d="M24 24l-8-3M24 24l8-4M24 24l-7 7M24 24l8 6" stroke="#fff" stroke-opacity=".25" stroke-width="1"/>
+<ellipse cx="20.500" cy="19.500" rx="3" ry="2" fill="#fff" opacity=".85" transform="rotate(-30 20.500 19.500)"/><circle cx="27.500" cy="28.500" r="1.200" fill="#fff" opacity=".6"/>
+<path d="M7 20c3-5 7-8 11-9M41 20c-3-5-7-8-11-9" stroke="#ff7a8a" stroke-width="1.100" fill="none" opacity=".6" stroke-linecap="round"/></symbol>
+<symbol id="hwI_fangs" viewBox="0 0 48 48">
+<path d="M3 16c6-8 14-5 21-1 7-4 15-7 21 1-2 12-10 21-21 21S5 28 3 16Z" fill="#b3182e" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M7 17c5-4 11-2 17 0 6-2 12-4 17 0-1 7-8 12-17 12S8 24 7 17Z" fill="#ff6a7e" opacity=".45"/>
+<path d="M10 20h28c-2 6-8 9-14 9s-12-3-14-9Z" fill="#fff6f0" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13 20.500l3.600 13 3.400-13ZM28 20.500l3.400 13 3.600-13Z" fill="#fff" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M21 21l1.200 5 1.800-5ZM24.500 21l1.500 5 1.500-5Z" fill="#fff" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14.500 22l2 8" stroke="#ffffff" stroke-opacity=".6" stroke-width="1.200"/></symbol>
+<symbol id="hwI_frank" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M9 14h30v24c0 4-4 6-8 6H17c-4 0-8-2-8-6Z" fill="url(#kGre)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M7 9h34v10H7Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M9 9c1-3 4-4 6-4h18c2 0 5 1 6 4Z" fill="#2c1d4c" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M12 22l2 2-2 2M36 22l-2 2 2 2" stroke="#245a1a" stroke-width="1.600" fill="none" stroke-linecap="round"/>
+<circle cx="18" cy="26" r="3.600" fill="#fff" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="30" cy="26" r="3.600" fill="#fff" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="18.300" cy="26.500" r="1.500" fill="#1d0f33"/><circle cx="30.300" cy="26.500" r="1.500" fill="#1d0f33"/>
+<path d="M18 21.500q-3 .5-4 3M30 21.500q3 .5 4 3" stroke="#1d0f33" stroke-width="1.800" fill="none" stroke-linecap="round"/>
+<path d="M17 37h14" stroke="#1d0f33" stroke-width="2.200" stroke-linecap="round"/><path d="M19 37v3.500M23 37v3.500M27 37v3.500M31 37v-0" stroke="#1d0f33" stroke-width="1.200"/>
+<rect x="2.500" y="24" width="6" height="4.500" rx="1.200" fill="url(#kGry)" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/><rect x="39.500" y="24" width="6" height="4.500" rx="1.200" fill="url(#kGry)" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M31 12l-3 8 3-1" stroke="#245a1a" stroke-width="1.100" fill="none" opacity=".0"/></symbol>
+<symbol id="hwI_jack" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<ellipse cx="14" cy="26" rx="9" ry="14.500" fill="url(#kOra)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><ellipse cx="34" cy="26" rx="9" ry="14.500" fill="url(#kOra)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><ellipse cx="24" cy="26" rx="10" ry="16" fill="url(#kOra)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 10C22 22 22 31 24 42M15 12C11 22 12 33 17 40M33 12C37 22 36 33 31 40" stroke="#b8470c" stroke-width="1.100" fill="none" opacity=".6"/>
+<path d="M24 11c0-4 2-6 5-7" stroke="#4d7a1a" stroke-width="3.500" fill="none" stroke-linecap="round"/><path d="M24 11c0-4 2-6 5-7" stroke="#9cc23f" stroke-width="1.400" fill="none" stroke-linecap="round"/>
+<path d="M13 21l6 5h-8ZM35 21l-6 5h8Z" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13 32q11 9 22 0l-3 5-3-3-2.500 4-2.500-4-2.500 4-2.500-4-3 3Z" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 20c1-3 3-5 5-6" stroke="#fff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_potion" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M19 6h10v4l-1 1v7c7 3 12 8 12 15 0 8-6 12-16 12S8 41 8 33c0-7 5-12 12-15v-7l-1-1Z" fill="#f0eaff" fill-opacity=".3" stroke="#1d0f33" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9.500 30c4-2 8 2 14.500 0s10-2 14.500 0c.6 1 1 2.200 1 3.500 0 6.500-6 10-15.500 10S9 40 9 33.500c0-1.300.2-2.500.5-3.500Z" fill="url(#kGre)"/>
+<circle cx="19" cy="34" r="2" fill="#e8ffc8" opacity=".8"/><circle cx="27" cy="37" r="1.400" fill="#e8ffc8" opacity=".8"/><circle cx="30" cy="32" r="1.100" fill="#e8ffc8" opacity=".8"/>
+<rect x="18" y="2.500" width="12" height="6.500" rx="2.200" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13 28c0-3 2-6 5-8" stroke="#fff" stroke-opacity="0.6" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_poison" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M17 7h14v5c7 3 11 8 11 15 0 9-7 15-18 15S6 36 6 27c0-7 4-12 11-15Z" fill="url(#kPur)" stroke="#1d0f33" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="16" y="3" width="16" height="7" rx="2.500" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="24" cy="29" rx="9.500" ry="9" fill="#2a1450"/>
+<circle cx="24" cy="27" r="5" fill="url(#kBon)" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><circle cx="22" cy="26.500" r="1.200" fill="#1d0f33"/><circle cx="26" cy="26.500" r="1.200" fill="#1d0f33"/><path d="M22 31l2-2 2 2Z" fill="url(#kBon)" stroke="#1d0f33" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 22c1-3 3-5 6-6" stroke="#fff" stroke-opacity=".5" stroke-width="2" stroke-linecap="round" fill="none"/>
+<path d="M36 10c1.500-2 3.500-2.500 5-1.500-1 2-3 3-5 1.500Z" fill="url(#kGre)" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><circle cx="40" cy="15" r="1.600" fill="#b6f06a"/></symbol>
+<symbol id="hwI_broom" viewBox="0 0 48 48">
+<path d="M4 41L36 9" stroke="#8a5a2c" stroke-width="4.500" stroke-linecap="round"/><path d="M4 41L36 9" stroke="#c58d5a" stroke-width="1.800" stroke-linecap="round" transform="translate(-.8 -.8)"/>
+<path d="M33 7l8 8-4 4-8-8Z" fill="#ffc864" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M30 22l-4 4c-4 5-8 10-14 14 1-8 4-14 9-19Z" fill="#e0b050" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M27 24c-5 3-10 9-12 15M23 21c-5 3-8 8-9 13M19 28c-3 3-5 7-6 11" stroke="#9a6a1a" stroke-width="1.100" fill="none"/>
+<path d="M26 26l-8 8" stroke="#6a3a14" stroke-width="2.600" stroke-linecap="round" opacity=".9"/></symbol>
+<symbol id="hwI_tomb" viewBox="0 0 48 48">
+<path d="M10 42V18C10 9 16 5 24 5s14 4 14 13v24Z" fill="url(#kGry)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M4 42h40v-3c0-1-1-2-2-2H6c-1 0-2 1-2 2Z" fill="#5a4880" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 12v14M18 17h12" stroke="#4a4668" stroke-width="3.200" stroke-linecap="round"/><path d="M24 12v14M18 17h12" stroke="#fff" stroke-opacity=".35" stroke-width="1" stroke-linecap="round" transform="translate(-.6 -.6)"/>
+<path d="M15 33h18M17 37h14" stroke="#4a4668" stroke-width="1.600" stroke-linecap="round"/>
+<path d="M12 21c0-5 3-9 8-10" stroke="#fff" stroke-opacity=".35" stroke-width="2" fill="none" stroke-linecap="round"/>
+<path d="M30 36l4-1 1 3M12 35q2-1 3 1" stroke="#7aa84a" stroke-width="1.400" fill="none" stroke-linecap="round"/></symbol>
+<symbol id="hwI_candle" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M17 20h14l1 22c0 1.500-3 3-8 3s-8-1.500-8-3Z" fill="url(#kBon)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M17 24q3 2 3 6M31 24q-2 1-2 4v9" stroke="#b5a47c" stroke-width="1.200" fill="none" stroke-linecap="round" opacity=".7"/>
+<ellipse cx="24" cy="20" rx="7" ry="2.200" fill="#fffaf0" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 20v-5" stroke="#1d0f33" stroke-width="1.600" stroke-linecap="round"/>
+<path d="M24 4c5 5 6 8 6 10 0 3-3 5-6 5s-6-2-6-5c0-2 1-5 6-10Z" fill="url(#kFire)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 11c2 2 3 4 3 5.500 0 1.500-1.200 2.500-3 2.500s-3-1-3-2.500c0-1.500 1-3.500 3-5.500Z" fill="#fff3a8"/>
+<path d="M20 22h6" stroke="#fff" stroke-opacity=".6" stroke-width="1.400" stroke-linecap="round"/></symbol>
+<symbol id="hwI_lantern" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M20 5h8M24 5v5" stroke="#1d0f33" stroke-width="2" stroke-linecap="round"/>
+<path d="M17 10h14l5 6H12Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M12 16h24l-2 22H14Z" fill="#ffe9a0" fill-opacity=".35" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M18 16l-1 22M24 16v22M30 16l1 22" stroke="#1d0f33" stroke-width="1.400"/>
+<path d="M24 22c3 3 4 5 4 7 0 2-2 4-4 4s-4-2-4-4c0-2 1-4 4-7Z" fill="url(#kFire)" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M11 38h26l2 5H9Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="24" cy="28" r="9" fill="#ffd978" opacity=".18"/></symbol>
+<symbol id="hwI_key" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<circle cx="15" cy="15" r="9.500" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="15" cy="15" r="4" fill="#3a1f88" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M21 21l20 20" stroke="#1d0f33" stroke-width="7.500" stroke-linecap="round"/><path d="M21 21l20 20" stroke="url(#kGld)" stroke-width="4.500" stroke-linecap="round"/>
+<path d="M33 33l5-5M38 38l4-4" stroke="#1d0f33" stroke-width="5.500" stroke-linecap="round"/><path d="M33 33l5-5M38 38l4-4" stroke="url(#kGld)" stroke-width="2.600" stroke-linecap="round"/>
+<path d="M9 11c1-2 3-4 6-4" stroke="#fff" stroke-opacity="0.7" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_book" viewBox="0 0 48 48">
+<path d="M5 9h38v31H5Z" fill="url(#kPur)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M5 9h6v31H5Z" fill="#3a1f88" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M8 42h35" stroke="#1d0f33" stroke-width="2" stroke-linecap="round"/><path d="M11 40h30" stroke="#f1e6c8" stroke-width="2"/>
+<path d="M14 14h25v22H14Z" fill="none" stroke="#ffd978" stroke-width="1.500"/>
+<circle cx="26.500" cy="25" r="6" fill="none" stroke="#ffd978" stroke-width="1.500"/><path d="M26.500 19l1.800 5.200 5.200.2-4.200 3.200 1.500 5.200-4.300-3-4.300 3 1.500-5.200-4.200-3.200 5.200-.2Z" fill="#ffd978" opacity=".95"/>
+<path d="M12 14v22" stroke="#ffd978" stroke-width="1" opacity=".5"/></symbol>
+<symbol id="hwI_orb" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M10 43h28l-4-9H14Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><path d="M14 34h20" stroke="#ffd978" stroke-width="2" stroke-linecap="round"/>
+<circle cx="24" cy="20" r="16" fill="url(#kOrb)" stroke="#1d0f33" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M15 24c4 4 9 5 16 1" stroke="#fff" stroke-opacity=".35" stroke-width="1.500" fill="none"/><path d="M20 15l2 3 3-1 1 3M28 24l2-2" stroke="#fff" stroke-opacity=".45" stroke-width="1.200" fill="none" stroke-linecap="round"/>
+<ellipse cx="17" cy="12" rx="5" ry="3" fill="#fff" opacity=".7" transform="rotate(-35 17 12)"/>
+<path d="M36 8l1 2.500 2.500 1-2.500 1-1 2.500-1-2.500-2.500-1 2.500-1Z" fill="#fff6c8"/></symbol>
+<symbol id="hwI_chest" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M5 20C5 11 12 6 24 6s19 5 19 14Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="5" y="20" width="38" height="22" rx="2.500" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M5 20h38" stroke="#1d0f33" stroke-width="2"/>
+<path d="M13 7v35M35 7v35" stroke="#3a1f88" stroke-width="3.500" opacity=".0"/>
+<rect x="10" y="6.500" width="5" height="35.500" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><rect x="33" y="6.500" width="5" height="35.500" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="19.500" y="17" width="9" height="11" rx="2" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="21.500" r="1.700" fill="#1d0f33"/><path d="M24 22v3" stroke="#1d0f33" stroke-width="1.500" stroke-linecap="round"/>
+<path d="M8 12c3-3 8-4 12-4" stroke="#fff" stroke-opacity=".4" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+<symbol id="hwI_coffin" viewBox="0 0 48 48">
+<path d="M17 3h14l9 12-6 28H14L8 15Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M19 8h10l6 8-4 23H17L13 16Z" fill="#7a4a24" opacity=".7"/>
+<path d="M24 13v22M18 19h12" stroke="url(#kGld)" stroke-width="3" stroke-linecap="round"/><path d="M24 13v22M18 19h12" stroke="#1d0f33" stroke-width=".8" opacity=".5"/>
+<path d="M14 14l2.500-5" stroke="#fff" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_web" viewBox="0 0 48 48">
+<path d="M4 4l40 40M44 4L4 44M24 3v42M3 24h42" stroke="#d9d4ec" stroke-width="1.500" stroke-linecap="round" opacity=".9"/>
+<path d="M24 12l8-3 4 6 8 .5M24 12l-8-3-4 6-8 .5M24 36l8 3 4-6 8-.5M24 36l-8 3-4-6-8-.5" fill="none" stroke="#d9d4ec" stroke-width="1.300" stroke-linejoin="round" opacity=".85"/>
+<path d="M24 20l5-2 3 4 5 .3M24 20l-5-2-3 4-5 .3M24 28l5 2 3-4 5-.3M24 28l-5 2-3-4-5-.3" fill="none" stroke="#d9d4ec" stroke-width="1.200" stroke-linejoin="round" opacity=".85"/>
+<circle cx="24" cy="24" r="1.800" fill="#fff"/></symbol>
+<symbol id="hwI_wand" viewBox="0 0 48 48">
+<path d="M7 41L33 15" stroke="#1d0f33" stroke-width="6" stroke-linecap="round"/><path d="M7 41L33 15" stroke="url(#kBrn)" stroke-width="3.600" stroke-linecap="round"/><path d="M8 40l6-6" stroke="url(#kGld)" stroke-width="4" stroke-linecap="round"/>
+<path d="M36 4l2.800 7.200L46 14l-7.200 2.800L36 24l-2.800-7.200L26 14l7.200-2.800Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M15 12l1.200 3L19 16l-2.800 1L15 20l-1.200-3L11 16l2.800-1Z" fill="#c4a4ff"/><path d="M40 30l1 2.500 2.500 1-2.500 1-1 2.500-1-2.500-2.500-1 2.500-1Z" fill="#9af0ea"/></symbol>
+<symbol id="hwI_bone" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M10 7c-4-2-8 2-6 6 1 1.500 3 2 4 1.500L33 39.500c.5 2 2 3.500 4.500 3.500 3.500 0 5.500-3.500 3.500-6.500-1-1.500-3-2-4.500-1.500L15 10.500C15 9 12 7.500 10 7Z" fill="url(#kBon)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M12 11l24 26" stroke="#b5a47c" stroke-width="1.400" stroke-linecap="round" opacity=".6"/>
+<path d="M6 10c1-1.500 3-1.500 4 0" stroke="#fff" stroke-opacity="0.8" stroke-width="1.6" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_ring" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<circle cx="24" cy="29" r="13" fill="none" stroke="#1d0f33" stroke-width="8"/><circle cx="24" cy="29" r="13" fill="none" stroke="url(#kGld)" stroke-width="5"/>
+<path d="M17 11l4-6h6l4 6-7 8Z" fill="url(#kPur)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><path d="M17 11h14M21 5l3 14M27 5l-3 14" stroke="#fff" stroke-opacity=".55" stroke-width="1"/>
+<path d="M13 29c0-5 3-9 8-10" stroke="#fff" stroke-opacity="0.7" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_crown" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M5 36L3 13l10 9 11-15 11 15 10-9-2 23Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="5" y="36" width="38" height="7" rx="2" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="3.500" cy="12" r="2.600" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="6" r="3" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="44.500" cy="12" r="2.600" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="14" cy="39.500" r="1.800" fill="url(#kBlu)" stroke="#1d0f33" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="39.500" r="1.800" fill="url(#kRed)" stroke="#1d0f33" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/><circle cx="34" cy="39.500" r="1.800" fill="url(#kBlu)" stroke="#1d0f33" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 33l-1-10" stroke="#fff" stroke-opacity="0.55" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_trophy" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M14 5h20v12c0 7-4 12-10 12s-10-5-10-12Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14 9H7c0 8 3 12 8 13M34 9h7c0 8-3 12-8 13" fill="none" stroke="#1d0f33" stroke-width="5"/><path d="M14 9H7c0 8 3 12 8 13M34 9h7c0 8-3 12-8 13" fill="none" stroke="url(#kGld)" stroke-width="2.600"/>
+<path d="M21 29h6v6h-6Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M13 42c0-4 4-7 11-7s11 3 11 7Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 10l1.800 4 4.200.4-3.200 2.800 1 4.200-3.800-2.300-3.800 2.300 1-4.200-3.200-2.800 4.200-.4Z" fill="#fff6c8" opacity=".9"/>
+<path d="M18 8v12" stroke="#fff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_goldcoin" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<circle cx="24" cy="24" r="19" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="24" r="14" fill="none" stroke="#a8620a" stroke-width="1.600"/>
+<path d="M24 12l3.400 7.600 8 .8-6 5.400 1.800 8-7.200-4.200-7.200 4.200 1.800-8-6-5.400 8-.8Z" fill="#fff3a8" stroke="#a8620a" stroke-width="1.100" stroke-linejoin="round"/>
+<path d="M10 18c2-4 6-7 10-8" stroke="#fff" stroke-opacity="0.7" stroke-width="2.4" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_moneybag" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M17 5l-3 8h20l-3-8c-2 2-4 2-7 .5C21 7 19 7 17 5Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14 13c-8 6-11 14-9 22 1 6 8 9 19 9s18-3 19-9c2-8-1-16-9-22Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14 15h20" stroke="url(#kGld)" stroke-width="3.500" stroke-linecap="round"/><path d="M14 15h20" stroke="#1d0f33" stroke-width=".8" opacity=".5"/>
+<circle cx="24" cy="29" r="8" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path d="M24 23.500l5.500 5.500-5.500 5.500-5.500-5.500Z" fill="#fff3a8" stroke="#a8620a" stroke-width="1.200" stroke-linejoin="round"/>
+<path d="M10 28c0-4 1-7 3-9" stroke="#fff" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_star" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M24 3l6.200 13.500 14.800 1.700-11 10 3 14.600L24 35.500 11 42.800l3-14.600-11-10 14.800-1.700Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 3v32.500M3 18.200l41.800 0" stroke="#fff" stroke-opacity=".0"/>
+<path d="M24 10l3.600 8 8.500 1-6.400 5.800 1.800 8.400L24 28.800 16.500 33.200l1.800-8.400L11.800 19l8.500-1Z" fill="#fff3a8" opacity=".55"/>
+<path d="M14 17l6-2" stroke="#fff" stroke-opacity="0.8" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_lightning" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M28 2L9 26h12l-4 20 22-27H26Z" fill="url(#kGld)" stroke="#1d0f33" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M27 8L15 24h9l-2.500 12 13-15h-9Z" fill="#fff3a8" opacity=".6"/>
+<path d="M24 6l-9 12" stroke="#fff" stroke-opacity="0.8" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_flame" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M24 2c2 7 12 12 12 24 0 9-6 17-12 17S12 35 12 26c0-5 2-8 4-10 0 4 2 6 4 6-1-8 1-14 4-20Z" fill="url(#kFire)" stroke="#1d0f33" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 22c1 4 6 7 6 13 0 5-3 8-6 8s-6-3-6-8c0-3 2-5 3-7 0 2 1 3 2 3-.5-4 0-7 1-9Z" fill="#ffe27a"/>
+<path d="M24 32c1 2 3 3 3 6 0 2-1.500 3.500-3 3.500s-3-1.500-3-3.500c0-2 1.500-3 3-6Z" fill="#fff9d8"/></symbol>
+<symbol id="hwI_hourglass" viewBox="0 0 48 48">
+<path d="M10 4h28v4c0 8-6 12-9 16 3 4 9 8 9 16v4H10v-4c0-8 6-12 9-16-3-4-9-8-9-16Z" fill="#e8e0ff" fill-opacity=".28" stroke="#1d0f33" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13 8h22c0 5-4 8-8 11h-6c-4-3-8-6-8-11Z" fill="url(#kGld)" opacity=".95"/>
+<path d="M21 26h6c4 3 8 7 8 14H13c0-7 4-11 8-14Z" fill="url(#kGld)"/>
+<path d="M24 20v7" stroke="#e0a020" stroke-width="1.500"/>
+<rect x="7" y="2" width="34" height="4.500" rx="2" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/><rect x="7" y="41.500" width="34" height="4.500" rx="2" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14 10c0 3 2 5 4 7" stroke="#fff" stroke-opacity="0.6" stroke-width="1.6" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_mushroom" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M17 25h14l2 16c0 2-4 4-9 4s-9-2-9-4Z" fill="url(#kBon)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M3 26C3 12 12 4 24 4s21 8 21 22c0 2-2 3-4 3H7c-2 0-4-1-4-3Z" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="14" cy="17" r="3.600" fill="#fff6f0"/><circle cx="26" cy="12" r="3" fill="#fff6f0"/><circle cx="35" cy="20" r="3.800" fill="#fff6f0"/><circle cx="22" cy="22" r="2.200" fill="#fff6f0"/><circle cx="8" cy="24" r="1.800" fill="#fff6f0"/>
+<path d="M18 31q6 3 12 0" stroke="#b5a47c" stroke-width="1.200" fill="none" stroke-linecap="round"/>
+<path d="M9 14c3-5 7-7 12-8" stroke="#fff" stroke-opacity="0.45" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_mask" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M3 14c6-4 14-4 21 0 7-4 15-4 21 0 0 12-4 22-12 24-4 1-6-1-9-4-3 3-5 5-9 4C7 36 3 26 3 14Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M7 16c6-2 11-1 15 2-1 5-5 9-10 8-3-1-5-5-5-10Z" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M41 16c-6-2-11-1-15 2 1 5 5 9 10 8 3-1 5-5 5-10Z" fill="#ffe46a" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="14" cy="20" rx="2.800" ry="3.400" fill="#1d0f33" transform="rotate(-10 14 20)"/><ellipse cx="34" cy="20" rx="2.800" ry="3.400" fill="#1d0f33" transform="rotate(10 34 20)"/>
+<path d="M20 31q4 3 8 0" stroke="#ff9acb" stroke-width="2" fill="none" stroke-linecap="round"/>
+<path d="M24 22l-2 6h4Z" fill="#7a55e8" opacity=".8"/></symbol>
+<symbol id="hwI_envelope" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<rect x="4" y="9" width="40" height="30" rx="3.500" fill="url(#kBon)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M4 12l20 15 20-15" fill="none" stroke="#1d0f33" stroke-width="1.700" stroke-linejoin="round"/>
+<path d="M4 38l15-13M44 38L29 25" stroke="#b5a47c" stroke-width="1.200" stroke-linecap="round"/>
+<circle cx="24" cy="27" r="5.500" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/><path d="M21.500 27h5M24 24.500v5" stroke="#ffd0d0" stroke-width="1.300" stroke-linecap="round"/></symbol>
+<symbol id="hwI_lolly" viewBox="0 0 48 48">
+<path d="M24 28v16" stroke="#1d0f33" stroke-width="5" stroke-linecap="round"/><path d="M24 28v16" stroke="#f6f0ff" stroke-width="2.400" stroke-linecap="round"/>
+<circle cx="24" cy="17" r="14" fill="#ff5aa0"/><path d="M24 17L24.00 3.00A14 14 0 0 1 33.90 7.10Z" fill="#fff6fb"/><path d="M24 17L38.00 17.00A14 14 0 0 1 33.90 26.90Z" fill="#fff6fb"/><path d="M24 17L24.00 31.00A14 14 0 0 1 14.10 26.90Z" fill="#fff6fb"/><path d="M24 17L10.00 17.00A14 14 0 0 1 14.10 7.10Z" fill="#fff6fb"/>
+<circle cx="24" cy="17" r="14" fill="none" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="17" r="3.200" fill="#ffd0e6" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M14 11c2-3 5-5 9-5" stroke="#fff" stroke-opacity="0.7" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_cupcake" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M9 24l4 19h22l4-19Z" fill="url(#kBrn)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M16 26l2 16M24 26v16M32 26l-2 16" stroke="#3a1f88" stroke-width="1.100" opacity=".35"/>
+<path d="M6 25c-2-6 2-9 6-9 0-6 5-9 12-9s12 3 12 9c4 0 8 3 6 9Z" fill="url(#kPnk)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M10 20q4 3 8 0t8 0 8 0" stroke="#fff" stroke-opacity=".5" stroke-width="2" fill="none" stroke-linecap="round"/>
+<circle cx="24" cy="6" r="3.500" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M24 3c.5-1.500 2-2.200 3.500-2" stroke="#4d7a1a" stroke-width="1.500" fill="none" stroke-linecap="round"/>
+<circle cx="14" cy="14" r="1.200" fill="#ffe46a"/><circle cx="33" cy="12" r="1.200" fill="#9af0ea"/><circle cx="27" cy="16" r="1.200" fill="#ffe46a"/><circle cx="19" cy="11" r="1.200" fill="#fff"/></symbol>
+<symbol id="hwI_apple" viewBox="0 0 48 48">
+<path d="M24 22v21" stroke="#1d0f33" stroke-width="5" stroke-linecap="round"/><path d="M24 22v21" stroke="#e8c88a" stroke-width="2.400" stroke-linecap="round"/>
+<path d="M24 11c-3-2-12-3-15 6-3 9 2 20 8 22 4 1 5-1 7-1s3 2 7 1c6-2 11-13 8-22-3-9-12-8-15-6Z" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 11c0-4 2-7 6-8" stroke="#4d7a1a" stroke-width="2.600" fill="none" stroke-linecap="round"/><path d="M26 8c3-3 8-2 9 0-3 3-7 2-9 0Z" fill="url(#kGre)" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M10 22c0 4 2 6 4 6 2 0 2-3 5-3s4 3 6 3 3-2 5-2 5 1 7-3c1 6-1 12-6 15-3 1-4-1-7-1s-5 2-8 1c-4-2-8-8-6-16Z" fill="#7a2a14" opacity=".35"/>
+<path d="M12 18c1-3 3-5 6-5" stroke="#fff" stroke-opacity=".7" stroke-width="2.200" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_bag" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M14 11l-3 6h26l-3-6c-3 2-6 2-10 0s-7 2-10 0Z" fill="url(#kPur)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M11 17c-7 7-9 14-7 21 1 5 8 7 20 7s19-2 20-7c2-7 0-14-7-21Z" fill="url(#kOra)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M12 18h24" stroke="#3a1f88" stroke-width="3.500" stroke-linecap="round"/>
+<path d="M24 28l-5 3 2 5-6 1M24 28l5 3-2 5 6 1" fill="none" stroke="#fff" stroke-opacity="0" />
+<g transform="translate(24 31)"><path d="M-9 0l5-3v6Z" fill="#ff6aa8" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><path d="M9 0l-5-3v6Z" fill="#ff6aa8" stroke="#1d0f33" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/><circle r="4.500" fill="#ff6aa8" stroke="#1d0f33" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/><path d="M-2.500-2l5 4M2.500-2l-5 4" stroke="#fff" stroke-width="1.300" stroke-linecap="round"/></g>
+<path d="M9 30c0-5 1-8 3-10" stroke="#fff" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_candycorn" viewBox="0 0 48 48">
+<path d="M24 4c4 0 7 3 8 7l9 29c.5 2-1 4-3 4H10c-2 0-3.500-2-3-4l9-29c1-4 4-7 8-7Z" fill="#fff6e0" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M24 4c4 0 7 3 8 7l2 7H14l2-7c1-4 4-7 8-7Z" fill="#fff6e0"/>
+<path d="M13.500 20h21l4 14H9.500Z" fill="url(#kOra)"/>
+<path d="M9.500 34h29l2.500 8c.5 2-1 3-3 3H10c-2 0-3.500-1-3-3Z" fill="url(#kGld)"/>
+<path d="M24 4c4 0 7 3 8 7l9 29c.5 2-1 4-3 4H10c-2 0-3.500-2-3-4l9-29c1-4 4-7 8-7Z" fill="none" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13.500 20h21M9.500 34h29" stroke="#1d0f33" stroke-width="1" opacity=".45"/>
+<path d="M17 14c1-4 3-7 6-8" stroke="#fff" stroke-opacity="0.8" stroke-width="2.2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_heart" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M24 43C8 31 3 22 3 14 3 8 8 4 14 4c4 0 8 2 10 6 2-4 6-6 10-6 6 0 11 4 11 10 0 8-5 17-21 29Z" fill="url(#kRed)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 13c1-3 3-5 6-5" stroke="#fff" stroke-opacity="0.8" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+<path d="M30 36c4-3 8-8 10-14" stroke="#7a0f26" stroke-width="2" fill="none" stroke-linecap="round" opacity=".35"/></symbol>
+<symbol id="hwI_gemblue" viewBox="0 0 48 48"><ellipse cx="24" cy="44.5" rx="14" ry="1.9" fill="#000" opacity=".28"/>
+<path d="M13 6h22l10 13-21 26L3 19Z" fill="url(#kBlu)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M3 19h42M13 6l11 13 11-13M24 19l-7 .0 7 26 7-26" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="1.200" stroke-linejoin="round"/>
+<path d="M13 6l11 13H3ZM35 6L24 19h21Z" fill="#fff" opacity=".22"/>
+<path d="M9 17l5-7" stroke="#fff" stroke-opacity="0.8" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_ghost2" viewBox="0 0 48 48">
+<path d="M24 3c-10 0-16 7-16 17v22l5-4 5 4 6-4 6 4 5-4 5 4V20C40 10 34 3 24 3Z" fill="#f6f0ff" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="18" cy="21" rx="3" ry="4.200" fill="#1d0f33"/><ellipse cx="30" cy="21" rx="3" ry="4.200" fill="#1d0f33"/><circle cx="17.200" cy="19.500" r="1" fill="#fff"/><circle cx="29.200" cy="19.500" r="1" fill="#fff"/>
+<ellipse cx="24" cy="30" rx="3.200" ry="4" fill="#1d0f33"/><ellipse cx="12.500" cy="27" rx="2.400" ry="1.500" fill="#ff9acb" opacity=".7"/><ellipse cx="35.500" cy="27" rx="2.400" ry="1.500" fill="#ff9acb" opacity=".7"/>
+<path d="M8 28q-4-1-5-5M40 28q4-1 5-5" stroke="#1d0f33" stroke-width="1.600" fill="none" stroke-linecap="round"/>
+<path d="M13 12c2-3 5-5 9-6" stroke="#fff" stroke-opacity="0.9" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+<symbol id="hwI_witch" viewBox="0 0 48 48">
+<path d="M24 2l9 20H15Z" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><path d="M14 22h20" stroke="url(#kGld)" stroke-width="3.500" stroke-linecap="round"/>
+<ellipse cx="24" cy="23" rx="18" ry="4.500" fill="url(#kDrk)" stroke="#1d0f33" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M9 27c-2 8 2 16 6 17-2-5-1-9 1-12Z" fill="#ff8a1f" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M39 27c2 8-2 16-6 17 2-5 1-9-1-12Z" fill="#ff8a1f" stroke="#1d0f33" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M13 26c0 9 4 16 11 16s11-7 11-16c-4 2-8 2-11 2s-7 0-11-2Z" fill="url(#kGre)" stroke="#1d0f33" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<ellipse cx="19" cy="33" rx="2.200" ry="2.800" fill="#1d0f33"/><ellipse cx="29" cy="33" rx="2.200" ry="2.800" fill="#1d0f33"/><circle cx="18.400" cy="32" r=".7" fill="#fff"/><circle cx="28.400" cy="32" r=".7" fill="#fff"/>
+<path d="M24 34v4l-2 .5" stroke="#245a1a" stroke-width="1.300" fill="none" stroke-linecap="round"/><path d="M20 39q4 3 8 0" stroke="#1d0f33" stroke-width="1.500" fill="none" stroke-linecap="round"/>
+<circle cx="22" cy="43" r="0"/></symbol>
+`;
+const ICON_ART={cat:['hwI_cat',48,48],owl:['hwI_owl',48,48],crow:['hwI_crow',48,48],bat2:['hwI_bat2',48,48],mummy:['hwI_mummy',48,48],zombie:['hwI_zombie',48,48],eye:['hwI_eye',48,48],fangs:['hwI_fangs',48,48],frank:['hwI_frank',48,48],jack:['hwI_jack',48,48],potion:['hwI_potion',48,48],poison:['hwI_poison',48,48],broom:['hwI_broom',48,48],tomb:['hwI_tomb',48,48],candle:['hwI_candle',48,48],lantern:['hwI_lantern',48,48],key:['hwI_key',48,48],book:['hwI_book',48,48],orb:['hwI_orb',48,48],chest:['hwI_chest',48,48],coffin:['hwI_coffin',48,48],web:['hwI_web',48,48],wand:['hwI_wand',48,48],bone:['hwI_bone',48,48],ring:['hwI_ring',48,48],crown:['hwI_crown',48,48],trophy:['hwI_trophy',48,48],goldcoin:['hwI_goldcoin',48,48],moneybag:['hwI_moneybag',48,48],star:['hwI_star',48,48],lightning:['hwI_lightning',48,48],flame:['hwI_flame',48,48],hourglass:['hwI_hourglass',48,48],mushroom:['hwI_mushroom',48,48],mask:['hwI_mask',48,48],envelope:['hwI_envelope',48,48],lolly:['hwI_lolly',48,48],cupcake:['hwI_cupcake',48,48],apple:['hwI_apple',48,48],bag:['hwI_bag',48,48],candycorn:['hwI_candycorn',48,48],heart:['hwI_heart',48,48],gemblue:['hwI_gemblue',48,48],ghost2:['hwI_ghost2',48,48],witch:['hwI_witch',48,48]};
+
 /* ---------- v6 art: currency pumpkin + icons for event buttons / market ---------- */
 const EXTRA_DEFS=`
 <radialGradient id="hwCurBody" cx=".4" cy=".3" r=".85"><stop offset="0" stop-color="#ffcb6a"/><stop offset=".42" stop-color="#f68c20"/><stop offset=".8" stop-color="#cf520c"/><stop offset="1" stop-color="#8f2f05"/></radialGradient>
@@ -11767,8 +12139,8 @@ const EXTRA_DEFS=`
 <circle cx="21.500" cy="27" r="1.600" fill="#ff6a3a"/><circle cx="26.500" cy="27" r="1.600" fill="#ff6a3a"/>
 <path d="M24 33v12" stroke="#7a3acf" stroke-width="1.600" opacity=".6"/><path d="M20.500 40h7M21 36.500h6M21 43.500h6" stroke="#7a3acf" stroke-width="1" opacity=".5"/>
 </symbol>
-`;
-const ART={pumpkin:['hwCur',64,60],ghost:['hwGhost',48,56],bat:['hwBat',72,36],candy:['hwCandy',24,30],cauldron:['hwCauldron',64,60],skull:['hwSkull',44,48],hat:['hwHat',56,52],moon:['hwMoon',48,48],gift:['hwGiftBox',48,48],spider:['hwSpider',48,56],crystal:['hwGemBare',120,156],ticket:['hwTicket',48,32],coin:null};
+${ICON_DEFS}`;
+const ART={pumpkin:['hwCur',64,60],ghost:['hwGhost',48,56],bat:['hwBat',72,36],candy:['hwCandy',24,30],cauldron:['hwCauldron',64,60],skull:['hwSkull',44,48],hat:['hwHat',56,52],moon:['hwMoon',48,48],gift:['hwGiftBox',48,48],spider:['hwSpider',48,56],crystal:['hwGemBare',120,156],ticket:['hwTicket',48,32],coin:null,...ICON_ART};
 /* any picture the admin picked: built-in art ("hw:name"), a project file, an uploaded image or a gift photo */
 const artHTML=(src,cls)=>{src=String(src||'');const k=src.startsWith('hw:')?src.slice(3):'';
  if(k&&ART[k]){const[a,w,h]=ART[k];return `<svg class="hw-art-i ${cls||''}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><use href="#${a}" width="${w}" height="${h}"/></svg>`}
@@ -12095,9 +12467,11 @@ function render6(){
  const h=H6.hub;
  const w=document.getElementById('hwWallet');if(w&&h){w.innerHTML=walletHTML()+`<span class="hw-wl-note">${h.rate>0?esc6(n6(h.rate))+' тыкв за каждый 1 TON проигрыша':'Тыквы можно получить в подарках события'}</span>`}
  const mw=document.getElementById('hwMkWallet');if(mw&&h)mw.innerHTML=walletHTML();
+ const tb=document.getElementById('hwTourBtn');if(tb&&h){const t=h.tour||{done:true};tb.classList.toggle('hidden',!!t.done);const sb=document.getElementById('hwTourSub');if(sb)sb.textContent=t.reward>0?'Пройдите и получите +'+n6(t.reward)+' '+tkWord(t.reward):'Короткий тур по тыквам, подаркам и маркету'}
  renderTiles6();renderMarket6()}
 function tileNote(b){
  if(b.kind==='page')return b.subtitle||'Открыть';
+ if(b.kind==='article')return b.subtitle||'Читать';
  if(b.claimed)return b.limit==='daily'?'Получено · завтра снова':'Получено';
  return b.subtitle||(b.mode==='choice'?'Сладость или гадость?':'Забрать подарок')}
 function renderTiles6(){
@@ -12107,7 +12481,7 @@ function renderTiles6(){
  box.replaceChildren(...list.map(b=>{
   const t=E6('button','hw-tile'+(b.kind==='gift'?' gift':'')+(b.claimed?' done':''));t.type='button';
   t.innerHTML=`<span class="hw-tile-art">${artHTML(b.icon||'hw:pumpkin')}</span>${b.kind==='gift'?`<span class="hw-tile-tag">${b.claimed?'ГОТОВО':'ПОДАРОК'}</span>`:''}<b>${esc6(b.title)}</b><small>${esc6(tileNote(b))}</small>`;
-  t.onclick=()=>b.kind==='page'?go6(b.target):openGift6(b);
+  t.onclick=()=>b.kind==='page'?go6(b.target):b.kind==='article'?openArticle6(b):openGift6(b);
   return t}))}
 
 /* ---------- gifts ---------- */
@@ -12163,13 +12537,15 @@ const tkWord=n=>{n=Math.abs(n)%100;const k=n%10;return n>10&&n<20?'тыкв':k==
 /* ---------- pages ---------- */
 function mountEvent6(pg){
  pg.innerHTML=`<button id="hwEvBack" class="back" type="button">← Игры</button>
- <div class="hw-hero wide" id="hwHero"><div class="hw-hero-art" id="hwHeroArt">${bannerImg()||EVENT_SCENE()}</div><span class="hw-card-tag">ИВЕНТ</span>
-  <div class="hw-hero-tx"><div><h1>Halloween <span>(в GemDrop)</span></h1><div class="hw-live"><i></i>Идёт событие</div></div><div class="hw-hero-cd"><small>Осталось</small><b id="hwEvCd">…</b></div></div></div>
+ <div class="hw-hero wide" id="hwHero"><div class="hw-hero-art" id="hwHeroArt">${bannerImg()||EVENT_SCENE()}</div>
+  <div class="hw-hero-tx"><div><h1>Halloween в GemDrop</h1><div class="hw-live hw-timer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4.5l3 2M9.500 3h5"/></svg><b id="hwEvCd">…</b></div></div></div></div>
  <div class="hw-ev-pre hidden" id="hwEvPre">Предпросмотр: событие видно только администраторам.</div>
+ <button class="hw-tour-cta hidden" id="hwTourBtn" type="button"><span class="hw-tour-cta-gem"><svg viewBox="0 0 120 156" aria-hidden="true"><use href="#hwGem" width="120" height="156"/></svg></span><span class="hw-tour-cta-tx"><b>Экскурсия по событию</b><small id="hwTourSub"></small></span><i>›</i></button>
  <div class="hw-wallet" id="hwWallet"><span class="hw-wl-ico">${artHTML('hw:pumpkin')}</span><span class="hw-wl-tx"><b>0</b><small>тыкв</small></span></div>
  <div class="hw-tiles" id="hwTiles"></div>
  <div class="hw-soon"><span>${artHTML('hw:moon')}</span>Скоро здесь будут доступны новые события</div>`;
  pg.querySelector('#hwEvBack').onclick=()=>show('gamesPage');
+ pg.querySelector('#hwTourBtn').onclick=()=>window.hwStartTour&&window.hwStartTour();
  const mk=document.getElementById('hwMarketPage');
  if(mk){mk.innerHTML=`<button id="hwMkBack" class="back" type="button">← Halloween</button>
   <div class="hw-mk-head"><div><h1>Маркет тыкв</h1><p>Обменивайте тыквы на призы. Лоты ограничены по времени.</p></div><div class="hw-wallet mini" id="hwMkWallet"><span class="hw-wl-ico">${artHTML('hw:pumpkin')}</span><span class="hw-wl-tx"><b>0</b><small>тыкв</small></span></div></div>
@@ -12183,6 +12559,105 @@ function tick6(){
  let dead=false;
  pg.querySelectorAll('.hw-lot-time').forEach(e=>{const left=Number(e.dataset.end)-(Date.now()+(H6.skew||0));if(left<=0){dead=true;return}const l={ends_at:Number(e.dataset.end)};e.textContent=lotTimer(l)});
  if(dead)renderMarket6()}
+
+/* ---------- article: a button that opens a small page of its own ---------- */
+function closeArticle6(){const d=document.getElementById('hwArtSheet');if(d)d.remove();document.body.classList.remove('hw-art-open')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeArticle6()});
+function openLink6(url){try{const w=window.Telegram&&window.Telegram.WebApp;if(w&&/^https:\/\/t\.me\//.test(url)&&w.openTelegramLink)return w.openTelegramLink(url);if(w&&w.openLink)return w.openLink(url)}catch(e){}window.open(url,'_blank','noopener')}
+function articleBlock6(bl,i){
+ if(bl.t==='h')return `<h2 class="hw-art-h">${esc6(bl.text)}</h2>`;
+ if(bl.t==='p')return `<p class="hw-art-p">${esc6(bl.text).replace(/\n/g,'<br>')}</p>`;
+ if(bl.t==='hr')return '<hr class="hw-art-hr">';
+ if(bl.t==='img'&&!bl.src)return '';
+ if(bl.t==='img')return `<figure class="hw-art-fig${String(bl.src).startsWith('hw:')?' ic':''}">${artHTML(bl.src)}${bl.caption?`<figcaption>${esc6(bl.caption)}</figcaption>`:''}</figure>`;
+ if(bl.t==='btn')return `<button type="button" class="hw-art-btn" data-i="${i}">${esc6(bl.text)}<i>›</i></button>`;
+ return ''}
+function openArticle6(b,preview){
+ const a=b.article||{title:b.title,cover:'',blocks:[]};closeArticle6();closeDlg6();
+ const d=E6('div','hw-art-sheet');d.id='hwArtSheet';d.setAttribute('role','dialog');d.setAttribute('aria-modal','true');
+ d.innerHTML=`<div class="hw-art-top"><button class="hw-art-back" type="button" data-close aria-label="Назад">←</button><b>${esc6(b.title||a.title)}</b>${preview?'<span class="hw-art-pv">ПРЕДПРОСМОТР</span>':''}</div>
+ <div class="hw-art-scroll"><div class="hw-art-page">${a.cover?`<div class="hw-art-cover">${artHTML(a.cover)}</div>`:''}<h1>${esc6(a.title||b.title)}</h1>${(a.blocks||[]).map(articleBlock6).join('')}${(a.blocks||[]).length?'':'<p class="hw-art-p muted">Здесь пока пусто.</p>'}</div></div>`;
+ document.body.append(d);document.body.classList.add('hw-art-open');
+ d.addEventListener('click',e=>{
+  if(e.target.closest('[data-close]'))return closeArticle6();
+  const bt=e.target.closest('.hw-art-btn');if(!bt)return;const bl=(a.blocks||[])[+bt.dataset.i];if(!bl)return;
+  if(bl.url)openLink6(bl.url);else if(bl.target){closeArticle6();go6(bl.target)}});
+ requestAnimationFrame(()=>d.classList.add('open'))}
+window.hwOpenArticle=openArticle6;
+
+/* ---------- guided tour: the gem in the hat shows the event; finishing it pays pumpkins once ---------- */
+const TOUR={on:false,i:0,from:'',steps:[],busy:false};
+const GEM_GUIDE='<svg viewBox="0 0 120 156" aria-hidden="true"><g class="hw-float"><use href="#hwGem" width="120" height="156"/></g></svg>';
+function curPage6(){const s=document.querySelector('#content>section:not(.hidden)');return s?s.id:'gamesPage'}
+function waitFor6(sel,ms){return new Promise(res=>{const t0=Date.now();(function chk(){const e=sel&&document.querySelector(sel);if(!sel||(e&&e.getBoundingClientRect().width>0))return res(e||null);if(Date.now()-t0>(ms||2200))return res(null);setTimeout(chk,80)})()})}
+function tourSteps6(){
+ const h=H6.hub||{},rate=h.rate||0,reward=(h.tour&&h.tour.reward)||0;
+ return [
+  {title:'Добро пожаловать!',text:'Я покажу, как устроено событие Halloween в GemDrop. Это займёт меньше минуты'+(reward?'. А в конце вас ждёт подарок: '+n6(reward)+' '+tkWord(reward)+'.':'.')},
+  {page:'gamesPage',sel:'#hwEventCard',title:'Вход в событие',text:'Эта карточка всегда наверху в «Играх». На ней идёт отсчёт до конца события.'},
+  {page:'hwEventPage',sel:'#hwWallet',title:'Ваши тыквы',text:rate>0?`Тыквы — валюта события. Вы получаете их за проигранные TON с основного баланса: ${n6(rate)} ${tkWord(rate)} за каждый 1 TON.`:'Тыквы — валюта события. Их можно получить в подарках события.'},
+  {page:'hwEventPage',sel:'#balancePumpRow',pop:true,title:'Баланс всегда под рукой',text:'Тыквы лежат в списке балансов — рядом с основным, бонусным и билетами. Откройте список, нажав на баланс вверху.'},
+  {page:'hwEventPage',sel:'#hwTiles',title:'Подарки и переходы',text:'Здесь можно забрать подарки, испытать удачу в «сладость или гадость» и быстро перейти в игры.'},
+  {page:'hwMarketPage',sel:'#hwMkGrid',title:'Маркет тыкв',text:'Меняйте тыквы на призы: TON, билеты, промокоды и не только. Лоты ограничены по времени и тиражу, поэтому поторопитесь.'},
+  {final:true,title:'Это всё!',text:reward>0?'Вы прошли экскурсию. Держите подарок — он уже ждёт вас.':'Вы прошли экскурсию. Приятной игры!'}]}
+function tourDom6(){
+ let t=document.getElementById('hwTour');if(t)return t;
+ t=E6('div','hw-tour');t.id='hwTour';t.setAttribute('role','dialog');t.setAttribute('aria-modal','true');
+ t.innerHTML=`<div class="hw-tour-block"></div><div class="hw-tour-hole" id="hwTourHole"></div>
+ <div class="hw-tour-card" id="hwTourCard"><div class="hw-tour-gem">${GEM_GUIDE}</div><div class="hw-tour-bub"><div class="hw-tour-step" id="hwTourStep"></div><h3 id="hwTourT"></h3><p id="hwTourP"></p><div class="hw-tour-dots" id="hwTourDots"></div><div class="hw-tour-act"><button type="button" class="hw-ghost" id="hwTourSkip">Пропустить</button><button type="button" class="primary" id="hwTourNext">Далее</button></div></div></div>`;
+ document.body.append(t);document.body.classList.add('hw-tour-open');
+ t.querySelector('#hwTourSkip').onclick=()=>endTour6(false);
+ t.querySelector('#hwTourNext').onclick=()=>nextTour6();
+ return t}
+function placeTour6(){
+ const t=document.getElementById('hwTour');if(!t)return;const s=TOUR.steps[TOUR.i];if(!s)return;
+ const hole=t.querySelector('#hwTourHole'),card=t.querySelector('#hwTourCard');
+ const el=s.sel&&document.querySelector(s.sel);
+ if(el&&el.getBoundingClientRect().width>0){
+  const r=el.getBoundingClientRect(),pad=8;
+  Object.assign(hole.style,{display:'block',left:(r.left-pad)+'px',top:(r.top-pad)+'px',width:(r.width+pad*2)+'px',height:(r.height+pad*2)+'px'});
+  t.classList.remove('center');const low=(r.top+r.height/2)>innerHeight*.5;card.classList.toggle('top',low);card.classList.toggle('bottom',!low)
+ }else{hole.style.display='none';t.classList.add('center');card.classList.remove('top');card.classList.add('bottom')}}
+async function gotoStep6(i){
+ TOUR.i=i;const s=TOUR.steps[i];if(!s)return;const t=tourDom6();
+ const pop=document.getElementById('balancePopover');
+ if(pop&&pop.classList.contains('open')&&typeof closeBalancePopover==='function')closeBalancePopover();
+ const hole=t.querySelector('#hwTourHole');hole.style.display='none';
+ if(s.page&&typeof show==='function'&&curPage6()!==s.page){show(s.page);await waitFor6('#'+s.page+':not(.hidden)')}
+ if(s.pop&&typeof toggleBalancePopover==='function'){window.scrollTo(0,0);await new Promise(r=>setTimeout(r,60));const pp=document.getElementById('balancePopover');if(pp&&!pp.classList.contains('open'))toggleBalancePopover()}
+ const el=s.sel?await waitFor6(s.sel):null;
+ if(el&&!s.pop){try{el.scrollIntoView({block:'center',behavior:'auto'})}catch(e){}}
+ await new Promise(r=>setTimeout(r,s.pop?380:120));
+ t.querySelector('#hwTourStep').textContent=s.final?'Финиш':'Шаг '+(i+1)+' из '+TOUR.steps.length;
+ t.querySelector('#hwTourT').textContent=s.title;t.querySelector('#hwTourP').textContent=s.text;
+ t.querySelector('#hwTourDots').innerHTML=TOUR.steps.map((_,k)=>`<i class="${k===i?'on':k<i?'done':''}"></i>`).join('');
+ const reward=(H6.hub&&H6.hub.tour&&H6.hub.tour.reward)||0;
+ t.querySelector('#hwTourNext').textContent=s.final?(reward>0?'Забрать '+n6(reward)+' '+tkWord(reward):'Готово'):(i===0?'Поехали':'Далее');
+ t.querySelector('#hwTourSkip').classList.toggle('hidden',!!s.final);
+ placeTour6()}
+function nextTour6(){if(TOUR.busy)return;const s=TOUR.steps[TOUR.i];if(s&&s.final)return finishTour6();gotoStep6(TOUR.i+1)}
+function closeTourUi6(back){
+ const pop=document.getElementById('balancePopover');if(pop&&pop.classList.contains('open')&&typeof closeBalancePopover==='function')closeBalancePopover();
+ const t=document.getElementById('hwTour');if(t)t.remove();document.body.classList.remove('hw-tour-open');TOUR.on=false;
+ if(back&&typeof show==='function'){show(back);window.scrollTo(0,0)}}
+function endTour6(){closeTourUi6(TOUR.from||'gamesPage')}
+async function finishTour6(){
+ TOUR.busy=true;
+ try{const d=await api('/api/halloween/tour',{method:'POST',body:'{}'});
+  closeTourUi6('hwEventPage');if(H6.hub){H6.hub.tour={done:true,reward:d.reward};H6.hub.pumpkins=d.pumpkins}
+  try{if(typeof user!=='undefined'&&user){user.pumpkins=d.pumpkins.balance;if(typeof topReward==='function')topReward()}}catch(e){}
+  await loadHub6(true);
+  if(d.reward>0)result6({reward:{title:n6(d.reward)+' '+tkWord(d.reward),subtitle:'Подарок за экскурсию',image_url:'hw:pumpkin'},kicker:'Экскурсия пройдена!',text:'Спасибо, что заглянули. Тыквы уже на вашем балансе — загляните в маркет.',pumpkins:d.pumpkins.balance})}
+ catch(e){closeTourUi6('hwEventPage');toast(e.message||'Не удалось выдать награду')}
+ TOUR.busy=false}
+async function startTour6(){
+ if(TOUR.on)return;TOUR.on=true;TOUR.from=curPage6();
+ closeDlg6();
+ try{await loadHub6(true)}catch(e){}
+ TOUR.steps=tourSteps6();await gotoStep6(0)}
+window.addEventListener('resize',()=>{if(TOUR.on)placeTour6()});
+window.addEventListener('scroll',()=>{if(TOUR.on)requestAnimationFrame(placeTour6)},true);
+window.hwStartTour=startTour6;
 
 /* ======================= v6 admin: pumpkins, event buttons, market lots ======================= */
 const RW_TYPES=[['none','— ничего —'],['ton','TON на основной баланс'],['bonus','TON на бонусный баланс'],['pumpkins','Тыквы события'],['tickets','Билеты'],['catalog','Подарок из Portal'],['fragment','NFT-подарок Telegram (ссылка)'],['promo','Личный промокод']];
@@ -12279,8 +12754,10 @@ function adminV6(){
   const p=panel('Тыквы события','Внутренний баланс события. Игрок получает тыквы за проигранные TON с основного баланса и тратит их в маркете.');
   const rate=inp(S.cfg.rate,'Тыкв за 1 TON','number');rate.min='0';rate.max='100000';
   p.append(field('Тыкв за каждый 1 TON проигрыша',rate,'По умолчанию 100. 0 — начисление выключено.'));
+  const tour=inp(S.cfg.tour_reward,'Тыкв за экскурсию','number');tour.min='0';tour.max='1000000';
+  p.append(field('Награда за экскурсию, тыкв',tour,'Игрок получает один раз, когда проходит экскурсию с гемом в шляпе. 0 — экскурсия без награды.'));
   p.append(E6('div','hw-stat',`Тыквы у ${n6(S.cfg.holders)} игроков · на руках ${n6(S.cfg.pumpkins_in_wallets)} · всего начислено ${n6(S.cfg.pumpkins_earned)}`));
-  p.append(btn('Сохранить курс','primary',async()=>{try{await post('/api/admin/halloween/config',{rate:rate.value});toast('Курс сохранён');load()}catch(e){toast(e.message)}}));
+  p.append(btn('Сохранить','primary',async()=>{try{await post('/api/admin/halloween/config',{rate:rate.value,tour_reward:tour.value});toast('Сохранено');load()}catch(e){toast(e.message)}}));
   const uid=inp('','ID игрока','number'),amt=inp('','Тыкв (минус — списать)','number');
   const row=E6('div','hw-row2');row.append(uid,amt);p.append(E6('h3','','Выдать тыквы игроку'),row,btn('Выдать / списать','mini-btn',async()=>{try{const d=await post('/api/admin/halloween/pumpkins',{user_id:uid.value,amount:amt.value});toast('Готово. Баланс игрока: '+n6(d.pumpkins.balance));load()}catch(e){toast(e.message)}}));
   return p}
@@ -12291,7 +12768,7 @@ function adminV6(){
   const {p,inner}=pvShell('Страница события — предпросмотр','Нажмите на плитку, чтобы изменить её. Чтобы поменять порядок, перетащите плитку (на телефоне — удерживайте палец).');
   inner.append(pvHead('Halloween в GemDrop','Идёт событие'));
   const grid=E6('div','hw-tiles hw-pv-tiles '+(S.dev==='desk'?'c4':'c2'));inner.append(grid);
-  const tileNote=b=>b.kind==='page'?(b.subtitle||'Открыть'):(b.subtitle||(b.mode==='choice'?'Сладость или гадость?':'Забрать подарок'));
+  const tileNote=b=>b.kind==='page'?(b.subtitle||'Открыть'):b.kind==='article'?(b.subtitle||'Читать'):(b.subtitle||(b.mode==='choice'?'Сладость или гадость?':'Забрать подарок'));
   const draw=()=>{
    const tiles=S.btns.map((b,i)=>{
     const t=E6('div','hw-tile'+(b.kind==='gift'?' gift':'')+(b.active===false?' off':'')+(S.selB===b?' sel':''));t.dataset.sort=i;
@@ -12317,7 +12794,7 @@ function adminV6(){
   const head=E6('div','hw-bhead');head.append(imageBtn6(()=>b.icon,u=>{b.icon=u;S.dirty=true;paint()},'Картинка'));
   const t=inp(b.title,'Название кнопки');t.maxLength=40;t.oninput=()=>b.title=t.value;head.append(t);c.append(head);
   const sub=inp(b.subtitle,'Подпись под названием (необязательно)');sub.maxLength=60;sub.oninput=()=>b.subtitle=sub.value;c.append(sub);
-  const kind=sel([['page','Переход в раздел'],['gift','Забрать подарок']],b.kind||'page');kind.onchange=()=>{b.kind=kind.value;if(b.kind==='gift'){b.mode=b.mode||'direct';b.limit=b.limit||'once';b.reward=b.reward||{type:'pumpkins',amount:'50'}}else b.target=b.target||'mines';S.dirty=true;paint()};c.append(field('Тип кнопки',kind));
+  const kind=sel([['page','Переход в раздел'],['gift','Забрать подарок'],['article','Статья (своя страница)']],b.kind||'page');kind.onchange=()=>{b.kind=kind.value;if(b.kind==='article'){b.article=b.article||{title:'',cover:'',blocks:[]}}else if(b.kind==='gift'){b.mode=b.mode||'direct';b.limit=b.limit||'once';b.reward=b.reward||{type:'pumpkins',amount:'50'}}else b.target=b.target||'mines';S.dirty=true;paint()};c.append(field('Тип кнопки',kind));
   if(b.kind==='gift'){
    const mode=sel([['direct','Награда сразу (поздравление)'],['choice','Выбор: сладость или гадость']],b.mode||'direct');mode.onchange=()=>{b.mode=mode.value;if(b.mode==='choice'){b.treat=b.treat||{type:'ton',amount:'0.5'};b.trick=b.trick||{type:'none'};b.treat_chance=b.treat_chance??50}else b.reward=b.reward||{type:'pumpkins',amount:'50'};S.dirty=true;paint()};c.append(field('Как выдаётся',mode));
    const lim=sel([['once','Один раз'],['daily','Раз в сутки'],['unlimited','Без ограничений']],b.limit||'once');lim.onchange=()=>b.limit=lim.value;c.append(field('Как часто можно забрать',lim));
@@ -12331,7 +12808,8 @@ function adminV6(){
    }else{
     c.append(rewardEd6(b.reward=b.reward||{type:'pumpkins',amount:'50'},false,'Награда'));
     const cg=inp(b.congrats,'Текст поздравления (например: «Мы поздравляем! Вам +50 тыкв»)');cg.maxLength=160;cg.oninput=()=>b.congrats=cg.value;c.append(cg)}
-  }else{
+  }else if(b.kind==='article'){c.append(articleEd(b))}
+  else{
    const tg=sel(Object.entries(TARGET_LABEL),b.target||'mines');tg.onchange=()=>b.target=tg.value;c.append(field('Куда ведёт',tg))}
   const foot=E6('div','hw-bfoot');const on=E6('label','hw-chk');const cb=E6('input');cb.type='checkbox';cb.checked=b.active!==false;cb.onchange=()=>{b.active=cb.checked;S.dirty=true;paint()};on.append(cb,document.createTextNode(' Показывать'));
   const mvb=d=>()=>{const i=S.btns.indexOf(b),j=i+d;if(j<0||j>=S.btns.length)return;[S.btns[i],S.btns[j]]=[S.btns[j],S.btns[i]];S.dirty=true;paint()};
@@ -12339,6 +12817,34 @@ function adminV6(){
   c.addEventListener('input',()=>{S.dirty=true;S.redraw&&S.redraw();const s=wrap.querySelector('.hw-savebar');if(s){s.classList.add('dirty');s.firstChild.textContent='Есть несохранённые изменения'}});
   c.addEventListener('change',()=>{S.dirty=true;S.redraw&&S.redraw()});
   return c}
+  /* ---- article editor (a button that opens its own page) ---- */
+ const newBlock=k=>k==='h'?{t:'h',text:''}:k==='p'?{t:'p',text:''}:k==='img'?{t:'img',src:'',caption:''}:k==='btn'?{t:'btn',text:'Открыть',target:'mines',url:''}:{t:'hr'};
+ const BLK_NAME={h:'Заголовок',p:'Текст',img:'Картинка',btn:'Кнопка',hr:'Разделитель'};
+ function articleEd(b){
+  const a=b.article=b.article||{title:'',cover:'',blocks:[]};a.blocks=a.blocks||[];
+  const box=E6('div','hw-arted');box.append(E6('h3','','Страница статьи'),E6('small','muted','Нажатие на плитку откроет страницу: обложка, заголовок и блоки в нужном порядке. Блоки можно двигать стрелками.'));
+  const t=inp(a.title,'Заголовок страницы (если пусто — название кнопки)');t.maxLength=80;t.oninput=()=>a.title=t.value;box.append(field('Заголовок',t));
+  box.append(imageBtn6(()=>a.cover,u=>{a.cover=u;S.dirty=true;paint()},'Обложка (необязательно)'));
+  const list=E6('div','hw-blocks');
+  a.blocks.forEach((bl,i)=>{
+   const c=E6('div','hw-blk');const hd=E6('div','hw-blk-h');hd.append(E6('b','',BLK_NAME[bl.t]||bl.t));
+   const mv=d=>()=>{const j=i+d;if(j<0||j>=a.blocks.length)return;[a.blocks[i],a.blocks[j]]=[a.blocks[j],a.blocks[i]];S.dirty=true;paint()};
+   hd.append(btn('↑','mini-btn',mv(-1)),btn('↓','mini-btn',mv(1)),btn('Удалить','danger-btn',()=>{a.blocks.splice(i,1);S.dirty=true;paint()}));c.append(hd);
+   if(bl.t==='h'){const x=inp(bl.text,'Текст заголовка');x.maxLength=120;x.oninput=()=>bl.text=x.value;c.append(x)}
+   else if(bl.t==='p'){const x=E6('textarea','text-input');x.rows=4;x.maxLength=3000;x.placeholder='Текст. Новая строка — с новой строки.';x.value=bl.text||'';x.oninput=()=>bl.text=x.value;c.append(x)}
+   else if(bl.t==='img'){c.append(imageBtn6(()=>bl.src,u=>{bl.src=u;S.dirty=true;paint()},'Картинка'));const x=inp(bl.caption,'Подпись под картинкой (необязательно)');x.maxLength=160;x.oninput=()=>bl.caption=x.value;c.append(x)}
+   else if(bl.t==='btn'){
+    const x=inp(bl.text,'Название кнопки');x.maxLength=40;x.oninput=()=>bl.text=x.value;c.append(x);
+    const mode=sel([['target','Ведёт в раздел приложения'],['url','Открывает ссылку']],bl.url?'url':'target');
+    const dest=E6('div','hw-blk-dest');
+    const fill=()=>{dest.replaceChildren();if(mode.value==='url'){const u=inp(bl.url,'https://t.me/канал или https://сайт');u.type='url';u.oninput=()=>bl.url=u.value;dest.append(u)}else{const s=sel(Object.entries(TARGET_LABEL),bl.target||'mines');s.onchange=()=>{bl.target=s.value;bl.url=''};bl.url='';dest.append(s)}};
+    mode.onchange=fill;fill();c.append(mode,dest)}
+   else c.append(E6('small','muted','Тонкая линия между блоками.'));
+   list.append(c)});
+  box.append(list);
+  const add=E6('div','hw-addrow');[['h','＋ Заголовок'],['p','＋ Текст'],['img','＋ Картинка'],['btn','＋ Кнопка'],['hr','＋ Линия']].forEach(([k,tx])=>add.append(btn(tx,'mini-btn',()=>{if(a.blocks.length>=40)return toast('Максимум 40 блоков');a.blocks.push(newBlock(k));S.dirty=true;paint()})));
+  box.append(add,btn('Посмотреть как у игрока','primary',()=>{const copy=JSON.parse(JSON.stringify(b));openArticle6(copy,true)}));
+  return box}
   /* ---- market tab ---- */
  const lotsOrder=()=>(S.cfg.lots||[]);
  const lotBody=(l,over)=>Object.assign({id:l.id,title:l.title,price:l.price,size:l.size,reward:l.reward_raw,image:l.image_raw||'',stock:l.stock,per_user:l.per_user,active:l.active!==false,sort_order:l.sort_order,starts_at:l.starts_at||0,ends_at:l.ends_at||0},over||{});
@@ -12388,6 +12894,7 @@ function adminV6(){
   const live=()=>{S.redraw&&S.redraw();drawDraft()};
   const dbox=E6('div','hw-draftbox');const dgrid=E6('div','hw-mk-wrap hw-draft-wrap'),dg=E6('div','hw-mk-grid c3');dgrid.append(dg);dbox.append(E6('small','','Так будет выглядеть лот'),dgrid);
   const drawDraft=()=>dg.replaceChildren(lotTile(draftView(l),{}));drawDraft();f.append(dbox);
+  dgrid.style.width='358px';dgrid.style.maxWidth='none';const fitD=()=>{const av=dbox.clientWidth-24;if(av>0)dgrid.style.zoom=Math.min(1,av/358)};requestAnimationFrame(fitD);if(window.ResizeObserver)new ResizeObserver(fitD).observe(dbox);
   const t=inp(l.title,'Название (если пусто — название награды)');t.maxLength=60;t.oninput=()=>{l.title=t.value;live()};f.append(field('Название',t));
   const rw=rewardEd6(reward,false,'Что получает покупатель');rw.addEventListener('input',live);rw.addEventListener('change',live);f.append(rw);
   f.append(imageBtn6(()=>l.image_raw,u=>{l.image_raw=u;live()},'Картинка лота (если не выбрать — возьмётся картинка награды)'));
@@ -12460,7 +12967,7 @@ ready0(()=>{const wc=document.querySelector('#wheelPage .wl-card');if(wc)new Mut
 /* the page for the event (a real page: opens on tap, has a back button) */
 function eventPageHTML(){
  return `<button id="hwEvBack" class="back" type="button">← Игры</button>
- <div class="hw-hero" id="hwHero">${bannerImg()||HERO()}<span class="hw-card-tag">ИВЕНТ</span></div>
+ <div class="hw-hero" id="hwHero">${bannerImg()||HERO()}</div>
  <div class="hw-evhead">
   <div class="hw-live"><i></i>Идёт событие</div>
   <h1>Halloween в GemDrop</h1>
@@ -12469,13 +12976,14 @@ function eventPageHTML(){
   <div class="hw-ev-pre hidden" id="hwEvPre">Предпросмотр: событие видно только администраторам.</div>
  </div>`}
 function splashHTML(){
+ const tour=(typeof H6!=='undefined'&&H6.hub&&H6.hub.tour)||null,tk=tour&&!tour.done;
  return `<div class="hw-sp-rays"><svg viewBox="-200 -200 400 400" aria-hidden="true"><g class="hw-rays">${Array.from({length:14},(_,i)=>`<path d="M0 0L${(300*Math.cos((i*360/14-9)*Math.PI/180)).toFixed(1)} ${(300*Math.sin((i*360/14-9)*Math.PI/180)).toFixed(1)}L${(300*Math.cos((i*360/14+9)*Math.PI/180)).toFixed(1)} ${(300*Math.sin((i*360/14+9)*Math.PI/180)).toFixed(1)}Z" fill="#c9a7ff" opacity=".12"/>`).join('')}</g></svg></div>
  <div class="hw-sp-card">
   <div class="hw-sp-gem hw-pop"><svg viewBox="0 0 120 156" aria-hidden="true"><g class="hw-float"><use href="#hwGem" width="120" height="156"/></g></svg></div>
   <h2 class="hw-sp-title"><span class="hw-pop" style="--d:.38s">Halloween</span><span class="hw-pop" style="--d:.6s">started!</span></h2>
   <p class="hw-rise" style="--d:.85s">Тыквы, призраки и ночные сюрпризы уже в GemDrop.</p>
-  <button id="hwSpGo" class="primary hw-rise" style="--d:1.05s" type="button">Смотреть событие</button>
-  <button id="hwSpSkip" class="hw-sp-skip hw-rise" style="--d:1.2s" type="button">Позже</button>
+  ${tk?`<button id="hwSpTour" class="primary hw-rise" style="--d:1.05s" type="button">Пройти экскурсию${tour.reward>0?' · +'+n6(tour.reward)+' '+tkWord(tour.reward):''}</button><button id="hwSpGo" class="hw-sp-sec hw-rise" style="--d:1.15s" type="button">Смотреть событие</button>`:`<button id="hwSpGo" class="primary hw-rise" style="--d:1.05s" type="button">Смотреть событие</button>`}
+  <button id="hwSpSkip" class="hw-sp-skip hw-rise" style="--d:1.28s" type="button">Позже</button>
  </div>
  <svg class="hw-sp-bat b1" viewBox="0 0 72 36" aria-hidden="true"><use href="#hwBat" width="72" height="36"/></svg><svg class="hw-sp-bat b2" viewBox="0 0 72 36" aria-hidden="true"><use href="#hwBat" width="72" height="36"/></svg><svg class="hw-sp-bat b3" viewBox="0 0 72 36" aria-hidden="true"><use href="#hwBat" width="72" height="36"/></svg>
  ${Array.from({length:10},(_,i)=>`<i class="hw-sp-em" style="left:${6+i*9.4}%;--d:${-(i*.55).toFixed(2)}s"></i>`).join('')}`}
@@ -12488,7 +12996,7 @@ function build(){
  const sp=document.createElement('div');sp.id='hwSplash';sp.setAttribute('role','dialog');sp.setAttribute('aria-modal','true');sp.setAttribute('aria-label','Halloween started');document.body.append(sp);
  const grid=$$('#gamesPage .games-grid');
  if(grid){const b=document.createElement('button');b.type='button';b.id='hwEventCard';b.setAttribute('aria-label','Halloween event');
-  b.innerHTML=`<span class="hw-card-art">${bannerImg()||EVENT_SCENE()}</span><span class="hw-card-tag">ИВЕНТ</span><span class="hw-pre-chip hidden" id="hwPreChip">Только админы</span><div class="hw-tx"><div><b>Halloween в GemDrop</b><small id="hwCardSub">Идёт событие · заходи и смотри</small></div><span class="hw-cd" id="hwCd"></span></div>`;
+  b.innerHTML=`<span class="hw-card-art">${bannerImg()||EVENT_SCENE()}</span><span class="hw-pre-chip hidden" id="hwPreChip">Только админы</span><div class="hw-tx"><div><b>Halloween в GemDrop</b><small id="hwCardSub" class="hw-timer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4.5l3 2M9.500 3h5"/></svg><span id="hwCd">…</span></small></div></div>`;
   b.onclick=()=>{if(st.event_open===false){if(typeof toast==='function')toast('Событие откроется через '+fmt(st.opens_at-(Date.now()+skew)));return}if(typeof show==='function')show('hwEventPage')};grid.prepend(b)}
  const pg=document.getElementById('hwEventPage');
  if(pg)mountEvent6(pg);
@@ -12505,6 +13013,7 @@ function showSplash(){
  sp.innerHTML=splashHTML();sp.classList.add('open');document.body.classList.add('hw-splash-open');
  const done=(go)=>{sp.classList.remove('open');document.body.classList.remove('hw-splash-open');setTimeout(()=>{if(!sp.classList.contains('open'))sp.innerHTML=''},400);if(go&&typeof show==='function')show('hwEventPage')};
  sp.querySelector('#hwSpGo').onclick=()=>done(true);sp.querySelector('#hwSpSkip').onclick=()=>done(false);
+ const tb=sp.querySelector('#hwSpTour');if(tb)tb.onclick=()=>{done(false);setTimeout(()=>{if(typeof show==='function')show('gamesPage');window.hwStartTour&&window.hwStartTour()},420)};
  sp.onclick=e=>{if(e.target===sp)done(false)};
  try{sp.querySelector('#hwSpGo').focus({preventScroll:true})}catch(e){}
 }
@@ -12517,7 +13026,7 @@ function maybeSplash(tries=0){
  const busy=document.querySelectorAll('.modal:not(.hidden)').length>0;
  if(!u||loading||busy){if(tries<30)setTimeout(()=>maybeSplash(tries+1),1000);return}
  try{localStorage.setItem(seenKey(),'1')}catch(e){}
- showSplash();
+ loadHub6(true).then(showSplash,showSplash);
 }
 const BANNER_PAGES=[];
 function swap(on){
@@ -12558,8 +13067,7 @@ function tick(){
  if(!st.active)return;
  if(st.ends_at&&now>=st.ends_at){st.active=false;root.classList.remove('hw');swap(false);try{localStorage.removeItem('gd_hw')}catch(e){}return}
  const locked=st.event_open===false&&!!st.opens_at;
- const t=locked?'Откроется через '+fmt(Math.max(0,st.opens_at-now)):(st.ends_at?'До конца: '+fmt(st.ends_at-now):'Идёт сейчас');
- const sub=document.getElementById('hwCardSub');if(sub)sub.textContent=locked?'Скоро откроется · новое событие':'Идёт событие · заходи и смотри';
+ const t=locked?'Откроется через '+fmt(Math.max(0,st.opens_at-now)):(st.ends_at?fmt(st.ends_at-now):'Идёт сейчас');
  const evc=document.getElementById('hwEventCard');if(evc)evc.classList.toggle('locked',locked);
  const a=document.getElementById('hwCd'),b=document.getElementById('hwEvCd');if(a)a.textContent=t;if(b)b.textContent=st.ends_at?fmt(st.ends_at-now):'Идёт сейчас';tick6()}
 async function poll(){
@@ -12586,7 +13094,7 @@ function paintPump(){
 ready(()=>{ensureDefs();if(typeof window.topReward==='function'){const orig=window.topReward;window.topReward=function(){const r=orig.apply(this,arguments);try{paintPump()}catch(e){}return r}}paintPump()});
 
 window.hwRefresh=()=>{poll()};
-window.hwReplaySplash=()=>{try{localStorage.removeItem(seenKey())}catch(e){}if(!built)return;const sp=document.getElementById('hwSplash');if(sp)sp.classList.remove('open');showSplash();try{localStorage.setItem(seenKey(),'1')}catch(e){}};
+window.hwReplaySplash=()=>{try{localStorage.removeItem(seenKey())}catch(e){}if(!built)return;const sp=document.getElementById('hwSplash');if(sp)sp.classList.remove('open');loadHub6(true).then(showSplash,showSplash);try{localStorage.setItem(seenKey(),'1')}catch(e){}};
 /* ---------- admin page (section «События») ---------- */
 ready(()=>{
  const g=id=>document.getElementById(id);if(!g('openHalloween'))return;

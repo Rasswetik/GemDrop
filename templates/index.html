@@ -15814,6 +15814,171 @@ html body #creatorChatPage .creator-chat-send{background:linear-gradient(135deg,
 html body #creatorChatPage .creator-chat-preview{background:var(--cr-bg)!important}
 @media(max-width:360px){html body #creatorPage .cr-new b{display:none}html body #creatorPage .cr-new{padding:0 10px}html body #creatorPage .cr-steps span{display:none}}
 </style>
+<style id="gift-picker-v2">
+/* ===== Gift picker window ===== */
+.gp-native{display:none!important}
+.gp-btn{width:100%;min-height:48px;display:grid;grid-template-columns:36px minmax(0,1fr) 16px;gap:10px;align-items:center;padding:6px 12px 6px 6px;border:1px solid var(--glass-line,rgba(255,255,255,.12))!important;border-radius:14px;background:#131524!important;color:#f0f4f9;text-align:left;cursor:pointer}
+html.hw .gp-btn{background:#191423!important;color:#f6f3fa}
+.gp-btn[hidden]{display:none}
+.gp-btn:disabled{opacity:.5}
+.gp-btn:active{transform:scale(.99)}
+.gp-btn .gp-th{width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.06);display:grid;place-items:center;overflow:hidden;font-size:17px}
+.gp-btn .gp-th img{width:100%;height:100%;object-fit:cover}
+.gp-btn .gp-tx{min-width:0;display:block}
+.gp-btn .gp-tx b{display:block;font-size:13px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}
+.gp-btn .gp-tx small{display:block;margin-top:2px;font-size:11px;color:#a99ac8}
+.gp-btn i{color:#9a8fb8;display:grid;place-items:center}
+.gp-modal{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:flex-end;justify-content:center;--gp-ac:#a98bff;--gp-ac2:#7a4fe0;--gp-bg:#15111f;--gp-s:#1d1730;--gp-line:#352a52;--gp-mute:#a99ac8;--gp-ink:#f6f3fa}
+.gp-modal.gp-cr{--gp-ac:#3ee0b4;--gp-ac2:#1fb895;--gp-bg:#0e1b21;--gp-s:#142a33;--gp-line:#23434f;--gp-mute:#8db0b8;--gp-ink:#eafaf6}
+.gp-modal.hidden{display:none}
+.gp-back{position:absolute;inset:0;background:rgba(4,3,10,.76);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.gp-sheet{position:relative;width:min(560px,100%);height:min(86vh,780px);height:min(86dvh,780px);display:flex;flex-direction:column;gap:10px;padding:8px 12px 0;background:var(--gp-bg);color:var(--gp-ink);border:1px solid var(--gp-line);border-bottom:0;border-radius:22px 22px 0 0;box-shadow:0 -18px 55px rgba(0,0,0,.5);animation:gpUp .22s ease}
+@keyframes gpUp{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.gp-grab{width:38px;height:4px;border-radius:9px;background:var(--gp-line);margin:0 auto}
+.gp-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.gp-head h2{margin:0;font-size:17px;color:var(--gp-ink);background:none;-webkit-text-fill-color:currentColor}
+.gp-x{width:34px;height:34px;border:0;border-radius:11px;background:var(--gp-s);color:var(--gp-mute);font-size:21px;line-height:1;display:grid;place-items:center;padding:0}
+.gp-search{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border-radius:13px;background:var(--gp-s);border:1px solid var(--gp-line);color:var(--gp-mute)}
+.gp-search:focus-within{border-color:var(--gp-ac);box-shadow:0 0 0 3px color-mix(in srgb,var(--gp-ac) 18%,transparent)}
+.gp-search input{flex:1;min-width:0;min-height:0!important;height:40px;padding:0!important;border:0!important;outline:0;background:transparent!important;box-shadow:none!important;color:var(--gp-ink)!important;font-size:16px!important;-webkit-appearance:none;appearance:none;backdrop-filter:none!important}
+.gp-search input::placeholder{color:var(--gp-mute);font-size:14px}
+.gp-search input::-webkit-search-cancel-button{display:none}
+.gp-count{font-size:11px;font-weight:800;color:var(--gp-ac)}
+.gp-grid{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-content:start;padding:2px 0 max(14px,env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.gp-card{position:relative;display:flex;flex-direction:column;gap:5px;padding:7px 7px 8px;border-radius:14px;border:1px solid var(--gp-line)!important;background:var(--gp-s)!important;color:var(--gp-ink);text-align:left;min-width:0;cursor:pointer;box-shadow:none!important;backdrop-filter:none!important}
+.gp-card:active{transform:scale(.97)}
+.gp-card .gp-img{display:block;aspect-ratio:1;border-radius:10px;background:rgba(255,255,255,.05);overflow:hidden}
+.gp-card .gp-img img{width:100%;height:100%;object-fit:cover;display:block}
+.gp-card b{font-size:11.5px;line-height:1.2;font-weight:800;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.4em;color:var(--gp-ink)}
+.gp-card small{font-size:11px;font-weight:800;color:var(--gp-ac)}
+.gp-card.on{border-color:var(--gp-ac)!important;background:color-mix(in srgb,var(--gp-ac) 14%,var(--gp-s))!important}
+.gp-card.on::after{content:'✓';position:absolute;top:10px;right:10px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--gp-ac);color:#12091f;font-size:12px;font-weight:900}
+.gp-empty,.gp-more{grid-column:1/-1;padding:26px 10px;text-align:center;color:var(--gp-mute);font-size:13px}
+.gp-more{padding:10px;font-size:11px}
+@media(max-width:340px){.gp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+html .gp-modal .gp-search input,html .gp-modal .gp-search input:focus,html.hw .gp-modal .gp-search input,html.hw .gp-modal .gp-search input:focus{border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;outline:0!important}
+html body #creatorPage .gp-btn{background:#0a141a!important;border-color:#23434f!important;color:#eafaf6}
+html body #creatorPage .gp-btn .gp-tx small{color:#8db0b8}
+</style>
+<script id="gift-picker-v2-js">
+/* Gift picker: replaces every gift <select> with a button that opens a 3-per-row grid with search */
+(()=>{
+ if(window.gpOpen)return;
+ let modal,grid,search,count,titleEl,cur=null,timer=0;
+ const LIMIT=300;
+ const catalog=()=>{try{return catalogItems||[]}catch(e){return[]}};
+ const tonImg=()=>{try{return TON}catch(e){return'/static/img/ton.png'}};
+ const fmt=v=>{try{return money(v)}catch(e){return String(v)}};
+ const priceText=g=>(g.price_ton==null?'?':fmt(g.price_ton))+' TON';
+ const CHEV='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+ const LENS='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+ function mk(){
+  if(modal)return;
+  modal=document.createElement('div');modal.id='gpModal';modal.className='gp-modal hidden';modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');
+  modal.innerHTML='<div class="gp-back"></div><div class="gp-sheet"><div class="gp-grab"></div><div class="gp-head"><h2>Выберите подарок</h2><button type="button" class="gp-x" aria-label="Закрыть">×</button></div><label class="gp-search">'+LENS+'<input type="search" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Поиск по названию или цене"><span class="gp-count"></span></label><div class="gp-grid"></div></div>';
+  document.body.append(modal);
+  grid=modal.querySelector('.gp-grid');search=modal.querySelector('input');count=modal.querySelector('.gp-count');titleEl=modal.querySelector('h2');
+  modal.querySelector('.gp-back').onclick=close;modal.querySelector('.gp-x').onclick=close;
+  search.oninput=()=>{clearTimeout(timer);timer=setTimeout(render,70)};
+  grid.addEventListener('click',e=>{let c=e.target.closest('.gp-card');if(!c||!cur)return;let g=cur.map.get(c.dataset.id);if(!g)return;let o=cur;close();try{o.onPick&&o.onPick(g)}catch(err){console.error(err)}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&cur)close()});
+ }
+ function render(){
+  if(!cur)return;
+  let q=search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let list=cur.gifts.filter(g=>{if(!q.length)return true;let hay=(String(g.name||'')+' '+String(g.price_ton==null?'':g.price_ton)).toLowerCase();return q.every(t=>hay.includes(t))});
+  count.textContent=list.length===cur.gifts.length?String(list.length):list.length+' из '+cur.gifts.length;
+  grid.replaceChildren();
+  if(!list.length){let d=document.createElement('div');d.className='gp-empty';d.textContent=cur.gifts.length?'Ничего не найдено':(cur.empty||'Нет доступных подарков');grid.append(d);return}
+  let frag=document.createDocumentFragment();
+  for(let g of list.slice(0,LIMIT)){
+   let b=document.createElement('button');b.type='button';b.className='gp-card'+(String(g.id)===String(cur.selected)?' on':'');b.dataset.id=String(g.id);
+   let th=document.createElement('span');th.className='gp-img';let im=new Image;im.alt='';im.loading='lazy';im.decoding='async';im.src=g.image_url||tonImg();im.onerror=()=>{im.onerror=null;im.src=tonImg()};th.append(im);
+   let n=document.createElement('b');n.textContent=g.name||'Подарок';let p=document.createElement('small');p.textContent=priceText(g);
+   b.append(th,n,p);frag.append(b);
+  }
+  grid.append(frag);
+  if(list.length>LIMIT){let d=document.createElement('div');d.className='gp-more';d.textContent='Показаны первые '+LIMIT+' — уточните поиск';grid.append(d)}
+ }
+ function open(o){
+  mk();
+  let gifts=(o.gifts||[]).filter(Boolean);
+  cur={gifts,map:new Map(gifts.map(g=>[String(g.id),g])),selected:o.selected,onPick:o.onPick,empty:o.empty};
+  titleEl.textContent=o.title||'Выберите подарок';
+  modal.classList.toggle('gp-cr',!!o.cr);
+  search.value='';
+  render();
+  modal.classList.remove('hidden');document.body.style.overflow='hidden';
+  requestAnimationFrame(()=>{let on=grid.querySelector('.gp-card.on');if(on)on.scrollIntoView({block:'center'});try{if(matchMedia('(hover:hover) and (pointer:fine)').matches)search.focus({preventScroll:true})}catch(e){}});
+ }
+ function close(){if(!modal)return;modal.classList.add('hidden');document.body.style.overflow='';cur=null}
+ window.gpOpen=open;window.gpClose=close;
+
+ /* ---- enhance <select> elements whose options are catalog gifts ---- */
+ const desc=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value');
+ function titleFor(sel){
+  let l=sel.id&&document.querySelector('label[for="'+sel.id+'"]');
+  let t=(l&&l.textContent)||sel.getAttribute('aria-label')||'';
+  t=t.replace(/\s+/g,' ').trim();
+  return t&&t.length<48?t:'Выберите подарок';
+ }
+ function giftMap(){return new Map(catalog().map(g=>[String(g.id),g]))}
+ function isGiftSelect(sel,map){
+  let opts=[...sel.options];if(opts.length<2||!map.size)return false;
+  let ok=opts.filter(o=>map.has(o.value)).length;
+  return ok>=2&&ok>=opts.length*.9;
+ }
+ function paint(sel){
+  let b=sel._gp;if(!b)return;
+  if(!b.isConnected&&sel.isConnected)sel.after(b);
+  let map=giftMap(),g=map.get(String(sel.value));
+  let th=b.querySelector('.gp-th'),nm=b.querySelector('b'),pr=b.querySelector('small');
+  th.replaceChildren();
+  if(g){let im=new Image;im.alt='';im.src=g.image_url||tonImg();im.onerror=()=>{im.onerror=null;im.src=tonImg()};th.append(im);nm.textContent=g.name||'Подарок';pr.textContent=priceText(g)}
+  else{th.textContent='🎁';nm.textContent=sel.selectedOptions[0]?sel.selectedOptions[0].text:'Выберите подарок';pr.textContent='Нажмите, чтобы выбрать'}
+  b.disabled=sel.disabled;b.hidden=sel.classList.contains('hidden');
+  b.classList.toggle('gp-cr',!!sel.closest('#creatorPage'));
+ }
+ function enhance(sel){
+  if(sel._gp){paint(sel);return}
+  if(sel.multiple||sel.closest('#gpModal'))return;
+  if(!isGiftSelect(sel,giftMap()))return;
+  let b=document.createElement('button');b.type='button';b.className='gp-btn';
+  b.innerHTML='<span class="gp-th"></span><span class="gp-tx"><b></b><small></small></span><i>'+CHEV+'</i>';
+  sel.classList.add('gp-native');sel._gp=b;sel.after(b);
+  Object.defineProperty(sel,'value',{configurable:true,get(){return desc.get.call(this)},set(v){desc.set.call(this,v);paint(this)}});
+  b.onclick=()=>{
+   let map=giftMap();
+   open({gifts:[...sel.options].map(o=>map.get(o.value)).filter(Boolean),selected:sel.value,title:titleFor(sel),cr:!!sel.closest('#creatorPage'),
+    onPick:g=>{sel.value=String(g.id);sel.dispatchEvent(new Event('input',{bubbles:true}));sel.dispatchEvent(new Event('change',{bubbles:true}))}});
+  };
+  paint(sel);
+  new MutationObserver(()=>paint(sel)).observe(sel,{attributes:true,attributeFilter:['class','disabled']});
+ }
+ let queue=new Set(),raf=0;
+ function flush(){raf=0;let list=[...queue];queue.clear();for(let s of list){try{enhance(s)}catch(e){console.error(e)}}}
+ function want(sel){queue.add(sel);if(!raf)raf=requestAnimationFrame(flush)}
+ new MutationObserver(ms=>{
+  for(let m of ms){
+   if(m.target&&m.target.tagName==='SELECT'){want(m.target);continue}
+   if(m.target&&m.target.tagName==='OPTION'&&m.target.parentElement&&m.target.parentElement.tagName==='SELECT'){want(m.target.parentElement);continue}
+   for(let n of m.addedNodes){
+    if(n.nodeType!==1)continue;
+    if(n.tagName==='SELECT')want(n);else if(n.querySelectorAll)n.querySelectorAll('select').forEach(want);
+   }
+  }
+ }).observe(document.body,{childList:true,subtree:true});
+ document.querySelectorAll('select').forEach(want);
+ /* creator builder's own picker uses the same window */
+ window.openCreatorGiftPicker=function(){
+  let gifts=(creatorBuilderState&&creatorBuilderState.gifts)||[];
+  open({gifts,selected:$('creatorBonusGift').value,title:'Подарок для отыгрыша',cr:true,empty:'Для вашего уровня сейчас нет подходящих подарков.',
+   onPick:g=>{$('creatorBonusGift').value=String(g.id);paintCreatorGiftButton()}});
+ };
+ let ob=document.getElementById('creatorGiftPickerOpen');if(ob)ob.onclick=()=>window.openCreatorGiftPicker();
+})();
+
+</script>
 </body></html>
 <style id="twitch-tokenless-final">
 .creator-twitch-embed{position:relative;width:100%;aspect-ratio:16/9;border-radius:16px;overflow:hidden;background:#0f1118;border:1px solid rgba(145,70,255,.28)}

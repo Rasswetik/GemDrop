@@ -1894,6 +1894,37 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/admin/halloween/config').get_json()['layout'][1]['art'], 'hw:batflock')
             self.post('/api/admin/halloween/config', {'layout': 'oops'}, 400)
 
+    def test_halloween_banners_are_normalized_and_exposed(self):
+        raw = {'id': 'bq1w2e', 'banner': True, 'size': 'xl', 'image': 'hw:moon', 'dim': 500, 'bg': 'red',
+               'elements': [{'t': 'text', 'text': 'Привет', 'x': 150, 'y': -3, 'fs': 999, 'color': '#FFAA00'},
+                            {'t': 'img', 'art': 'hw:bat', 'w': 1}, {'t': 'img', 'art': 'javascript:x'}, {'t': 'text', 'text': '   '}],
+               'action': {'type': 'article', 'article': {'title': 'Инфо', 'blocks': [{'t': 'p', 'text': 'Текст'}]}}}
+        lay = m.hw_normalize_layout([raw], strict=True)
+        banner = lay[0]
+        self.assertTrue(banner['banner'] and banner['id'] == 'bq1w2e' and banner['size'] == 'm' and banner['dim'] == 80.0)
+        self.assertEqual(banner['bg'], '#2a1c4d')                                           # bad colour falls back
+        self.assertEqual(len(banner['elements']), 2)                                         # junk elements are dropped
+        self.assertEqual((banner['elements'][0]['x'], banner['elements'][0]['y'], banner['elements'][0]['fs']), (100.0, 0.0, 64.0))
+        self.assertEqual(banner['elements'][0]['color'], '#ffaa00')
+        self.assertEqual(banner['elements'][1]['w'], 4.0)
+        self.assertEqual(banner['action']['type'], 'article')
+        with self.assertRaises(ValueError):
+            m.hw_normalize_layout([dict(raw, action={'type': 'url', 'url': 'http://insecure'})], strict=True)
+        with self.assertRaises(ValueError):
+            m.hw_normalize_layout([dict(raw, action={'type': 'page', 'target': 'nowhere'})], strict=True)
+        self.assertEqual([x['id'] for x in m.hw_normalize_layout([dict(raw, id='boss')])][0][0], 'b')   # never collides with a block id
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/halloween/config', {'layout': [raw], 'market_banners': [dict(raw, id='bm9x8y', pos=3)]})
+            self.post('/api/admin/halloween/config', {'market_banners': [dict(raw, action={'type': 'url', 'url': 'ftp://x'})]}, 400)
+            cfg = self.client.get('/api/admin/halloween/config').get_json()
+            self.assertEqual(cfg['layout'][0]['id'], 'bq1w2e')
+            self.assertEqual((cfg['market_banners'][0]['id'], cfg['market_banners'][0]['pos']), ('bm9x8y', 3))
+            self.post('/api/admin/halloween', {'enabled': True, 'starts_at': 0, 'ends_at': 0})
+            hub = self.client.get('/api/halloween/hub').get_json()
+            self.assertEqual(hub['layout'][0]['id'], 'bq1w2e')
+            self.assertEqual(hub['market_banners'][0]['pos'], 3)
+            self.post('/api/admin/halloween', {'enabled': False})
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

@@ -12275,6 +12275,35 @@ html.perf-lite .dc{animation:none!important}
 .hw-lay-it{flex-wrap:wrap;row-gap:8px}.hw-lay-it b{flex:1 1 150px}.hw-lay-it b small{white-space:normal}
 .hw-lay-ctl{display:flex;gap:6px;margin-left:auto;flex:none}
 
+/* ---------- banners ---------- */
+.hw-bn{position:relative;width:100%;max-width:760px;margin:14px auto;border-radius:20px;overflow:hidden;container-type:inline-size;isolation:isolate;border:1px solid #6a4ad0aa;box-shadow:0 10px 26px #0006,inset 0 0 0 1px #ffffff12;background:linear-gradient(135deg,var(--bn1,#2a1c4d),var(--bn2,#5b30c8))}
+.hw-bn.sz-s{aspect-ratio:4/1}.hw-bn.sz-m{aspect-ratio:12/5}.hw-bn.sz-l{aspect-ratio:3/2}
+.hw-bn.tap{cursor:pointer;transition:transform .15s}.hw-bn.tap:active{transform:scale(.985)}
+.hw-bn-bg,.hw-bn-dim,.hw-bn-els{position:absolute;inset:0}
+.hw-bn-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.hw-bn-dim{background:#0b0618;z-index:1;pointer-events:none}
+.hw-bn-els{z-index:2}
+.hw-bn-el{position:absolute;transform:translate(-50%,-50%) rotate(var(--rot,0deg));line-height:1.12;white-space:pre;max-width:96%;user-select:none;-webkit-user-select:none}
+.hw-bn-el.is-text{font-size:calc(var(--fs,18)*1px);font-family:system-ui,-apple-system,sans-serif;letter-spacing:.1px}
+@supports (width:1cqw){.hw-bn-el.is-text{font-size:calc(var(--fs,18)*.2778cqw)}}
+.hw-bn-el.shd{text-shadow:0 1px 2px #000a,0 2px 12px #000a}
+.hw-bn-el.is-img{display:block}.hw-bn-art{width:100%;height:auto;display:block;overflow:visible}
+.hw-bn-el.edit{cursor:grab;touch-action:none;outline:1px dashed #ffffff44;outline-offset:3px;border-radius:4px}
+.hw-bn-el.edit.sel{outline:2px solid #ffd35a;cursor:grabbing}
+.hw-mk-grid .hw-bn{grid-column:1/-1;margin:2px 0}
+/* admin banner editor */
+.hw-bned{display:grid;gap:12px}
+.hw-bned-stage{padding:10px;border-radius:16px;background:#0d0820;border:1px solid #3d2c78}
+.hw-bned-stage .hw-bn{margin:0 auto;max-width:none}
+.hw-bned-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hw-bned input[type=range]{flex:1;min-width:120px;accent-color:#8a5cf0}
+.hw-bned input[type=color]{width:42px;height:34px;padding:0;border:1px solid #3d2c78;border-radius:8px;background:#150e2e}
+.hw-bned-els{display:flex;gap:6px;flex-wrap:wrap}
+.hw-bned-els .mini-btn.on{background:#7a55e8;color:#fff}
+.hw-bned-card{display:grid;gap:10px;padding:12px;border-radius:14px;background:#150e2e;border:1px solid #3d2c78}
+.hw-bned-card h3{margin:0;font:800 13px system-ui;color:#cdbdf5}
+.hw-bned small.muted{color:#9e90c8}
+
 /* ===================== boss raid · pass · trick-or-treat ===================== */
 .hw-features{display:grid;gap:12px;margin:14px 0}.hw-features.hidden{display:none}
 .fx-card{position:relative;display:block;width:100%;padding:0;margin:0;text-align:left;cursor:pointer;color:#f1eaff;font:inherit;border:1px solid #6b45d6aa;border-radius:22px;background:radial-gradient(120% 90% at 20% 0,#3d2a80,#221650 62%,#171030);box-shadow:0 12px 28px #0009;transition:transform .12s,border-color .12s;-webkit-tap-highlight-color:transparent}
@@ -13608,9 +13637,10 @@ function applyLayout6(){
  const sig=JSON.stringify(lay)+(on('pass')?1:0)+(on('trick')?1:0);
  if(H6.laySig===sig&&H6.layHero===nodes.hero)return;
  H6.laySig=sig;H6.layHero=nodes.hero;
- pg.querySelectorAll('.hw-deco,.hw-lay-row').forEach(n=>{[...n.querySelectorAll('.hw-fxbox')].forEach(x=>pg.append(x));n.remove()});
+ pg.querySelectorAll('.hw-deco,.hw-bn,.hw-lay-row').forEach(n=>{[...n.querySelectorAll('.hw-fxbox')].forEach(x=>pg.append(x));n.remove()});
  const out=[];
  for(let i=0;i<lay.length;i++){const it=lay[i];
+  if(it.banner){out.push(bannerNode6(it));continue}
   if(it.deco){out.push(decoNode6(it));continue}
   const n=nodes[it.id];if(!n)continue;n.classList.toggle('hw-lay-off',!!it.hidden);
   const nx=lay[i+1];
@@ -13648,13 +13678,15 @@ function renderMarket6(){
  const grid=document.getElementById('hwMkGrid');if(!grid||!H6.hub)return;
  const lots=H6.hub.lots.filter(l=>!(l.ends_at&&lotLeft(l)<=0));
  document.getElementById('hwMkEmpty').classList.toggle('hidden',lots.length>0);
- grid.replaceChildren(...lots.map(l=>{
+ const tiles=lots.map(l=>{
   const dead=l.sold_out||l.upcoming||(l.per_user&&l.bought>=l.per_user),poor=pumpN()<l.price;
   const t=E6('button','hw-lot sz-'+l.size+(l.welcome?' welcome':'')+(dead?' dead':'')+(!dead&&poor?' poor':''));t.type='button';t.dataset.id=l.id;
   const sub=l.price_ton>0?'≈ '+(+l.price_ton).toFixed(2).replace(/\.?0+$/,'')+' TON':(l.subtitle||'');
   t.innerHTML=`<span class="hw-lot-art">${artHTML(l.image)}</span><span class="hw-lot-name">${esc6(l.title)}</span>${sub?`<span class="hw-lot-sub">${esc6(sub)}</span>`:''}<span class="hw-lot-price${l.price===0?' free':''}">${l.price===0?'<b>Бесплатно</b>':artHTML('hw:pumpkin')+'<b>'+n6(l.price)+'</b>'}</span>${l.left!=null?`<span class="hw-lot-left">Осталось ${l.left}</span>`:''}${l.ends_at?`<span class="hw-lot-time" data-end="${l.ends_at}">${lotTimer(l)}</span>`:''}${dead?`<span class="hw-lot-veil">${l.sold_out?'Раскуплено':l.upcoming?'Скоро':l.welcome?'Получено':'Куплено'}</span>`:''}`;
   t.onclick=()=>dead?toast(l.sold_out?'Лот раскуплен':l.upcoming?'Продажа ещё не началась':'Вы уже купили максимум'):confirmBuy6(l);
-  return t}))}
+  return t});
+ let off=0;(H6.hub.market_banners||[]).slice().sort((x,y)=>(x.pos||0)-(y.pos||0)).forEach(bn=>{tiles.splice(Math.min(tiles.length,(bn.pos||0)+off),0,bannerNode6(bn));off++});
+ grid.replaceChildren(...tiles)}
 function confirmBuy6(l){
  const bal=pumpN(),after=bal-l.price,ok=after>=0,free=l.price===0;
  const c=dlg6(`<div class="hw-res-art sm">${artHTML(l.image)}</div><div class="hw-res-kicker">${free?'Подарок новичку':'Покупка в маркете'}</div><h3>${esc6(l.title)}</h3>
@@ -13726,6 +13758,48 @@ function openArticle6(b,preview){
   if(bl.url)openLink6(bl.url);else if(bl.target){closeArticle6();go6(bl.target)}});
  requestAnimationFrame(()=>d.classList.add('open'))}
 window.hwOpenArticle=openArticle6;
+
+/* ======================= banners: picture + free text/stickers + tap action (event page and market) ======================= */
+function bannerGo6(b){
+ const a=b.action||{};
+ if(a.type==='page'&&a.target)return go6(a.target);
+ if(a.type==='url'&&a.url)return openLink6(a.url);
+ if(a.type==='article'&&a.article)return openArticle6({title:a.article.title||b.name||'Информация',kind:'article',article:a.article})}
+function bnEl6(e,opt){
+ const n=E6('span','hw-bn-el '+(e.t==='img'?'is-img':'is-text')+(opt.edit?' edit':'')+(opt.sel===e.id?' sel':''));n.dataset.id=e.id;
+ n.style.left=e.x+'%';n.style.top=e.y+'%';n.style.setProperty('--rot',(e.rot||0)+'deg');
+ if(e.t==='img'){n.style.width=e.w+'%';n.innerHTML=artHTML(e.art,'hw-bn-art')}
+ else{n.style.setProperty('--fs',e.fs);n.style.color=e.color||'#fff';n.style.fontWeight=e.bold===false?'600':'900';n.style.textAlign=e.align||'center';n.classList.toggle('shd',e.shadow!==false);n.textContent=e.text}
+ return n}
+function bannerNode6(b,opt){
+ opt=opt||{};
+ const act=b.action&&b.action.type&&b.action.type!=='none';
+ const el=E6('div','hw-bn sz-'+(b.size||'m')+(act&&!opt.edit?' tap':'')+(b.hidden&&!opt.edit?' hw-lay-off':''));
+ el.style.setProperty('--bn1',b.bg||'#2a1c4d');el.style.setProperty('--bn2',b.bg2||'#5b30c8');
+ const img=b.image?artHTML(b.image,'hw-bn-img').replace('<svg ','<svg preserveAspectRatio="xMidYMid slice" '):'';
+ el.innerHTML=`<span class="hw-bn-bg"></span>${img}<span class="hw-bn-dim" style="opacity:${(b.dim||0)/100}"></span><span class="hw-bn-els"></span>`;
+ const box=el.querySelector('.hw-bn-els');
+ (b.elements||[]).forEach(e=>box.append(bnEl6(e,opt)));
+ if(opt.edit){
+  let drag=null;
+  el.addEventListener('pointerdown',ev=>{
+   const t=ev.target.closest('.hw-bn-el');
+   if(!t){if(opt.onPick)opt.onPick(null);return}
+   const e=(b.elements||[]).find(x=>x.id===t.dataset.id);if(!e)return;
+   const r=el.getBoundingClientRect();drag={e,t,r,moved:false};
+   try{t.setPointerCapture(ev.pointerId)}catch(x){}
+   box.querySelectorAll('.hw-bn-el.sel').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');
+   if(opt.onPick&&opt.sel!==e.id)opt.onPick(e.id,true);
+   ev.preventDefault()});
+  el.addEventListener('pointermove',ev=>{
+   if(!drag)return;const r=drag.r;
+   const x=Math.max(0,Math.min(100,(ev.clientX-r.left)/r.width*100)),y=Math.max(0,Math.min(100,(ev.clientY-r.top)/r.height*100));
+   drag.e.x=Math.round(x*10)/10;drag.e.y=Math.round(y*10)/10;drag.moved=true;
+   drag.t.style.left=drag.e.x+'%';drag.t.style.top=drag.e.y+'%';if(opt.onMove)opt.onMove(drag.e)});
+  const end=()=>{if(!drag)return;const d=drag;drag=null;if(opt.onDone)opt.onDone(d.e,d.moved)};
+  el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end)}
+ else if(act){el.setAttribute('role','button');el.tabIndex=0;el.onclick=()=>bannerGo6(b);el.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();bannerGo6(b)}}}
+ return el}
 
 /* ---------- the boss: a pumpkin-headed scarecrow warlock in a witch hat ---------- */
 const BOSS_SKIN={
@@ -15745,7 +15819,7 @@ const PV_AUTO_IMG={ton:'/static/img/ton.png',bonus:'/static/img/ton2.png',pumpki
 function rewardTitle6(r){r=r||{};const a=Number(r.amount||0);switch(r.type){case 'ton':return (a||'')+' TON';case 'bonus':return (a||'')+' TON бонусом';case 'pumpkins':return n6(a)+' тыкв';case 'tickets':return n6(a)+' билетов';case 'promo':return 'Промокод';case 'fragment':return 'NFT-подарок';case 'catalog':return 'Подарок';case 'wager_gift':return 'Подарок на отыгрыш';default:return 'Награда'}}
 function adminV6(){
  const page=document.getElementById('halloweenPage');if(!page||page.dataset.v6)return;page.dataset.v6='1';
- const S={cfg:null,btns:[],lay:[],selLay:null,layDirty:false,editLot:null,tab:'launch',selLot:null,selB:null,dev:'phone',dirty:false};
+ const S={cfg:null,btns:[],lay:[],selLay:null,bnSel:null,layDirty:false,mbn:[],selMb:null,mbnDirty:false,editLot:null,tab:'launch',selLot:null,selB:null,dev:'phone',dirty:false};
  try{S.tab=sessionStorage.getItem('hw_adm_tab')||'launch'}catch(e){}
  const panel=(title,hint)=>{const p=E6('div','panel stack');if(title)p.append(E6('h2','',title));if(hint)p.append(E6('p','muted',hint));return p};
  const field=(label,input,hint)=>{const w=E6('label','hw-fld');w.append(E6('span','',label),input);if(hint)w.append(E6('small','',hint));return w};
@@ -15761,7 +15835,7 @@ function adminV6(){
  TABS.forEach(([k,t])=>{const b=E6('button','hw-tab',t);b.type='button';b.dataset.t=k;b.onclick=()=>setTab(k);bar.append(b)});
  function setTab(k){S.tab=k;try{sessionStorage.setItem('hw_adm_tab',k)}catch(e){}
   bar.querySelectorAll('.hw-tab').forEach(b=>b.classList.toggle('on',b.dataset.t===k));launch.classList.toggle('hidden',k!=='launch');wrap.classList.toggle('hidden',k==='launch');if(k!=='launch'&&S.cfg)paint()}
- async function load(){try{S.cfg=await api('/api/admin/halloween/config');if(!S.dirty){S.btns=JSON.parse(JSON.stringify(S.cfg.buttons||[]));S.selB=null;if(!S.btns.some(b=>b.kind==='page'&&b.target==='market'))S.btns.unshift({id:'market',title:'Маркет тыкв',subtitle:'Обменяй тыквы на призы',kind:'page',target:'market',icon:'hw:pumpkin',active:true})}if(!S.layDirty){S.lay=JSON.parse(JSON.stringify(S.cfg.layout||[]));S.selLay=null}if(S.tab!=='launch')paint()}catch(e){toast(e.message)}}
+ async function load(){try{S.cfg=await api('/api/admin/halloween/config');if(!S.dirty){S.btns=JSON.parse(JSON.stringify(S.cfg.buttons||[]));S.selB=null;if(!S.btns.some(b=>b.kind==='page'&&b.target==='market'))S.btns.unshift({id:'market',title:'Маркет тыкв',subtitle:'Обменяй тыквы на призы',kind:'page',target:'market',icon:'hw:pumpkin',active:true})}if(!S.layDirty){S.lay=JSON.parse(JSON.stringify(S.cfg.layout||[]));S.selLay=null}if(!S.mbnDirty){S.mbn=JSON.parse(JSON.stringify(S.cfg.market_banners||[]));S.selMb=null}if(S.tab!=='launch')paint()}catch(e){toast(e.message)}}
  function paint(){wrap.replaceChildren(S.tab==='btn'?btnTab():S.tab==='layout'?layoutTab():S.tab==='market'?marketTab():(S.tab==='boss'||S.tab==='pass'||S.tab==='trick')?featureTab6(S.tab,{panel,field,inp,sel,btn,post}):pumpPanel())}
  /* shared preview shell */
  function pvShell(title,hint){
@@ -15791,11 +15865,12 @@ function adminV6(){
   const row=E6('div','hw-row2');row.append(uid,amt);p.append(E6('h3','','Выдать тыквы игроку'),row,btn('Выдать / списать','mini-btn',async()=>{try{const d=await post('/api/admin/halloween/pumpkins',{user_id:uid.value,amount:amt.value});toast('Готово. Баланс игрока: '+n6(d.pumpkins.balance));load()}catch(e){toast(e.message)}}));
   return p}
 
+  const bnH=(mark,repaint)=>({panel,field,inp,sel,btn,mark,repaint,articleEd,el:{get:()=>S.bnSel,set:v=>{S.bnSel=v}}});
   /* ---- layout tab: order of the blocks on the event page + animated decorations ---- */
  const LAY_ICON={hero:'hw:moon',tour:'hw:hat',wallet:'hw:pumpkin',boss:'hw:skull',pass:'hw:trophy',trick:'hw:candy',tiles:'hw:gift',soon:'hw:ghost'};
  const LAY_HINT={tiles:'Порядок самих плиток меняется во вкладке «Кнопки»',boss:'Показывается, когда включён босс-рейд',pass:'Показывается, когда включён пропуск',trick:'Показывается, когда включён трик-трит',tour:'Видна, пока игрок не прошёл экскурсию'};
  const DECO_NAMES6={batflock:'Стая летучих мышей',moonclouds:'Луна и облака',hauntedhouse:'Дом с привидениями',spiderweb:'Паук на паутине',candles:'Свечи',graveyard:'Кладбище',witchfly:'Ведьма на метле',brew:'Зелье в котле',pumpkinpatch:'Тыквенное поле',eyes:'Глаза в темноте',ghosts:'Хоровод призраков'};
- const layName=it=>it.deco?('Анимация: '+(DECO_NAMES6[String(it.art||'').slice(3)]||'картинка')):LAY_NAMES6[it.id]||it.id;
+ const layName=it=>it.banner?('Баннер: '+(it.name||'без названия')):it.deco?('Анимация: '+(DECO_NAMES6[String(it.art||'').slice(3)]||'картинка')):LAY_NAMES6[it.id]||it.id;
  const layMark=()=>{S.layDirty=true;const s=wrap.querySelector('.hw-savebar.lay');if(s){s.classList.add('dirty');s.firstChild.textContent='Есть несохранённые изменения'}};
  function layoutTab(){
   const box=E6('div','hw-stackgap');
@@ -15804,17 +15879,18 @@ function adminV6(){
   const draw=()=>{
    list.replaceChildren(...S.lay.map((it,i)=>{
     const r=E6('div','hw-lay-it'+(it.hidden?' off':'')+(S.selLay===it?' sel':''));r.dataset.sort=i;
-    r.innerHTML=`<span class="hw-lay-grip">⋮⋮</span><span class="hw-lay-ic">${artHTML(it.deco?it.art:(LAY_ICON[it.id]||'hw:pumpkin'))}</span><b>${esc6(layName(it))}<small>${esc6(it.deco?(it.caption||'Своя вставка'):(LAY_HINT[it.id]||''))}</small></b>`;
+    r.innerHTML=`<span class="hw-lay-grip">⋮⋮</span><span class="hw-lay-ic">${artHTML(it.banner?(it.image||'hw:gift'):it.deco?it.art:(LAY_ICON[it.id]||'hw:pumpkin'))}</span><b>${esc6(layName(it))}<small>${esc6(it.banner?({s:'Маленький',m:'Средний',l:'Большой'}[it.size]||'')+' · '+((it.action&&it.action.type&&it.action.type!=='none')?'с действием':'без действия'):it.deco?(it.caption||'Своя вставка'):(LAY_HINT[it.id]||''))}</small></b>`;
     const mv=d=>btn(d<0?'↑':'↓','mini-btn',e=>{e&&e.stopPropagation&&e.stopPropagation();const j=i+d;if(j<0||j>=S.lay.length)return;[S.lay[i],S.lay[j]]=[S.lay[j],S.lay[i]];layMark();paint()});
     const eye=btn(it.hidden?'Показать':'Скрыть','mini-btn',e=>{e&&e.stopPropagation&&e.stopPropagation();it.hidden=!it.hidden;layMark();paint()});
     const ctl=E6('span','hw-lay-ctl');ctl.append(mv(-1),mv(1),eye);r.append(ctl);
-    if(it.deco)r.onclick=()=>{S.selLay=S.selLay===it?null:it;paint()};
+    if(it.deco||it.banner)r.onclick=()=>{S.selLay=S.selLay===it?null:it;S.bnSel=null;paint()};
     return r}))};
   draw();
   sortable6(list,ids=>{if(!ids)return draw();const old=S.lay;S.lay=ids.map(i=>old[+i]);layMark();paint()});
   p.append(list);box.append(p);
   const sel=S.selLay&&S.lay.includes(S.selLay)?S.selLay:null;
-  if(sel){
+  if(sel&&sel.banner){const e=panel('Баннер');e.append(bannerEditor6(sel,bnH(layMark,()=>paint())));box.append(e)}
+  else if(sel){
    const e=panel('Анимация на странице');
    const pv=E6('div','hw-deco-pv');pv.append(decoNode6(Object.assign({},sel,{hidden:false})));e.append(pv);
    const cap=inp(sel.caption,'Подпись под картинкой (необязательно)');cap.maxLength=60;cap.oninput=()=>{sel.caption=cap.value;layMark()};cap.onchange=()=>paint();e.append(field('Подпись',cap));
@@ -15824,11 +15900,11 @@ function adminV6(){
    e.append(imageBtn6(()=>sel.art,u=>{sel.art=u;layMark();paint()},'Заменить картинку'));
    e.append(btn('Удалить анимацию','danger-btn',()=>{S.lay.splice(S.lay.indexOf(sel),1);S.selLay=null;layMark();paint()}));
    box.append(e)}
-  const add=panel('Добавить анимацию','Анимированные картинки в стиле Хэллоуина. Нажмите, чтобы добавить в конец списка — потом перетащите куда нужно.');
+  const add=panel('Добавить на страницу','Баннер — картинка с надписями и стикерами, которые вы ставите куда угодно; по нажатию он может вести в раздел, открывать окно или ссылку. Ниже — готовые анимации в стиле Хэллоуина. Всё добавляется в конец списка — потом перетащите куда нужно.');
   const grid=E6('div','hw-lay-pick');
   Object.keys(DECO_NAMES6).forEach(k=>{const b=E6('button','',DECO_NAMES6[k]);b.type='button';b.insertAdjacentHTML('afterbegin',artHTML('hw:'+k));
-   b.onclick=()=>{if(S.lay.filter(x=>x.deco).length>=12)return toast('Максимум 12 вставок');const it={id:'d'+Math.random().toString(36).slice(2,8),deco:true,art:'hw:'+k,size:'m',align:'center',caption:'',hidden:false};S.lay.push(it);S.selLay=it;layMark();paint();setTimeout(()=>{const t=wrap.querySelector('.hw-deco-pv');t&&t.scrollIntoView({block:'center',behavior:'smooth'})},40)};grid.append(b)});
-  add.append(grid,btn('Другая картинка…','mini-btn',()=>pickImage6(u=>{if(S.lay.filter(x=>x.deco).length>=12)return toast('Максимум 12 вставок');const it={id:'d'+Math.random().toString(36).slice(2,8),deco:true,art:u,size:'m',align:'center',caption:'',hidden:false};S.lay.push(it);S.selLay=it;layMark();paint()})));
+   b.onclick=()=>{if(S.lay.filter(x=>x.deco||x.banner).length>=12)return toast('Максимум 12 вставок');const it={id:'d'+Math.random().toString(36).slice(2,8),deco:true,art:'hw:'+k,size:'m',align:'center',caption:'',hidden:false};S.lay.push(it);S.selLay=it;layMark();paint();setTimeout(()=>{const t=wrap.querySelector('.hw-deco-pv');t&&t.scrollIntoView({block:'center',behavior:'smooth'})},40)};grid.append(b)});
+  add.append(grid,btn('＋ Баннер (картинка, надписи, нажатие)','primary',()=>{if(S.lay.filter(x=>x.deco||x.banner).length>=12)return toast('Максимум 12 вставок');const it=bnNew6();S.lay.push(it);S.selLay=it;S.bnSel=null;layMark();paint();setTimeout(()=>{const t=wrap.querySelector('.hw-bned');t&&t.scrollIntoView({block:'start',behavior:'smooth'})},40)}),btn('Другая картинка…','mini-btn',()=>pickImage6(u=>{if(S.lay.filter(x=>x.deco||x.banner).length>=12)return toast('Максимум 12 вставок');const it={id:'d'+Math.random().toString(36).slice(2,8),deco:true,art:u,size:'m',align:'center',caption:'',hidden:false};S.lay.push(it);S.selLay=it;layMark();paint()})));
   box.append(add);
   const sv=btn(S.layDirty?'Сохранить расположение':'Сохранить','primary',async()=>{try{await post('/api/admin/halloween/config',{layout:S.lay});S.layDirty=false;toast('Расположение сохранено');S.selLay=null;await load();paint()}catch(e){toast(e.message)}});
   const rs=btn('Сбросить к стандартному','mini-btn',()=>{if(!confirm('Вернуть стандартный порядок и убрать все вставки?'))return;S.lay=Object.keys(LAY_SEC6).map(id=>({id,hidden:false}));S.selLay=null;layMark();paint()});
@@ -15893,19 +15969,19 @@ function adminV6(){
   /* ---- article editor (a button that opens its own page) ---- */
  const newBlock=k=>k==='h'?{t:'h',text:''}:k==='p'?{t:'p',text:''}:k==='img'?{t:'img',src:'',caption:''}:k==='btn'?{t:'btn',text:'Открыть',target:'mines',url:''}:{t:'hr'};
  const BLK_NAME={h:'Заголовок',p:'Текст',img:'Картинка',btn:'Кнопка',hr:'Разделитель'};
- function articleEd(b){
+ function articleEd(b,mark){const mk=mark||(()=>{S.dirty=true});
   const a=b.article=b.article||{title:'',cover:'',blocks:[]};a.blocks=a.blocks||[];
   const box=E6('div','hw-arted');box.append(E6('h3','','Страница статьи'),E6('small','muted','Нажатие на плитку откроет страницу: обложка, заголовок и блоки в нужном порядке. Блоки можно двигать стрелками.'));
   const t=inp(a.title,'Заголовок страницы (если пусто — название кнопки)');t.maxLength=80;t.oninput=()=>a.title=t.value;box.append(field('Заголовок',t));
-  box.append(imageBtn6(()=>a.cover,u=>{a.cover=u;S.dirty=true;paint()},'Обложка (необязательно)'));
+  box.append(imageBtn6(()=>a.cover,u=>{a.cover=u;mk();paint()},'Обложка (необязательно)'));
   const list=E6('div','hw-blocks');
   a.blocks.forEach((bl,i)=>{
    const c=E6('div','hw-blk');const hd=E6('div','hw-blk-h');hd.append(E6('b','',BLK_NAME[bl.t]||bl.t));
-   const mv=d=>()=>{const j=i+d;if(j<0||j>=a.blocks.length)return;[a.blocks[i],a.blocks[j]]=[a.blocks[j],a.blocks[i]];S.dirty=true;paint()};
-   hd.append(btn('↑','mini-btn',mv(-1)),btn('↓','mini-btn',mv(1)),btn('Удалить','danger-btn',()=>{a.blocks.splice(i,1);S.dirty=true;paint()}));c.append(hd);
+   const mv=d=>()=>{const j=i+d;if(j<0||j>=a.blocks.length)return;[a.blocks[i],a.blocks[j]]=[a.blocks[j],a.blocks[i]];mk();paint()};
+   hd.append(btn('↑','mini-btn',mv(-1)),btn('↓','mini-btn',mv(1)),btn('Удалить','danger-btn',()=>{a.blocks.splice(i,1);mk();paint()}));c.append(hd);
    if(bl.t==='h'){const x=inp(bl.text,'Текст заголовка');x.maxLength=120;x.oninput=()=>bl.text=x.value;c.append(x)}
    else if(bl.t==='p'){const x=E6('textarea','text-input');x.rows=4;x.maxLength=3000;x.placeholder='Текст. Новая строка — с новой строки.';x.value=bl.text||'';x.oninput=()=>bl.text=x.value;c.append(x)}
-   else if(bl.t==='img'){c.append(imageBtn6(()=>bl.src,u=>{bl.src=u;S.dirty=true;paint()},'Картинка'));const x=inp(bl.caption,'Подпись под картинкой (необязательно)');x.maxLength=160;x.oninput=()=>bl.caption=x.value;c.append(x)}
+   else if(bl.t==='img'){c.append(imageBtn6(()=>bl.src,u=>{bl.src=u;mk();paint()},'Картинка'));const x=inp(bl.caption,'Подпись под картинкой (необязательно)');x.maxLength=160;x.oninput=()=>bl.caption=x.value;c.append(x)}
    else if(bl.t==='btn'){
     const x=inp(bl.text,'Название кнопки');x.maxLength=40;x.oninput=()=>bl.text=x.value;c.append(x);
     const mode=sel([['target','Ведёт в раздел приложения'],['url','Открывает ссылку']],bl.url?'url':'target');
@@ -15915,9 +15991,29 @@ function adminV6(){
    else c.append(E6('small','muted','Тонкая линия между блоками.'));
    list.append(c)});
   box.append(list);
-  const add=E6('div','hw-addrow');[['h','＋ Заголовок'],['p','＋ Текст'],['img','＋ Картинка'],['btn','＋ Кнопка'],['hr','＋ Линия']].forEach(([k,tx])=>add.append(btn(tx,'mini-btn',()=>{if(a.blocks.length>=40)return toast('Максимум 40 блоков');a.blocks.push(newBlock(k));S.dirty=true;paint()})));
+  const add=E6('div','hw-addrow');[['h','＋ Заголовок'],['p','＋ Текст'],['img','＋ Картинка'],['btn','＋ Кнопка'],['hr','＋ Линия']].forEach(([k,tx])=>add.append(btn(tx,'mini-btn',()=>{if(a.blocks.length>=40)return toast('Максимум 40 блоков');a.blocks.push(newBlock(k));mk();paint()})));
   box.append(add,btn('Посмотреть как у игрока','primary',()=>{const copy=JSON.parse(JSON.stringify(b));openArticle6(copy,true)}));
   return box}
+
+ /* ---- market banners ---- */
+ const markMb=()=>{S.mbnDirty=true;const b=wrap.querySelector('.hw-savebar.mb');if(b){b.classList.add('dirty');b.firstChild.textContent='Есть несохранённые изменения'}S.redraw&&S.redraw()};
+ function mbnPanel(){
+  const p=panel('Баннеры маркета','Баннер встаёт между лотами на всю ширину. В строке укажите, после какого по счёту лота он стоит (0 — самый верх). Картинка, надписи, размер и действие при нажатии — как у баннеров страницы события.');
+  const list=E6('div','hw-lay-list');
+  S.mbn.forEach(b=>{
+   const r=E6('div','hw-lay-it'+(b.hidden?' off':'')+(S.selMb===b.id?' sel':''));
+   r.innerHTML=`<span class="hw-lay-ic">${artHTML(b.image||'hw:gift')}</span><b>${esc6(b.name||'Баннер')}<small>${({s:'Маленький',m:'Средний',l:'Большой'}[b.size]||'')}</small></b>`;
+   const pos=E6('input','text-input');pos.type='number';pos.min='0';pos.max='500';pos.value=b.pos||0;pos.title='После какого по счёту лота';pos.style.cssText='width:64px;min-height:34px';pos.onclick=e=>e.stopPropagation();pos.oninput=()=>{b.pos=Math.max(0,Math.min(500,parseInt(pos.value)||0));markMb()};
+   const ctl=E6('span','hw-lay-ctl');ctl.append(E6('small','','после №'),pos,btn(S.selMb===b.id?'Свернуть':'Изменить','mini-btn',e=>{e.stopPropagation();S.selMb=S.selMb===b.id?null:b.id;S.bnSel=null;paint()}),btn('Удалить','danger-btn',e=>{e.stopPropagation();if(!confirm('Удалить баннер?'))return;S.mbn.splice(S.mbn.indexOf(b),1);S.selMb=null;markMb();paint()}));
+   r.append(ctl);list.append(r)});
+  if(!S.mbn.length)list.append(E6('div','hw-hint','Баннеров в маркете пока нет.'));
+  p.append(list);
+  p.append(btn('＋ Баннер маркета','primary',()=>{if(S.mbn.length>=12)return toast('Максимум 12 баннеров');const b=bnNew6({pos:0});S.mbn.push(b);S.selMb=b.id;S.bnSel=null;markMb();paint();setTimeout(()=>{const t=wrap.querySelector('.hw-bned');t&&t.scrollIntoView({block:'start',behavior:'smooth'})},40)}));
+  const cur=S.mbn.find(x=>x.id===S.selMb);
+  if(cur)p.append(bannerEditor6(cur,bnH(markMb,()=>paint())));
+  const sv=btn('Сохранить баннеры','primary',async()=>{try{await post('/api/admin/halloween/config',{market_banners:S.mbn});S.mbnDirty=false;toast('Баннеры маркета сохранены');await load();paint()}catch(e){toast(e.message)}});
+  const sp=E6('div','hw-savebar mb'+(S.mbnDirty?' dirty':''));sp.append(E6('span','',S.mbnDirty?'Есть несохранённые изменения':'Всё сохранено'),sv);p.append(sp);
+  return p}
   /* ---- market tab ---- */
  const lotsOrder=()=>(S.cfg.lots||[]);
  const lotBody=(l,over)=>Object.assign({id:l.id,title:l.title,price:l.price,size:l.size,reward:l.reward_raw,image:l.image_raw||'',stock:l.stock,per_user:l.per_user,active:l.active!==false,sort_order:l.sort_order,starts_at:l.starts_at||0,ends_at:l.ends_at||0},over||{});
@@ -15937,8 +16033,10 @@ function adminV6(){
   const lotsView=()=>{const list=lotsOrder().map(l=>S.editLot&&S.editLot.id===l.id?draftView(S.editLot):l);if(S.editLot&&!S.editLot.id)list.push(draftView(S.editLot));return list};
   const draw=()=>{const list=lotsView();const emp=!list.length;
    const wl=S.cfg.welcome_enabled&&!S.editLot?lotTile({id:0,welcome:true,title:'Приветственный подарок',price:0,size:'m',image:'hw:gift',price_ton:S.cfg.welcome_amount,active:true},{}):null;if(wl){wl.onclick=()=>toast('Приветственный подарок: сумму и включение меняйте во вкладке «Тыквы»');wl.insertAdjacentHTML('beforeend','<span class="hw-lot-new">АВТО</span>')}
-   grid.replaceChildren(...(wl?[wl]:[]),...list.map(l=>{const isDraft=!!S.editLot&&S.editLot.id===l.id;const t=lotTile(l,{sel:!S.editLot&&S.selLot===l.id,draft:isDraft});
-    if(l.id)t.onclick=()=>{if(S.editLot&&S.editLot.id!==l.id)return toast('Сначала сохраните или отмените правку лота');if(S.editLot)return;S.selLot=S.selLot===l.id?null:l.id;paint()};return t}));
+   const tiles=[...(wl?[wl]:[]),...list.map(l=>{const isDraft=!!S.editLot&&S.editLot.id===l.id;const t=lotTile(l,{sel:!S.editLot&&S.selLot===l.id,draft:isDraft});
+    if(l.id)t.onclick=()=>{if(S.editLot&&S.editLot.id!==l.id)return toast('Сначала сохраните или отмените правку лота');if(S.editLot)return;S.selLot=S.selLot===l.id?null:l.id;paint()};return t})];
+   let off=0;S.mbn.filter(x=>!x.hidden).slice().sort((a,b)=>a.pos-b.pos).forEach(bn=>{const node=bannerNode6(bn);node.onclick=()=>{S.selMb=bn.id;S.bnSel=null;paint()};node.style.cursor='pointer';tiles.splice(Math.min(tiles.length,(+bn.pos||0)+off),0,node);off++});
+   grid.replaceChildren(...tiles);
    if(emp&&!wl)grid.replaceChildren(E6('div','hw-hint','Лотов пока нет. Нажмите «＋ Добавить лот» или создайте случайные ниже.'))};
   S.redraw=draw;draw();
   sortable6(grid,async ids=>{if(!ids)return draw();ids=ids.map(Number);const byId=new Map(lotsOrder().map(l=>[l.id,l]));S.cfg.lots=ids.map(i=>byId.get(i)).filter(Boolean);
@@ -15950,6 +16048,7 @@ function adminV6(){
    if(sel1)box.append(lotBar(sel1));
    else box.append(E6('div','hw-hint','Выберите лот в превью — здесь появятся действия: изменить, размер, порядок, скрыть, удалить.'));
    box.append(btn('＋ Добавить лот','primary',()=>{S.selLot=null;S.editLot={id:0,title:'',price:100,size:'s',reward_raw:{type:'ton',amount:'1'},image_raw:'',stock:0,per_user:0,active:true,sort_order:0,hours:''};paint();setTimeout(()=>{const e=wrap.querySelector('.hw-lotform');e&&e.scrollIntoView({block:'start',behavior:'smooth'})},40)}))}
+  box.append(mbnPanel());
   const gp=panel('Случайные лоты','Создаёт набор лотов с разной ценой и разными призами (TON, бонус, билеты). Призы подбираются под цену, так что выгода у всех лотов похожая.');
   const gc=inp(6,'Сколько','number');gc.min='1';gc.max='40';const g1=inp(20,'От','number');g1.min='1';const g2=inp(2000,'До','number');g2.min='1';
   const grow=E6('div','hw-row3');grow.append(field('Сколько лотов',gc),field('Цена от, тыкв',g1),field('Цена до, тыкв',g2));gp.append(grow);
@@ -16009,6 +16108,75 @@ function adminV6(){
   md.onchange=()=>w.classList.toggle('hidden',md.value==='full');
   box.append(lab,w);anchor.after(box)}
 }
+
+/* ======================= banner editor (admin): used by the page layout tab and the market tab ======================= */
+const BN_ACTIONS6=[['none','Ничего не делает'],['page','Ведёт в раздел'],['article','Открывает окно с информацией'],['url','Открывает ссылку']];
+function bnNewId6(){return 'b'+Math.random().toString(36).slice(2,8)}
+function bnNew6(extra){return Object.assign({id:bnNewId6(),banner:true,name:'Баннер',size:'m',image:'',bg:'#2a1c4d',bg2:'#5b30c8',dim:0,hidden:false,elements:[{id:'e'+Math.random().toString(36).slice(2,6),t:'text',text:'Новый баннер',x:50,y:50,fs:22,color:'#ffffff',bold:true,shadow:true,align:'center',rot:0}],action:{type:'none'}},extra||{})}
+function bannerEditor6(b,H){
+ const {panel,field,inp,sel,btn}=H;
+ const box=E6('div','hw-bned');
+ const stage=E6('div','hw-bned-stage');
+ const props=E6('div','hw-bned-card');
+ const elId=()=>H.el.get();
+ const cur=()=>(b.elements||[]).find(e=>e.id===elId())||null;
+ const lone=(label,input)=>{const w=E6('label','hw-fld');w.append(E6('span','',label),input);return w};
+ const drawStage=()=>{stage.replaceChildren(bannerNode6(b,{edit:true,sel:elId(),
+   onPick:(id,keep)=>{H.el.set(id);if(!keep)drawStage();drawProps()},
+   onMove:()=>{H.mark();const e=cur();if(e&&props.querySelector('[data-pos]')){props.querySelector('[data-pos=x]').value=e.x;props.querySelector('[data-pos=y]').value=e.y}},
+   onDone:()=>drawProps()}))};
+ const touch=()=>{H.mark();drawStage()};
+ function num(label,key,min,max,step,e){const i=E6('input','text-input');i.type='number';i.min=min;i.max=max;i.step=step;i.value=e[key];i.oninput=()=>{const v=parseFloat(i.value);if(isFinite(v)){e[key]=Math.max(min,Math.min(max,v));touch()}};return lone(label,i)}
+ function range(label,key,min,max,step,e,after){const w=E6('label','hw-fld');const r=E6('input');r.type='range';r.min=min;r.max=max;r.step=step;r.value=e[key];const v=E6('b','',String(e[key]));r.oninput=()=>{e[key]=parseFloat(r.value);v.textContent=r.value;touch();after&&after()};const row=E6('div','hw-bned-row');row.append(r,v);w.append(E6('span','',label),row);return w}
+ function drawProps(){
+  props.replaceChildren();const e=cur();
+  if(!e){props.append(E6('small','muted','Нажмите на надпись или стикер в баннере, чтобы изменить его. Перетаскивайте их пальцем, чтобы поставить куда угодно.'));return}
+  props.append(E6('h3','',e.t==='img'?'Стикер':'Надпись'));
+  if(e.t==='text'){
+   const t=E6('textarea','text-input');t.rows=2;t.maxLength=120;t.value=e.text;t.placeholder='Текст надписи (до 4 строк)';t.oninput=()=>{e.text=t.value||' ';touch()};props.append(lone('Текст',t));
+   props.append(range('Размер шрифта','fs',8,64,1,e));
+   const row=E6('div','hw-bned-row');const c=E6('input');c.type='color';c.value=e.color||'#ffffff';c.oninput=()=>{e.color=c.value;touch()};
+   const bold=E6('label','hw-chk');const bc=E6('input');bc.type='checkbox';bc.checked=e.bold!==false;bc.onchange=()=>{e.bold=bc.checked;touch()};bold.append(bc,E6('span','','Жирный'));
+   const sh=E6('label','hw-chk');const sc=E6('input');sc.type='checkbox';sc.checked=e.shadow!==false;sc.onchange=()=>{e.shadow=sc.checked;touch()};sh.append(sc,E6('span','','Тень'));
+   row.append(E6('span','','Цвет'),c,bold,sh);props.append(row);
+   const al=E6('div','hw-seg');[['left','Слева'],['center','По центру'],['right','Справа']].forEach(([k,tx])=>{const x=E6('button','hw-seg-b'+((e.align||'center')===k?' on':''),tx);x.type='button';x.onclick=()=>{e.align=k;touch();drawProps()};al.append(x)});props.append(al)}
+  else{
+   props.append(range('Размер (ширина, % баннера)','w',4,100,1,e));
+   props.append(imageBtn6(()=>e.art,u=>{e.art=u;touch();drawProps()},'Заменить стикер'))}
+  props.append(range('Поворот, °','rot',-180,180,1,e));
+  const pr=E6('div','hw-row2');const px=num('Слева направо, %','x',0,100,0.5,e),py=num('Сверху вниз, %','y',0,100,0.5,e);px.querySelector('input').dataset.pos='x';py.querySelector('input').dataset.pos='y';pr.append(px,py);props.append(pr);
+  const act=E6('div','hw-bned-row');
+  act.append(btn('Дублировать','mini-btn',()=>{const c=JSON.parse(JSON.stringify(e));c.id='e'+Math.random().toString(36).slice(2,6);c.x=Math.min(100,c.x+4);c.y=Math.min(100,c.y+6);b.elements.push(c);H.el.set(c.id);touch();drawProps()}),
+   btn('Удалить','danger-btn',()=>{b.elements.splice(b.elements.indexOf(e),1);H.el.set(null);touch();drawProps()}));props.append(act)}
+ drawStage();
+ box.append(stage);
+ const add=E6('div','hw-bned-els');
+ add.append(btn('＋ Надпись','mini-btn',()=>{if((b.elements||[]).length>=14)return toast('Максимум 14 элементов');const e={id:'e'+Math.random().toString(36).slice(2,6),t:'text',text:'Текст',x:50,y:50,fs:20,color:'#ffffff',bold:true,shadow:true,align:'center',rot:0};b.elements.push(e);H.el.set(e.id);touch();drawProps()}),
+  btn('＋ Стикер / картинка','mini-btn',()=>pickImage6(u=>{if((b.elements||[]).length>=14)return toast('Максимум 14 элементов');const e={id:'e'+Math.random().toString(36).slice(2,6),t:'img',art:u,x:50,y:50,w:24,rot:0};b.elements.push(e);H.el.set(e.id);touch();drawProps()})));
+ box.append(add,props);drawProps();
+ /* banner body */
+ const body=E6('div','hw-bned-card');body.append(E6('h3','','Баннер'));
+ const nm=inp(b.name,'Название (видно только вам)');nm.maxLength=40;nm.oninput=()=>{b.name=nm.value;H.mark()};body.append(lone('Название',nm));
+ const sz=E6('div','hw-seg');[['s','Маленький'],['m','Средний'],['l','Большой']].forEach(([k,tx])=>{const x=E6('button','hw-seg-b'+((b.size||'m')===k?' on':''),tx);x.type='button';x.onclick=()=>{b.size=k;H.mark();sz.querySelectorAll('.hw-seg-b').forEach(y=>y.classList.toggle('on',y===x));drawStage()};sz.append(x)});
+ body.append(lone('Размер',sz));
+ body.append(imageBtn6(()=>b.image,u=>{b.image=u;H.mark();drawStage();H.repaint&&H.repaint()},'Картинка баннера'));
+ if(b.image)body.append(btn('Убрать картинку','mini-btn',()=>{b.image='';H.mark();H.repaint()}));
+ const cr=E6('div','hw-bned-row');const c1=E6('input');c1.type='color';c1.value=b.bg||'#2a1c4d';c1.oninput=()=>{b.bg=c1.value;H.mark();drawStage()};const c2=E6('input');c2.type='color';c2.value=b.bg2||'#5b30c8';c2.oninput=()=>{b.bg2=c2.value;H.mark();drawStage()};cr.append(E6('span','','Фон: от'),c1,E6('span','','до'),c2);body.append(cr);
+ body.append(range('Затемнение картинки, %','dim',0,80,1,b));
+ const vis=E6('label','hw-chk');const vc=E6('input');vc.type='checkbox';vc.checked=!b.hidden;vc.onchange=()=>{b.hidden=!vc.checked;H.mark();H.repaint&&H.repaint()};vis.append(vc,E6('span','','Баннер виден игрокам'));body.append(vis);
+ box.append(body);
+ /* action */
+ const ac=E6('div','hw-bned-card');ac.append(E6('h3','','Что происходит при нажатии'));
+ b.action=b.action||{type:'none'};const a=b.action;
+ const as=sel(BN_ACTIONS6,a.type||'none');as.onchange=()=>{const t=as.value;Object.keys(a).forEach(k=>delete a[k]);a.type=t;if(t==='page')a.target='mines';if(t==='article')a.article={title:'',cover:'',blocks:[]};H.mark();fill()};ac.append(as);
+ const det=E6('div','hw-stackgap');ac.append(det);
+ function fill(){
+  det.replaceChildren();
+  if(a.type==='page'){const s=sel(Object.entries(TARGET_LABEL),a.target||'mines');s.onchange=()=>{a.target=s.value;H.mark()};det.append(lone('Куда ведёт',s))}
+  else if(a.type==='url'){const u=inp(a.url,'https://t.me/канал или https://сайт');u.type='url';u.oninput=()=>{a.url=u.value;H.mark()};det.append(lone('Ссылка',u))}
+  else if(a.type==='article'){a.article=a.article||{title:'',cover:'',blocks:[]};det.append(H.articleEd({article:a.article,title:b.name||'Информация'},H.mark))}}
+ fill();box.append(ac);
+ return box}
 
 /* ======================= admin: boss raid · pass · trick-or-treat tabs ======================= */
 const clone6=o=>JSON.parse(JSON.stringify(o));

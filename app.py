@@ -3058,7 +3058,7 @@ HW_DECO_SIZES = ('s', 'm', 'l')
 HW_DECO_ALIGN = ('left', 'center', 'right')
 
 
-def hw_normalize_layout(raw):
+def hw_normalize_layout(raw, strict=False):
     """[{id, hidden}] for the fixed blocks and [{id:'d…', deco:True, art, size, align, caption}] for decorations.
     Blocks that are missing are appended in the default order, so an old or empty layout always yields a complete page."""
     out, seen, decos = [], set(), 0
@@ -3068,7 +3068,21 @@ def hw_normalize_layout(raw):
         bid = str(item.get('id') or '')
         if bid in seen:
             continue
-        if bid in HW_LAYOUT_SECTIONS:
+        if item.get('banner') and decos < HW_DECO_MAX:
+            try:
+                banner = hw_normalize_banner(item)
+            except ValueError:
+                if strict:
+                    raise
+                continue
+            bid = re.sub(r'[^a-z0-9]', '', bid.lower())[:12]
+            if not bid.startswith('b') or len(bid) < 4 or bid in seen or bid in HW_LAYOUT_SECTIONS:
+                bid = 'b' + secrets.token_hex(3)
+            seen.add(bid)
+            decos += 1
+            banner['id'] = bid
+            out.append(banner)
+        elif bid in HW_LAYOUT_SECTIONS:
             seen.add(bid)
             out.append(dict(id=bid, hidden=bool(item.get('hidden'))))
         elif item.get('deco') and decos < HW_DECO_MAX:
@@ -3088,6 +3102,95 @@ def hw_normalize_layout(raw):
         if sec not in seen:
             out.append(dict(id=sec, hidden=False))
     return out
+
+HW_BANNER_SIZES = ('s', 'm', 'l')
+HW_BANNER_MAX_EL = 14
+HW_BANNER_ACTIONS = ('none', 'page', 'article', 'url')
+
+
+def _hw_num(value, lo, hi, default):
+    try:
+        number = float(str(value).replace(',', '.'))
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return round(max(lo, min(hi, number)), 1)
+
+
+def _hw_color(value, default):
+    value = str(value or '').strip()
+    return value.lower() if re.fullmatch(r'#[0-9a-fA-F]{6}', value) else default
+
+
+def hw_normalize_banner(raw, base_id='b'):
+    """A banner: picture (or colour), up to 14 free elements (text / stickers) placed by percent, and an action on tap."""
+    elements, seen = [], set()
+    for item in (raw.get('elements') or [])[:HW_BANNER_MAX_EL]:
+        if not isinstance(item, dict):
+            continue
+        eid = re.sub(r'[^a-z0-9]', '', str(item.get('id') or '').lower())[:10] or secrets.token_hex(3)
+        if eid in seen:
+            eid = secrets.token_hex(3)
+        seen.add(eid)
+        el = dict(id=eid, x=_hw_num(item.get('x'), 0, 100, 50), y=_hw_num(item.get('y'), 0, 100, 50))
+        if item.get('t') == 'img':
+            art = hw_image_ok(item.get('art'))
+            if not art:
+                continue
+            el.update(t='img', art=art, w=_hw_num(item.get('w'), 4, 100, 24), rot=_hw_num(item.get('rot'), -180, 180, 0))
+        else:
+            text = str(item.get('text') or '').replace('\r', '')[:120]
+            text = '\n'.join(re.sub(r'[ \t]+', ' ', line).strip() for line in text.split('\n')[:4])
+            if not text.strip():
+                continue
+            el.update(t='text', text=text, fs=_hw_num(item.get('fs'), 8, 64, 18), color=_hw_color(item.get('color'), '#ffffff'),
+                      bold=item.get('bold') is not False, shadow=item.get('shadow') is not False,
+                      align=item.get('align') if item.get('align') in HW_DECO_ALIGN else 'center', rot=_hw_num(item.get('rot'), -180, 180, 0))
+        elements.append(el)
+    act_raw = raw.get('action') if isinstance(raw.get('action'), dict) else {}
+    atype = act_raw.get('type') if act_raw.get('type') in HW_BANNER_ACTIONS else 'none'
+    action = dict(type=atype)
+    if atype == 'page':
+        target = str(act_raw.get('target') or '')
+        if target not in HW_TARGETS:
+            raise ValueError('Баннер: выберите раздел, куда он ведёт.')
+        action['target'] = target
+    elif atype == 'url':
+        url = str(act_raw.get('url') or '').strip()
+        if not re.fullmatch(r'https://[^\s<>"\']{3,300}', url):
+            raise ValueError('Баннер: ссылка должна начинаться с https://')
+        action['url'] = url
+    elif atype == 'article':
+        action['article'] = hw_normalize_article(act_raw.get('article'), 'Информация')
+    return dict(banner=True, size=raw.get('size') if raw.get('size') in HW_BANNER_SIZES else 'm',
+                image=hw_image_ok(raw.get('image')), bg=_hw_color(raw.get('bg'), '#2a1c4d'), bg2=_hw_color(raw.get('bg2'), '#5b30c8'),
+                dim=_hw_num(raw.get('dim'), 0, 80, 0), elements=elements, action=action,
+                hidden=bool(raw.get('hidden')), name=re.sub(r'\s+', ' ', str(raw.get('name') or '')).strip()[:40])
+
+
+def hw_normalize_market_banners_safe(raw):
+    """For reads: a broken stored banner must never take the event page down."""
+    try:
+        return hw_normalize_market_banners(raw)
+    except (ValueError, TypeError):
+        return []
+
+
+def hw_normalize_market_banners(raw):
+    out, seen = [], set()
+    for item in (raw if isinstance(raw, list) else [])[:HW_DECO_MAX]:
+        if not isinstance(item, dict):
+            continue
+        banner = hw_normalize_banner(item)
+        bid = re.sub(r'[^a-z0-9]', '', str(item.get('id') or '').lower())[:12]
+        if not bid.startswith('b') or len(bid) < 4 or bid in seen:
+            bid = 'b' + secrets.token_hex(3)
+        seen.add(bid)
+        banner.update(id=bid, pos=int(_hw_num(item.get('pos'), 0, 500, 0)))
+        out.append(banner)
+    return out
+
 
 
 HW_ARTICLE_BLOCKS = ('h', 'p', 'img', 'btn', 'hr')
@@ -3220,7 +3323,8 @@ def halloween_hub():
     resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
                    lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)), features=features,
                    welcome=dict(amount=hw_welcome_amount(doc), taken=welcome_taken), pet=hw_pet_enabled(doc),
-                   layout=hw_normalize_layout(doc.get('layout')), has_market=has_market)
+                   layout=hw_normalize_layout(doc.get('layout')), has_market=has_market,
+                   market_banners=[b for b in hw_normalize_market_banners_safe(doc.get('market_banners')) if not b.get('hidden')])
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
@@ -4239,7 +4343,7 @@ def admin_halloween_config():
         lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
         totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
     return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), welcome_enabled=bool(doc.get('welcome_enabled', True)),
-                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), pet_gift_amount=hw_pet_gift_amount(doc), pet_fry_need=hw_pet_fry_need(doc), buttons=buttons, layout=hw_normalize_layout(doc.get('layout')), lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), pet_gift_amount=hw_pet_gift_amount(doc), pet_fry_need=hw_pet_fry_need(doc), buttons=buttons, layout=hw_normalize_layout(doc.get('layout')), market_banners=hw_normalize_market_banners_safe(doc.get('market_banners')), lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
                    holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
 
 
@@ -4293,7 +4397,17 @@ def admin_halloween_config_set():
     if 'layout' in data:
         if not isinstance(data.get('layout'), list):
             return error('Некорректное расположение блоков.')
-        doc['layout'] = hw_normalize_layout(data.get('layout'))
+        try:
+            doc['layout'] = hw_normalize_layout(data.get('layout'), strict=True)
+        except (ValueError, TypeError) as exc:
+            return error(str(exc))
+    if 'market_banners' in data:
+        if not isinstance(data.get('market_banners'), list):
+            return error('Некорректный список баннеров маркета.')
+        try:
+            doc['market_banners'] = hw_normalize_market_banners(data.get('market_banners'))
+        except (ValueError, TypeError) as exc:
+            return error(str(exc))
     doc['updated_at'] = datetime.now(timezone.utc).isoformat()
     save_document('halloween', doc)
     _hw_cache['doc'] = None

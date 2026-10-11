@@ -11092,10 +11092,38 @@ def deposit_notification_text(amount_cents, balance_cents, bonus_cents=0):
             f'{bonus_line}\n\nТекущий баланс: {format_ton_cents(balance_cents)} TON')
 
 
+DEPOSIT_LEGACY_TEXT = '✅ <b>Ваш баланс пополнен на {amount} TON.</b>{bonus_line}\n\nТекущий баланс: <b>{balance} TON</b>'
+
+
+def deposit_notice_text(amount_cents, balance_cents, bonus_cents=0):
+    """Plain deposit and deposit-with-bonus are two complete, separately editable messages."""
+    values = {'amount': format_ton_cents(amount_cents), 'balance': format_ton_cents(balance_cents)}
+    if not bonus_cents:
+        return render_notice('deposit', values, {'bonus_line': ''})
+    bonus = format_ton_cents(bonus_cents)
+    saved = notice_overrides()
+
+    def has(key):
+        value = saved.get(key)
+        return isinstance(value, str) and bool(value.strip())
+
+    # Old setups inserted a bonus line into the single deposit text: keep them working until the admin
+    # writes the dedicated "with bonus" message.
+    if not has('deposit_bonus'):
+        base = saved['deposit'] if has('deposit') and '{bonus_line}' in saved['deposit'] else (
+            DEPOSIT_LEGACY_TEXT if has('deposit_bonus_line') and not has('deposit') else None)
+        if base:
+            rendered = _notice_fill(base, values, {'bonus_line': render_notice('deposit_bonus_line', {'bonus': bonus})})
+            try:
+                validate_greeting(rendered)
+                return rendered
+            except ValueError:
+                pass
+    return render_notice('deposit_bonus', dict(values, bonus=bonus))
+
+
 def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
-    bonus_line = render_notice('deposit_bonus_line', {'bonus': format_ton_cents(bonus_cents)}) if bonus_cents else ''
-    text = render_notice('deposit', {'amount': format_ton_cents(amount_cents), 'balance': format_ton_cents(balance_cents)},
-                         {'bonus_line': bonus_line})
+    text = deposit_notice_text(amount_cents, balance_cents, bonus_cents)
     notify_user_async(user_id, text, miniapp_markup('Открыть'), 'HTML')
 
 

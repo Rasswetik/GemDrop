@@ -1207,6 +1207,24 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(m.render_notice('deposit', {'amount': '25.00', 'balance': '31.40'}, {'bonus_line': ''}), default)
         m.save_document('notice_templates', {'texts': {}})
 
+    def test_deposit_notice_has_separate_plain_and_bonus_texts(self):
+        m.save_document('notice_templates', {'texts': {}})
+        plain = m.deposit_notice_text(2500, 3140, 0)
+        self.assertIn('25.00', plain)
+        self.assertNotIn('Бонус', plain)
+        with_bonus = m.deposit_notice_text(2500, 3390, 250)
+        self.assertIn('25.00', with_bonus)
+        self.assertIn('+2.50 TON', with_bonus)
+        # the admin rewrites the plain text: a plain deposit never mentions a bonus, a bonus deposit uses its own text
+        m.save_document('notice_templates', {'texts': {'deposit': '<b>Готово</b> {amount}', 'deposit_bonus': '<b>Подарок!</b> {amount} + {bonus}'}})
+        self.assertEqual(m.deposit_notice_text(2500, 3140, 0), '<b>Готово</b> 25.00')
+        self.assertEqual(m.deposit_notice_text(2500, 3390, 250), '<b>Подарок!</b> 25.00 + 2.50')
+        # old setups with {bonus_line} inside the single deposit text keep working
+        m.save_document('notice_templates', {'texts': {'deposit': '<b>Пополнено</b> {amount}{bonus_line}', 'deposit_bonus_line': '\n+{bonus} бонус'}})
+        self.assertEqual(m.deposit_notice_text(2500, 3390, 250), '<b>Пополнено</b> 25.00\n+2.50 бонус')
+        self.assertEqual(m.deposit_notice_text(2500, 3140, 0), '<b>Пополнено</b> 25.00')
+        m.save_document('notice_templates', {'texts': {}})
+
     def test_every_notice_default_renders_and_validates(self):
         for spec in m.notice_defs.NOTICE_DEFS:
             html = m.notice_validate_text(spec['key'], spec['text'])

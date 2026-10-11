@@ -863,6 +863,7 @@ def _initialize_schema():
         ensure_columns('inventory', [('animation_url', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('source_label', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('inventory', [('deposit_mirror', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('inventory', [('price_up_to', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('giveaways', [('archived', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('user_notifications', [('delivery_state', "TEXT NOT NULL DEFAULT 'none'"),
                        ('delivery_attempts','INTEGER NOT NULL DEFAULT 0'),('delivery_next_at','INTEGER NOT NULL DEFAULT 0')])
@@ -5102,6 +5103,7 @@ def inventory_item(row):
                 fragment_number=optional('fragment_number'), fragment_model=optional('fragment_model'),
                 fragment_backdrop=optional('fragment_backdrop'), fragment_symbol=optional('fragment_symbol'),
                 price_source=optional('price_source'), animation_url=optional('animation_url'),
+                price_up_to=int(optional('price_up_to', 0) or 0)/100,
                 source_label=('' if nft_match else optional('source_label')),
                 deposit_mirror=bool(int(optional('deposit_mirror', 0) or 0)),
                 bonus_origin=bool(int(optional('bonus_origin', 0) or 0)),
@@ -5152,7 +5154,72 @@ def purge_expired_inventory(db, user_id=None):
         record_transaction(db, row['user_id'], 'promo_gift_expired', 0, 'inventory', row['id'],
                            f'Истёк срок отыгрышного подарка: {row["gift_name"]}')
         log_event(db, row['user_id'], 'promo_gift_expired', inventory_id=row['id'], gift_name=row['gift_name'])
+    if user_id is not None:
+        try:
+            sync_inventory_prices(db, int(user_id))
+        except Exception:
+            app.logger.exception('Inventory price sync failed for %s', user_id)
     return len(expired)
+
+
+PRICE_RISE_MIN_RATIO = 1.03   # рост цены меньше 3% не трогаем: замену предлагаем только при заметном росте
+REPLACE_MIN_SHARE = 0.80      # замена: от 80% до 100% прежней цены
+_inv_price_cache = {'at': 0.0, 'map': {}}
+
+
+def _catalog_price_map():
+    now = time.time()
+    if now - _inv_price_cache['at'] < 20 and _inv_price_cache['map']:
+        return _inv_price_cache['map']
+    try:
+        gifts = read_catalog(include_hidden=True).get('gifts', [])
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return _inv_price_cache['map']
+    out = {}
+    for gift in gifts:
+        try:
+            price = ton_to_cents(gift.get('price_ton') or 0)
+        except (ValueError, TypeError, InvalidOperation):
+            continue
+        if price > 0 and gift.get('id') is not None:
+            out[str(gift['id'])] = price
+    _inv_price_cache.update(at=now, map=out)
+    return out
+
+
+def sync_inventory_prices(db, user_id):
+    """Цена подарка в инвентаре следует за каталогом: падение - молча, рост - предложение замены."""
+    rows = db.execute("""SELECT id,gift_id,floor_price,fragment_model,source,price_up_to FROM inventory
+                         WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND COALESCE(external_url,'')=''
+                           AND COALESCE(deposit_mirror,0)=0 AND COALESCE(bonus_origin,0)=0""", (int(user_id),)).fetchall()
+    if not rows:
+        return 0
+    prices = _catalog_price_map()
+    if not prices:
+        return 0
+    changed = 0
+    for row in rows:
+        new = int(prices.get(str(row['gift_id'])) or 0)
+        model = str(row['fragment_model'] or '').strip()
+        if model:
+            if row['source'] not in ('upgrade', 'price_replace'):
+                continue
+            new, _ = gift_model_price(row['gift_id'], model)
+        if new < 1:
+            continue
+        old = int(row['floor_price'] or 0)
+        pending = int(row['price_up_to'] or 0)
+        if new < old:
+            db.execute('UPDATE inventory SET floor_price=?, price_up_to=0 WHERE id=?', (new, row['id']))
+            changed += 1
+        elif new >= old * PRICE_RISE_MIN_RATIO and old > 0:
+            if pending != new:
+                db.execute('UPDATE inventory SET price_up_to=? WHERE id=?', (new, row['id']))
+                changed += 1
+        elif pending:
+            db.execute('UPDATE inventory SET price_up_to=0 WHERE id=?', (row['id'],))
+            changed += 1
+    return changed
 
 
 def award_round(db, row, opened_count):
@@ -9899,6 +9966,99 @@ def sell_inventory(item_id):
                        user=profile())
     finally:
         db.close()
+
+
+def replacement_candidates(old_cents):
+    """Подарки и модели с ценой от 80% до 100% прежней цены подарка."""
+    low = int(old_cents * REPLACE_MIN_SHARE)
+    out = []
+    try:
+        gifts = read_catalog().get('gifts', [])
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return out
+    by_id = {}
+    for gift in gifts:
+        gid = str(gift.get('id') or '')
+        try:
+            price = ton_to_cents(gift.get('price_ton') or 0)
+        except (ValueError, TypeError, InvalidOperation):
+            continue
+        image = safe_image(gift.get('image_url'))
+        if not gid or not image or price < 1:
+            continue
+        by_id[gid] = (gift, image)
+        if low <= price <= old_cents:
+            out.append(dict(id=gid, name=str(gift.get('name') or 'Подарок')[:140], base_name=str(gift.get('base_name') or ''),
+                            image_url=image, price_ton=price / 100, model=''))
+    with connect() as db:
+        rows = db.execute('SELECT gift_id,model,price,image_url FROM gift_models WHERE price>=? AND price<=? ORDER BY price DESC',
+                          (low, int(old_cents))).fetchall()
+    for row in rows:
+        entry = by_id.get(str(row['gift_id']))
+        if not entry or entry[0].get('base_id'):
+            continue
+        out.append(dict(id=str(row['gift_id']) + GIFT_MODEL_SEP + row['model'],
+                        name=f"{entry[0].get('name') or 'Подарок'} · {row['model']}"[:180], base_name='',
+                        image_url=safe_image(row['image_url']) or entry[1], price_ton=int(row['price']) / 100,
+                        model=row['model']))
+    out.sort(key=lambda x: (-x['price_ton'], x['name']))
+    return out[:400]
+
+
+def _replaceable_item(db, item_id):
+    row = db.execute('SELECT * FROM inventory WHERE id=? AND user_id=?', (item_id, session['uid'])).fetchone()
+    if not row or int(row['price_up_to'] or 0) <= int(row['floor_price'] or 0) or int(row['promo_locked'] or 0):
+        return None
+    return row
+
+
+@app.get('/api/inventory/<int:item_id>/replacements')
+@login_required
+def inventory_replacements(item_id):
+    with connect() as db:
+        purge_expired_inventory(db, session['uid'])
+        row = _replaceable_item(db, item_id)
+    if not row:
+        return error('Для этого подарка замена не требуется.', 404)
+    old = int(row['floor_price'])
+    return jsonify(old_price=old / 100, new_price=int(row['price_up_to']) / 100, name=row['gift_name'],
+                   image_url=safe_image(row['image_url']), items=replacement_candidates(old))
+
+
+@app.post('/api/inventory/<int:item_id>/replace')
+@login_required
+def inventory_replace(item_id):
+    data = request.get_json(silent=True) or {}
+    target = upgrade_target(data.get('gift_id'))
+    if not target:
+        return error('Выберите подарок из списка замены.', 400)
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, session['uid'])
+        row = _replaceable_item(db, item_id)
+        if not row:
+            db.rollback()
+            return error('Замена уже выполнена или недоступна.', 409)
+        old = int(row['floor_price'])
+        if not (int(old * REPLACE_MIN_SHARE) <= target['price'] <= old):
+            db.rollback()
+            return error('Цена замены должна быть от 80% до 100% прежней цены.', 400)
+        diff = old - target['price']
+        db.execute("""UPDATE inventory SET gift_id=?,gift_name=?,image_url=?,floor_price=?,fragment_model=?,
+                      price_source=?,price_up_to=0,source='price_replace' WHERE id=? AND user_id=?""",
+                   (target['id'], target.get('base_name') or target['name'], target['image_url'], target['price'],
+                    target.get('model') or '', 'Portal · модель' if target.get('model') else '', item_id, session['uid']))
+        if diff > 0:
+            credit_game_balance(db, session['uid'], diff, False)
+        record_transaction(db, session['uid'], 'gift_replace', diff, 'inventory', item_id,
+                           f"{row['gift_name']} → {target['name']} · компенсация {diff/100:.2f} TON")
+        log_event(db, session['uid'], 'gift_replaced', inventory_id=item_id, old_name=row['gift_name'], new_name=target['name'],
+                  old_price=old, new_price=target['price'], compensation=diff)
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(ok=True, compensation=diff / 100, user=profile())
 
 
 def telegram_api(method, payload=None, files=None, timeout=(2.5, 8)):

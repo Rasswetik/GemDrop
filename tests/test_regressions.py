@@ -385,6 +385,35 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(preview['target']['model'], 'Da Vinci')
         self.assertAlmostEqual(preview['chance'], 100 * 50 / 120.5, places=1)
 
+    def test_price_drop_is_silent_and_rise_offers_replacement(self):
+        gifts = [{'id': 'pr-a', 'name': 'PR A', 'price_ton': 150, 'image_url': 'https://example.com/a.png'},
+                 {'id': 'pr-b', 'name': 'PR B', 'price_ton': 90, 'image_url': 'https://example.com/b.png'},
+                 {'id': 'pr-c', 'name': 'PR C', 'price_ton': 79, 'image_url': 'https://example.com/c.png'},
+                 {'id': 'pr-up', 'name': 'PR Up', 'price_ton': 200, 'image_url': 'https://example.com/u.png'}]
+        m.save_document('portal_catalog', {'gifts': gifts})
+        m._inv_price_cache.update(at=0.0, map={})
+        with m.connect() as db:
+            drop = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,30000,'test')",
+                              (self.uid, 'pr-a', 'PR A', 'https://example.com/a.png')).lastrowid
+            rise = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,10000,'test')",
+                              (self.uid, 'pr-up', 'PR Up', 'https://example.com/u.png')).lastrowid
+        items = {x['id']: x for x in self.client.get('/api/inventory').get_json()['items']}
+        self.assertEqual(items[drop]['price_ton'], 150)
+        self.assertEqual(items[drop]['price_up_to'], 0)
+        self.assertEqual(items[rise]['price_ton'], 100)
+        self.assertEqual(items[rise]['price_up_to'], 200)
+        data = self.client.get(f'/api/inventory/{rise}/replacements').get_json()
+        self.assertEqual([x['id'] for x in data['items']], ['pr-b'])   # 90 в диапазоне 80-100, 79 уже нет
+        self.post(f'/api/inventory/{rise}/replace', {'gift_id': 'pr-c'}, 400)
+        before = self.balance()
+        result = self.post(f'/api/inventory/{rise}/replace', {'gift_id': 'pr-b'})
+        self.assertEqual(result['compensation'], 10)
+        self.assertEqual(self.balance(), before + 10)
+        self.post(f'/api/inventory/{rise}/replace', {'gift_id': 'pr-b'}, 409)
+        with m.connect() as db:
+            row = db.execute('SELECT gift_id,floor_price,price_up_to FROM inventory WHERE id=?', (rise,)).fetchone()
+        self.assertEqual((row['gift_id'], row['floor_price'], row['price_up_to']), ('pr-b', 9000, 0))
+
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:
             row = db.execute("INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,created_at) VALUES('QA','once','referral',1,5,'profilePage','2000-01-01')")

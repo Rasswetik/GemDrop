@@ -1875,6 +1875,22 @@ class RegressionTests(unittest.TestCase):
         self.post('/api/admin/halloween/config', {'pet_enabled': True})
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def test_halloween_layout_is_normalized_and_saved(self):
+        lay = m.hw_normalize_layout([{'id': 'tiles'}, {'id': 'd1y2z3', 'deco': True, 'art': 'hw:batflock', 'size': 'huge', 'caption': ' hi  there '},
+                                     {'id': 'wallet', 'hidden': True}, {'id': 'tiles'}, {'id': 'bad', 'deco': True, 'art': 'javascript:1'}, {'id': 'nope'}])
+        ids = [x['id'] for x in lay]
+        self.assertEqual(ids[:3], ['tiles', 'd1y2z3', 'wallet'])
+        self.assertEqual(sorted(i for i in ids if i in m.HW_LAYOUT_SECTIONS), sorted(m.HW_LAYOUT_SECTIONS))   # nothing is lost, nothing doubled
+        deco = lay[1]
+        self.assertTrue(deco['deco'] and deco['size'] == 'm' and deco['caption'] == 'hi there')
+        self.assertTrue(lay[2]['hidden'])
+        self.assertEqual(len([x for x in lay if x.get('deco')]), 1)
+        self.assertEqual([x['id'] for x in m.hw_normalize_layout(None)], list(m.HW_LAYOUT_SECTIONS))
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/halloween/config', {'layout': lay})
+            self.assertEqual(self.client.get('/api/admin/halloween/config').get_json()['layout'][1]['art'], 'hw:batflock')
+            self.post('/api/admin/halloween/config', {'layout': 'oops'}, 400)
+
     def test_webhook_remembers_channel_post_and_forwarded_copypost(self):
         m.save_document(m.CHANNEL_POSTS_DOC, {'items': []})
         chat = {'id': -100888000222, 'title': 'Hook channel', 'type': 'channel'}

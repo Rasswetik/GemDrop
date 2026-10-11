@@ -2751,11 +2751,22 @@ HW_ICON_META = {
     'clover': ('Призы', 'Клевер'),
     'cherry': ('Сладости', 'Вишня'),
     'snowghost': ('Предметы', 'Фонарик'),
+    'batflock': ('Сцены', 'Стая летучих мышей'),
+    'moonclouds': ('Сцены', 'Луна и облака'),
+    'hauntedhouse': ('Сцены', 'Дом с привидениями'),
+    'spiderweb': ('Сцены', 'Паук на паутине'),
+    'candles': ('Сцены', 'Свечи'),
+    'graveyard': ('Сцены', 'Кладбище'),
+    'witchfly': ('Сцены', 'Ведьма на метле'),
+    'brew': ('Сцены', 'Зелье в котле'),
+    'pumpkinpatch': ('Сцены', 'Тыквенное поле'),
+    'eyes': ('Сцены', 'Глаза в темноте'),
+    'ghosts': ('Сцены', 'Хоровод призраков'),
 }
 HW_ICONS = tuple(HW_ICON_META)
 HW_SIZES = ('s', 'm', 'l')
 HW_DEFAULT_RATE = 100   # pumpkins for every 1 TON lost from the main balance
-HW_MAX_BUTTONS = 12
+HW_MAX_BUTTONS = 16
 
 
 def hw_rate(doc=None):
@@ -3040,6 +3051,45 @@ def hw_normalize_buttons(raw):
     return out
 
 
+# Order of the blocks on the event page. The admin can move every block and add animated decorations between them.
+HW_LAYOUT_SECTIONS = ('hero', 'tour', 'wallet', 'boss', 'pass', 'trick', 'tiles', 'soon')
+HW_DECO_MAX = 12
+HW_DECO_SIZES = ('s', 'm', 'l')
+HW_DECO_ALIGN = ('left', 'center', 'right')
+
+
+def hw_normalize_layout(raw):
+    """[{id, hidden}] for the fixed blocks and [{id:'d…', deco:True, art, size, align, caption}] for decorations.
+    Blocks that are missing are appended in the default order, so an old or empty layout always yields a complete page."""
+    out, seen, decos = [], set(), 0
+    for item in (raw if isinstance(raw, list) else [])[:HW_DECO_MAX + len(HW_LAYOUT_SECTIONS)]:
+        if not isinstance(item, dict):
+            continue
+        bid = str(item.get('id') or '')
+        if bid in seen:
+            continue
+        if bid in HW_LAYOUT_SECTIONS:
+            seen.add(bid)
+            out.append(dict(id=bid, hidden=bool(item.get('hidden'))))
+        elif item.get('deco') and decos < HW_DECO_MAX:
+            art = hw_image_ok(item.get('art'))
+            if not art:
+                continue
+            bid = re.sub(r'[^a-z0-9]', '', bid.lower())[:12]
+            if not bid.startswith('d') or len(bid) < 4 or bid in seen:
+                bid = 'd' + secrets.token_hex(3)
+            seen.add(bid)
+            decos += 1
+            out.append(dict(id=bid, deco=True, art=art, hidden=bool(item.get('hidden')),
+                            size=item.get('size') if item.get('size') in HW_DECO_SIZES else 'm',
+                            align=item.get('align') if item.get('align') in HW_DECO_ALIGN else 'center',
+                            caption=re.sub(r'\s+', ' ', str(item.get('caption') or '')).strip()[:60]))
+    for sec in HW_LAYOUT_SECTIONS:
+        if sec not in seen:
+            out.append(dict(id=sec, hidden=False))
+    return out
+
+
 HW_ARTICLE_BLOCKS = ('h', 'p', 'img', 'btn', 'hr')
 
 
@@ -3151,6 +3201,7 @@ def halloween_hub():
         buttons = hw_normalize_buttons(doc.get('buttons') or [])
     except ValueError:
         buttons = []
+    has_market = any(b.get('kind') == 'page' and b.get('target') == 'market' for b in buttons)
     buttons = [b for b in buttons if b.get('active', True)]
     now_ms = int(time.time() * 1000)
     with connect() as db:
@@ -3168,7 +3219,8 @@ def halloween_hub():
         lot_views.insert(0, welcome)
     resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
                    lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)), features=features,
-                   welcome=dict(amount=hw_welcome_amount(doc), taken=welcome_taken), pet=hw_pet_enabled(doc))
+                   welcome=dict(amount=hw_welcome_amount(doc), taken=welcome_taken), pet=hw_pet_enabled(doc),
+                   layout=hw_normalize_layout(doc.get('layout')), has_market=has_market)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
@@ -4187,7 +4239,7 @@ def admin_halloween_config():
         lots = db.execute('SELECT * FROM hw_lots ORDER BY sort_order, id').fetchall()
         totals = db.execute('SELECT COUNT(*) AS n, COALESCE(SUM(balance),0) AS b, COALESCE(SUM(earned),0) AS e FROM hw_pumpkins').fetchone()
     return jsonify(ok=True, rate=hw_rate(doc), tour_reward=hw_tour_reward(doc), welcome_enabled=bool(doc.get('welcome_enabled', True)),
-                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), pet_gift_amount=hw_pet_gift_amount(doc), pet_fry_need=hw_pet_fry_need(doc), buttons=buttons, lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
+                   welcome_amount=float(doc.get('welcome_amount', 0.2) or 0.2), pet_enabled=hw_pet_enabled(doc), pet_gift_amount=hw_pet_gift_amount(doc), pet_fry_need=hw_pet_fry_need(doc), buttons=buttons, layout=hw_normalize_layout(doc.get('layout')), lots=[hw_lot_admin(r) for r in lots], targets=list(HW_TARGETS), icons=list(HW_ICONS),
                    holders=int(totals['n']), pumpkins_in_wallets=int(totals['b']), pumpkins_earned=int(totals['e']))
 
 
@@ -4238,6 +4290,10 @@ def admin_halloween_config_set():
             doc['buttons'] = hw_normalize_buttons(data.get('buttons'))
         except (ValueError, TypeError) as exc:
             return error(str(exc))
+    if 'layout' in data:
+        if not isinstance(data.get('layout'), list):
+            return error('Некорректное расположение блоков.')
+        doc['layout'] = hw_normalize_layout(data.get('layout'))
     doc['updated_at'] = datetime.now(timezone.utc).isoformat()
     save_document('halloween', doc)
     _hw_cache['doc'] = None

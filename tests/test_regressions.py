@@ -1493,6 +1493,47 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r['pass']['levels'][2]['state'], 'claimed')
         self.assertEqual(a.get('/api/halloween/hub').get_json()['features']['pass']['max_level'], 3)
 
+    def test_pumpkin_freebet_promocode_and_premium_emoji(self):
+        self._hw_open_event()
+        self.assertEqual(m.pumpkin_word(1), 'тыква'); self.assertEqual(m.pumpkin_word(3), 'тыквы')
+        self.assertEqual(m.pumpkin_word(11), 'тыкв'); self.assertEqual(m.pumpkin_word(25), 'тыкв')
+        # premium emoji of the pumpkin lives in its own admin slot
+        self.assertEqual(m.pumpkin_emoji_html(), '🎃')
+        self.post('/api/admin/pumpkin-emoji', {'emoji_id': 'abc'}, 400)
+        with patch.object(m, 'fetch_custom_emoji_map', return_value={'5400000000001': dict(id='5400000000001', emoji='🎃')}):
+            self.post('/api/admin/pumpkin-emoji', {'emoji_id': '5400000000001'})
+        self.addCleanup(lambda: m.save_document('pumpkin_emoji', {}))
+        self.assertEqual(m.pumpkin_emoji_html(), '<tg-emoji emoji-id="5400000000001">🎃</tg-emoji>')
+        self.assertEqual(self.client.get('/api/admin/pumpkin-emoji').get_json()['emoji_id'], '5400000000001')
+        # freebet in pumpkins
+        self.post('/api/admin/freebets', {'code': 'PKFB1', 'reward_type': 'pumpkins', 'pumpkins': 0, 'max_uses': 5}, 400)
+        self.post('/api/admin/freebets', {'code': 'PKFB1', 'reward_type': 'pumpkins', 'pumpkins': 150, 'max_uses': 5})
+        guest = self.uid + 9100
+        self._hw_player(guest, 3)
+        res = m.try_activate_freebet(guest, 'PKFB1')
+        self.assertEqual(res['status'], 'ok', res)
+        self.assertEqual(res['reward'], {'type': 'pumpkins', 'amount': 150})
+        self.assertIn('Вам получено <b>150 тыкв</b>', res['text'])
+        self.assertIn('<tg-emoji emoji-id="5400000000001">🎃</tg-emoji>', res['text'])
+        with m.connect() as db:
+            self.assertEqual(m.hw_pumpkin_balance(db, guest)['balance'], 153)
+        self.assertEqual(m.try_activate_freebet(guest, 'PKFB1')['status'], 'used')
+        items = m.describe_reward_items(res['reward'])
+        self.assertEqual((items[0]['kind'], items[0]['title']), ('pumpkins', '150 тыкв'))
+        self.assertTrue(any(x['code'] == 'PKFB1' and x['reward_type'] == 'pumpkins' for x in self.client.get('/api/admin/freebets').get_json()['items']))
+        # promo code in pumpkins
+        self.post('/api/admin/promocodes', {'code': 'PKPROMO', 'reward_type': 'pumpkins', 'pumpkins': 0}, 400)
+        self.post('/api/admin/promocodes', {'code': 'PKPROMO', 'reward_type': 'pumpkins', 'pumpkins': 21, 'max_uses': 3})
+        listed = [x for x in self.client.get('/api/admin/promocodes').get_json()['items'] if x['key'] == 'PKPROMO'][0]
+        self.assertEqual((listed['reward_type'], listed['pumpkins']), ('pumpkins', 21))
+        player = self._hw_player(self.uid + 9200, 0)
+        got = player.post('/api/promocodes/redeem', json={'code': 'PKPROMO'})
+        self.assertEqual(got.status_code, 200, got.get_json())
+        self.assertEqual(got.get_json()['reward'], {'type': 'pumpkins', 'amount': 21})
+        with m.connect() as db:
+            self.assertEqual(m.hw_pumpkin_balance(db, self.uid + 9200)['balance'], 21)
+        self.assertEqual(player.post('/api/promocodes/redeem', json={'code': 'PKPROMO'}).status_code, 409)
+
     def test_halloween_trick_or_treat_daily_tries_and_outcomes(self):
         self._hw_open_event()
         a = self._hw_player(self.uid, 100)

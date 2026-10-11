@@ -9917,6 +9917,13 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         reward = dict(type='balance', amount=amount/100, main_amount=main_amount/100, bonus_amount=bonus_amount/100, balance_target=('split' if main_amount and bonus_amount else 'bonus' if bonus_amount else 'main'))
         record_transaction(db, user_id, 'freebet_balance', amount, 'freebet', freebet_code,
                            f'Freebet {freebet_code} · основной {main_amount/100:.2f} · бонусный {bonus_amount/100:.2f} TON')
+    elif reward_type == 'pumpkins':
+        qty = max(0, int(promo['amount'] or 0))
+        if qty <= 0:
+            raise ValueError('Награда фрибета настроена неверно.')
+        hw_add_pumpkins(db, user_id, qty, earned=False)
+        reward = dict(type='pumpkins', amount=qty)
+        record_transaction(db, user_id, 'freebet_pumpkins', 0, 'freebet', freebet_code, f'Freebet {freebet_code} · {qty} тыкв')
     elif reward_type == 'gift':
         bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
         cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'freebet',?,?,?,?)",
@@ -10061,6 +10068,10 @@ def describe_reward_items(reward):
     elif kind == 'tickets':
         qty = int(reward.get('amount') or 0)
         items.append(dict(kind='tickets', title=f'{qty} билет(ов)', detail='Для участия в розыгрышах'))
+    elif kind == 'pumpkins':
+        qty = int(reward.get('amount') or 0)
+        items.append(dict(kind='pumpkins', title=f'{qty} {pumpkin_word(qty)}', detail=f'Вам получено {qty} {pumpkin_word(qty)} · уже на вашем счёте',
+                          amount=qty))
     return items
 
 
@@ -10069,9 +10080,11 @@ def freebet_reward_html(reward, fallback=''):
     if not items:
         return escape(fallback)
     lines = []
-    icons = dict(balance='💰', gift='🎁', wager_gift='🔒', deposit_bonus='📈', tickets='🎟')
+    icons = dict(balance='💰', gift='🎁', wager_gift='🔒', deposit_bonus='📈', tickets='🎟', pumpkins='🎃')
     for it in items:
         icon = icons.get(it['kind'], '•')
+        if it.get('kind') == 'pumpkins':
+            icon = pumpkin_emoji_html(icon)
         if it.get('kind') in ('gift', 'wager_gift'):
             gid = str(it.get('gift_id') or '') or gift_id_for_name(it.get('title'))
             icon = gift_custom_emoji_html(gid, it.get('title'), icon) if gid else icon
@@ -10143,8 +10156,13 @@ def try_activate_freebet(user_id, code):
                    (code, user_id, json.dumps(reward, ensure_ascii=False)))
         db.execute('UPDATE freebets SET uses_count=uses_count+1 WHERE code=?', (code,))
         db.commit()
-        return {'status': 'ok', 'reward': reward,
-                'text': render_notice('freebet_activated', None, {'reward': freebet_reward_html(reward, freebet_reward_text(promo))}),
+        if reward.get('type') == 'pumpkins':
+            qty = int(reward.get('amount') or 0)
+            text = render_notice('freebet_pumpkins', {'amount': qty, 'word': pumpkin_word(qty)},
+                                 {'pumpkin': pumpkin_emoji_html()})
+        else:
+            text = render_notice('freebet_activated', None, {'reward': freebet_reward_html(reward, freebet_reward_text(promo))})
+        return {'status': 'ok', 'reward': reward, 'text': text,
                 'reply_markup': freebet_play_keyboard(), 'parse_mode': 'HTML'}
     except Exception:
         try:
@@ -10643,6 +10661,63 @@ def admin_save_gift_emoji():
     )
     save_document('gift_emoji:' + gift_id, record)
     return jsonify(ok=True, item=record)
+
+
+def pumpkin_emoji_record():
+    try:
+        item = read_document('pumpkin_emoji') or {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        item = {}
+    return item if isinstance(item, dict) else {}
+
+
+def pumpkin_emoji_html(default='🎃'):
+    """Premium emoji of the Halloween pumpkin (set in the emoji section) or a plain 🎃."""
+    item = pumpkin_emoji_record()
+    eid = str(item.get('emoji_id') or '').strip()
+    fallback = str(item.get('emoji') or '').strip()
+    if re.fullmatch(r'[0-9]{5,30}', eid) and fallback:
+        return f'<tg-emoji emoji-id="{eid}">{escape(fallback)}</tg-emoji>'
+    return default
+
+
+def pumpkin_word(n):
+    n = abs(int(n or 0))
+    if 11 <= n % 100 <= 14:
+        return 'тыкв'
+    return 'тыква' if n % 10 == 1 else 'тыквы' if 2 <= n % 10 <= 4 else 'тыкв'
+
+
+@app.get('/api/admin/pumpkin-emoji')
+@admin_required
+def admin_pumpkin_emoji():
+    item = pumpkin_emoji_record()
+    return jsonify(emoji_id=str(item.get('emoji_id') or ''), emoji=str(item.get('emoji') or ''),
+                   preview=pumpkin_emoji_html(), updated_at=str(item.get('updated_at') or ''))
+
+
+@app.post('/api/admin/pumpkin-emoji')
+@admin_required
+def admin_save_pumpkin_emoji():
+    data = request.get_json(silent=True) or {}
+    emoji_id = str(data.get('emoji_id') or '').strip()
+    if not emoji_id:
+        save_document('pumpkin_emoji', dict(emoji_id='', emoji='', updated_at=datetime.now(timezone.utc).isoformat()))
+        return jsonify(ok=True, emoji_id='', emoji='')
+    if not re.fullmatch(r'[0-9]{5,30}', emoji_id):
+        return error('Введите корректный Telegram custom emoji ID.')
+    try:
+        resolved = fetch_custom_emoji_map([emoji_id])
+    except RuntimeError as exc:
+        return error(str(exc), 409)
+    emoji = resolved.get(emoji_id)
+    if not emoji:
+        return error('Telegram не нашёл premium emoji с таким ID.', 404)
+    remember_emojis([emoji])
+    record = dict(emoji_id=emoji_id, emoji=str(emoji.get('emoji') or ''),
+                  updated_at=datetime.now(timezone.utc).isoformat())
+    save_document('pumpkin_emoji', record)
+    return jsonify(ok=True, **record)
 
 
 # ---------------- admin: notification texts ----------------
@@ -15358,6 +15433,8 @@ def promo_purpose(promo):
         return f"Зачисляет {int(promo['amount'] or 0)/100:.2f} TON на игровой баланс."
     if kind == 'tickets':
         return f"Выдаёт {int(promo['amount'] or 0)} билет(ов) для участия в розыгрышах."
+    if kind == 'pumpkins':
+        return f"Выдаёт {int(promo['amount'] or 0)} {pumpkin_word(promo['amount'])} для Хэллоуин-ивента."
     if kind == 'gift':
         return f"Выдаёт подарок «{promo['gift_name'] or 'Подарок'}»."
     if kind == 'wager_gift':
@@ -16025,6 +16102,12 @@ def redeem_promocode():
             db.execute('INSERT INTO ticket_ledger(user_id,amount,kind,reference_type,reference_id,details) VALUES(?,?,?,?,?,?)',
                        (session['uid'],tickets,'promo','promo',code,f'Промокод {code}'))
             reward=dict(type='tickets',tickets=tickets)
+        elif promo['reward_type'] == 'pumpkins':
+            qty=max(0,int(promo['amount'] or 0))
+            if qty<=0:return error('Награда промокода настроена неверно.',500)
+            hw_add_pumpkins(db,session['uid'],qty,earned=False)
+            reward=dict(type='pumpkins',amount=qty)
+            record_transaction(db,session['uid'],'promo_pumpkins',0,'promo',code,f'Промокод {code} · {qty} тыкв')
         elif promo['reward_type'] == 'gift':
             bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
             cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'promo',?,?,?)",
@@ -16457,6 +16540,13 @@ def _freebet_backing_values(data, code):
         amount = parse_amount(data.get('amount'))
         if not 1 <= amount <= 100000000:
             raise ValueError('Сумма фрибета должна быть от 0.01 до 1 000 000 TON.')
+    elif reward_type == 'pumpkins':
+        try:
+            amount = int(float(str(data.get('pumpkins') or data.get('amount') or 0).replace(',', '.')))
+        except (TypeError, ValueError):
+            raise ValueError('Укажите количество тыкв.')
+        if not 1 <= amount <= 100000000:
+            raise ValueError('Количество тыкв во фрибете: от 1 до 100 000 000.')
     elif reward_type in ('gift','wager_gift'):
         gift_id = str(data.get('gift_id') or '')
         gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
@@ -16672,7 +16762,7 @@ def admin_delete_freebet(code):
 def admin_promocodes():
     with connect() as db:
         rows = db.execute("SELECT * FROM promo_codes WHERE source_label<>'Freebet' ORDER BY created_at DESC,code DESC LIMIT 300").fetchall()
-    return jsonify(items=[dict(code=wheel_code_display(x['code']), key=x['code'], scope=('wheel' if x['reward_type']=='wheel' else 'general'), reward_type=x['reward_type'], amount=(x['amount'] if x['reward_type']=='tickets' else x['amount']/100), tickets=(int(x['amount'] or 0) if x['reward_type']=='tickets' else 0),
+    return jsonify(items=[dict(code=wheel_code_display(x['code']), key=x['code'], scope=('wheel' if x['reward_type']=='wheel' else 'general'), reward_type=x['reward_type'], amount=(x['amount'] if x['reward_type'] in ('tickets','pumpkins') else x['amount']/100), tickets=(int(x['amount'] or 0) if x['reward_type']=='tickets' else 0), pumpkins=(int(x['amount'] or 0) if x['reward_type']=='pumpkins' else 0),
                                gift_id=x['gift_id'], gift_name=x['gift_name'], image_url=x['gift_image_url'],
                                gift_price=x['gift_price']/100, wager_multiplier=float(x['wager_multiplier'] or 0),
                                max_uses=x['max_uses'], uses_count=x['uses_count'],
@@ -16731,6 +16821,10 @@ def admin_create_promocode():
         try: amount=int(data.get('tickets') or data.get('amount') or 0)
         except (TypeError,ValueError): return error('Укажите количество билетов.')
         if not 1<=amount<=1000000:return error('Количество билетов: от 1 до 1 000 000.')
+    elif reward_type == 'pumpkins':
+        try: amount=int(data.get('pumpkins') or data.get('amount') or 0)
+        except (TypeError,ValueError): return error('Укажите количество тыкв.')
+        if not 1<=amount<=100000000:return error('Количество тыкв: от 1 до 100 000 000.')
     elif reward_type in ('gift', 'wager_gift'):
         gift_id = str(data.get('gift_id') or '')
         try:

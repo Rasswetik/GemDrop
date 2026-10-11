@@ -18,7 +18,7 @@ from functools import wraps, lru_cache
 from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from threading import Thread, Lock
+from threading import Thread, Lock, local as _thread_local
 from copy import deepcopy
 from urllib.parse import parse_qsl, quote_plus
 
@@ -2832,6 +2832,44 @@ def hw_add_pumpkins(db, uid, amount, earned=True):
     hw_ensure_pumpkin_row(db, uid)
     db.execute('UPDATE hw_pumpkins SET balance=balance+?,earned=earned+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?',
                (amount, amount if (earned and amount > 0) else 0, int(uid)))
+
+
+_HW_DEPOSIT = _thread_local()
+
+
+def hw_deposit_pumpkins_rate(uid=None):
+    """Pumpkins per 1 TON of a confirmed deposit; 0 when the bonus is off, the event is not running or not open to this player."""
+    try:
+        cfg = ton_settings()
+        if not cfg['pumpkins_enabled']:
+            return 0
+        s = halloween_state()
+        if not s['active'] or s['phase'] != 'full':
+            return 0
+        if s['admins_only'] and int(uid or 0) not in ADMIN_IDS:
+            return 0
+        return int(cfg['pumpkins_per_ton'])
+    except Exception:
+        return 0
+
+
+def hw_deposit_pumpkins(db, uid, amount_cents, ref_type='deposit', ref_id=''):
+    """Extra bonus on top of the bonus balance: pumpkins for a confirmed deposit, at the admin's rate."""
+    _HW_DEPOSIT.last = 0
+    rate = hw_deposit_pumpkins_rate(uid)
+    qty = int(int(amount_cents or 0) * rate // 100) if rate else 0
+    if qty <= 0:
+        return 0
+    hw_add_pumpkins(db, uid, qty, earned=False)
+    record_transaction(db, uid, 'deposit_pumpkins', 0, ref_type, str(ref_id), f'Тыквы за пополнение: {qty} (курс {rate} за 1 TON)')
+    _HW_DEPOSIT.last = qty
+    return qty
+
+
+def hw_take_deposit_pumpkins():
+    qty = int(getattr(_HW_DEPOSIT, 'last', 0) or 0)
+    _HW_DEPOSIT.last = 0
+    return qty
 
 
 def hw_pumpkin_balance(db, uid):
@@ -12060,8 +12098,10 @@ def deposit_notice_text(amount_cents, balance_cents, bonus_cents=0):
     return render_notice('deposit_bonus', dict(values, bonus=bonus))
 
 
-def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0):
+def notify_deposit_async(user_id, amount_cents, balance_cents, bonus_cents=0, pumpkins=0):
     text = deposit_notice_text(amount_cents, balance_cents, bonus_cents)
+    if pumpkins:
+        text += f'\n\n{pumpkin_emoji_html()} +{int(pumpkins)} {pumpkin_word(int(pumpkins))} за пополнение'
     notify_user_async(user_id, text, miniapp_markup('Открыть'), 'HTML')
 
 
@@ -20533,7 +20573,14 @@ def ton_settings():
     except (TypeError, ValueError):
         stars_per_ton = 100
     stars_per_ton = max(1, min(100000, stars_per_ton))
+    try:
+        pumpkins_per_ton = int(float(str(doc.get('pumpkins_per_ton', 100) or 100)))
+    except (TypeError, ValueError):
+        pumpkins_per_ton = 100
+    pumpkins_per_ton = max(1, min(1000000, pumpkins_per_ton))
     return dict(
+        pumpkins_enabled=bool(doc.get('pumpkins_enabled', False)),
+        pumpkins_per_ton=pumpkins_per_ton,
         enabled=bool(doc.get('enabled', True)),
         recipient_wallet=str(doc.get('recipient_wallet') or '').strip()[:180],
         site_name=str(doc.get('site_name') or 'GemDrop').strip()[:48] or 'GemDrop',
@@ -20557,6 +20604,7 @@ def ton_settings_public():
                    stars_enabled=settings['stars_enabled'], stars_per_ton=settings['stars_per_ton'],
                    gifts_enabled=settings['gifts_enabled'], relay_username=settings['relay_username'],
                    gift_relayer_ready=relayer_public_ready(),
+                   deposit_pumpkins_per_ton=hw_deposit_pumpkins_rate(session.get('uid')),
                    stars_withdraw_days=settings['stars_withdraw_days'])
 
 
@@ -20577,12 +20625,16 @@ def admin_ton_settings_set():
     enabled = bool(data.get('enabled', True))
     stars_enabled = bool(data.get('stars_enabled', True))
     gifts_enabled = bool(data.get('gifts_enabled', True))
+    pumpkins_enabled = bool(data.get('pumpkins_enabled', False))
     relay_username = str(data.get('relay_username') or 'Gemdrop_relay').strip().lstrip('@')[:64] or 'Gemdrop_relay'
     try:
         referral_pct = float(data.get('referral_percent', 10))
         stars_per_ton = int(data.get('stars_per_ton', 100))
+        pumpkins_per_ton = int(float(str(data.get('pumpkins_per_ton', 100)).replace(',', '.')))
     except (TypeError, ValueError):
-        return error('Проверьте реферальный процент и курс Stars.')
+        return error('Проверьте реферальный процент, курс Stars и курс тыкв.')
+    if not 1 <= pumpkins_per_ton <= 1000000:
+        return error('Курс тыкв: от 1 до 1 000 000 тыкв за 1 TON.')
     if not 0 <= referral_pct <= 50:
         return error('Реферальный процент должен быть от 0 до 50%.')
     if not 1 <= stars_per_ton <= 100000:
@@ -20599,6 +20651,7 @@ def admin_ton_settings_set():
                                        site_url=site_url, icon_url=icon_url, referral_percent=referral_pct,
                                        stars_enabled=stars_enabled, stars_per_ton=stars_per_ton,
                                        gifts_enabled=gifts_enabled, relay_username=relay_username,
+                                       pumpkins_enabled=pumpkins_enabled, pumpkins_per_ton=pumpkins_per_ton,
                                        updated_at=datetime.now(timezone.utc).isoformat(),
                                        admin_id=session['uid']))
     with connect() as db:
@@ -20607,8 +20660,9 @@ def admin_ton_settings_set():
                     json.dumps({'enabled': enabled, 'site_name': site_name, 'recipient_wallet': recipient,
                                 'referral_percent': referral_pct, 'stars_enabled': stars_enabled,
                                 'stars_per_ton': stars_per_ton, 'gifts_enabled': gifts_enabled,
+                                'pumpkins_enabled': pumpkins_enabled, 'pumpkins_per_ton': pumpkins_per_ton,
                                 'relay_username': relay_username}, ensure_ascii=False)))
-    return jsonify(ok=True, **ton_settings())
+    return jsonify(ok=True, deposit_pumpkins_per_ton=hw_deposit_pumpkins_rate(session['uid']), **ton_settings())
 
 
 
@@ -21353,6 +21407,7 @@ def credit_verified_ton_deposit(db, order, tx_hash):
     db.execute("UPDATE ton_deposit_orders SET status='credited',tx_hash=?,credited_at=CURRENT_TIMESTAMP WHERE id=?",
                (tx_hash, order['id']))
     record_transaction(db, user_id, 'ton_deposit', amount, 'ton_tx', tx_hash, 'Подтверждённое пополнение TON')
+    hw_deposit_pumpkins(db, user_id, amount, 'ton_tx', tx_hash)
     if auto_bonus:
         record_transaction(db,user_id,'ton_connect_bonus',auto_bonus,'ton_tx',tx_hash,'Автобонус TON Connect +10%')
     if deposit_bonus:
@@ -21469,10 +21524,11 @@ def verify_ton_deposit(order_id):
             balance_now=int(credited_bonus_row['balance']) if credited_bonus_row else 0
             promo_bonus_row=db.execute("SELECT COALESCE(SUM(amount),0) AS total FROM transactions WHERE user_id=? AND kind='deposit_promo_bonus' AND reference_type='ton_tx' AND reference_id=?",(session['uid'],tx_hash)).fetchone()
             promo_bonus=int(promo_bonus_row['total'] or 0) if promo_bonus_row else 0
+            dep_pumpkins=hw_take_deposit_pumpkins()
             db.commit()
         finally:
             db.close()
-        notify_deposit_async(session['uid'], credited_amount, balance_now, promo_bonus)
+        notify_deposit_async(session['uid'], credited_amount, balance_now, promo_bonus, dep_pumpkins)
         return jsonify(ok=True, status='credited', referral_bonus=bonus/100, user=profile())
     except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
         app.logger.exception('TON deposit verification failed')
@@ -21533,6 +21589,7 @@ def credit_verified_stars_deposit(db, order, payment_charge_id):
     lock_until = _apply_stars_withdrawal_lock(db, user_id)
     record_transaction(db, user_id, 'stars_deposit', amount, 'telegram_stars', payment_charge_id,
                        f'Пополнение через Telegram Stars · {int(order["stars_amount"])} Stars')
+    hw_deposit_pumpkins(db, user_id, amount, 'telegram_stars', payment_charge_id)
     if deposit_bonus:
         record_transaction(db, user_id, 'deposit_promo_bonus', deposit_bonus, 'telegram_stars',
                            payment_charge_id, f'Бонус промокода {promo["code"]}')
@@ -21655,10 +21712,11 @@ def process_stars_successful_payment(message, payment):
         bonus, lock_until = credit_verified_stars_deposit(db, order, charge_id)
         row = db.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()
         balance_now = int(row['balance'] or 0) if row else 0
+        dep_pumpkins = hw_take_deposit_pumpkins()
         db.commit()
         credited = True
     if credited:
-        notify_deposit_async(uid, int(order['amount']), balance_now, bonus)
+        notify_deposit_async(uid, int(order['amount']), balance_now, bonus, dep_pumpkins)
         until_text = lock_until.strftime('%d.%m.%Y') if lock_until else ''
         notify_user_async(
             uid,

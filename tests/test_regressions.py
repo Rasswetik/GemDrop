@@ -1530,6 +1530,42 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual((row['gift_id'], int(row['floor_price']), int(row['promo_wager_target']), int(row['promo_locked'])), ('qa9', 500, 1500, 1))
         self.assertTrue(row['expires_at'])
 
+    def test_deposit_pumpkin_bonus_follows_event_and_rate(self):
+        self._hw_open_event()
+        base = dict(enabled=True, recipient_wallet='', site_name='GemDrop', referral_percent=10, stars_enabled=True,
+                    stars_per_ton=100, gifts_enabled=True, relay_username='Gemdrop_relay')
+        self.post('/api/admin/ton-settings', dict(base, pumpkins_enabled=True, pumpkins_per_ton=0), 400)
+        saved = self.post('/api/admin/ton-settings', dict(base, pumpkins_enabled=True, pumpkins_per_ton=40))
+        self.assertEqual(saved['deposit_pumpkins_per_ton'], 40)
+        self.assertEqual(self.client.get('/api/ton/settings').get_json()['deposit_pumpkins_per_ton'], 40)
+
+        def deposit(order_id, cents, kind):
+            with m.connect() as db:
+                if kind == 'ton':
+                    db.execute("INSERT INTO ton_deposit_orders(id,user_id,wallet_address,recipient_wallet,amount,amount_nano,created_unix) VALUES(?,?,?,?,?,?,?)",
+                               (order_id, self.uid, 'w', 'r', cents, cents * 10000000, 1))
+                    order = db.execute('SELECT * FROM ton_deposit_orders WHERE id=?', (order_id,)).fetchone()
+                    m.credit_verified_ton_deposit(db, order, 'tx-' + order_id)
+                else:
+                    db.execute("INSERT INTO stars_deposit_orders(id,user_id,amount,stars_amount,invoice_payload) VALUES(?,?,?,?,?)",
+                               (order_id, self.uid, cents, cents, 'p-' + order_id))
+                    order = db.execute('SELECT * FROM stars_deposit_orders WHERE id=?', (order_id,)).fetchone()
+                    m.credit_verified_stars_deposit(db, order, 'ch-' + order_id)
+                got = m.hw_take_deposit_pumpkins()
+                bal = int(m.hw_pumpkin_balance(db, self.uid)['balance'])
+            return got, bal
+        self.assertEqual(deposit('t1', 250, 'ton'), (100, 100))          # 2.5 TON x 40 per TON
+        self.assertEqual(deposit('s1', 100, 'stars'), (40, 140))          # Stars count too
+        with m.connect() as db:                                           # the bonus balance is still paid as before
+            row = db.execute('SELECT balance,bonus_balance FROM users WHERE id=?', (self.uid,)).fetchone()
+        self.assertGreater(int(row['bonus_balance']), 0)
+        self.post('/api/admin/ton-settings', dict(base, pumpkins_enabled=False, pumpkins_per_ton=40))
+        self.assertEqual(deposit('t2', 500, 'ton'), (0, 140))             # switched off
+        self.post('/api/admin/ton-settings', dict(base, pumpkins_enabled=True, pumpkins_per_ton=40))
+        self.post('/api/admin/halloween', {'enabled': False, 'admins_only': False, 'starts_at': 0, 'ends_at': 0})
+        self.assertEqual(deposit('t3', 500, 'ton'), (0, 140))             # event is over
+        self.assertEqual(self.client.get('/api/ton/settings').get_json()['deposit_pumpkins_per_ton'], 0)
+
     def test_pumpkin_freebet_promocode_and_premium_emoji(self):
         self._hw_open_event()
         self.assertEqual(m.pumpkin_word(1), 'тыква'); self.assertEqual(m.pumpkin_word(3), 'тыквы')

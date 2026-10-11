@@ -1493,6 +1493,54 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r['pass']['levels'][2]['state'], 'claimed')
         self.assertEqual(a.get('/api/halloween/hub').get_json()['features']['pass']['max_level'], 3)
 
+    def test_ban_is_saved_and_blocks_api_and_client_ip_is_the_visitor(self):
+        victim = self.uid + 5000
+        with m.connect() as db:
+            db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)', (victim, 'V', f'v{victim}', 0))
+        # the ban must survive (it used to raise on a duplicated `kind` and roll back on PostgreSQL)
+        self.assertTrue(m.ban_user(victim, 'тест', kind='manual', by=self.uid))
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT banned FROM users WHERE id=?', (victim,)).fetchone()['banned'], 1)
+            self.assertTrue(db.execute("SELECT 1 FROM user_events WHERE user_id=? AND kind='banned'", (victim,)).fetchone())
+        player = m.app.test_client()
+        with player.session_transaction() as sess:
+            sess['uid'] = victim
+        r = player.get('/api/me')
+        self.assertEqual(r.status_code, 403)
+        self.assertTrue(r.get_json()['banned'])
+        # the admin endpoint bans and unbans
+        other = victim + 1
+        with m.connect() as db:
+            db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,?)', (other, 'O', f'o{other}', 0))
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post(f'/api/admin/users/{other}/ban', {'banned': True, 'reason': 'x'})
+            self.assertTrue(m.is_banned(other, fresh=True))
+            self.post(f'/api/admin/users/{other}/ban', {'banned': False})
+            self.assertFalse(m.is_banned(other, fresh=True))
+        # IP detection
+        def ip(headers, remote='10.0.0.5'):
+            with m.app.test_request_context('/api/me', headers=headers, environ_base={'REMOTE_ADDR': remote}):
+                return m.client_ip_info()
+        self.assertEqual(ip({'CF-Connecting-IP': '93.184.216.7'}), ('93.184.216.7', 'CF-Connecting-IP'))
+        self.assertEqual(ip({'X-Forwarded-For': '45.33.32.9, 172.68.1.1'})[0], '45.33.32.9')            # client, Cloudflare edge
+        self.assertEqual(ip({'X-Forwarded-For': '6.6.6.6, 45.33.32.9, 10.1.2.3'})[0], '45.33.32.9')    # forged left part ignored
+        self.assertEqual(ip({'CF-Connecting-IP': '::ffff:93.184.216.8'})[0], '93.184.216.8')                 # not one shared ::/64 bucket
+        self.assertEqual(ip({'CF-Connecting-IP': '93.184.216.9:5555'})[0], '93.184.216.9')
+        self.assertEqual(ip({'CF-Connecting-IP': '2a00:1450:4001::1234'})[0].endswith('/64'), True)
+        self.assertEqual(ip({'CF-Connecting-IP': '172.68.1.1'})[0], '')                                    # Cloudflare itself is never a player
+        self.assertEqual(ip({})[0], '')                                                                    # private socket peer
+        self.assertEqual(ip({}, remote='45.33.32.20')[0], '45.33.32.20')
+        # old junk is cleaned and the false automatic bans on it are lifted
+        a, b = victim + 10, victim + 11
+        with m.connect() as db:
+            for u in (a, b):
+                db.execute('INSERT INTO users(id,name,username,balance,banned,ban_kind) VALUES(?,?,?,?,?,?)', (u, 'J', f'j{u}', 0, 1, 'multi'))
+                db.execute('INSERT INTO user_ips(user_id,ip,first_seen,last_seen,hits) VALUES(?,?,?,?,1)', (u, '172.68.1.1', 1, int(time.time())))
+        removed, lifted = m.antifraud_cleanup(by=self.uid)
+        self.assertGreaterEqual(removed, 2)
+        self.assertTrue({a, b} <= set(lifted))
+        self.assertFalse(m.is_banned(a, fresh=True))
+
     def test_halloween_pass_autogen_and_wager_gift_reward(self):
         self._hw_open_event()
         a = self._hw_player(self.uid, 0)

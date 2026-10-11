@@ -2230,24 +2230,104 @@ def banned_response():
     return response
 
 
-def client_ip():
-    """Client IP behind the hosting proxy; IPv6 is collapsed to its /64 so rotating suffixes does not help."""
+_CLOUDFLARE_NETS = None
+
+
+def _cloudflare_nets():
+    """Cloudflare's published edge ranges (the hosting sits behind it): these are proxies, never players."""
+    global _CLOUDFLARE_NETS
+    if _CLOUDFLARE_NETS is None:
+        import ipaddress
+        _CLOUDFLARE_NETS = [ipaddress.ip_network(x) for x in (
+            '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18',
+            '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17',
+            '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+            '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32',
+            '2a06:98c0::/29', '2c0f:f248::/32')]
+    return _CLOUDFLARE_NETS
+
+
+def _parse_ip(raw):
+    """One header token -> ip_address or None. Accepts 'ip', 'ip:port', '[v6]:port', '::ffff:1.2.3.4'."""
     import ipaddress
-    headers = request.headers
-    raw = (headers.get('CF-Connecting-IP') or '').strip()
+    raw = str(raw or '').strip().strip('"')
     if not raw:
-        parts = [x.strip() for x in (headers.get('X-Forwarded-For') or '').split(',') if x.strip()]
-        if parts:
-            raw = parts[-TRUSTED_PROXY_HOPS] if len(parts) >= TRUSTED_PROXY_HOPS else parts[0]
-    if not raw:
-        raw = request.remote_addr or ''
+        return None
+    if raw.startswith('['):
+        raw = raw[1:].split(']', 1)[0]
+    elif raw.count(':') == 1 and '.' in raw:
+        raw = raw.split(':', 1)[0]
+    raw = raw.split('%', 1)[0]
     try:
         ip = ipaddress.ip_address(raw)
     except ValueError:
-        return ''
-    if ip.version == 6:
-        return str(ipaddress.ip_network(f'{raw}/64', strict=False).network_address) + '/64'
-    return str(ip)
+        return None
+    mapped = getattr(ip, 'ipv4_mapped', None)
+    return mapped or ip
+
+
+def _is_proxy_or_private(ip):
+    """True for addresses that cannot be a player: private / loopback / reserved / Cloudflare edge."""
+    if not ip.is_global:
+        return True
+    return any(ip.version == net.version and ip in net for net in _cloudflare_nets())
+
+
+def client_ip_info():
+    """Return (ip_text, source). The IP is the real visitor behind Cloudflare/Render, or '' when it cannot be trusted.
+
+    Order: CF-Connecting-IP (Cloudflare overwrites it, so it cannot be forged) -> X-Forwarded-For read from the
+    right, skipping our own proxies (the left side is written by the visitor) -> True-Client-IP -> the socket peer.
+    IPv6 is collapsed to its /64 so rotating suffixes does not help; IPv4-mapped IPv6 is treated as plain IPv4.
+    Private, loopback and Cloudflare addresses are never returned: they would glue unrelated players together."""
+    import ipaddress
+    headers = request.headers
+    chosen, source = None, ''
+    ip = _parse_ip(headers.get('CF-Connecting-IP'))
+    if ip is not None and not _is_proxy_or_private(ip):
+        chosen, source = ip, 'CF-Connecting-IP'
+    if chosen is None:
+        parts = [x for x in (headers.get('X-Forwarded-For') or '').split(',') if x.strip()]
+        for token in reversed(parts):
+            ip = _parse_ip(token)
+            if ip is None:
+                break                      # garbage on the right of a chain means the rest cannot be trusted
+            if _is_proxy_or_private(ip):
+                continue                   # one of our own proxies: look further left
+            chosen, source = ip, 'X-Forwarded-For'
+            break
+    if chosen is None:
+        ip = _parse_ip(headers.get('True-Client-IP'))
+        if ip is not None and not _is_proxy_or_private(ip):
+            chosen, source = ip, 'True-Client-IP'
+    if chosen is None:
+        ip = _parse_ip(request.remote_addr)
+        if ip is not None and not _is_proxy_or_private(ip):
+            chosen, source = ip, 'remote_addr'
+    if chosen is None:
+        return '', ''
+    if chosen.version == 6:
+        return str(ipaddress.ip_network(f'{chosen}/64', strict=False).network_address) + '/64', source
+    return str(chosen), source
+
+
+def client_ip():
+    return client_ip_info()[0]
+
+
+def junk_ip(text):
+    """A stored value that must never count as a player's address (old detection stored proxy addresses)."""
+    import ipaddress
+    text = str(text or '')
+    try:
+        ip = ipaddress.ip_address(text.split('/', 1)[0])
+    except ValueError:
+        return True
+    if text.endswith('/64') and ip.version == 6 and getattr(ip, 'ipv4_mapped', None) is not None:
+        return True
+    if ip.version == 6 and text == '::/64':
+        return True
+    return _is_proxy_or_private(getattr(ip, 'ipv4_mapped', None) or ip)
 
 
 def is_banned(uid, fresh=False):
@@ -2297,7 +2377,7 @@ def ban_user(uid, reason, kind='manual', by=0, ip=''):
     with connect() as db:
         db.execute('UPDATE users SET banned=1, ban_reason=?, ban_kind=?, banned_at=? WHERE id=?',
                    (str(reason or '')[:300], kind, stamp, int(uid)))
-        log_event(db, int(uid), 'banned', kind=kind, reason=str(reason or '')[:300], by=by, ip=ip)
+        log_event(db, int(uid), 'banned', ban_kind=kind, reason=str(reason or '')[:300], by=by, ip=ip)
     _ban_cache[int(uid)] = (True, time.time())
     return True
 
@@ -2312,7 +2392,7 @@ def unban_user(uid, by=0):
 def check_multi_account(ip):
     """Keep the oldest `ip_limit` accounts seen on this IP; ban the newer ones (admins/creators exempt)."""
     settings = antifraud_settings()
-    if not settings['enabled'] or not ip:
+    if not settings['enabled'] or not ip or junk_ip(ip):
         return []
     since = int(time.time()) - MULTI_IP_WINDOW_DAYS * 86400
     with connect() as db:
@@ -4415,7 +4495,9 @@ def admin_antifraud_get():
                      kind=u['ban_kind'] or '', exempt=is_ban_exempt(u['id'])) for u in users]))
         banned = db.execute("SELECT id,name,username,ban_kind,ban_reason,banned_at FROM users WHERE banned=1 "
                             "ORDER BY banned_at DESC LIMIT 100").fetchall()
-    return jsonify(settings=antifraud_settings(), groups=groups,
+    ip_now, ip_source = client_ip_info()
+    return jsonify(settings=antifraud_settings(), groups=groups, you=dict(ip=ip_now, source=ip_source, remote_addr=request.remote_addr or '',
+                   forwarded=request.headers.get('X-Forwarded-For', ''), cf=request.headers.get('CF-Connecting-IP', '')),
                    banned=[dict(id=u['id'], name=u['name'], username=u['username'] or '', kind=u['ban_kind'] or '',
                                 reason=u['ban_reason'] or '', banned_at=u['banned_at'] or '') for u in banned])
 
@@ -4445,6 +4527,52 @@ def admin_antifraud_scan():
     for entry in ips:
         banned.extend(check_multi_account(entry['ip']))
     return jsonify(ok=True, banned=len(banned), ids=banned[:50])
+
+
+def antifraud_cleanup(by=0):
+    """Drop addresses that were never players (proxies, private, IPv4-mapped buckets) and lift the automatic bans
+    that rested only on them. Manual bans are never touched."""
+    since = int(time.time()) - MULTI_IP_WINDOW_DAYS * 86400
+    limit = antifraud_settings()['ip_limit']
+    removed = 0
+    with connect() as db:
+        for entry in db.execute('SELECT DISTINCT ip FROM user_ips').fetchall():
+            if junk_ip(entry['ip']):
+                removed += db.execute('DELETE FROM user_ips WHERE ip=?', (entry['ip'],)).rowcount or 0
+        auto = [int(r['id']) for r in db.execute("SELECT id FROM users WHERE banned=1 AND ban_kind='multi'").fetchall()]
+    lifted = []
+    for uid in auto:
+        with connect() as db:
+            ips = [r['ip'] for r in db.execute('SELECT ip FROM user_ips WHERE user_id=? AND last_seen>=?', (uid, since)).fetchall()]
+            guilty = False
+            for ip in ips:
+                rows = db.execute("SELECT u.id AS id, u.created_at AS created_at FROM users u WHERE u.id IN "
+                                  "(SELECT user_id FROM user_ips WHERE ip=? AND last_seen>=?)", (ip, since)).fetchall()
+                rows = [r for r in rows if not is_ban_exempt(r['id'])]
+                rows.sort(key=lambda r: (str(r['created_at'] or ''), int(r['id'])))
+                if any(int(r['id']) == uid and index >= limit for index, r in enumerate(rows)):
+                    guilty = True
+                    break
+        if not guilty:
+            unban_user(uid, by=by)
+            lifted.append(uid)
+    return removed, lifted
+
+
+@app.post('/api/admin/antifraud/cleanup')
+@admin_required
+def admin_antifraud_cleanup():
+    removed, lifted = antifraud_cleanup(by=session['uid'])
+    return jsonify(ok=True, removed=removed, unbanned=len(lifted), ids=lifted[:50])
+
+
+@app.get('/api/admin/ip-debug')
+@admin_required
+def admin_ip_debug():
+    ip, source = client_ip_info()
+    return jsonify(ip=ip, source=source, remote_addr=request.remote_addr or '',
+                   headers={name: request.headers.get(name, '') for name in
+                            ('CF-Connecting-IP', 'True-Client-IP', 'X-Forwarded-For', 'X-Real-IP', 'Forwarded')})
 
 
 

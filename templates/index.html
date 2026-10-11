@@ -10686,7 +10686,7 @@ window.ugPaintChance=function(chance){
  const c=Math.round(Number(chance)||0);if(c===last)return;last=c;
  const k=colorsFor(c||45),g=document.getElementById('ugWinGrad'),box=document.getElementById('ugWheelBox');
  if(g){const st=g.querySelectorAll('stop');if(st[0])st[0].setAttribute('stop-color',css(k.top));if(st[1])st[1].setAttribute('stop-color',css(k.bot))}
- if(box){box.style.setProperty('--ug-win',css(k.bot));box.style.setProperty('--ug-win-top',css(k.top));box.style.setProperty('--ug-glow','rgba('+k.bot.join(',')+',.5)')}
+ if(box){box.style.setProperty('--ug-win',css(k.bot));box.style.setProperty('--ug-win-top',css(k.top));box.style.setProperty('--ug-glow','rgba('+k.bot.join(',')+',.5)');box.style.setProperty('--ug-rgb',k.top.map((v,i)=>Math.round((v+k.bot[i])/2)).join(','))}
 };
 })();
 </script>
@@ -16162,8 +16162,8 @@ html.ugm-lock,html.ugm-lock body{overflow:hidden!important}
 
 /* ===== wheel polish ===== */
 #upgradePage .ug-ticks{position:absolute;inset:-3.5%;border-radius:50%;pointer-events:none;background:repeating-conic-gradient(from -.7deg,#ffffff2e 0 1.4deg,transparent 1.4deg 7.5deg);-webkit-mask:radial-gradient(circle closest-side,transparent 92%,#000 93%,#000 97%,transparent 98%);mask:radial-gradient(circle closest-side,transparent 92%,#000 93%,#000 97%,transparent 98%);opacity:.8}
-#upgradePage .ug-wheel.ready .ug-ticks{background:repeating-conic-gradient(from -.7deg,#8ff7d355 0 1.4deg,transparent 1.4deg 7.5deg)}
-#upgradePage .ug-trail{position:absolute;inset:0;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .35s;background:conic-gradient(from 0deg,transparent 0 74%,#3fd9a000 74%,#3fd9a059 100%);-webkit-mask:radial-gradient(circle closest-side,transparent 74%,#000 75%,#000 96%,transparent 97%);mask:radial-gradient(circle closest-side,transparent 74%,#000 75%,#000 96%,transparent 97%)}
+#upgradePage .ug-wheel.ready .ug-ticks{background:repeating-conic-gradient(from -.7deg,rgba(var(--ug-rgb,143,247,211),.34) 0 1.4deg,transparent 1.4deg 7.5deg)}
+#upgradePage .ug-trail{position:absolute;inset:0;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .35s;background:conic-gradient(from 0deg,transparent 0 84%,rgba(var(--ug-rgb,63,217,160),0) 84%,rgba(var(--ug-rgb,63,217,160),.3) 100%);-webkit-mask:radial-gradient(circle closest-side,transparent 74%,#000 75%,#000 96%,transparent 97%);mask:radial-gradient(circle closest-side,transparent 74%,#000 75%,#000 96%,transparent 97%)}
 #upgradePage .ug-wheel.spinning .ug-trail{opacity:1}
 #upgradePage .ug-wheel:before{animation:none!important}
 #upgradePage .ug-wheel.ready:before{opacity:1;animation:ugBreath 4s ease-in-out infinite!important}

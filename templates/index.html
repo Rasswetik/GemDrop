@@ -896,7 +896,7 @@ p,.muted,.caption,.notice,small{line-height:1.5}
 #promocodesPage .promo-admin-extra{gap:12px}
 #minesPage .board{isolation:isolate}
 #minesPage .cell:not(:disabled):active{transform:scale(.92)}
-#minesPage .cell.open{border-color:#4caff1;background:radial-gradient(circle at 50% 38%,#264e71,#1a1d31 73%)}
+#minesPage .cell.open{border-color:#4caff1;background:radial-gradient(circle at 50% 38%,#1f5b91,#14284a 73%)}
 #minesPage .cell.mine{border-color:#c4677a;background:radial-gradient(circle at 50% 38%,#673447,#231a27 75%)}
 #minesPage .board.round-start .cell{animation:cellSettle .36s both}
 #minesPage .board.round-start .cell:nth-child(5n+2){animation-delay:35ms}
@@ -2688,14 +2688,14 @@ body.studio .top-actions{gap:8px}
 .mines-play{background:radial-gradient(ellipse at 50% 70%,#1d203430,transparent 75%),#10121d}
 body.studio #minesPage .ladder{margin:0 0 18px;padding:0 0 8px;gap:7px;width:100%;max-width:100%}
 body.studio #minesPage .level{width:55px;min-width:55px;height:54px;border-radius:10px;background:#181b2c;border:1px solid #ffffff0a;box-shadow:none;color:#8d9fae}
-body.studio #minesPage .level.current{background:#293e50;color:#dee7f1;border-color:#51aeec70;box-shadow:none}
+body.studio #minesPage .level.current{background:#1d3f66;color:#dee7f1;border-color:#51aeec70;box-shadow:none}
 body.studio #minesPage .level img{width:21px;height:21px;filter:none}
 body.studio #minesPage .level b{font-weight:550;font-size:11px}
 body.studio #minesPage .board{width:100%;max-width:440px!important;margin:4px auto 0!important;gap:9px!important;padding:0!important;background:none!important;border:0!important;box-shadow:none!important}
 body.studio #minesPage .cell{aspect-ratio:1;border:1px solid #ffffff0d!important;border-radius:13px!important;background:linear-gradient(145deg,#202338,#171a2a)!important;box-shadow:inset 0 1px #ffffff04!important;transition:background .2s,transform .2s,border-color .2s;opacity:1}
 body.studio #minesPage .cell:empty:after{content:'✧';display:block!important;position:static!important;width:auto;height:auto;background:none;color:#738a9e42;font-size:25px;transform:none;border:none;box-shadow:none}
 body.studio #minesPage .cell:not(:disabled):hover{border-color:#47b0f590!important;background:#2a2e4a!important;transform:translateY(-2px)}
-body.studio #minesPage .cell.open{background:radial-gradient(circle at center,#314a60,#1f223a)!important;border-color:#67a8d380!important}
+body.studio #minesPage .cell.open{background:radial-gradient(circle at center,#1f5b91,#14284a 78%)!important;border-color:#47b0f5aa!important}
 body.studio #minesPage .cell.mine{background:#41232d!important;border-color:#bb6e7e80!important}
 body.studio #minesPage .cell svg{width:75%;height:75%;filter:none}
 .mines-settings{padding:32px;background:linear-gradient(150deg,#171928,#11131f)}
@@ -5908,17 +5908,23 @@ function renderUpgradeCompensation(result){
 }
 const CX_TICKET='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v4a2.5 2.5 0 0 0 0 5v4H4v-4a2.5 2.5 0 0 0 0-5V6Z"/><path d="M12 8v2m0 4v2"/></svg>';
 function compensationBalanceIsBonus(prize){return prize?.balance_target==='bonus'||/ton2\.png(?:$|[?#])/i.test(String(prize?.image_url||''))||/бонус/i.test(String(prize?.name||''))}
-function cxArt(prize){
+function cxArt(prize,final){
   let art=document.createElement('div');art.className='cx-art';
+  let giftImg=()=>{let img=new Image;img.alt=prize?.name||'Подарок';applyGiftImage(img,prize||{});return img};
   if(prize?.type==='balance'){
     let v=document.createElement('span');v.className='cx-num';v.textContent=money(prize.amount);
     let bonus=compensationBalanceIsBonus(prize),i=new Image;i.src=bonus?TON2:TON;i.alt=bonus?'Bonus TON':'TON';i.className='cx-ton';art.classList.toggle('bonus-balance',bonus);art.append(v,i);
   }else if(prize?.type==='tickets'){
     let text=document.createElement('strong');text.className='cx-raffle-text';text.textContent='РОЗЫГРЫШ';art.append(text);
   }else if(prize?.type==='promo'){
-    let text=document.createElement('strong');text.className='cx-promo-text';text.textContent='ПРОМОКОД';art.append(text);
+    art.classList.add('cx-stack');
+    if(prize.image_url||prize.gift_id)art.append(giftImg());
+    if(!final){let text=document.createElement('strong');text.className='cx-promo-text';text.textContent='ПРОМОКОД';art.append(text)}
+  }else if(prize?.type==='wager_gift'){
+    art.classList.add('cx-stack');art.append(giftImg());
+    if(!final){let text=document.createElement('strong');text.className='cx-wager-text';text.textContent='ОТЫГРЫШ'+(prize.wager_multiplier?' ×'+prize.wager_multiplier:'');art.append(text)}
   }else{
-    let img=new Image;img.alt=prize?.name||'Подарок';applyGiftImage(img,prize||{});art.append(img);
+    art.append(giftImg());
   }
   return art;
 }
@@ -5930,7 +5936,7 @@ function compensationCell(prize){
 }
 function renderCompensationPrize(prize){
   let wrap=document.createElement('div');wrap.className='cx-final '+(prize?.type||'gift');
-  let art=cxArt(prize);
+  let art=cxArt(prize,true);
   let title=document.createElement('strong'),detail=document.createElement('span');
   if(prize?.type==='balance'){let bonus=compensationBalanceIsBonus(prize);title.textContent=bonus?'Бонусный баланс пополнен':'Основной баланс пополнен';detail.textContent='+'+money(prize.amount)+' TON'}
   else if(prize?.type==='tickets'){title.textContent='Билеты начислены';detail.textContent='+'+Number(prize.tickets||0).toLocaleString('ru-RU')+' билетов'}
@@ -7081,7 +7087,7 @@ body.studio #upgradePage .upgrade-title{margin:4px 0 16px!important;text-align:c
 .ug-wheel.spinning .ug-win{filter:drop-shadow(0 0 15px #5ff0c0b0)}
 .ug-center{position:absolute;inset:17%;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:50%;background:radial-gradient(circle at 50% 28%,#161a2e,#070913 80%);box-shadow:inset 0 0 38px #000c,0 0 0 1px #ffffff0a}
 .ug-wheel.spinning .ug-center{animation:ugBeat .75s ease-in-out infinite alternate}
-@keyframes ugBeat{to{box-shadow:inset 0 0 38px #000c,0 0 0 1px #ffffff0a,0 0 30px #5ff0c066}}
+@keyframes ugBeat{to{box-shadow:inset 0 0 38px #000c,0 0 0 1px #ffffff0a,0 0 30px var(--ug-glow,#ffd84a66)}}
 .ug-gift{display:none;width:36%;aspect-ratio:1;margin-bottom:3px}
 .ug-gift.has{display:block}
 .ug-gift img{display:block;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 8px #0009)}
@@ -16520,6 +16526,13 @@ try{fairnessRefresh()}catch(e){}
 .cx-promo-text{font-size:clamp(13px,3.4vw,18px)!important}
 .cx-final .cx-raffle-text,.cx-final .cx-promo-text{font-size:22px!important}
 @media(max-width:520px){.cx-cell{padding:0 7px!important}.cx-cell.balance .cx-art{grid-template-columns:auto 25px!important;column-gap:7px!important}.cx-cell.balance .cx-ton{width:25px!important;height:25px!important;flex-basis:25px!important}.cx-cell.gift .cx-art img,.cx-cell.wager_gift .cx-art img{width:min(82px,70%)!important;height:min(82px,70%)!important}.cx-raffle-text,.cx-promo-text{font-size:15px!important}}
+
+/* --- рулетка компенсации: подарок + подпись (промокод / отыгрыш) --- */
+.cx-cell .cx-art.cx-stack{flex-direction:column!important;gap:5px!important;height:100%!important}
+.cx-cell.promo .cx-art.cx-stack img,.cx-cell.wager_gift .cx-art.cx-stack img{width:min(76px,60%)!important;height:min(76px,60%)!important;max-height:62%!important}
+.cx-promo-text,.cx-wager-text{display:block!important;margin:0!important;font-size:clamp(10px,2.7vw,12px)!important;font-weight:900!important;letter-spacing:.07em!important;line-height:1!important;white-space:nowrap!important}
+.cx-cell .cx-promo-text{color:#ffd9a0!important}.cx-cell .cx-wager-text{color:#9fd7ff!important}
+.cx-cell.balance .cx-art.bonus-balance .cx-ton{filter:none}
 /* --- арена: спокойнее --- */
 .arena-marker,.arena-player,.arena-zone,.arena-zone.entering{animation:none!important}
 .arena-marker.winner{transform:translate(-50%,-50%)!important}
@@ -17436,6 +17449,13 @@ body #profilePage.hidden{display:none!important}
 #profilePage .pf-user .level-track i{background:#4a8fc7!important;box-shadow:none!important}
 #profilePage .pf-actions .profile-logout{background:transparent!important;border-color:rgba(255,255,255,.1)!important;color:#aab2d0!important}
 #profilePage .pf-roles button{background:#141834!important;border:1px solid rgba(255,255,255,.07)!important;color:#cfd6f2!important;box-shadow:none!important}
+/* ---------- profile: спокойный блок с ником ---------- */
+#profilePage .pf-user{background:#11131f!important;border-color:rgba(255,255,255,.06)!important}
+#profilePage .pf-user-main #bigAvatar{background:#1b1e30!important;color:#aab6c6!important;border:1px solid rgba(255,255,255,.08)!important}
+#profilePage .pf-user-id .profile-balance{background:rgba(255,255,255,.04)!important;border:1px solid rgba(255,255,255,.08)!important;color:#dfe5ee}
+#profilePage .pf-user .level-progress-button .level-track{background:#0d0f19;border-color:rgba(255,255,255,.07)}
+#profilePage .pf-user .level-progress-button .level-track i{box-shadow:none}
+#profilePage .pf-user .level-progress-button .level-progress-top span{color:#8aa4ba;font-weight:700}
 </style>
 <style id="mines-v3">
 /* ================= Mines v3: board, ladder, bet panel, gift picker ================= */
@@ -17855,8 +17875,8 @@ html body #creatorPage .gp-btn .gp-tx small{color:#8db0b8}
 @keyframes ugBreath{50%{transform:scale(1.035);opacity:.7}}
 #upgradePage .ug-track{stroke:var(--ug-ring)!important;stroke-width:26!important}
 #upgradePage .ug-wheel.ready .ug-track{stroke:#232844!important}
-#upgradePage .ug-win{stroke-width:26!important;stroke:url(#ugWinGrad)!important;transition:stroke-dasharray .6s cubic-bezier(.2,.8,.2,1)!important;filter:drop-shadow(0 0 8px #3fd9a044)!important}
-#upgradePage .ug-wheel.spinning .ug-win{filter:drop-shadow(0 0 16px #5ff0c0cc)!important}
+#upgradePage .ug-win{stroke-width:26!important;stroke:url(#ugWinGrad)!important;transition:stroke-dasharray .6s cubic-bezier(.2,.8,.2,1)!important;filter:drop-shadow(0 0 8px var(--ug-glow,rgba(255,216,74,.3)))!important}
+#upgradePage .ug-wheel.spinning .ug-win{filter:drop-shadow(0 0 16px var(--ug-glow,rgba(255,216,74,.8)))!important}
 #upgradePage .ug-ico-g{fill:none;stroke:var(--ug-ico);stroke-width:1.7;stroke-linecap:round}
 #upgradePage .ug-icons{transform-origin:120px 120px;animation:ugIcons 90s linear infinite}
 #upgradePage .ug-wheel.spinning .ug-icons{animation-duration:6s}
@@ -18630,19 +18650,19 @@ body.studio #minesPage #quickBets button[data-bet="max"]{background:rgba(71,176,
 /* Mines — нейтральный графит: серые панели и клетки, без синего и индиго. */
 body.studio .game-card-mines,.game-card-mines{border-color:#2b2d33;background:linear-gradient(145deg,#1d1e23,#0f1013);box-shadow:0 12px 30px -18px rgba(0,0,0,.7)}
 @media(hover:hover) and (pointer:fine){.game-card-mines:hover{box-shadow:0 16px 34px -16px rgba(0,0,0,.8)}}
-body.studio #minesPage .mines-play{background:radial-gradient(120% 70% at 50% 0%,#2b2d35 0%,#1f2127 72%)!important;border-color:#33363f!important;box-shadow:0 14px 40px #00000044,inset 0 1px #ffffff0a!important}
-body.studio #minesPage .mines-settings{background:linear-gradient(180deg,#24262d,#1d1f25)!important;border-color:#33363f!important;box-shadow:0 14px 40px #00000040!important}
-body.studio #minesPage .board{background:linear-gradient(180deg,#262830,#202229 70%,#1b1d23)!important;border-color:#33363f!important}
-body.studio #minesPage .board .cell{border-color:#3a3d47!important}
-body.studio #minesPage .board .cell .face.front{background:linear-gradient(160deg,#3a3d47,#2a2c34)!important;box-shadow:inset 0 1px rgba(255,255,255,.08)!important}
-body.studio #minesPage .board .cell .face.front::after{background:linear-gradient(135deg,rgba(190,194,204,.5),rgba(190,194,204,.14))!important}
-body.studio #minesPage .board .cell:not(:disabled):hover .face.front,body.studio #minesPage .board .cell.pending .face.front{background:linear-gradient(160deg,#444854,#2f323b)!important}
-body.studio #minesPage .field,body.studio #minesPage .gift-bet-toggle,body.studio #minesPage .field.stepper{background:#1d1f25!important;border:1px solid #33363f!important}
-body.studio #minesPage #quickBets button{background:#1d1f25!important;border-color:#33363f!important;color:#a3a6af!important}
+body.studio #minesPage .mines-play{background:radial-gradient(120% 70% at 50% 0%,#1c2b4d 0%,#111a33 72%)!important;border-color:#2b4366!important;box-shadow:0 14px 40px #00000044,inset 0 1px #ffffff0a!important}
+body.studio #minesPage .mines-settings{background:linear-gradient(180deg,#18223d,#121a30)!important;border-color:#2b4366!important;box-shadow:0 14px 40px #00000040!important}
+body.studio #minesPage .board{background:linear-gradient(180deg,#16233f,#111b34 70%,#0e1629)!important;border-color:#2b4366!important}
+body.studio #minesPage .board .cell{border-color:#34507a!important}
+body.studio #minesPage .board .cell .face.front{background:linear-gradient(160deg,#2d4572,#1c2d52)!important;box-shadow:inset 0 1px rgba(170,210,255,.12)!important}
+body.studio #minesPage .board .cell .face.front::after{background:linear-gradient(135deg,rgba(150,200,255,.55),rgba(150,200,255,.15))!important}
+body.studio #minesPage .board .cell:not(:disabled):hover .face.front,body.studio #minesPage .board .cell.pending .face.front{background:linear-gradient(160deg,#37548a,#233a68)!important}
+body.studio #minesPage .field,body.studio #minesPage .gift-bet-toggle,body.studio #minesPage .field.stepper{background:#131b31!important;border:1px solid #2b4366!important}
+body.studio #minesPage #quickBets button{background:#131b31!important;border-color:#2b4366!important;color:#a3a6af!important}
 body.studio #minesPage #quickBets button[data-bet="max"]{background:rgba(61,179,250,.08)!important;border-color:rgba(61,179,250,.32)!important;color:#7cc8fb!important}
-#minesPage .random-btn{background:#1d1f25!important;border-color:#33363f!important;color:#a3a6af!important}
-body.studio #minesPage .ladder .level{background:#1d1f25!important;border-color:#33363f!important}
-body.studio #minesPage .mines-settings .seg,body.studio #minesPage .mines-settings .mine-picker button{background:#1d1f25!important;border-color:#33363f!important}
+#minesPage .random-btn{background:#131b31!important;border-color:#2b4366!important;color:#a3a6af!important}
+body.studio #minesPage .ladder .level{background:#131b31!important;border-color:#2b4366!important}
+body.studio #minesPage .mines-settings .seg,body.studio #minesPage .mines-settings .mine-picker button{background:#131b31!important;border-color:#2b4366!important}
 html.hw body.studio #minesPage #quickBets button[data-bet="max"]{background:rgba(124,92,230,.14)!important;border-color:rgba(140,108,240,.5)!important;color:#c3b2f5!important}
 /* Upgrade: подарок в центре колеса — крупнее и без обрезки */
 #upgradePage .ug-center{overflow:visible!important}

@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+from urllib.parse import quote
 import os
 import re
 from datetime import timedelta
@@ -359,6 +360,30 @@ class RegressionTests(unittest.TestCase):
         second = self.post('/api/upgrade/spin', payload)
         self.assertEqual(result['won'], second['won'])
         self.assertEqual(self.balance(), 99)
+
+    def test_gift_models_parse_store_and_upgrade_target(self):
+        raw = {'collections': {'plushpepe': {'models': {'Da Vinci (0.5%)': {'floor_price': '120.5'}, 'Classic': 80, 'NoPrice': 0},
+                                              'backdrops': {'Black': 9}}}}
+        self.assertEqual(m.gm_parse_filters(raw, 'plushpepe'), {'Da Vinci': 120.5, 'Classic': 80.0, 'NoPrice': 0.0})
+        self.assertEqual(m.gm_parse_filters({'models': ['A', {'name': 'B', 'floor': 3}]}), {'A': 0.0, 'B': 3.0})
+        acc = {}
+        m.gm_parse_search({'results': [{'model': 'X (1%)', 'price': 9}, {'attributes': [{'type': 'Model', 'value': 'X'}], 'price': 7}]}, acc)
+        self.assertEqual(acc, {'X': 7.0})
+        m.save_document('portal_catalog', {'gifts': [{'id': 'qa-pp', 'name': 'QA Pepe', 'price_ton': 60, 'image_url': 'https://example.com/pp.png'}]})
+        with patch.object(m, 'gm_fetch_models', return_value={'Da Vinci': 120.5, 'Classic': 80.0}), patch.object(m, 'saved_portal_key', return_value=''):
+            self.assertEqual(m.gm_refresh_one({'id': 'qa-pp', 'name': 'QA Pepe'}), 2)
+        index = self.client.get('/api/gifts/model-index').get_json()
+        self.assertEqual(index['prices']['qa-pp'], [8000, 12050])
+        models = self.client.get('/api/gifts/models?gift_id=qa-pp').get_json()['models']
+        self.assertEqual([x['name'] for x in models], ['Classic', 'Da Vinci'])
+        self.assertTrue(models[0]['image_url'].startswith('https://cdn.changes.tg/gifts/models/QA%20Pepe/png/'))
+        target = m.upgrade_target('qa-pp' + m.GIFT_MODEL_SEP + 'Da Vinci')
+        self.assertEqual((target['price'], target['model'], target['base_name']), (12050, 'Da Vinci', 'QA Pepe'))
+        self.assertIsNone(m.upgrade_target('qa-pp' + m.GIFT_MODEL_SEP + 'Unknown'))
+        self.assertEqual(m.upgrade_target('qa-pp')['price'], 6000)
+        preview = self.client.get('/api/upgrade/preview?amount=50&gift_id=' + quote('qa-pp' + m.GIFT_MODEL_SEP + 'Da Vinci')).get_json()
+        self.assertEqual(preview['target']['model'], 'Da Vinci')
+        self.assertAlmostEqual(preview['chance'], 100 * 50 / 120.5, places=1)
 
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:

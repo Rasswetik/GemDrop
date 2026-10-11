@@ -20,7 +20,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from threading import Thread, Lock, local as _thread_local
 from copy import deepcopy
-from urllib.parse import parse_qsl, quote_plus
+from urllib.parse import parse_qsl, quote, quote_plus
 
 import requests
 
@@ -474,6 +474,15 @@ def _initialize_schema():
             id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS gift_models (
+            gift_id TEXT NOT NULL, model TEXT NOT NULL, price INTEGER NOT NULL DEFAULT 0,
+            image_url TEXT NOT NULL DEFAULT '', updated_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+            PRIMARY KEY (gift_id, model)
+        );
+        CREATE TABLE IF NOT EXISTS gift_models_sync (
+            gift_id TEXT PRIMARY KEY, fetched_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -6570,14 +6579,24 @@ def promo_loss_adjusted_upgrade_rtp_bp(db, user_id, promo_code):
 
 
 def upgrade_target(gift_id):
-    gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==str(gift_id)),None)
+    """Цель апгрейда: подарок каталога ("<id>") либо его конкретная модель ("<id>@m:<модель>")."""
+    raw=str(gift_id or '');model=''
+    if GIFT_MODEL_SEP in raw:
+        raw,model=raw.split(GIFT_MODEL_SEP,1);model=model.strip()
+    gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==raw),None)
     if not gift:return None
     try:price=ton_to_cents(gift['price_ton'])
     except (ValueError,TypeError,KeyError,InvalidOperation):return None
     if price<1:return None
     image_url=safe_image(gift.get('image_url'))
     if not image_url:return None
-    return dict(id=str(gift['id']),name=str(gift.get('name') or 'Подарок')[:140],
+    base_name=str(gift.get('name') or 'Подарок')[:140]
+    if model:
+        model_price,model_image=gift_model_price(raw,model)
+        if model_price<1:return None
+        return dict(id=str(gift['id']),name=f'{base_name} · {model}'[:180],base_name=base_name,model=model,
+                    image_url=safe_image(model_image) or image_url,price=model_price)
+    return dict(id=str(gift['id']),name=base_name,base_name=base_name,model='',
                 image_url=image_url,price=price)
 
 
@@ -6660,7 +6679,7 @@ def upgrade_preview():
             effective_rtp_bp, loss_boost, game_loss = promo_loss_adjusted_upgrade_rtp_bp(db, session['uid'], source['promo_code'])
     chance=upgrade_chance(source_price,target['price'],effective_rtp_bp)
     if not chance:return error('Выберите цель с шансом от 5% до 80% (цена не выше ×20 ставки).')
-    return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],
+    return jsonify(source=source_view,target=dict(id=target['id'],name=target['name'],model=target.get('model') or '',
                    image_url=target['image_url'],price_ton=target['price']/100),chance=chance/100,
                    probability=chance/10000)
 
@@ -7313,8 +7332,9 @@ def upgrade_spin():
                                 json.dumps(unlock_payload,ensure_ascii=False), int(bool(source.get('bonus_origin',0) if isinstance(source,dict) else source['bonus_origin'])), int(source.get('bonus_unlock_required',0) if isinstance(source,dict) else source['bonus_unlock_required']), int(source.get('bonus_unlock_progress',0) if isinstance(source,dict) else source['bonus_unlock_progress'])))
             else:
                 bo, br, bp = bonus_origin_values(target['price'], bonus_origin)
-                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'upgrade',?,?,?)",
-                               (session['uid'],target['id'],target['name'],target['image_url'],target['price'],bo,br,bp))
+                cur=db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,bonus_origin,bonus_unlock_required,bonus_unlock_progress,fragment_model,price_source) VALUES(?,?,?,?,?,'upgrade',?,?,?,?,?)",
+                               (session['uid'],target['id'],target.get('base_name') or target['name'],target['image_url'],target['price'],bo,br,bp,
+                                target.get('model') or '','Portal · модель' if target.get('model') else ''))
             if cur is not None:
                 awarded=cur.lastrowid
         elif wager:
@@ -21310,6 +21330,14 @@ def _relayer_transfer_meta(entry,info):
     except (TypeError,ValueError):out['can_transfer_at']=0
     return out
 
+def _relayer_entry_model(entry):
+    """Название модели уникального подарка Telegram ('' если неизвестно)."""
+    gift=getattr(entry,'gift',None) or entry
+    for attr in getattr(gift,'attributes',None) or []:
+        if 'model' in type(attr).__name__.casefold():
+            return str(getattr(attr,'name','') or '')
+    return ''
+
 def _relayer_match_withdrawal(row,gifts):
     target_slug=_relayer_slug_from_url(row.get('deposit_external_url') or row.get('external_url'))
     target_number=str(row.get('fragment_number') or '').strip()
@@ -21324,7 +21352,9 @@ def _relayer_match_withdrawal(row,gifts):
         for entry,info in infos:
             if str(info.get('fragment_number') or '')==target_number:return entry,info
         return None,None
+    target_model=_relayer_norm(re.sub(r'\\s*\\([^)]*\\)\\s*$','',str(row.get('fragment_model') or '')))
     for entry,info in infos:
+        if target_model and _relayer_norm(_relayer_entry_model(entry))!=target_model:continue   # нужна именно эта модель
         live=_relayer_norm(info.get('gift_name'));base=_relayer_norm(re.sub(r'-\\d+$','',str(info.get('slug') or ''),flags=re.I))
         if target_name and (target_name==live or target_name==base or target_name in live or live in target_name):return entry,info
     return None,None
@@ -22327,6 +22357,357 @@ def append_portal_log(message, level='info'):
 
 
 
+
+# ======================= Portal Market: модели подарков и их цены =======================
+# Модели каждой коллекции берутся с Portal (/collections/filters, запасной путь - листинги),
+# цены кладутся в таблицу gift_models и используются в Upgrade: цель = коллекция целиком
+# ("случайная модель", цена флора) либо конкретная модель по своей цене.
+GIFT_MODELS_TTL = 6 * 3600
+GIFT_MODELS_RETRY = 600
+PORTAL_API_HOSTS = ('https://portal-market.com/api', 'https://portals-market.com/api')
+GIFT_MODEL_SEP = '@m:'
+_gm_loading = set()
+_gm_state = {'running': False, 'done': 0, 'total': 0, 'started': 0.0, 'error': ''}
+_gm_mutex = __import__('threading').Lock()
+_gm_index_cache = {'at': 0.0, 'data': None}
+
+
+def _gm_num(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if number == number and number > 0 else 0.0
+
+
+def _gm_clean(name):
+    return re.sub(r'\s*\([^)]*\)\s*$', '', str(name)).strip()
+
+
+def _gm_floor(value):
+    if isinstance(value, dict):
+        for key in ('floor_price', 'floorPrice', 'floor', 'price', 'min_price', 'min'):
+            if key in value:
+                return _gm_num(value[key])
+        return 0.0
+    return _gm_num(value)
+
+
+def gm_parse_attr(node):
+    out = {}
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if str(key).lower() in ('count', 'total', 'floor_price'):
+                continue
+            if isinstance(value, (dict, int, float, str)) or value is None:
+                name = _gm_clean(key)
+                if name:
+                    out[name] = _gm_floor(value)
+    elif isinstance(node, list):
+        for value in node:
+            if isinstance(value, str):
+                if _gm_clean(value):
+                    out[_gm_clean(value)] = 0.0
+            elif isinstance(value, dict):
+                name = value.get('value') or value.get('name') or value.get('model') or value.get('title')
+                if name:
+                    out[_gm_clean(name)] = _gm_floor(value)
+    return out
+
+
+def gm_find_key(node, names, depth=0):
+    if depth > 4:
+        return None
+    if isinstance(node, dict):
+        for name in names:
+            if isinstance(node.get(name), (dict, list)) and node[name]:
+                return node[name]
+        for value in node.values():
+            found = gm_find_key(value, names, depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for value in node[:50]:
+            found = gm_find_key(value, names, depth + 1)
+            if found:
+                return found
+    return None
+
+
+def gm_parse_filters(data, short=''):
+    """Ответ /collections/filters -> {модель: флор}. Понимает и один объект, и группы по short_name."""
+    raw = data
+    if isinstance(raw, dict) and isinstance(raw.get('data'), dict):
+        raw = raw['data']
+    if isinstance(raw, dict) and short:
+        for group_key in ('collections', 'floor_prices', 'floorPrices'):
+            group = raw.get(group_key)
+            if isinstance(group, dict):
+                entry = next((v for k, v in group.items() if portal_short_name(k) == portal_short_name(short)), None)
+                if isinstance(entry, dict):
+                    raw = entry
+                    break
+    return gm_parse_attr(gm_find_key(raw, ('models', 'model')))
+
+
+def gm_parse_search(data, acc):
+    items = data
+    if isinstance(data, dict):
+        items = data.get('results') or data.get('nfts') or data.get('items') or data.get('data') or []
+    count = 0
+    for row in items if isinstance(items, list) else []:
+        if not isinstance(row, dict):
+            continue
+        count += 1
+        model = row.get('model')
+        if not model:
+            for attr in row.get('attributes') or []:
+                if isinstance(attr, dict) and str(attr.get('type', '')).lower() == 'model':
+                    model = attr.get('value')
+                    break
+        if not model:
+            continue
+        name, price = _gm_clean(model), _gm_num(row.get('price'))
+        if name not in acc or (price and (not acc[name] or price < acc[name])):
+            acc[name] = price
+    return count
+
+
+def gm_http_json(path, key, timeout=(4, 9)):
+    """GET к API Portal: сначала с сохранённым ключом, потом публично; хосты по очереди."""
+    last = None
+    for auth in ([key, ''] if key else ['']):
+        for host in PORTAL_API_HOSTS:
+            try:
+                response = requests.get(host + path, headers=portal_headers(auth), timeout=timeout)
+            except requests.RequestException as exc:
+                last = exc
+                continue
+            if response.status_code == 429:
+                raise requests.RequestException('Portal: лимит запросов (HTTP 429)')
+            if response.status_code in (401, 403, 404):
+                last = requests.RequestException(f'HTTP {response.status_code}')
+                continue
+            try:
+                response.raise_for_status()
+                return response.json()
+            except (requests.RequestException, ValueError) as exc:
+                last = exc
+    raise last or requests.RequestException('Portal не ответил')
+
+
+def gm_fetch_models(name, key):
+    """Все модели коллекции с минимальной ценой каждой. Пустой результат = у коллекции нет моделей с ценой."""
+    short = portal_short_name(name)
+    models = {}
+    try:
+        models = gm_parse_filters(gm_http_json('/collections/filters?short_names=' + quote(short), key), short)
+    except requests.RequestException as exc:
+        if '429' in str(exc):
+            raise
+    priced = {k: v for k, v in models.items() if v > 0}
+    if priced:
+        return priced
+    acc = {}
+    for page in range(12):
+        path = (f'/nft/search?offset={page * 100}&limit=100&filter_by_collections={quote(name)}'
+                '&sort_by=price+asc&status=listed')
+        try:
+            got = gm_parse_search(gm_http_json(path, key, timeout=(4, 12)), acc)
+        except requests.RequestException as exc:
+            if '429' in str(exc) or not acc:
+                if '429' in str(exc):
+                    raise
+            break
+        if got < 100:
+            break
+    return {k: v for k, v in acc.items() if v > 0}
+
+
+def gift_model_image(name, model):
+    return 'https://cdn.changes.tg/gifts/models/' + quote(str(name), safe='') + '/png/' + quote(str(model), safe='') + '.png'
+
+
+def gm_store(gift_id, name, models, status='ok', error=''):
+    now = time.time()
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if models:
+            db.execute('DELETE FROM gift_models WHERE gift_id=?', (str(gift_id),))
+            for model, price in models.items():
+                cents = int((Decimal(str(price)) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+                if cents < 1:
+                    continue
+                db.execute('INSERT INTO gift_models(gift_id,model,price,image_url,updated_at) VALUES(?,?,?,?,?)',
+                           (str(gift_id), model[:120], cents, gift_model_image(name, model), now))
+        db.execute('DELETE FROM gift_models_sync WHERE gift_id=?', (str(gift_id),))
+        db.execute('INSERT INTO gift_models_sync(gift_id,fetched_at,status,error) VALUES(?,?,?,?)',
+                   (str(gift_id), now, status, str(error)[:300]))
+        db.commit()
+    finally:
+        db.close()
+    _gm_index_cache['at'] = 0.0
+
+
+def gift_models_for(gift_id):
+    with connect() as db:
+        rows = db.execute('SELECT model,price,image_url FROM gift_models WHERE gift_id=? AND price>0 ORDER BY price ASC, model ASC',
+                          (str(gift_id),)).fetchall()
+    return [dict(name=r['model'], price=int(r['price']), image_url=r['image_url']) for r in rows]
+
+
+def gift_model_price(gift_id, model):
+    with connect() as db:
+        row = db.execute('SELECT price,image_url FROM gift_models WHERE gift_id=? AND model=?', (str(gift_id), str(model))).fetchone()
+    return (int(row['price']), row['image_url']) if row and int(row['price']) > 0 else (0, '')
+
+
+def gm_sync_row(gift_id):
+    with connect() as db:
+        return db.execute('SELECT fetched_at,status FROM gift_models_sync WHERE gift_id=?', (str(gift_id),)).fetchone()
+
+
+def gm_is_fresh(gift_id):
+    row = gm_sync_row(gift_id)
+    if not row:
+        return False
+    age = time.time() - float(row['fetched_at'] or 0)
+    return age < (GIFT_MODELS_TTL if row['status'] == 'ok' else GIFT_MODELS_RETRY)
+
+
+def gm_base_gifts():
+    try:
+        gifts = read_catalog(include_hidden=True).get('gifts', [])
+    except (OSError, ValueError, TypeError):
+        return []
+    return [g for g in gifts if not g.get('base_id') and g.get('id') and g.get('name')]
+
+
+def gm_refresh_one(gift, key=None):
+    gid, name = str(gift['id']), str(gift['name'])
+    try:
+        models = gm_fetch_models(name, saved_portal_key() if key is None else key)
+    except requests.RequestException as exc:
+        gm_store(gid, name, {}, 'error', str(exc))
+        _gm_state['error'] = f'{name}: {exc}'[:300]
+        if '429' in str(exc):
+            raise
+        return 0
+    gm_store(gid, name, models, 'ok' if models else 'empty')
+    return len(models)
+
+
+def gm_ensure(gift_id):
+    """Фоновая загрузка моделей одной коллекции, если данные устарели."""
+    gid = str(gift_id)
+    if gid in _gm_loading or gm_is_fresh(gid):
+        return False
+    gift = next((g for g in gm_base_gifts() if str(g.get('id')) == gid), None)
+    if not gift:
+        return False
+    _gm_loading.add(gid)
+
+    def run():
+        try:
+            gm_refresh_one(gift)
+        except Exception:
+            app.logger.exception('gift models fetch failed for %s', gid)
+        finally:
+            _gm_loading.discard(gid)
+    Thread(target=run, daemon=True).start()
+    return True
+
+
+def gm_bulk_refresh(force=False):
+    with _gm_mutex:
+        if _gm_state['running']:
+            return False
+        _gm_state.update(running=True, done=0, total=0, started=time.time(), error='')
+
+    def run():
+        try:
+            gifts = gm_base_gifts()
+            todo = [g for g in gifts if force or not gm_is_fresh(g['id'])]
+            _gm_state['total'] = len(todo)
+            key = saved_portal_key()
+            strikes = 0
+            for gift in todo:
+                try:
+                    gm_refresh_one(gift, key)
+                    strikes = 0
+                except requests.RequestException:
+                    strikes += 1
+                    if strikes >= 3:
+                        break
+                    time.sleep(6)
+                except Exception:
+                    app.logger.exception('gift models bulk failed for %s', gift.get('id'))
+                _gm_state['done'] += 1
+                time.sleep(0.35)
+        finally:
+            _gm_state['running'] = False
+    Thread(target=run, daemon=True).start()
+    return True
+
+
+def gm_index():
+    """{gift_id: [цены моделей в центах по возрастанию]} с кэшем на минуту."""
+    now = time.time()
+    if _gm_index_cache['data'] is not None and now - _gm_index_cache['at'] < 60:
+        return _gm_index_cache['data']
+    with connect() as db:
+        rows = db.execute('SELECT gift_id,price FROM gift_models WHERE price>0 ORDER BY gift_id, price').fetchall()
+    out = {}
+    for row in rows:
+        out.setdefault(row['gift_id'], []).append(int(row['price']))
+    _gm_index_cache.update(at=now, data=out)
+    return out
+
+
+@app.get('/api/gifts/model-index')
+@login_required
+def gifts_model_index():
+    stale = False
+    if not _gm_state['running']:
+        with connect() as db:
+            have = db.execute('SELECT COUNT(*) AS n FROM gift_models_sync').fetchone()['n']
+        stale = have == 0 or time.time() - _gm_state['started'] > GIFT_MODELS_TTL
+        if stale:
+            gm_bulk_refresh()
+    return jsonify(prices=gm_index(), loading=bool(_gm_state['running']),
+                   progress=[_gm_state['done'], _gm_state['total']])
+
+
+@app.get('/api/gifts/models')
+@login_required
+def gifts_models():
+    gid = str(request.args.get('gift_id') or '')
+    if not gid:
+        return error('Не указан подарок.', 400)
+    gm_ensure(gid)
+    models = gift_models_for(gid)
+    return jsonify(models=[dict(name=m['name'], price_ton=m['price'] / 100, image_url=m['image_url']) for m in models],
+                   loading=gid in _gm_loading)
+
+
+@app.post('/api/admin/gift-models/refresh')
+@admin_required
+def admin_gift_models_refresh():
+    started = gm_bulk_refresh(force=bool((request.get_json(silent=True) or {}).get('force', True)))
+    return jsonify(ok=True, started=started, running=bool(_gm_state['running']))
+
+
+@app.get('/api/admin/gift-models/status')
+@admin_required
+def admin_gift_models_status():
+    with connect() as db:
+        models = db.execute('SELECT COUNT(*) AS n FROM gift_models').fetchone()['n']
+        gifts = db.execute("SELECT COUNT(*) AS n FROM gift_models_sync WHERE status='ok'").fetchone()['n']
+        empty = db.execute("SELECT COUNT(*) AS n FROM gift_models_sync WHERE status<>'ok'").fetchone()['n']
+    return jsonify(models=int(models), gifts=int(gifts), empty=int(empty), **{k: _gm_state[k] for k in ('running', 'done', 'total', 'error')})
+
+
 PORTAL_PARTNER_BASE='https://portal-market.com'
 PORTAL_WITHDRAW_RESERVE=Decimal('0.30')
 portal_withdraw_lock=__import__('threading').Lock()
@@ -22404,20 +22785,39 @@ def _portal_matches(items,name):
     # An exact collection match always wins: "Heart" must never fall back to "Heart Locket" if a real Heart exists.
     return exact or loose
 
+def _portal_requested_model(row):
+    return re.sub(r'\s*\([^)]*\)\s*$','',str(row.get('fragment_model') or '')).strip()
+
+def _portal_item_model(item):
+    """Модель NFT из ответа Portal (поле model либо attributes[type=model]); '' если не указана."""
+    value=item.get('model')
+    if not value:
+        for a in item.get('attributes') or []:
+            if isinstance(a,dict) and str(a.get('type') or '').casefold()=='model':value=a.get('value');break
+    return re.sub(r'\s*\([^)]*\)\s*$','',str(value or '')).strip()
+
+def _portal_filter_model(items,model):
+    """Нужна именно эта модель (например Plush Pepe «Da Vinci»), а не любой подарок коллекции."""
+    if not model:return items
+    want=_portal_norm(model)
+    return [x for x in items if _portal_norm(_portal_item_model(x))==want]
+
 def _portal_owned_candidate(row):
-    name,backdrop=_portal_requested_collection(row)
+    name,backdrop=_portal_requested_collection(row);model=_portal_requested_model(row)
     params={'search':name,'limit':100,'exclude_bundled':'true','sort_by':'external_collection_number asc'}
     if backdrop:params['filter_by_backdrops']=backdrop
+    if model:params['filter_by_models']=model
     data=_portal_partner_request('GET','/partners/nfts/owned',params=params)
-    items=_portal_matches(data.get('nfts') or [],name)
+    items=_portal_filter_model(_portal_matches(data.get('nfts') or [],name),model)
     return (items[0] if items else None),int(data.get('total_count') or len(items))
 
 def _portal_market_candidate(row):
-    name,backdrop=_portal_requested_collection(row)
-    params={'search':name,'limit':40,'exclude_bundled':'true','status':'listed','sort_by':'price asc'}
+    name,backdrop=_portal_requested_collection(row);model=_portal_requested_model(row)
+    params={'search':name,'limit':100 if model else 40,'exclude_bundled':'true','status':'listed','sort_by':'price asc'}
     if backdrop:params['filter_by_backdrops']=backdrop
+    if model:params['filter_by_models']=model
     data=_portal_partner_request('GET','/partners/nfts/search',params=params)
-    items=[x for x in _portal_matches(data.get('results') or [],name) if _portal_decimal(x.get('price'))>0]
+    items=[x for x in _portal_filter_model(_portal_matches(data.get('results') or [],name),model) if _portal_decimal(x.get('price'))>0]
     # Never overpay: the market price may exceed the gift's floor value by 25% (+0.5 TON) at most.
     try:floor=Decimal(int(row.get('floor_price') or 0))/Decimal(100)
     except (TypeError,ValueError,InvalidOperation):floor=Decimal(0)
@@ -22549,7 +22949,7 @@ def _portal_fallback_withdraw(withdrawal_id,row=None):
                             int(row['user_id']),
                             render_notice('portal_market_buy', None, {'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
                             miniapp_markup('Открыть GemDrop','profile'),'HTML')
-                if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found','В Portal Market нет подходящего подарка этой коллекции.','lookup')
+                if not candidate:return _portal_manual(withdrawal_id,row,'portal_not_found',('В Portal Market нет подарка «'+str(row.get('gift_name') or '')+'» с моделью «'+_portal_requested_model(row)+'».') if _portal_requested_model(row) else 'В Portal Market нет подходящего подарка этой коллекции.','lookup')
                 nft=candidate;price=Decimal('0') if source=='owned' else _portal_decimal(nft.get('price'))
                 already_owned=(source=='owned')
                 append_portal_log(f'Вывод #{withdrawal_id}: найден {nft.get("name") or row.get("gift_name")} · {price} TON · {source}.')
@@ -22650,6 +23050,8 @@ def portal_job(key):
             save_document('portal_job', dict(state='running', count=count, stage=stage, updated=time.time()))
         result = fetch_portal_catalog(key, progress)
         save_document('portal_job', dict(state='done', updated=time.time(), **result))
+        try:gm_bulk_refresh(force=False)
+        except Exception:app.logger.exception('gift models refresh start failed')
         append_portal_log(f"Каталог сохранён: {result.get('count', 0)} коллекций, PNG: {result.get('matched', 0)}.")
     except requests.HTTPError as exc:
         status = exc.response.status_code

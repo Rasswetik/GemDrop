@@ -4876,7 +4876,7 @@ html.perf-lite .gc-art-road *{animation:none!important}
 <section id="portalPage" class="hidden"><button id="portalBack" class="back">← Админ-панель</button><h1>Portal Market</h1>
 <div class="panel stack"><div class="panel-head"><div><h2>Relayer · Portal Partner</h2><small>Баланс, подарки и автоматические выплаты через Portal Market</small></div><button id="refreshPortalRuntime" class="mini-btn" type="button">Обновить</button></div>
 <div class="portal-runtime-grid"><div class="portal-runtime-stat"><span>Баланс Portal</span><b id="portalPartnerBalance">—</b></div><div class="portal-runtime-stat"><span>Доступно после резерва</span><b id="portalPartnerSpendable">—</b></div><div class="portal-runtime-stat"><span>Резерв на вывод</span><b id="portalPartnerReserve">0.30 TON</b></div><div class="portal-runtime-stat"><span>Подарков на Portal</span><b id="portalPartnerOwned">—</b></div></div>
-<label class="caption" for="portalKey">Partner token Portal Market аккаунта Relayer</label><input id="portalKey" class="text-input" type="password" autocomplete="off" placeholder="Partner token · пусто = использовать сохранённый"><div class="row"><button id="savePortalPartner" class="primary" type="button">Сохранить / проверить</button><button id="importPortal" class="secondary" type="button">Обновить каталог</button><button id="refreshImages" class="secondary" type="button">Обновить PNG</button></div><small class="muted">Для автовывода используется Partner API. Каталог при недоступном Authorization умеет обновляться через публичный endpoint.</small><div id="portalRuntimeState" class="notice">Проверяем Portal Partner…</div><div id="portalStatus" class="notice">Каталог ещё не загружен.</div></div>
+<label class="caption" for="portalKey">Partner token Portal Market аккаунта Relayer</label><input id="portalKey" class="text-input" type="password" autocomplete="off" placeholder="Partner token · пусто = использовать сохранённый"><div class="row"><button id="savePortalPartner" class="primary" type="button">Сохранить / проверить</button><button id="importPortal" class="secondary" type="button">Обновить каталог</button><button id="refreshImages" class="secondary" type="button">Обновить PNG</button><button id="refreshGiftModels" class="secondary" type="button">Обновить модели</button></div><small id="giftModelsState" class="muted">Модели подарков: —</small><small class="muted">Для автовывода используется Partner API. Каталог при недоступном Authorization умеет обновляться через публичный endpoint.</small><div id="portalRuntimeState" class="notice">Проверяем Portal Partner…</div><div id="portalStatus" class="notice">Каталог ещё не загружен.</div></div>
 <div class="panel portal-auto-grid"><div class="panel-head"><h2>Автообновление цен</h2><span id="portalAutoState">Выкл</span></div><label class="toggle-row"><span><strong>Обновлять автоматически</strong><br><small class="muted">Используется сохранённый ключ Portal</small></span><input id="portalAutoEnabled" type="checkbox"></label><label class="caption" for="portalAutoInterval">Интервал, минут</label><input id="portalAutoInterval" class="text-input" type="number" min="15" max="1440" step="15" value="60"><button id="savePortalAuto" class="secondary">Сохранить автообновление</button><div id="portalAutoNext" class="portal-auto-status">Следующее обновление не запланировано.</div></div>
 <div class="panel"><div class="panel-head"><h2>Автовыводы Portal</h2><span>последние 30</span></div><div id="portalPayouts" class="portal-payout-list"><div class="empty">Пока операций нет</div></div></div>
 <div class="panel"><div class="panel-head"><h2>Логи Portal</h2><span id="portalLogCount">0</span></div><div id="portalLogs" class="logs"></div></div><div class="panel"><div class="panel-head"><h2>Коллекции</h2><span id="giftCount">0</span></div><div id="giftGrid" class="gift-grid"></div></div></section>
@@ -5805,7 +5805,7 @@ function upgradeTargetChance(source,target){let sp=Number(source?.price_ton||0),
 function upgradeRawChance(s,tg){let sp=Number(s?.price_ton||0),tp=Number(tg?.price_ton||0);return sp>0&&tp>sp?Math.min(100,sp/tp*100):0}
 function upgradeShownChance(real){let r=upgradeRawChance(upgradeSource,upgradeGoal);return r>0?r:real}
 function upgradePreviewUrl(giftId){if(!upgradeSource)return'';let base='/api/upgrade/preview?gift_id='+encodeURIComponent(giftId);return upgradeSource.type==='ton'?base+'&amount='+encodeURIComponent(money(upgradeSource.price_ton)):base+'&inventory_id='+encodeURIComponent(upgradeSource.id)}
-async function loadUpgrade(){if(upgradeLoading)return;upgradeLoading=true;upgradeLoadError='';try{let [inv,cat,settings]=await Promise.all([api('/api/inventory'),api('/api/catalog'),api('/api/upgrade/settings')]);upgradeSettings=settings||upgradeSettings;upgradeInventory=(inv.items||[]).filter(x=>Number(x.price_ton)>0&&Number(x.price_ton)<=Number(upgradeSettings.max_bet_ton||1000)).map(x=>({...x,type:'gift'}));upgradeCatalog=(cat.gifts||[]).filter(x=>Number(x.price_ton)>0&&x.id).map(x=>({...x,type:'gift'})).sort((a,b)=>Number(a.price_ton)-Number(b.price_ton)||String(a.name||'').localeCompare(String(b.name||''),'ru'));if(upgradeSource?.type!=='ton'&&upgradeSource){let fresh=upgradeInventory.find(x=>Number(x.id)===Number(upgradeSource.id));upgradeSource=fresh||null;if(!fresh){upgradeGoal=null;upgradePreviewData=null}}if(upgradeGoal){let freshGoal=upgradeCatalog.find(x=>String(x.id)===String(upgradeGoal.id));upgradeGoal=freshGoal||null;if(!freshGoal)upgradePreviewData=null}if(upgradeSource&&upgradeGoal){try{upgradePreviewData=await api(upgradePreviewUrl(upgradeGoal.id));if(upgradePreviewData?.source){upgradeSource={...upgradeSource,...upgradePreviewData.source,type:upgradePreviewData.source.type||upgradeSource.type}}if(upgradePreviewData?.target){upgradeGoal={...upgradeGoal,...upgradePreviewData.target}}}catch(e){upgradePreviewData=null;upgradeGoal=null;upgradeLoadError=e.message}}}catch(e){upgradeLoadError=e.message;toast(e.message)}finally{upgradeLoading=false;paintUpgrade();if(!$('upgradeListModal').classList.contains('hidden'))upgradeList(upgradeListMode)}}
+async function loadUpgrade(){if(upgradeLoading)return;upgradeLoading=true;upgradeLoadError='';try{let [inv,cat,settings]=await Promise.all([api('/api/inventory'),api('/api/catalog'),api('/api/upgrade/settings')]);upgradeSettings=settings||upgradeSettings;ugLoadModelIndex();upgradeInventory=(inv.items||[]).filter(x=>Number(x.price_ton)>0&&Number(x.price_ton)<=Number(upgradeSettings.max_bet_ton||1000)).map(x=>({...x,type:'gift'}));upgradeCatalog=(cat.gifts||[]).filter(x=>Number(x.price_ton)>0&&x.id).map(x=>({...x,type:'gift'})).sort((a,b)=>Number(a.price_ton)-Number(b.price_ton)||String(a.name||'').localeCompare(String(b.name||''),'ru'));if(upgradeSource?.type!=='ton'&&upgradeSource){let fresh=upgradeInventory.find(x=>Number(x.id)===Number(upgradeSource.id));upgradeSource=fresh||null;if(!fresh){upgradeGoal=null;upgradePreviewData=null}}if(upgradeGoal&&!String(upgradeGoal.id).includes('@m:')){let freshGoal=upgradeCatalog.find(x=>String(x.id)===String(upgradeGoal.id));upgradeGoal=freshGoal||null;if(!freshGoal)upgradePreviewData=null}if(upgradeSource&&upgradeGoal){try{upgradePreviewData=await api(upgradePreviewUrl(upgradeGoal.id));if(upgradePreviewData?.source){upgradeSource={...upgradeSource,...upgradePreviewData.source,type:upgradePreviewData.source.type||upgradeSource.type}}if(upgradePreviewData?.target){upgradeGoal={...upgradeGoal,...upgradePreviewData.target}}}catch(e){upgradePreviewData=null;upgradeGoal=null;upgradeLoadError=e.message}}}catch(e){upgradeLoadError=e.message;toast(e.message)}finally{upgradeLoading=false;paintUpgrade();if(!$('upgradeListModal').classList.contains('hidden'))upgradeList(upgradeListMode)}}
 function setUpgradePrice(el,price,extra=''){el.replaceChildren();if(price==null){el.textContent=extra||'';return}let value=document.createElement('span');value.textContent=money(price);let icon=new Image;icon.src=TON;icon.alt='TON';icon.className='upgrade-price-ton';el.append(value,icon);if(extra){let note=document.createElement('small');note.textContent=extra;el.append(note)}}
 function paintUpgrade(){
   if(upgradeSource?.type==='ton'&&!upgradeBusy){let bs=gameBalanceState();upgradeSource={...upgradeSource,name:bs.type==='bonus'?'BONUS TON':'TON',image_url:bs.icon,balance_source:bs.type}}
@@ -5828,12 +5828,57 @@ function paintUpgrade(){
   if(upgradeGoal)setUpgradePrice($('ugTargetPrice'),upgradeGoal.price_ton);else $('ugTargetPrice').textContent='';
   let chance=upgradeShownChance(upgradePreviewData?.chance||0);$('ugWheelBox').classList.toggle('ready',!!upgradePreviewData);{let _pct=upgradePreviewData?formatUpgradeChance(chance).replace('%',''):'0',_el=$('upgradeChance');if(_el.textContent!==_pct){_el.textContent=_pct;$('ugCenter').dataset.len=String(_pct.length);_el.classList.remove('pop');void _el.offsetWidth;_el.classList.add('pop')}let _cap=$('ugCap');if(_cap)_cap.textContent=upgradePreviewData?'шанс успеха':(upgradeSource?'Теперь выбери гифт для улучшения':'Добавь свои гифты, чтобы увеличить шанс')};$('ugWin').setAttribute('stroke-dasharray',(upgradePreviewData?Math.max(0,Math.min(100,chance)):0).toFixed(3)+' 100');try{ugPaintChance(upgradePreviewData?chance:0)}catch(e){}let ugGift=$('ugGift');ugGift.replaceChildren();ugGift.classList.toggle('has',!!upgradeGoal?.image_url);if(upgradeGoal?.image_url){let im=new Image;im.src=upgradeGoal.image_url;im.alt='';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};ugGift.append(im)}$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&gameSpendBalance()<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Идёт апгрейд…':lowBalance?'Пополните баланс':'Улучшить';startUpgradeIdle()
 }
-let ugmMode='',ugmQuery='',ugmSort='asc';
+let ugmMode='',ugmQuery='',ugmSort='asc',ugmCollection=null,ugmModelIdx={},ugmModelLoading=false,ugmModelCache={},ugmPollTimer=0;
+function ugLoadModelIndex(){api('/api/gifts/model-index').then(d=>{ugmModelIdx=d.prices||{};ugmModelLoading=!!d.loading;if(ugmMode==='target'&&!$('upgradeListModal').classList.contains('hidden'))renderUgmGrid();if(d.loading){clearTimeout(ugmPollTimer);ugmPollTimer=setTimeout(ugLoadModelIndex,6000)}}).catch(()=>{})}
+function ugmInRange(price){return upgradeSource&&Number(price)>Number(upgradeSource.price_ton)&&upgradeTargetChance(upgradeSource,{price_ton:price})>0}
+function ugmIsCollection(item){return item&&!item.base_id&&!String(item.id).includes(':background:')}
+function ugmModelPrices(item){return ugmIsCollection(item)?(ugmModelIdx[String(item.id)]||[]).map(c=>c/100):[]}
+function ugmHasModels(item){return ugmModelPrices(item).some(ugmInRange)}
+function ugmShowPrice(item){if(ugmInRange(item.price_ton))return Number(item.price_ton);let m=ugmModelPrices(item).filter(ugmInRange);return m.length?Math.min(...m):Number(item.price_ton)}
+async function ugmLoadModels(item){let gid=String(item.id);try{let d=await api('/api/gifts/models?gift_id='+encodeURIComponent(gid));ugmModelCache[gid]=d.models||[];if(d.loading&&!(d.models||[]).length)setTimeout(()=>{if(ugmCollection&&String(ugmCollection.id)===gid)ugmLoadModels(item)},2500)}catch(e){ugmModelCache[gid]=ugmModelCache[gid]||[]}if(ugmCollection&&String(ugmCollection.id)===gid)renderUgmGrid()}
+function renderUgmModels(list,q){
+  let item=ugmCollection,gid=String(item.id);
+  $('upgradeListTitle').textContent=giftDisplayName(item);$('upgradeListKicker').textContent='ВЫБОР МОДЕЛИ';
+  $('ugmHint').textContent='Ставка '+money(upgradeSource.price_ton)+' TON · показаны модели с шансом от 80% до 5%';
+  list.replaceChildren();
+  let back=document.createElement('button');back.type='button';back.className='ugm-back';back.textContent='‹ Все подарки';back.onclick=()=>{ugmCollection=null;ugmQuery='';$('ugmSearch').value='';upgradeList('target')};list.append(back);
+  let models=ugmModelCache[gid];if(!models){ugmLoadModels(item)}
+  let rows=[];
+  if(ugmInRange(item.price_ton))rows.push({random:true,name:'Случайная модель',price_ton:Number(item.price_ton),image_url:item.image_url});
+  for(let m of models||[])if(ugmInRange(m.price_ton)&&(!q||m.name.toLowerCase().includes(q)))rows.push(m);
+  rows.sort((x,y)=>(x.random?-1:y.random?1:(ugmSort==='asc'?1:-1)*(x.price_ton-y.price_ton)));
+  $('ugmCount').textContent=rows.length?'Доступно · '+rows.length:'';
+  if(!rows.length){let e=document.createElement('div');e.className='ugm-empty';let t=document.createElement('b'),d=document.createElement('span');t.textContent=models?'Нет подходящих моделей':'Загружаем модели…';d.textContent=models?'Для такой ставки у этой коллекции нет моделей с шансом 5–80%':'';e.append(t,d);list.append(e);return}
+  let frag=document.createDocumentFragment();
+  for(let row of rows){
+    let b=document.createElement('button');b.type='button';b.className='ugm-card'+(row.random?' random':'');
+    let goalId=row.random?gid:gid+'@m:'+row.name;
+    if(upgradeGoal&&String(upgradeGoal.id)===goalId)b.classList.add('selected');
+    let art=document.createElement('span');art.className='ugm-art';let im=new Image;im.alt=row.name;im.loading='lazy';im.decoding='async';
+    if(row.random)applyGiftImage(im,item);else{im.src=row.image_url;im.onerror=()=>{im.onerror=null;applyGiftImage(im,item)}}
+    art.append(im);let pc=upgradeRawChance(upgradeSource,row);let badge=document.createElement('span');badge.className='ugm-badge tier-'+ugmTier(pc);badge.textContent=formatUpgradeChance(pc);art.append(badge);
+    let name=document.createElement('strong');name.className='ugm-name';name.textContent=row.name;
+    let price=document.createElement('span');price.className='ugm-price';let pv=document.createElement('b');pv.textContent=money(row.price_ton);let ti=new Image;ti.src=TON;ti.alt='TON';price.append(pv,ti);
+    b.append(art,name,price);
+    b.onclick=async()=>{
+      list.querySelectorAll('button').forEach(el=>el.disabled=true);
+      try{let preview=await api(upgradePreviewUrl(goalId));
+        upgradeGoal=row.random?{...item,type:'gift'}:{id:goalId,name:giftDisplayName(item)+' · '+row.name,image_url:row.image_url,price_ton:row.price_ton,type:'gift',model:row.name};
+        upgradePreviewData=preview;upgradePendingId=null;closeUgm();$('upgradeStatus').textContent='';paintUpgrade()}
+      catch(e){toast(e.message)}finally{list.querySelectorAll('button').forEach(el=>el.disabled=false)}
+    };
+    frag.append(b)
+  }
+  list.append(frag)
+}
+function ugmTargetOk(item){return ugmInRange(item.price_ton)||ugmHasModels(item)}
+
 function ugmTier(p){return p>=50?'hi':p>=25?'mid':'lo'}
 function renderUgmGrid(){
   let mine=ugmMode==='mine',list=$('upgradeList');
   let q=ugmQuery.trim().toLowerCase();
-  let items=mine?[...upgradeInventory]:[...upgradeCatalog].filter(item=>upgradeSource&&Number(item.price_ton)>Number(upgradeSource.price_ton)&&upgradeTargetChance(upgradeSource,item)>0);
+  if(!mine&&ugmCollection)return renderUgmModels(list,q);
+  let items=mine?[...upgradeInventory]:[...upgradeCatalog].filter(item=>upgradeSource&&ugmTargetOk(item));
   if(q)items=items.filter(i=>String(giftDisplayName(i)||i.name||'').toLowerCase().includes(q));
   items.sort((a,b)=>(ugmSort==='asc'?1:-1)*(Number(a.price_ton)-Number(b.price_ton))||String(a.name||'').localeCompare(String(b.name||''),'ru'));
   $('ugmCount').textContent=items.length?(mine?'Мои подарки':'Доступные цели')+' · '+items.length:'';
@@ -5851,14 +5896,15 @@ function renderUgmGrid(){
     let art=document.createElement('span');art.className='ugm-art '+bgc;
     let im=new Image;im.alt=giftDisplayName(item);im.loading='lazy';im.decoding='async';applyGiftImage(im,item);art.append(im);
     let badge=null;
-    if(!mine){let pc=upgradeRawChance(upgradeSource,item)||upgradeTargetChance(upgradeSource,item);badge=document.createElement('span');badge.className='ugm-badge tier-'+ugmTier(pc);badge.textContent=formatUpgradeChance(pc);badge.setAttribute('aria-label','Шанс '+badge.textContent)}
+    if(!mine){let pc=upgradeRawChance(upgradeSource,{price_ton:ugmShowPrice(item)})||upgradeTargetChance(upgradeSource,{price_ton:ugmShowPrice(item)});badge=document.createElement('span');badge.className='ugm-badge tier-'+ugmTier(pc);badge.textContent=formatUpgradeChance(pc);badge.setAttribute('aria-label','Шанс '+badge.textContent)}
     else if(item.promo_locked){badge=document.createElement('span');badge.className='ugm-badge promo';badge.textContent='×'+Number(item.wager_multiplier);badge.title='Отыгрыш'}
     if(badge)art.append(badge);
     let name=document.createElement('strong');name.className='ugm-name';name.textContent=giftDisplayName(item);
-    let price=document.createElement('span');price.className='ugm-price';let pv=document.createElement('b');pv.textContent=money(item.price_ton);let ti=new Image;ti.src=TON;ti.alt='TON';price.append(pv,ti);
-    b.append(art,name,price);
+    let price=document.createElement('span');price.className='ugm-price';let pv=document.createElement('b');pv.textContent=(mine?'':ugmModelPrices(item).length&&!ugmInRange(item.price_ton)?'от ':'')+money(mine?item.price_ton:ugmShowPrice(item));let ti=new Image;ti.src=TON;ti.alt='TON';price.append(pv,ti);
+    b.append(art,name,price);if(!mine&&ugmHasModels(item)){let sub=document.createElement('small');sub.className='ugm-sub';sub.textContent='Модели ›';b.append(sub)}
     b.onclick=async()=>{
       if(mine){upgradeSource=item;upgradeGoal=null;upgradePreviewData=null;upgradePendingId=null;paintUpgrade();upgradeList('target')}
+      else if(ugmHasModels(item)){ugmCollection=item;ugmQuery='';$('ugmSearch').value='';renderUgmGrid();let sh=$('upgradeListModal').querySelector('.ugm-sheet');if(sh)sh.scrollTop=0}
       else{list.querySelectorAll('button').forEach(el=>el.disabled=true);try{let preview=await api(upgradePreviewUrl(item.id));upgradeGoal=item;upgradePreviewData=preview;upgradePendingId=null;closeUgm();$('upgradeStatus').textContent='';paintUpgrade()}catch(e){toast(e.message)}finally{list.querySelectorAll('button').forEach(el=>el.disabled=false)}}
     };
     frag.append(b)
@@ -5868,7 +5914,7 @@ function renderUgmGrid(){
 function upgradeList(mode){
   let modal=$('upgradeListModal'),same=ugmMode===mode&&!modal.classList.contains('hidden');
   ugmMode=mode;upgradeListMode=mode;
-  let mine=mode==='mine';
+  let mine=mode==='mine';if(!same||mine)ugmCollection=null;
   if(!same){ugmQuery='';ugmSort='asc';$('ugmSearch').value='';modal.querySelectorAll('[data-ugm-sort]').forEach(x=>x.classList.toggle('on',x.dataset.ugmSort===ugmSort))}
   $('upgradeListTitle').textContent=mine?'Моя ставка':'Цель апгрейда';
   $('upgradeListKicker').textContent=mine?'ШАГ 1 ИЗ 2':'ШАГ 2 ИЗ 2';
@@ -5879,7 +5925,7 @@ function upgradeList(mode){
   if(!same){$('upgradeList').scrollTop=0;let sh=modal.querySelector('.ugm-sheet');if(sh)sh.scrollTop=0}
   modal.classList.remove('hidden');document.documentElement.classList.add('ugm-lock')
 }
-function closeUgm(){$('upgradeListModal').classList.add('hidden');document.documentElement.classList.remove('ugm-lock');ugmMode=''}
+function closeUgm(){$('upgradeListModal').classList.add('hidden');document.documentElement.classList.remove('ugm-lock');ugmMode='';ugmCollection=null}
 (function(){let m=$('upgradeListModal');if(!m)return;
   $('ugmSearch').addEventListener('input',e=>{ugmQuery=e.target.value;renderUgmGrid()});
   m.querySelectorAll('[data-ugm-sort]').forEach(b=>b.onclick=()=>{ugmSort=b.dataset.ugmSort;m.querySelectorAll('[data-ugm-sort]').forEach(x=>x.classList.toggle('on',x===b));renderUgmGrid()});
@@ -17394,6 +17440,12 @@ syncWheelNav();
 })();
 </script>
 <style id="wheel-code-old">.wl-tap-hint{font-style:normal;color:#5aa9ff;font-size:10.5px;font-weight:600;margin-top:2px}.wl-row.open .wl-tap-hint{display:none}.wl-promo-label{color:#8d97b0;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-align:center}.wl-promo-date{color:#7d8699;font-size:11px;text-align:center}.wl-row-actions.single{grid-template-columns:1fr}</style>
+<style id="ugm-models-v1">
+/* --- Upgrade: выбор модели --- */
+#upgradeList .ugm-back{grid-column:1/-1!important;justify-self:start!important;white-space:nowrap!important;width:auto!important;min-height:0!important;height:auto!important;margin:0 0 4px;padding:8px 14px;border-radius:12px;border:1px solid rgba(71,176,245,.28);background:rgba(71,176,245,.08);color:#8fd0fb;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+#upgradeList .ugm-card .ugm-sub{display:block;margin-top:2px;font-size:10px;font-weight:700;color:#6fb7ea;letter-spacing:.02em}
+#upgradeList .ugm-card.random .ugm-name{color:#9fd7ff}
+</style>
 <style id="profile-v2">
 @media(min-width:821px){html body.studio[data-page="profilePage"][data-page] .app{max-width:1296px!important;width:100%!important;margin:0 auto!important;padding-left:32px!important;padding-right:32px!important}}
 /* ---------- profile: two-card top row, inventory, actions ---------- */
@@ -17841,6 +17893,14 @@ html body #creatorPage .gp-btn .gp-tx small{color:#8db0b8}
  let ob=document.getElementById('creatorGiftPickerOpen');if(ob)ob.onclick=()=>window.openCreatorGiftPicker();
 })();
 
+</script>
+
+<script id="gift-models-admin-v1">
+(function(){let b=document.getElementById('refreshGiftModels'),st=document.getElementById('giftModelsState');if(!b)return;let timer=0;
+async function poll(){try{let d=await api('/api/admin/gift-models/status');st.textContent=d.running?`Загрузка моделей: ${d.done} / ${d.total}`:`Моделей: ${d.models} · коллекций с моделями: ${d.gifts} · без моделей: ${d.empty}`+(d.error?' · '+d.error:'');if(d.running){clearTimeout(timer);timer=setTimeout(poll,3000)}}catch(e){st.textContent=e.message}}
+b.onclick=async()=>{b.disabled=true;try{let d=await api('/api/admin/gift-models/refresh',{method:'POST',body:JSON.stringify({force:true})});toast(d.started?'Загрузка моделей запущена':'Уже идёт');poll()}catch(e){toast(e.message)}finally{b.disabled=false}};
+let pg=document.getElementById('portalPage');if(pg)new MutationObserver(()=>{if(!pg.classList.contains('hidden'))poll()}).observe(pg,{attributes:true,attributeFilter:['class']});
+})();
 </script>
 </body></html>
 <style id="twitch-tokenless-final">

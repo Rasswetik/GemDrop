@@ -12155,7 +12155,7 @@ html:not(.hw) #hwPetSettings{display:none}
 .fx-boss-card.sz-s .fx-card-tx b{font-size:16px}.fx-boss-card.sz-m .fx-card-tx b{font-size:20px}
 .fx-card-tx small{color:#cdbdf5;font-size:12.5px;line-height:1.25}
 .fx-card-tag{justify-self:start;font:900 9px system-ui;letter-spacing:.12em;color:#3a1604;background:linear-gradient(135deg,#ffe3b0,#ff9a4a);padding:4px 9px;border-radius:999px}
-.fx-boss-card.defeated .fx-card-tag{background:#3a2f66;color:#cdbdf5}.fx-boss-card.claim .fx-card-tag{background:linear-gradient(135deg,#fff3c4,#ffc94a)}
+.fx-boss-card.defeated .fx-card-tag{background:#3a2f66;color:#cdbdf5}.fx-boss-card.claim .fx-card-tag{background:linear-gradient(135deg,#fff3c4,#ffc94a);color:#3a1604}
 .fx-card-hp{position:relative;height:18px;border-radius:999px;background:#0f0822;border:1px solid #5a3aa8;overflow:hidden}
 .fx-card-hp i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#ff5a3a,#ff9a2e);border-radius:999px;transition:width .6s}
 .fx-card-hp span{position:absolute;inset:0;display:grid;place-items:center;font:800 10.5px system-ui;color:#fff;text-shadow:0 1px 2px #000a}
@@ -12166,8 +12166,6 @@ html:not(.hw) #hwPetSettings{display:none}
 .fx-mini{display:grid;gap:4px;justify-items:start;align-content:start;min-height:118px;padding:14px 14px 12px}
 .fx-mini-art{position:relative;width:46px;height:46px;display:grid;place-items:center;margin-bottom:2px}
 .fx-mini-art .hw-art-i{width:46px;height:46px;filter:drop-shadow(0 4px 6px #0009)}
-.fx-pass-card .fx-mini-art{border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#f5b82e 55%,#b9780f);box-shadow:0 0 0 3px #4b2aa8,0 4px 10px #0008}
-.fx-pass-card .fx-mini-art i{font:900 22px system-ui;font-style:normal;color:#3a1f08}
 .fx-mini b{font:900 15.5px/1.15 system-ui;color:#fff;-webkit-text-fill-color:#fff}.fx-mini small{color:#b4a5d8;font-size:11.5px;line-height:1.25}
 .fx-mini .fx-xp{width:100%;margin-top:3px}
 .fx-trick-card.wait{opacity:.78}.fx-trick-card.wait .fx-mini-art{filter:grayscale(.6)}
@@ -12380,67 +12378,12 @@ html:not(.hw) #hwPetSettings{display:none}
 .fx-card-art .bs *{animation-play-state:running}
 @media(prefers-reduced-motion:reduce){.bs *,.fx-card,.fx-claim{animation:none!important}}
 /* ---------- pass ---------- */
-.hw-art-sheet.fx-pass-sheet{background:radial-gradient(120% 50% at 50% 0,#5a3a10 0,#2a1550 40%,#0f0a1f 100%)}
-.fx-pass-head{display:flex;align-items:center;gap:16px;padding:16px;border-radius:24px;background:linear-gradient(135deg,#3d2a80,#221650);border:1px solid #8a5cf0aa;box-shadow:0 12px 30px #0008}
-.fx-pass-badge{flex:none;display:grid;place-items:center;align-content:center;width:84px;height:84px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff1b8,#f5b82e 55%,#a8680c);box-shadow:0 0 0 4px #4b2aa8,0 0 28px #f5b82e66;color:#3a1f08}
-.fx-pass-badge small{font:900 9px system-ui;letter-spacing:.14em}.fx-pass-badge b{font:900 34px/1 system-ui}
-.fx-pass-info{display:grid;gap:7px;min-width:0;flex:1}.fx-pass-info b{font:900 20px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff}.fx-pass-info small{color:#cdbdf5;font-size:12.5px}
-.fx-pass-info .fx-xp{height:14px}
-.fx-pass-rule{margin:0;text-align:center;color:#b4a5d8;font-size:13px;line-height:1.4}.fx-pass-rule b{color:#ffd89a}
-.fx-lvs{display:grid;gap:0;padding-bottom:10px}
-.fx-lv{position:relative;display:grid;grid-template-columns:46px minmax(0,1fr);gap:12px;align-items:center;padding:6px 0}
-.fx-lv::before{content:"";position:absolute;left:22px;top:-6px;bottom:-6px;width:3px;background:#3d2c78;border-radius:3px}
-.fx-lv:first-child::before{top:50%}.fx-lv:last-child::before{bottom:50%}
-.fx-lv.claimed::before{background:linear-gradient(#ffd89a,#ffd89a)}
-.fx-lv-n{position:relative;z-index:1;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:#241649;border:3px solid #4a3590;color:#9c8fc0;font:900 17px system-ui}
-.fx-lv.open .fx-lv-n{background:radial-gradient(circle at 35% 30%,#fff1b8,#f5b82e 60%,#b9780f);border-color:#fff3c4;color:#3a1f08;box-shadow:0 0 18px #f5b82e88;animation:fxDot 1.6s infinite}
-.fx-lv.claimed .fx-lv-n{background:#2f7a4a;border-color:#8fe0aa;color:#fff}
-.fx-lv-card{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:18px;background:#1b1240;border:1px solid #3d2c78;min-width:0}
-.fx-lv.open .fx-lv-card{border-color:#ffd89a;background:linear-gradient(135deg,#3a2a6e,#2a1b55)}
-.fx-lv.locked .fx-lv-card{opacity:.7}.fx-lv.next .fx-lv-card{border-color:#8a5cf0}
-.fx-lv-art{width:50px;height:50px;flex:none}.fx-lv-art .hw-art-i{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 5px #0009)}
-.fx-lv.locked .fx-lv-art{filter:grayscale(.7)}
-.fx-lv-tx{display:grid;gap:2px;flex:1;min-width:0}.fx-lv-tx b{font:900 15.5px/1.15 system-ui;color:#fff}.fx-lv-tx small{color:#b4a5d8;font:700 12px system-ui}
-.fx-lv.open .fx-lv-tx small{color:#ffd89a}
-.fx-lv-btn{flex:none;min-height:38px;padding:0 16px;border-radius:12px;border:1px solid #fff3c4;background:linear-gradient(180deg,#ffe27a,#f5a623);color:#3a1f08;font:900 14px system-ui;cursor:pointer}
-.fx-lv-ok{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#2f7a4a}.fx-lv-ok svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-.fx-lv-lock svg{width:22px;height:22px;fill:none;stroke:#7d6fb0;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 /* ---------- trick or treat ---------- */
-.hw-art-sheet.fx-trick-sheet{background:radial-gradient(120% 60% at 50% 0,#4a2060 0,#1d0f3d 50%,#0b0718 100%)}
 .fx-tt-head{display:grid;gap:8px;text-align:center}.fx-tt-head h2{margin:0;font:900 28px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 2px 14px #ff9a4a88}
 .fx-tt-head p{margin:0;color:#cdbdf5;font-size:14px;line-height:1.4}
 .fx-tt-tries{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 .fx-tt-tries span{display:inline-flex;align-items:center;gap:7px;padding:6px 14px 6px 8px;border-radius:999px;background:#150e2e;border:1px solid #4a3590;color:#b4a5d8;font:700 13px system-ui}
 .fx-tt-tries span.on{border-color:#ffd89a;color:#ffd89a}.fx-tt-tries .hw-art-i{width:22px;height:26px}.fx-tt-tries b{font:900 15px system-ui;color:#fff}
-.fx-street{position:relative;height:min(80vw,340px);border-radius:26px;overflow:hidden;border:1px solid #6b45d6aa;box-shadow:0 14px 34px #000a;isolation:isolate}
-.fx-street .fx-scene{filter:saturate(.9)}
-.fx-street.scare{animation:fxQuake .12s 4}
-.fx-street.cheer::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 70%,#ffd27a66,transparent 60%);animation:fxWhite 1s ease-out;pointer-events:none;z-index:6}
-.fx-houses{position:absolute;left:0;right:0;bottom:1%;display:flex;justify-content:space-around;align-items:flex-end;padding:0 1%;z-index:2}
-.fx-house{position:relative;flex:0 0 33%;padding:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s}
-.fx-house:nth-child(2){margin-bottom:6%}
-.fx-house svg{display:block;width:100%;height:auto;filter:drop-shadow(0 6px 10px #000a)}
-.fx-house:active{transform:scale(.97)}
-.fx-street.busy .fx-house:not(.knocking):not(.open){opacity:.45;pointer-events:none}
-.fx-win{animation:fxWin 3s ease-in-out infinite}.fx-win.w2{animation-delay:-1.3s}@keyframes fxWin{50%{opacity:.45}}
-.fx-open{opacity:0;transition:opacity .3s}.fx-house.open .fx-open{opacity:1}
-.fx-house.open.bad .fx-open{fill:#ff3a3a}
-.fx-door{transform-origin:40px 120px;transition:transform .5s cubic-bezier(.3,1.4,.5,1)}
-.fx-house.open .fx-door{transform:perspective(200px) rotateY(-70deg)}
-.fx-house.knocking{animation:fxKnock .28s 4}
-@keyframes fxKnock{0%,100%{transform:none}30%{transform:translateX(-3px) rotate(-.8deg)}60%{transform:translateX(3px) rotate(.8deg)}}
-.fx-knock{position:absolute;left:50%;top:-4px;transform:translateX(-50%);padding:3px 9px;border-radius:999px;background:#fff;color:#2a1650;font:900 11px system-ui;white-space:nowrap;opacity:0;pointer-events:none}
-.fx-house.knocking .fx-knock{animation:fxKnockT 1.2s ease-out}
-@keyframes fxKnockT{0%{opacity:0;transform:translate(-50%,10px) scale(.6)}20%,70%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-10px)}}
-.fx-pk{position:absolute;left:-6%;bottom:2%;width:34%;pointer-events:none}.fx-pk svg{filter:drop-shadow(0 3px 4px #000a)}
-.fx-who{position:absolute;left:36%;bottom:4%;width:28%;display:grid;place-items:end center;pointer-events:none;opacity:0;transform:scale(.2) translateY(20px)}
-.fx-who svg,.fx-who img{width:100%;height:auto}
-.fx-house.open .fx-who{animation:fxWho .7s cubic-bezier(.2,1.5,.4,1) forwards}
-.fx-house.open.bad .fx-who{animation:fxWhoBad .6s cubic-bezier(.2,1.8,.4,1) forwards}
-@keyframes fxWho{to{opacity:1;transform:scale(1.5) translateY(-4px)}}
-@keyframes fxWhoBad{0%{opacity:0;transform:scale(.2) translateY(20px)}60%{opacity:1;transform:scale(2.1) translateY(-14px)}100%{opacity:1;transform:scale(1.7) translateY(-8px)}}
-.fx-house.locked{filter:grayscale(.7) brightness(.7);cursor:default}
-.fx-house.locked .fx-door{transform:none}
 @media(min-width:700px){.fx-stage{height:380px}}
 
 /* admin */
@@ -12463,6 +12406,155 @@ html:not(.hw) #hwPetSettings{display:none}
 .fx-adm-rate input,.fx-adm-quick input{width:84px;flex:none}
 .fx-adm-quick{padding:10px;border-radius:14px;background:#150e2e;border:1px dashed #4a3590}
 .fx-adm .hw-stat{font-size:12.5px;color:#b4a5d8}
+
+/* ===================== pseudo-3D street · Trick-or-Treat ===================== */
+.hw-art-sheet.fx-trick-sheet{background:radial-gradient(120% 60% at 50% 0,#3a1b6e 0,#1a0d3a 50%,#08051a 100%)}
+.fx-street{position:relative;width:100%;aspect-ratio:360/340;border-radius:26px;overflow:hidden;border:1px solid #7a55e0aa;box-shadow:0 18px 40px #000b,inset 0 0 0 1px #ffffff12;isolation:isolate;background:#0d0624}
+.fx-street .fx-scene{position:absolute;inset:0;width:100%;height:100%}
+.fx-street.scare{animation:fxQuake .12s 4}
+.fx-street.cheer::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 70%,#ffd27a77,transparent 62%);animation:fxWhite 1s ease-out;pointer-events:none;z-index:6}
+.fx-houses{position:absolute;inset:0;z-index:2}
+.fx-house{position:absolute;padding:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .18s,filter .3s}
+.fx-house:nth-child(1){left:1.1%;top:24.4%;width:38.3%;aspect-ratio:146/200;z-index:3}
+.fx-house:nth-child(2){left:35.4%;top:29.7%;width:29.2%;aspect-ratio:146/200;z-index:2}
+.fx-house:nth-child(3){left:60.6%;top:24.4%;width:38.3%;aspect-ratio:146/200;z-index:3}
+.fx-house.mid svg{filter:saturate(.82) brightness(.86)}
+.fx-house svg.fx-h3{display:block;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 10px 12px #000b)}
+.fx-house.mid svg.fx-h3{filter:saturate(.82) brightness(.86) drop-shadow(0 6px 8px #000b)}
+@media(hover:hover){.fx-house:not(.locked):not(.open):hover{transform:translateY(-3px) scale(1.02);filter:brightness(1.12)}}
+.fx-house:active{transform:scale(.98)}
+.fx-street.busy .fx-house:not(.knocking):not(.open){opacity:.5;pointer-events:none;filter:brightness(.7)}
+/* light and life */
+.fx-win-g{animation:fxWin 3.4s ease-in-out infinite}.fx-win-g.w2{animation-delay:-1.4s;animation-duration:4.1s}
+@keyframes fxWin{0%,100%{opacity:1}45%{opacity:.82}50%{opacity:.94}55%{opacity:.76}}
+.fx-bulb{animation:fxBulb 2.2s ease-in-out infinite}.fx-bulb.b1{animation-delay:-.7s}.fx-bulb.b2{animation-delay:-1.4s}
+@keyframes fxBulb{0%,100%{opacity:1}50%{opacity:.35}}
+.fx-smoke circle{fill:#d3c6f5;opacity:0;transform-box:fill-box;transform-origin:center;animation:fxSmoke 4.2s ease-out infinite}
+.fx-smoke .s2{animation-delay:-1.4s}.fx-smoke .s3{animation-delay:-2.8s}
+@keyframes fxSmoke{0%{opacity:0;transform:translate(0,6px) scale(.5)}20%{opacity:.5}100%{opacity:0;transform:translate(7px,-16px) scale(1.7)}}
+.fx-lantern circle{animation:fxLant 2.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes fxLant{50%{opacity:.4;transform:scale(1.25)}}
+.fx-win2{fill:#ffc86a;animation:fxWin 3.4s ease-in-out infinite}
+.fx-lamp{animation:fxLamp 4s ease-in-out infinite;transform-box:fill-box;transform-origin:center}.fx-lamp.l2{animation-delay:-2s}
+@keyframes fxLamp{0%,100%{opacity:1}50%{opacity:.78}55%{opacity:.95}}
+.fx-star{animation:fxTw 3s ease-in-out infinite}@keyframes fxTw{50%{opacity:.25}}
+.fx-fog{animation:fxFog 11s ease-in-out infinite alternate}.fx-fog.f2{animation-duration:14s;animation-direction:alternate-reverse}.fx-fog.f3{animation-duration:17s}
+@keyframes fxFog{from{transform:translateX(-26px)}to{transform:translateX(26px)}}
+.fx-bat{animation:fxBatFly 9s linear infinite}.fx-bat.b2{animation-duration:12s;animation-delay:-5s;animation-direction:reverse}.fx-bat.b3{animation-duration:15s;animation-delay:-9s}
+.fx-bat path{animation:fxFlap .36s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:center;fill:#0a0418}
+@keyframes fxFlap{from{transform:scaleY(1)}to{transform:scaleY(.55)}}
+@keyframes fxBatFly{0%{transform:translate(-60px,12px)}25%{transform:translate(70px,-14px)}50%{transform:translate(170px,10px)}75%{transform:translate(270px,-12px)}100%{transform:translate(400px,8px)}}
+/* porch */
+.fx-spill{opacity:0;transition:opacity .45s}
+.fx-house:not(.locked):not(.open) .fx-spill{opacity:.22;animation:fxSpill 2.4s ease-in-out infinite}
+@keyframes fxSpill{50%{opacity:.5}}
+.fx-house.open .fx-spill{opacity:1;animation:none}
+.fx-open{opacity:0;transition:opacity .3s}.fx-house.open .fx-open{opacity:1}
+.fx-house.open.bad .fx-open,.fx-house.open.bad .fx-spill{filter:saturate(2.2) hue-rotate(-38deg) brightness(.8)}
+.fx-door{transform-box:fill-box;transform-origin:0 50%;transition:transform .6s cubic-bezier(.3,1.35,.5,1)}
+.fx-house.open .fx-door{transform:scaleX(.16)}
+.fx-house.locked .fx-door{transform:none}
+.fx-house.knocking{animation:fxKnock .28s 4}
+.fx-house.knocking .fx-door{animation:fxDoorK .14s 8}
+.fx-house.knocking .fx-win-g,.fx-house.knocking .fx-bulb{animation-duration:.35s}
+@keyframes fxKnock{0%,100%{transform:none}30%{transform:translateX(-2px) rotate(-.5deg)}60%{transform:translateX(2px) rotate(.5deg)}}
+@keyframes fxDoorK{50%{transform:translateX(-1.4px)}}
+.fx-knock{position:absolute;left:var(--wx,50%);top:30%;transform:translateX(-50%);padding:3px 9px;border-radius:999px;background:#fff;color:#2a1650;font:900 11px system-ui;white-space:nowrap;opacity:0;pointer-events:none;z-index:4}
+.fx-house.knocking .fx-knock{animation:fxKnockT 1.2s ease-out}
+@keyframes fxKnockT{0%{opacity:0;transform:translate(-50%,10px) scale(.6)}20%,70%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-10px)}}
+.fx-pk{position:absolute;left:var(--px,15%);bottom:2%;width:20%;transform:translateX(-50%);pointer-events:none;z-index:2}
+.fx-pk::before{content:"";position:absolute;left:-10%;right:-26%;bottom:-8%;height:30%;background:radial-gradient(closest-side,#050110c0,#05011000);z-index:-1}
+.fx-pk svg{filter:drop-shadow(0 3px 4px #000a);animation:fxPkGlow 3s ease-in-out infinite}
+@keyframes fxPkGlow{50%{filter:drop-shadow(0 3px 4px #000a) drop-shadow(0 0 7px #ff9a3caa)}}
+.fx-who{position:absolute;left:var(--wx,50%);bottom:9%;width:26%;margin-left:-13%;display:grid;place-items:end center;pointer-events:none;opacity:0;transform:scale(.2) translateY(20px);transform-origin:50% 100%;z-index:3}
+.fx-who svg,.fx-who img{width:100%;height:auto;filter:drop-shadow(0 4px 8px #000a)}
+.fx-house.open .fx-who{animation:fxWho .7s cubic-bezier(.2,1.5,.4,1) forwards}
+.fx-house.open.bad .fx-who{animation:fxWhoBad .6s cubic-bezier(.2,1.8,.4,1) forwards}
+@keyframes fxWho{to{opacity:1;transform:scale(1.5) translateY(-4px)}}
+@keyframes fxWhoBad{0%{opacity:0;transform:scale(.2) translateY(20px)}60%{opacity:1;transform:scale(2.1) translateY(-14px)}100%{opacity:1;transform:scale(1.7) translateY(-8px)}}
+.fx-house.locked{filter:grayscale(.75) brightness(.65);cursor:default}
+.fx-house.locked .fx-win-g,.fx-house.locked .fx-bulb{animation:none;opacity:.55}
+.fx-fore{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none}
+.fx-fgp{position:absolute;bottom:1.5%;width:15%;z-index:5;pointer-events:none}.fx-fgp.l{left:3%}.fx-fgp.r{right:3%;width:13%}
+.fx-fgp svg{width:100%;height:auto;filter:drop-shadow(0 4px 6px #000c) drop-shadow(0 0 10px #ff8a2a99);animation:fxPkGlow 3s ease-in-out infinite}
+.fx-adm-kinds{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
+.fx-street{max-width:560px;margin-left:auto;margin-right:auto}
+.fx-pool{animation:fxPool 3.4s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes fxPool{50%{opacity:.7;transform:scale(1.06)}}
+.fx-stage .fx-fore{z-index:3}
+
+/* ===================== pumpkin pass ===================== */
+.hw-art-sheet.fx-pass-sheet{background:radial-gradient(120% 46% at 50% 0,#6a3a12 0,#2a1550 42%,#0c0818 100%)}
+.pz-head{position:relative;display:grid;grid-template-columns:116px minmax(0,1fr);gap:14px;align-items:center;padding:16px 16px 16px 8px;border-radius:26px;border:1px solid #9a72f0aa;background:radial-gradient(120% 140% at 0 0,#5a3ab4,#2b1a68 55%,#1a1040);box-shadow:0 16px 36px #000a,inset 0 1px 0 #ffffff30;overflow:hidden}
+.pz-head::after{content:"";position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;background:radial-gradient(closest-side,#ffd89a40,transparent);pointer-events:none}
+.pz-emb{position:relative;width:116px;height:128px;display:grid;place-items:center}
+.pz-emb::before{content:"";position:absolute;inset:-8px;border-radius:50%;background:repeating-conic-gradient(from 0deg,#ffd89a44 0 7deg,transparent 7deg 22deg);-webkit-mask:radial-gradient(closest-side,transparent 40%,#000 62%,transparent 100%);mask:radial-gradient(closest-side,transparent 40%,#000 62%,transparent 100%);animation:pzSpin 28s linear infinite}
+.pz-emb-svg{position:relative;width:100%;height:100%;filter:drop-shadow(0 8px 10px #000a)}
+@keyframes pzSpin{to{transform:rotate(360deg)}}
+.pz-hi{display:grid;gap:8px;min-width:0}
+.pz-hi b{font:900 20px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 2px 10px #0008}
+.pz-xp{position:relative;height:20px;border-radius:999px;background:linear-gradient(#0a0620,#1b1042);border:1px solid #5a3aa8;box-shadow:inset 0 3px 6px #000a;overflow:hidden}
+.pz-xp i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(180deg,#ffe9a8,#ffb73a 55%,#e07a10);box-shadow:0 0 12px #ffb73a99,inset 0 2px 0 #fff8;transition:width .6s}
+.pz-xp i::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,#fff3 0 7px,transparent 7px 16px);border-radius:inherit;animation:pzStripe 1.6s linear infinite}
+@keyframes pzStripe{to{background-position:32px 0}}
+.pz-xp span{position:absolute;inset:0;display:grid;place-items:center;font:900 11px system-ui;color:#fff;text-shadow:0 1px 3px #000c;letter-spacing:.02em}
+.pz-hi small{color:#cdbdf5;font-size:12.5px;line-height:1.3}
+.pz-next{display:flex;align-items:center;gap:12px;padding:10px 14px 10px 10px;border-radius:20px;background:#ffffff0d;border:1px dashed #ffd89a66}
+.pz-next .pz-art{width:54px;height:54px;flex:none}
+.pz-next div{display:grid;gap:2px;min-width:0}.pz-next small{color:#b4a5d8;font:700 11.5px system-ui;text-transform:uppercase;letter-spacing:.06em}.pz-next b{font:900 15px/1.2 system-ui;color:#fff}.pz-next em{font-style:normal;color:#ffd89a;font:700 12.5px system-ui}
+.pz-rule{margin:0;text-align:center;color:#b4a5d8;font-size:12.5px;line-height:1.4}.pz-rule b{color:#ffd89a}
+.pz-track{display:grid;gap:14px;padding:8px 0 14px}
+.pz-lv{position:relative;display:grid;grid-template-columns:56px minmax(0,1fr);gap:10px;align-items:start}
+.pz-lv::before{content:"";position:absolute;left:25px;top:-14px;bottom:-14px;width:6px;border-radius:6px;background:linear-gradient(90deg,#0c0722,#2a1d5c 45%,#0c0722);box-shadow:inset 0 0 0 1px #4a3590}
+.pz-lv:first-child::before{top:26px}.pz-lv:last-child::before{bottom:calc(100% - 30px)}
+.pz-lv.claimed::before,.pz-lv.open::before{background:linear-gradient(90deg,#8a4a06,#ffd89a 45%,#8a4a06);box-shadow:0 0 12px #ffb73a77}
+.pz-lv.next::before{background:linear-gradient(0deg,#0c0722 calc(100% - var(--pr,0%)),#ffb73a calc(100% - var(--pr,0%)))}
+.pz-node{position:relative;z-index:1;width:56px;display:grid;justify-items:center;padding-top:6px}
+.pz-lv.open .pz-medal{animation:pzBob 1.8s ease-in-out infinite;filter:drop-shadow(0 0 10px #ffb73aaa)}
+@keyframes pzBob{50%{transform:translateY(-3px) scale(1.06)}}
+.pz-card{position:relative;display:flex;align-items:center;gap:12px;min-width:0;padding:12px 12px 12px 10px;border-radius:22px;border:1px solid #4a3590;background:linear-gradient(135deg,#251552,#170e3a);box-shadow:0 8px 18px #0008,inset 0 1px 0 #ffffff1a;overflow:hidden}
+.pz-card::before{content:"";position:absolute;inset:0;background:radial-gradient(90% 120% at 0 0,color-mix(in srgb,var(--c1,#8a5cf0) 40%,transparent),transparent 60%);opacity:.55;pointer-events:none}
+.pz-lv.open .pz-card{border-color:#ffd89a;background:linear-gradient(135deg,#43296e,#2a1b55);box-shadow:0 8px 22px #0009,0 0 24px #ffb73a44,inset 0 1px 0 #ffffff30}
+.pz-lv.locked .pz-card{opacity:.82}.pz-lv.locked .pz-art{filter:saturate(.55) brightness(.85)}
+.pz-lv.claimed .pz-card{border-color:#2f7a4a99}.pz-lv.claimed .pz-art{filter:saturate(.8)}
+.pz-lv.next .pz-card{border-color:#8a5cf0}
+/* prize stage */
+.pz-art{position:relative;flex:none;width:64px;height:64px;display:grid;place-items:center;isolation:isolate}
+.pz-art.big{width:76px;height:76px}
+.pz-glow{position:absolute;inset:-6px;border-radius:50%;background:radial-gradient(closest-side,color-mix(in srgb,var(--c0) 60%,transparent),transparent 75%);z-index:-1}
+.pz-disc{position:absolute;left:6%;right:6%;top:8%;bottom:8%;border-radius:50%;background:radial-gradient(circle at 38% 28%,color-mix(in srgb,var(--c0) 55%,#fff 0%),var(--c1) 62%,var(--c2));box-shadow:inset 0 -6px 10px #0006,inset 0 3px 4px #fff6,0 6px 8px #0007;opacity:.92}
+.pz-base{position:absolute;left:14%;right:14%;bottom:-4px;height:9px;border-radius:50%;background:radial-gradient(closest-side,#000a,transparent);z-index:-1}
+.pz-ico{position:relative;width:72%;height:72%;display:grid;place-items:center}
+.pz-glyph{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 4px #000a)}
+.pz-rays{position:absolute;inset:-26%;border-radius:50%;background:repeating-conic-gradient(from 0deg,color-mix(in srgb,var(--c0) 45%,transparent) 0 6deg,transparent 6deg 18deg);-webkit-mask:radial-gradient(closest-side,transparent 38%,#000 60%,transparent 100%);mask:radial-gradient(closest-side,transparent 38%,#000 60%,transparent 100%);animation:pzSpin 22s linear infinite;z-index:-2}
+.pz-lv.locked .pz-rays,.pz-lv.claimed .pz-rays{animation-play-state:paused;opacity:.5}
+.pz-badge{position:absolute;right:-8px;bottom:-4px;display:flex;align-items:center;gap:2px;padding:2px 6px 2px 4px;border-radius:999px;background:linear-gradient(180deg,#9ff7e2,#2fc6a8);border:1px solid #d6fff4;color:#06382f;box-shadow:0 3px 6px #0008}
+.pz-badge svg{width:11px;height:11px}.pz-badge b{font:900 11px system-ui;color:#06382f}
+.pz-tx{display:grid;gap:3px;flex:1;min-width:0;position:relative}
+.pz-tag{justify-self:start;white-space:nowrap;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--c1,#8a5cf0) 55%,#0006);color:#fff;font:900 9.5px system-ui;letter-spacing:.07em;text-transform:uppercase}
+.pz-tx b{font:900 16px/1.15 system-ui;color:#fff;overflow-wrap:break-word;word-break:normal}
+.pz-tagrow{display:flex;gap:6px;flex-wrap:wrap}.pz-star{padding:2px 8px;border-radius:999px;background:linear-gradient(180deg,#ffe9a0,#f5a623);color:#3a1f08;font:900 9.5px system-ui;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap}
+.pz-lv.locked .pz-star,.pz-lv.claimed .pz-star{filter:grayscale(.4) brightness(.85)}
+.pz-lv.big .pz-tx b{font-size:18px}
+.pz-sub{color:#b4a5d8;font:700 12px system-ui}.pz-lv.open .pz-sub{color:#ffd89a}
+.pz-worth{color:#8fe0aa;font:800 11.5px system-ui}
+.pz-btn{flex:none;min-height:38px;padding:0 13px;border-radius:13px;border:1px solid #fff3c4;background:linear-gradient(180deg,#ffe9a0,#f5a623);color:#3a1f08;font:900 13px system-ui;cursor:pointer;box-shadow:0 6px 14px #f5a62355,inset 0 1px 0 #fff9;position:relative}
+.pz-btn:disabled{opacity:.6}
+.pz-ok{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#2f7a4a;box-shadow:0 0 0 3px #2f7a4a44}.pz-ok svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.pz-ribbon{position:absolute;right:-40px;top:13px;transform:rotate(38deg);width:136px;text-align:center;padding:2px 0;background:linear-gradient(180deg,#ffe27a,#f5a623);color:#3a1f08;font:900 8.5px system-ui;letter-spacing:.1em;text-transform:uppercase;box-shadow:0 2px 6px #0008}
+.pz-lv.big .pz-card{padding:16px 12px 16px 12px;border-width:1.5px;border-color:color-mix(in srgb,var(--c0,#ffd89a) 60%,#4a3590)}
+.pz-lv.big.claimed .pz-ribbon,.pz-lv.big.locked .pz-ribbon{filter:grayscale(.5) brightness(.85)}
+.pz-lv.big .pz-card::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 40%,#ffffff22 50%,transparent 60%);transform:translateX(-120%);animation:pzShine 5s ease-in-out infinite;pointer-events:none}
+.pz-lv.locked.big .pz-card::after,.pz-lv.claimed.big .pz-card::after{animation:none}
+@keyframes pzShine{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+.pz-end{display:grid;justify-items:center;gap:4px;padding:6px 0 4px;color:#cdbdf5;font:700 13px system-ui;text-align:center}
+@media(prefers-reduced-motion:reduce){.pz-emb::before,.pz-rays,.pz-xp i::after,.pz-medal,.pz-card::after{animation:none!important}}
+/* the pass tile on the event page */
+.fx-pass-card .fx-mini-art{width:46px;height:50px;background:none;border-radius:0;box-shadow:none}
+.fx-pass-card .fx-mini-art svg{width:100%;height:100%;filter:drop-shadow(0 4px 6px #0009)}
+
+.pz-glyph{border-radius:0}img.pz-glyph{border-radius:22%;box-shadow:0 0 0 1.5px #ffffff55,0 4px 8px #0008}
+.fx-trick-card .fx-mini-art{width:54px;height:60px;margin-bottom:0}.fx-trick-card .fx-mini-art svg.fx-h3{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 4px 6px #0009)}
+.fx-trick-card .fx-mini-art .fx-spill{opacity:.4}
 
 </style>
 <script id="halloween-js">(()=>{
@@ -13343,10 +13435,18 @@ function bossSVG(skin,opts){
  const poly=(pts,dx,dy)=>'M'+pts.map(p=>(p[0]+(dx||0)).toFixed(1)+' '+(p[1]+(dy||0)).toFixed(1)).join('L')+'Z';
  const scale=(pts,cx,cy,s)=>pts.map(p=>[cx+(p[0]-cx)*s,cy+(p[1]-cy)*s]);
  /* ----- head ----- */
+ const ribs='M160 90C150 130 150 172 160 212M121 94C108 130 108 176 124 210M199 94C212 130 212 176 196 210M88 112C78 140 80 180 94 206M232 112C242 140 240 180 226 206';
  const lobes=[[90,160,27,50,1],[230,160,27,50,0],[122,153,36,58,0],[198,153,36,58,1],[160,150,42,62,0]];
  const headArt=`${lobes.map(([cx,cy,rx,ry,i])=>`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#${u}b${i})" stroke="${k.b4}" stroke-width="2.6"/>`).join('')}
-   <path d="M160 90C150 130 150 172 160 212M121 94C108 130 108 176 124 210M199 94C212 130 212 176 196 210M88 112C78 140 80 180 94 206M232 112C242 140 240 180 226 206" fill="none" stroke="${k.b4}" stroke-opacity=".34" stroke-width="2"/>
-   <path d="M102 122C114 104 134 96 152 98" fill="none" stroke="#fff" stroke-opacity=".34" stroke-width="6" stroke-linecap="round"/>`;
+   <g clip-path="url(#${u}hd)">
+    <path d="${ribs}" fill="none" stroke="${k.b4}" stroke-opacity=".3" stroke-width="12"/>
+    <path d="${ribs}" fill="none" stroke="${k.b4}" stroke-opacity=".42" stroke-width="2.4"/>
+    <path d="${ribs}" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="2.6" transform="translate(-4 0)"/>
+    <rect x="60" y="80" width="200" height="150" fill="url(#${u}lt)"/><rect x="60" y="80" width="200" height="150" fill="url(#${u}ao)"/>
+   </g>
+   <ellipse cx="230" cy="160" rx="27" ry="50" fill="none" stroke="url(#${u}rim)" stroke-width="3.4"/><ellipse cx="198" cy="153" rx="36" ry="58" fill="none" stroke="url(#${u}rim)" stroke-width="2" opacity=".5"/>
+   <path d="M102 122C114 104 134 96 152 98" fill="none" stroke="#fff" stroke-opacity=".34" stroke-width="6" stroke-linecap="round"/>
+   <ellipse cx="108" cy="124" rx="15" ry="8" fill="url(#${u}sp)" transform="rotate(-38 108 124)"/><ellipse cx="124" cy="104" rx="3.4" ry="2" fill="#fff" opacity=".7" transform="rotate(-30 124 104)"/>`;
  const MP=[[100,172],[118,180],[128,170],[142,186],[152,174],[160,188],[168,174],[178,186],[192,170],[202,180],[220,172],[214,192],[198,204],[188,194],[174,206],[164,196],[160,208],[156,196],[146,206],[132,194],[122,204],[106,192]].map(p=>[p[0],p[1]-5]);
  const mouthOut=poly(MP),mouthIn=poly(scale(MP,160,184,.84));
  const eyeL='M110 128L152 142L146 162Q122 160 110 128Z',eyeR='M210 128L168 142L174 162Q198 160 210 128Z';
@@ -13361,40 +13461,54 @@ function bossSVG(skin,opts){
    <g class="bs-mouth"><path d="${mouthOut}" fill="${O}" stroke="${O}" stroke-width="5" stroke-linejoin="round"/><path class="bs-mglow" d="${mouthIn}" fill="url(#${u}m)"/></g>`;
  const cracks=`<path class="c1" d="M214 118L202 138L216 152L204 170"/><path class="c1" d="M104 198L120 184L108 168"/><path class="c2" d="M150 92L158 108L146 122"/><path class="c2" d="M232 176L218 188L228 204"/><path class="c2" d="M88 140L102 150L90 164"/><path class="c3" d="M160 214L152 198"/><path class="c3" d="M126 108L136 120"/><path class="c3" d="M192 208L184 196"/>`;
  /* ----- hat ----- */
- const hat=`<ellipse cx="160" cy="106" rx="94" ry="17" fill="url(#${u}h)" stroke="${O}" stroke-width="3" transform="rotate(-5 160 106)"/>
+ const conePath='M108 102C122 72 140 46 166 28C186 14 214 14 232 36C214 28 200 36 192 54C186 72 196 90 216 102Z';
+ const hat=`<ellipse cx="160" cy="112" rx="94" ry="17" fill="${k.hat2}" stroke="${O}" stroke-width="3" transform="rotate(-5 160 106)"/>
+   <ellipse cx="160" cy="106" rx="94" ry="17" fill="url(#${u}h)" stroke="${O}" stroke-width="3" transform="rotate(-5 160 106)"/>
+   <ellipse cx="160" cy="108" rx="92" ry="14" fill="url(#${u}bs)" transform="rotate(-5 160 106)"/>
    <path d="M70 108C100 124 220 124 250 100" fill="none" stroke="${O}" stroke-opacity=".35" stroke-width="5" stroke-linecap="round" transform="rotate(-5 160 106)"/>
-   <path d="M108 102C122 72 140 46 166 28C186 14 214 14 232 36C214 28 200 36 192 54C186 72 196 90 216 102Z" fill="url(#${u}h)" stroke="${O}" stroke-width="3" stroke-linejoin="round"/>
-   <path d="M120 88C130 66 146 46 164 34" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="5" stroke-linecap="round"/>
+   <path d="${conePath}" fill="url(#${u}h)" stroke="${O}" stroke-width="3" stroke-linejoin="round"/>
+   <path d="${conePath}" fill="url(#${u}cyl)"/>
+   <path d="M120 88C130 66 146 46 164 34" fill="none" stroke="#fff" stroke-opacity=".26" stroke-width="5" stroke-linecap="round"/>
+   <path d="M216 100C198 90 190 72 194 54C198 40 208 34 224 36" fill="none" stroke="${k.glow}" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round"/>
+   <ellipse cx="160" cy="120" rx="64" ry="8" fill="${k.glow}" opacity=".3" filter="url(#${u}f)" transform="rotate(-5 160 106)"/>
    <path d="M110 98Q160 84 214 98L218 110Q162 98 106 110Z" fill="${k.band}" stroke="${O}" stroke-width="2.6" stroke-linejoin="round"/>
    <rect x="146" y="88" width="30" height="22" rx="4" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="2.4"/><rect x="153" y="94" width="16" height="10" rx="2" fill="${O}"/>
    <path class="bs-hatpatch" d="M168 62l16 6l-4 16l-14-4z" fill="${k.band}" opacity=".9" stroke="${O}" stroke-width="2" stroke-dasharray="3 2"/>
    <path d="M142 62l3 7 7 .6-5.4 4.6 1.7 7-6.3-3.8-6.3 3.8 1.7-7-5.4-4.6 7-.6z" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1.2" transform="translate(4 -6)"/>
    <path class="bs-hole" d="M140 80l9-5l4 9l-8 5z" fill="${O}"/>`;
  /* ----- body parts (drawn in the left-hand pose; the right ones are mirrored) ----- */
- const arm=`<g transform="translate(0 7)"><path d="M110 216Q90 234 80 258Q72 278 72 298" fill="none" stroke="${O}" stroke-width="35" stroke-linecap="round" stroke-linejoin="round"/>
+ const arm=(m)=>{const kx=m?6:-6,rx=m?-7:7;return `<g transform="translate(0 7)"><path d="M110 216Q90 234 80 258Q72 278 72 298" fill="none" stroke="${O}" stroke-width="35" stroke-linecap="round" stroke-linejoin="round"/>
    <path d="M110 216Q90 234 80 258Q72 278 72 298" fill="none" stroke="url(#${u}c)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-   <path d="M104 222Q90 238 83 258" fill="none" stroke="#fff" stroke-opacity=".16" stroke-width="5" stroke-linecap="round"/>
+   <path d="M${110+kx} 216Q${90+kx} 234 ${80+kx} 258Q${72+kx} 278 ${72+kx} 296" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="6" stroke-linecap="round"/>
+   <path d="M${110-kx*.9} 218Q${90-kx*.9} 236 ${80-kx*.9} 258Q${72-kx*.9} 278 ${72-kx*.9} 296" fill="none" stroke="#08020f" stroke-opacity=".3" stroke-width="9" stroke-linecap="round"/>
+   <path d="M${110+rx} 216Q${90+rx} 234 ${80+rx} 258Q${72+rx} 278 ${72+rx} 296" fill="none" stroke="${k.glow}" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>
    <rect x="66" y="250" width="15" height="13" rx="2" fill="${k.band}" opacity=".85" stroke="${O}" stroke-width="1.6" stroke-dasharray="3 2" transform="rotate(14 73 256)"/>
-   <circle cx="110" cy="214" r="21" fill="url(#${u}c)" stroke="${O}" stroke-width="3"/><path d="M94 208Q110 195 126 208" fill="none" stroke="url(#${u}g)" stroke-width="4" stroke-linecap="round"/>
+   <circle cx="110" cy="214" r="21" fill="url(#${u}pad)" stroke="${O}" stroke-width="3"/><path d="M94 208Q110 195 126 208" fill="none" stroke="url(#${u}g)" stroke-width="4" stroke-linecap="round"/><ellipse cx="${m?116:103}" cy="206" rx="7" ry="4" fill="url(#${u}sp)"/><path d="M${m?93:127} 206A21 21 0 0 ${m?0:1} ${m?99:121} 228" fill="none" stroke="${k.glow}" stroke-opacity=".45" stroke-width="2"/>
    <ellipse cx="72" cy="298" rx="17" ry="8" fill="${k.band}" stroke="${O}" stroke-width="2.6"/>
    ${straw(72,301,68,118,7,17,2.6)}
    <g class="bs-fist"><circle cx="71" cy="315" r="17" fill="url(#${u}b0)" stroke="${k.b4}" stroke-width="2.8"/>
     <path d="M60 307q11 7 22 0M58 316q13 7 26 0" fill="none" stroke="${k.b4}" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>
-    <path d="M58 327l-4 13l10-7zM69 331l-1 12l9-9zM80 327l4 12l-11-5z" fill="${O}"/></g></g>`;
- const leg=`<path d="M117 284L155 284L151 325L120 325Z" fill="url(#${u}c2)" stroke="${O}" stroke-width="3" stroke-linejoin="round"/>
+    <ellipse cx="${m?77:65}" cy="307" rx="6" ry="3.6" fill="url(#${u}sp)"/><path d="M${m?54:88} 313A17 17 0 0 1 ${m?66:76} 330" fill="none" stroke="${k.glow}" stroke-opacity=".4" stroke-width="2"/>
+    <path d="M58 327l-4 13l10-7zM69 331l-1 12l9-9zM80 327l4 12l-11-5z" fill="${O}"/></g></g>`};
+ const leg=(m)=>`<path d="M117 284L155 284L151 325L120 325Z" fill="url(#${u}c2)" stroke="${O}" stroke-width="3" stroke-linejoin="round"/><path d="M117 284L155 284L151 325L120 325Z" fill="url(#${u}cyl)"/>
    <rect x="124" y="298" width="15" height="13" rx="2" fill="${k.band}" opacity=".85" stroke="${O}" stroke-width="1.6" stroke-dasharray="3 2" transform="rotate(-7 131 304)"/>
    <path d="M153 290L150 322" stroke="#fff" stroke-opacity=".12" stroke-width="4" stroke-linecap="round"/>
    ${straw(124,325,95,150,5,13,2.4)}${straw(148,325,30,85,5,13,2.4)}
    <path d="M112 323L156 323L159 335Q161 342 150 342L106 342Q98 334 112 323Z" fill="#46291a" stroke="${O}" stroke-width="3" stroke-linejoin="round"/>
+   <path d="M112 323L156 323L159 335Q161 342 150 342L106 342Q98 334 112 323Z" fill="url(#${u}cyl)"/><path d="M108 340L156 340" stroke="#000" stroke-opacity=".4" stroke-width="3"/>
    <rect x="115" y="327" width="40" height="5" rx="2" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1"/><path d="M108 338Q104 336 105 333" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width="3" stroke-linecap="round"/>`;
  const hem=[[218,290],[206,300],[196,288],[182,302],[170,290],[160,304],[150,290],[138,302],[124,288],[114,300],[102,290]];
+ const torsoPath=`M112 204Q160 192 208 204L222 252L${hem.map(p=>p.join(' ')).join('L')}L98 252Z`;
  const torso=`${straw(124,206,100,170,8,22,2.6)}${straw(196,206,10,80,8,22,2.6)}
-   <path d="M112 204Q160 192 208 204L222 252L${hem.map(p=>p.join(' ')).join('L')}L98 252Z" fill="url(#${u}c)" stroke="${O}" stroke-width="3.2" stroke-linejoin="round"/>
+   <path d="${torsoPath}" fill="url(#${u}c)" stroke="${O}" stroke-width="3.2" stroke-linejoin="round"/>
+   <path d="${torsoPath}" fill="url(#${u}cyl)"/><path d="${torsoPath}" fill="url(#${u}fl)"/>
+   <path d="M128 226Q136 250 126 274M190 222Q184 248 194 272M146 238Q150 258 144 276" fill="none" stroke="#08020f" stroke-opacity=".3" stroke-width="3.4" stroke-linecap="round"/><path d="M131 226Q139 250 129 274M193 222Q187 248 197 272" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width="2" stroke-linecap="round"/>
+   <path d="M208 205L222 252L218 290" fill="none" stroke="${k.glow}" stroke-opacity=".55" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
    <path d="M160 214L160 300" stroke="${O}" stroke-opacity=".55" stroke-width="2.6"/>
    <path d="M122 206L160 238L198 206L184 200L160 222L136 200Z" fill="url(#${u}c2)" stroke="${O}" stroke-width="2.4" stroke-linejoin="round"/>
    <circle cx="160" cy="246" r="5.6" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1.3"/><circle cx="160" cy="263" r="5.6" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1.3"/>
    <rect x="177" y="226" width="22" height="20" rx="3" fill="${k.band}" opacity=".85" stroke="${O}" stroke-width="1.6" stroke-dasharray="3 2" transform="rotate(8 188 236)"/>
-   <rect x="100" y="272" width="120" height="14" fill="#5a3a14" stroke="${O}" stroke-width="2.4"/><rect x="146" y="269" width="28" height="20" rx="3" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="2"/><rect x="153" y="275" width="14" height="8" rx="1.5" fill="#5a3a14"/>
+   <rect x="100" y="272" width="120" height="14" fill="#5a3a14" stroke="${O}" stroke-width="2.4"/><path d="M101 274H219" stroke="#fff" stroke-opacity=".22" stroke-width="2"/><path d="M101 284H219" stroke="#000" stroke-opacity=".35" stroke-width="2"/><rect x="146" y="269" width="28" height="20" rx="3" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="2"/><rect x="153" y="275" width="14" height="8" rx="1.5" fill="#5a3a14"/>
    ${straw(138,303,80,120,4,12,2.4)}${straw(182,303,60,100,4,12,2.4)}
    <g class="bs-wound w1"><path d="M138 232L152 246L142 262" fill="none" stroke="${O}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>${straw(142,247,150,215,6,16,2.6)}</g>
    <g class="bs-wound w2"><path d="M188 262L202 272L194 288" fill="none" stroke="${O}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>${straw(196,274,330,25,6,16,2.6)}</g>`;
@@ -13414,6 +13528,15 @@ function bossSVG(skin,opts){
   <linearGradient id="${u}c2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${k.coat2}"/><stop offset="1" stop-color="#0d0620"/></linearGradient>
   <linearGradient id="${u}h" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${k.hat1}"/><stop offset="1" stop-color="${k.hat2}"/></linearGradient>
   <radialGradient id="${u}m" cx=".5" cy=".4" r=".7"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="${k.mouth}"/><stop offset="1" stop-color="${k.b2}"/></radialGradient>
+  <clipPath id="${u}hd">${lobes.map(([cx,cy,rx,ry])=>`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`).join('')}</clipPath>
+  <linearGradient id="${u}lt" gradientUnits="userSpaceOnUse" x1="86" y1="96" x2="236" y2="214"><stop offset="0" stop-color="#fff" stop-opacity=".34"/><stop offset=".34" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#1a0500" stop-opacity="0"/><stop offset="1" stop-color="#1a0500" stop-opacity=".5"/></linearGradient>
+  <linearGradient id="${u}ao" gradientUnits="userSpaceOnUse" x1="0" y1="80" x2="0" y2="230"><stop offset="0" stop-color="#12041f" stop-opacity=".78"/><stop offset=".2" stop-color="#12041f" stop-opacity=".16"/><stop offset=".78" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#240800" stop-opacity=".5"/></linearGradient>
+  <linearGradient id="${u}rim" gradientUnits="userSpaceOnUse" x1="70" y1="0" x2="258" y2="0"><stop offset=".55" stop-color="${k.glow}" stop-opacity="0"/><stop offset="1" stop-color="${k.glow}" stop-opacity=".95"/></linearGradient>
+  <linearGradient id="${u}cyl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#08020f" stop-opacity=".42"/><stop offset=".32" stop-color="#fff" stop-opacity="0"/><stop offset=".58" stop-color="#fff" stop-opacity=".13"/><stop offset="1" stop-color="#08020f" stop-opacity=".5"/></linearGradient>
+  <radialGradient id="${u}fl" gradientUnits="userSpaceOnUse" cx="160" cy="176" r="118"><stop offset="0" stop-color="${k.glow}" stop-opacity=".5"/><stop offset=".55" stop-color="${k.glow}" stop-opacity=".12"/><stop offset="1" stop-color="${k.glow}" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${u}sp" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${u}pad" cx=".34" cy=".3" r=".85"><stop offset="0" stop-color="${k.coat1}" stop-opacity="1"/><stop offset=".15" stop-color="${k.coat1}"/><stop offset="1" stop-color="${k.coat2}"/></radialGradient>
+  <radialGradient id="${u}bs" cx=".5" cy=".5" r=".5"><stop offset=".3" stop-color="#08020f" stop-opacity=".55"/><stop offset="1" stop-color="#08020f" stop-opacity="0"/></radialGradient>
   <filter id="${u}f" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="4"/></filter>
   <clipPath id="${u}cl"><path d="M-20 60L158 60L150 92L166 120L151 148L167 176L152 204L160 236L-20 236Z"/></clipPath>
   <clipPath id="${u}cr"><path d="M340 60L158 60L150 92L166 120L151 148L167 176L152 204L160 236L340 236Z"/></clipPath>
@@ -13422,8 +13545,8 @@ function bossSVG(skin,opts){
  <ellipse class="bs-aura" cx="160" cy="210" rx="170" ry="158" fill="url(#${u}a)"/>
  <g class="bs-embers">${embers}</g>
  <g class="bs-fig">
-  <g ${P('bp-legL',136,288,-48,32,86,.42)}><g class="leg legL">${leg}</g></g>
-  <g ${P('bp-legR',184,288,48,32,-86,.46)}><g class="leg legR"><g transform="translate(320 0) scale(-1 1)">${leg}</g></g></g>
+  <g ${P('bp-legL',136,288,-48,32,86,.42)}><g class="leg legL">${leg(0)}</g></g>
+  <g ${P('bp-legR',184,288,48,32,-86,.46)}><g class="leg legR"><g transform="translate(320 0) scale(-1 1)">${leg(1)}</g></g></g>
   <g ${P('bp-torso',160,304,0,32,0,.34,1.2,.4)}><g class="tor">${torso}</g></g>
   <g class="bp bp-head" style="--ox:160px;--oy:212px"><g class="hd">
    <g class="hd-whole">${headArt}<g class="bs-face">${face}</g>
@@ -13435,8 +13558,8 @@ function bossSVG(skin,opts){
    </g>
    <g ${P('bp-hat',160,104,78,212,12,0,.72,.72)}><g class="ht">${hat}</g></g>
   </g></g>
-  <g ${P('bp-armL',110,221,6,113,93,.26)}><g class="arm armL">${arm}</g></g>
-  <g ${P('bp-armR',210,221,-6,113,-93,.3)}><g class="arm armR"><g transform="translate(320 0) scale(-1 1)">${arm}</g></g></g>
+  <g ${P('bp-armL',110,221,6,113,93,.26)}><g class="arm armL">${arm(0)}</g></g>
+  <g ${P('bp-armR',210,221,-6,113,-93,.3)}><g class="arm armR"><g transform="translate(320 0) scale(-1 1)">${arm(1)}</g></g></g>
  </g>
  <g class="bs-steam">${steam}</g>
  <g class="bs-dust">${dust}</g>
@@ -13444,6 +13567,303 @@ function bossSVG(skin,opts){
  <circle class="bs-flash" cx="160" cy="190" r="40" fill="${k.glow}"/>
  <g class="bs-sparks">${sparks}</g>
 </svg>`}
+
+/* ======================= pseudo-3D street and houses (Trick-or-Treat) =======================
+   Every house is drawn in one-point perspective: all depth edges run to the same vanishing point (VP).
+   Faces are lit from the moon (upper right): roof slope brightest, front wall medium, side wall in shadow. */
+const H3={vx:186,vy:129,k:.3};
+const h3n=n=>Math.round(n*10)/10;
+const h3p=a=>'M'+a.map(p=>h3n(p[0])+' '+h3n(p[1])).join('L')+'Z';
+const h3far=(p,k,vx,vy)=>{k=k==null?H3.k:k;vx=vx==null?H3.vx:vx;vy=vy==null?H3.vy:vy;return [p[0]+(vx-p[0])*k,p[1]+(vy-p[1])*k]};
+const h3mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+const HOUSES=[
+ {name:'manor',wall:['#80509f','#4a2569','#2c1546'],side:['#47245f','#1f0f38'],roof:['#a272d6','#5a3490'],roofS:'#3a2066',trim:'#d9c4ff',glow:['#fff0b8','#ffa33c'],door:'#2d1244',accent:['#ffb347','#ff6f91','#b88cff'],bay:true,chim:true},
+ {name:'cottage',sym:true,wall:['#4c63a8','#2b3a78','#18214a'],side:['#2a3a74','#121a3c'],roof:['#7a8fe0','#3b4c9a'],roofS:'#26346e',trim:'#cfe0ff',glow:['#e8ffd0','#7fe28a'],door:'#1a2347',accent:['#9bff9b','#7fe0ff','#ffe27a'],chim:true,floors:2},
+ {name:'tower',wall:['#9a4a86','#5c2358','#34123a'],side:['#512050','#240c29'],roof:['#c4708a','#7a2f5e'],roofS:'#4a1c46',trim:'#ffd0e6',glow:['#ffe3f0','#ff6fa8'],door:'#33102f',accent:['#ff7ab8','#ffd27a','#b88cff'],tower:true}
+];
+function h3win(u,x,y,w,h,o){
+ o=o||{};const arch=o.arch,P=o.pal,r=w/2;
+ const frame=arch?`M${x-2} ${y+h+2}V${y+r}a${r+2} ${r+2} 0 0 1 ${w+4} 0V${y+h+2}Z`:`M${x-2} ${y-2}h${w+4}v${h+4}h${-w-4}Z`;
+ const glass=arch?`M${x} ${y+h}V${y+r}a${r} ${r} 0 0 1 ${w} 0V${y+h}Z`:`M${x} ${y}h${w}v${h}h${-w}Z`;
+ return `<g class="fx-win-g${o.cls?' '+o.cls:''}">
+  <path d="${frame}" fill="${P.trim}"/><path d="${frame}" fill="#000" opacity=".28"/>
+  <path d="${glass}" fill="url(#${u}gl)"/>
+  <path d="${glass}" fill="url(#${u}in)"/>
+  <path d="M${x+w/2} ${y}V${y+h}M${x} ${y+h*.5}H${x+w}" stroke="${P.door}" stroke-width="1.5" opacity=".8"/>
+  <path d="M${x+1} ${y+h}l${w*.3} ${-h*.42}l${w*.14} ${h*.42}Z" fill="#12061f" opacity=".5"/>
+  <rect x="${x-3}" y="${y+h+1.5}" width="${w+6}" height="2.6" rx="1" fill="${P.trim}"/><rect x="${x-3}" y="${y+h+3.8}" width="${w+6}" height="1.6" fill="#000" opacity=".35"/>
+ </g>`}
+/* a window painted on the right (side) wall: u0..u1 = depth along the wall, y0..y1 = height */
+function h3sidewin(u,fx,u0,u1,y0,y1,P){
+ const at=(uu,y)=>{const f=h3far([fx,y]);return [fx+(f[0]-fx)*uu,y+(f[1]-y)*uu]};
+ const q=[at(u0,y0),at(u1,y0),at(u1,y1),at(u0,y1)];
+ const e=.012,qi=[at(u0+.03,y0+3),at(u1-.03,y0+3),at(u1-.03,y1-3),at(u0+.03,y1-3)];
+ const mid=(a,b)=>h3mix(a,b,.5);
+ const mt=mid(qi[0],qi[1]),mb=mid(qi[3],qi[2]),ml=mid(qi[0],qi[3]),mr=mid(qi[1],qi[2]);
+ return `<g class="fx-win-g w2"><path d="${h3p(q)}" fill="${P.trim}" opacity=".9"/><path d="${h3p(qi)}" fill="url(#${u}gl)"/><path d="${h3p(qi)}" fill="url(#${u}in)"/>
+  <path d="M${h3n(mt[0])} ${h3n(mt[1])}L${h3n(mb[0])} ${h3n(mb[1])}M${h3n(ml[0])} ${h3n(ml[1])}L${h3n(mr[0])} ${h3n(mr[1])}" stroke="${P.door}" stroke-width="1.3" opacity=".8"/></g>`}
+function h3defs(u,P,sym){
+ return `<defs>
+  <linearGradient id="${u}wf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${P.wall[0]}"/><stop offset=".62" stop-color="${P.wall[1]}"/><stop offset="1" stop-color="${P.wall[2]}"/></linearGradient>
+  <linearGradient id="${u}ws" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${P.side[0]}"/><stop offset="1" stop-color="${P.side[1]}"/></linearGradient>
+  <linearGradient id="${u}rf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${P.roof[0]}"/><stop offset="1" stop-color="${P.roof[1]}"/></linearGradient>
+  <radialGradient id="${u}gl" cx=".5" cy=".62" r=".75"><stop offset="0" stop-color="${P.glow[0]}"/><stop offset=".55" stop-color="${P.glow[1]}"/><stop offset="1" stop-color="${P.glow[1]}" stop-opacity=".78"/></radialGradient>
+  <linearGradient id="${u}in" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a0a2a" stop-opacity=".62"/><stop offset=".35" stop-color="#1a0a2a" stop-opacity="0"/></linearGradient>
+  <linearGradient id="${u}ao" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0418" stop-opacity="0"/><stop offset="1" stop-color="#0a0418" stop-opacity=".62"/></linearGradient>
+  <linearGradient id="${u}eaves" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0418" stop-opacity=".62"/><stop offset="1" stop-color="#0a0418" stop-opacity="0"/></linearGradient>
+  <linearGradient id="${u}cy" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset=".42" stop-color="#fff" stop-opacity=".16"/><stop offset=".62" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></linearGradient>
+  <radialGradient id="${u}sh" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#050110" stop-opacity=".75"/><stop offset="1" stop-color="#050110" stop-opacity="0"/></radialGradient>
+  <linearGradient id="${u}sp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${P.glow[1]}" stop-opacity=".85"/><stop offset="1" stop-color="${P.glow[1]}" stop-opacity="0"/></linearGradient>
+  <radialGradient id="${u}door" cx=".5" cy=".7" r=".8"><stop offset="0" stop-color="${P.glow[0]}"/><stop offset=".6" stop-color="${P.glow[1]}"/><stop offset="1" stop-color="#7a2a10"/></radialGradient>
+  <linearGradient id="${u}fog" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2b1760" stop-opacity="0"/><stop offset="1" stop-color="#2b1760" stop-opacity=".5"/></linearGradient>
+ </defs>`}
+/* the cylinder tower with a witch-hat roof, drawn over the left corner of the front wall */
+function h3tower(u,P,cx,top,base,r){
+ const peak=top-58;
+ const brim=`M${cx-r-7} ${top}C${cx-r} ${top+8} ${cx+r} ${top+8} ${cx+r+7} ${top}C${cx+r} ${top-6} ${cx-r} ${top-6} ${cx-r-7} ${top}Z`;
+ let courses='';for(let y=top+14;y<base-6;y+=11){courses+=`<path d="M${cx-r} ${y}Q${cx} ${y+5} ${cx+r} ${y}" fill="none" stroke="#0a0418" stroke-opacity=".28" stroke-width="1"/>`}
+ let shingles='';for(let i=1;i<6;i++){const y=peak+(top-peak)*i/6,w=(r+6)*i/6;shingles+=`<path d="M${cx-w} ${y}Q${cx} ${y+4} ${cx+w} ${y}" fill="none" stroke="#1a0828" stroke-opacity=".35" stroke-width="1"/>`}
+ return `<g class="fx-tower">
+  <ellipse cx="${cx+8}" cy="${base+1}" rx="${r+10}" ry="5" fill="url(#${u}sh)"/>
+  <path d="M${cx-r} ${top}V${base}Q${cx} ${base+6} ${cx+r} ${base}V${top}Z" fill="url(#${u}wf)"/>
+  <path d="M${cx-r} ${top}V${base}Q${cx} ${base+6} ${cx+r} ${base}V${top}Z" fill="url(#${u}cy)"/>${courses}
+  <path d="M${cx-r} ${base-9}Q${cx} ${base-4} ${cx+r} ${base-9}V${base}Q${cx} ${base+6} ${cx-r} ${base}Z" fill="#0a0418" opacity=".35"/>
+  <g class="fx-win-g w2"><path d="M${cx-4} ${top+44}V${top+34}a4 4 0 0 1 8 0V${top+44}Z" fill="${P.trim}"/><path d="M${cx-2.6} ${top+43}V${top+34.5}a2.6 2.6 0 0 1 5.2 0V${top+43}Z" fill="url(#${u}gl)"/></g>
+  <g class="fx-win-g"><path d="M${cx-4} ${top+78}V${top+68}a4 4 0 0 1 8 0V${top+78}Z" fill="${P.trim}"/><path d="M${cx-2.6} ${top+77}V${top+68.5}a2.6 2.6 0 0 1 5.2 0V${top+77}Z" fill="url(#${u}gl)"/></g>
+  <path d="${brim}" fill="${P.roof[1]}"/><path d="M${cx-r-7} ${top}C${cx-r} ${top+8} ${cx+r} ${top+8} ${cx+r+7} ${top}" fill="none" stroke="#0a0418" stroke-opacity=".55" stroke-width="2"/>
+  <path d="M${cx-r-4} ${top}Q${cx-r+2} ${top-30} ${cx+1} ${peak}Q${cx+r-2} ${top-30} ${cx+r+4} ${top}Q${cx} ${top+5} ${cx-r-4} ${top}Z" fill="url(#${u}rf)"/>
+  <path d="M${cx+2} ${peak}Q${cx+r-2} ${top-30} ${cx+r+4} ${top}Q${cx+r+1} ${top+3} ${cx+3} ${top+3}Z" fill="#0a0418" opacity=".38"/>${shingles}
+  <path d="M${cx+1} ${peak}V${peak-9}" stroke="${P.trim}" stroke-width="1.6"/><circle cx="${cx+1}" cy="${peak-10}" r="2.2" fill="${P.accent[0]}"/>
+  <path d="M${cx-r-3} ${top-2}Q${cx-r+3} ${top-28} ${cx} ${peak+2}" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.4"/>
+ </g>`}
+function h3house(i,P,mirror){
+ const u='h3'+i,sym=!!P.sym;
+ const vx=sym?73:H3.vx,vy=sym?144:H3.vy,F=(p,k)=>h3far(p,k,vx,vy);
+ const x0=sym?28:P.tower?36:12,x1=sym?118:92,eave=sym?92:98,peak=sym?30:P.tower?44:40,base=182,mx=(x0+x1)/2;
+ const A=[mx,peak],EL=[x0-6,eave+4],ER=[x1+6,eave+4];
+ let out=h3defs(u,P,sym);
+ /* contact shadow, thrown away from the moon */
+ out+=`<ellipse cx="${sym?mx:mx+14}" cy="${base+3}" rx="${(x1-x0)*.78}" ry="9" fill="url(#${u}sh)"/>`;
+ /* side wall (only a one-point house shows it) */
+ if(!sym){
+  const t=[x1,eave],b=[x1,base],ft=F(t),fb=F(b);
+  out+=`<path d="${h3p([t,ft,fb,b])}" fill="url(#${u}ws)"/>`;
+  for(let y=eave+6;y<base-2;y+=6){const a=F([x1,y]);out+=`<path d="M${x1} ${y}L${h3n(a[0])} ${h3n(a[1])}" stroke="#05010f" stroke-opacity=".26" stroke-width="1"/>`}
+  out+=`<path d="${h3p([t,ft,fb,b])}" fill="url(#${u}fog)"/>`;
+  const fy=base-4,fa=F([x1,fy]);
+  out+=`<path d="${h3p([[x1,base-10],F([x1,base-10]),F([x1,base]),[x1,base]])}" fill="#05010f" opacity=".38"/>`;
+  out+=h3sidewin(u,x1,.18,.42,eave+22,eave+46,P)+h3sidewin(u,x1,.58,.8,eave+22,eave+46,P)+h3sidewin(u,x1,.18,.42,eave+58,eave+74,P);
+ }
+ /* roof planes behind the gable */
+ const roofSide=(E,sign)=>{
+  const fa=F(A),fe=F(E);
+  let s=`<path d="${h3p([A,E,fe,fa])}" fill="url(#${u}rf)"/>`;
+  for(let t=1;t<10;t++){const a=h3mix(A,E,t/10),fa2=F(a);s+=`<path d="M${h3n(a[0])} ${h3n(a[1])}L${h3n(fa2[0])} ${h3n(fa2[1])}" stroke="#0a0418" stroke-opacity=".34" stroke-width="1.1"/><path d="M${h3n(a[0])} ${h3n(a[1]+1.3)}L${h3n(fa2[0])} ${h3n(fa2[1]+1.3)}" stroke="#fff" stroke-opacity=".12" stroke-width=".8"/>`}
+  s+=`<path d="${h3p([A,h3mix(A,E,.16),h3mix(F(A),F(E),.16),F(A)])}" fill="#fff" opacity=".1"/>`;
+  s+=`<path d="M${h3n(A[0])} ${h3n(A[1])}L${h3n(fa[0])} ${h3n(fa[1])}" stroke="${P.trim}" stroke-opacity=".75" stroke-width="1.6" stroke-linecap="round"/>`;
+  s+=`<path d="M${h3n(E[0])} ${h3n(E[1])}L${h3n(fe[0])} ${h3n(fe[1])}" stroke="#0a0418" stroke-opacity=".6" stroke-width="2.2"/>`;
+  s+=`<path d="${h3p([E,fe,[fe[0],fe[1]+3],[E[0],E[1]+3]])}" fill="#0a0418" opacity=".5"/>`;
+  return s};
+ out+=roofSide(ER,1);
+ if(sym)out+=roofSide(EL,-1);
+ /* chimney on the roof slope */
+ if(P.chim){
+  const c=h3mix(A,ER,sym?.5:.46),cx=c[0]+(sym?6:8),cy=c[1]-2,w=11,hh=26,d=.045;
+  const tl=[cx-w/2,cy-hh],tr=[cx+w/2,cy-hh],br=[cx+w/2,cy+6],bl=[cx-w/2,cy-1];
+  out+=`<path d="${h3p([tr,F(tr,d),F([br[0],br[1]],d),br])}" fill="${P.roofS}"/><path d="${h3p([tl,tr,br,bl])}" fill="url(#${u}ws)"/><path d="${h3p([tl,tr,br,bl])}" fill="${P.wall[0]}" opacity=".45"/>`;
+  for(let y=cy-hh+6;y<cy;y+=6)out+=`<path d="M${cx-w/2} ${y}H${cx+w/2}" stroke="#05010f" stroke-opacity=".3" stroke-width="1"/>`;
+  out+=`<path d="${h3p([tl,tr,F(tr,d),F(tl,d)])}" fill="${P.trim}" opacity=".85"/><rect x="${cx-w/2-1.5}" y="${cy-hh-2.4}" width="${w+3}" height="3" rx="1" fill="${P.trim}"/>`;
+  out+=`<g class="fx-smoke"><circle cx="${cx}" cy="${cy-hh-6}" r="3.4"/><circle cx="${cx+2}" cy="${cy-hh-14}" r="4.4" class="s2"/><circle cx="${cx-1}" cy="${cy-hh-23}" r="5.4" class="s3"/></g>`}
+ /* front wall with the gable */
+ const front=`M${x0} ${base}V${eave}L${mx} ${peak}L${x1} ${eave}V${base}Z`;
+ out+=`<path d="${front}" fill="url(#${u}wf)"/>`;
+ for(let y=eave+5;y<base-6;y+=6)out+=`<path d="M${x0} ${y}H${x1}" stroke="#05010f" stroke-opacity=".13" stroke-width="1"/>`;
+ for(let y=peak+8;y<eave;y+=6){const half=(y-peak)/(eave-peak)*(x1-x0)/2;out+=`<path d="M${mx-half+1} ${y}H${mx+half-1}" stroke="#05010f" stroke-opacity=".13" stroke-width="1"/>`}
+ out+=`<path d="M${x0} ${eave}H${x1}L${x1} ${eave+13}H${x0}Z" fill="url(#${u}eaves)"/>`;
+ out+=`<path d="M${x0} ${base-12}H${x1}V${base}H${x0}Z" fill="#05010f" opacity=".3"/><path d="M${x0} ${base-12}H${x1}" stroke="${P.trim}" stroke-opacity=".4" stroke-width="1.2"/>`;
+ for(let x=x0+4;x<x1-4;x+=11)out+=`<path d="M${x} ${base-12}V${base}" stroke="#05010f" stroke-opacity=".3"/>`;
+ out+=`<path d="M${x0} ${base-30}V${base}H${x1}V${base-30}" fill="none"/><path d="${front}" fill="url(#${u}ao)" opacity=".5"/>`;
+ /* corner stones — the rim of the near edge */
+ if(!sym){for(let y=eave+4;y<base-12;y+=11)out+=`<rect x="${x1-5}" y="${y}" width="5" height="6" fill="${P.trim}" opacity="${(y/11|0)%2?.34:.2}"/>`;
+  out+=`<path d="M${x1} ${eave}V${base}" stroke="#fff" stroke-opacity=".55" stroke-width="1.4"/>`}
+ /* bargeboards */
+ out+=`<path d="M${EL[0]} ${EL[1]}L${mx} ${peak-3}L${ER[0]} ${ER[1]}" fill="none" stroke="${P.roof[1]}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><path d="M${EL[0]} ${EL[1]-1}L${mx} ${peak-4.5}L${ER[0]} ${ER[1]-1}" fill="none" stroke="${P.trim}" stroke-opacity=".7" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>`;
+ /* round attic window */
+ const wy=sym?56:(peak+eave)/2+4;
+ out+=`<g class="fx-win-g w2"><circle cx="${mx}" cy="${wy}" r="11" fill="${P.trim}"/><circle cx="${mx}" cy="${wy}" r="8.6" fill="url(#${u}gl)"/><circle cx="${mx}" cy="${wy}" r="8.6" fill="url(#${u}in)"/><path d="M${mx} ${wy-8.6}V${wy+8.6}M${mx-8.6} ${wy}H${mx+8.6}" stroke="${P.door}" stroke-width="1.4"/></g>`;
+ /* windows and door */
+ const doorX=P.tower?66:mx,dw=22;
+ if(sym){
+  [38,96].forEach(wx=>out+=h3win(u,wx,104,12,24,{pal:P,arch:true}));
+  out+=h3win(u,mx-6,104,12,24,{pal:P,arch:true,cls:'w2'});
+  [36,98].forEach(wx=>out+=h3win(u,wx,141,11,22,{pal:P}))
+ }else if(P.tower){
+  out+=h3win(u,48,112,12,22,{pal:P,arch:true})+h3win(u,76,112,12,22,{pal:P,arch:true,cls:'w2'});
+  out+=h3win(u,44,146,10,20,{pal:P})
+ }else{
+  out+=h3win(u,22,112,14,22,{pal:P,arch:true})+h3win(u,68,112,14,22,{pal:P,arch:true,cls:'w2'});
+  out+=h3win(u,20,146,12,20,{pal:P,cls:'w2'})+h3win(u,72,146,12,20,{pal:P})
+ }
+ /* eave lights */
+ let lights=`<path d="M${x0+2} ${eave+3}Q${mx} ${eave+9} ${x1-2} ${eave+3}" fill="none" stroke="#05010f" stroke-opacity=".7" stroke-width=".9"/>`;
+ for(let b=0;b<9;b++){const t=(b+.5)/9,x=x0+2+(x1-x0-4)*t,y=eave+3+Math.sin(t*Math.PI)*3.6;lights+=`<circle class="fx-bulb b${b%3}" cx="${h3n(x)}" cy="${h3n(y+2)}" r="1.9" fill="${P.accent[b%3]}"/>`}
+ out+=lights;
+ /* doorway: warm interior, a spill of light, then the door leaf */
+ const dTop=140,dBot=base-6,dx0=doorX-dw/2;
+ out+=`<g class="fx-porch">`;
+ out+=`<path class="fx-spill" d="M${dx0+2} ${base-4}H${dx0+dw-2}L${dx0+dw+16} ${base+16}H${dx0-16}Z" fill="url(#${u}sp)"/>`;
+ [[dx0-10,dTop+4],[dx0+dw+6,dTop+4]].forEach(([px,py])=>out+=`<rect x="${px}" y="${py}" width="4" height="${dBot-py+6}" fill="${P.trim}" opacity=".92"/><rect x="${px+2.6}" y="${py}" width="1.4" height="${dBot-py+6}" fill="#000" opacity=".3"/>`);
+ out+=`<path d="M${dx0-3} ${dBot+6}V${dTop+14}a${dw/2+3} ${dw/2+3} 0 0 1 ${dw+6} 0V${dBot+6}Z" fill="${P.trim}" opacity=".92"/><path d="M${dx0} ${dBot+6}V${dTop+14}a${dw/2} ${dw/2} 0 0 1 ${dw} 0V${dBot+6}Z" fill="#05010f"/>`;
+ out+=`<g class="fx-open"><path d="M${dx0} ${dBot+6}V${dTop+14}a${dw/2} ${dw/2} 0 0 1 ${dw} 0V${dBot+6}Z" fill="url(#${u}door)"/><path d="M${dx0} ${dBot+6}V${dTop+14}a${dw/2} ${dw/2} 0 0 1 ${dw} 0V${dBot+6}Z" fill="url(#${u}in)"/><path d="M${dx0} ${dBot+6}l${dw*.45} -10h${dw*.1}l${dw*.45} 10Z" fill="#fff" opacity=".25"/></g>`;
+ out+=`<g class="fx-door"><path d="M${dx0} ${dBot+6}V${dTop+14}a${dw/2} ${dw/2} 0 0 1 ${dw} 0V${dBot+6}Z" fill="${P.door}"/>
+  <path d="M${dx0+3} ${dBot+3}V${dTop+16}a${dw/2-3} ${dw/2-3} 0 0 1 ${dw-6} 0V${dBot+3}Z" fill="#fff" opacity=".07"/>
+  <path d="M${doorX} ${dTop+3}V${dBot+6}M${dx0} ${dTop+26}H${dx0+dw}" stroke="#05010f" stroke-opacity=".5" stroke-width="1.2"/>
+  <path d="M${dx0+1} ${dTop+24}H${dx0+dw-1}M${dx0+1} ${dBot-3}H${dx0+dw-1}" stroke="${P.trim}" stroke-opacity=".3" stroke-width="1.6"/>
+  <circle cx="${doorX+4}" cy="${dTop+30}" r="1.7" fill="${P.accent[0]}"/><circle cx="${doorX}" cy="${dTop+11}" r="2.4" fill="none" stroke="${P.accent[0]}" stroke-width="1.2"/></g>`;
+ /* porch roof, lit on the slope facing the moon */
+ const pr=[[dx0-14,dTop-1],[doorX,dTop-15],[dx0+dw+14,dTop-1]],pd=.07,pa=F(pr[1],pd),pe=F(pr[2],pd);
+ out+=`<path d="${h3p([pr[1],pr[2],pe,pa])}" fill="url(#${u}rf)"/><path d="M${pr[1][0]} ${pr[1][1]}L${pa[0]} ${pa[1]}" stroke="${P.trim}" stroke-opacity=".7" stroke-width="1.2"/>`;
+ out+=`<path d="${h3p([pr[0],pr[1],pr[2]])}" fill="${P.wall[1]}"/><path d="M${pr[0][0]} ${pr[0][1]}H${pr[2][0]}" stroke="#05010f" stroke-opacity=".5" stroke-width="2"/><path d="M${pr[0][0]-1} ${pr[0][1]+1}L${pr[1][0]} ${pr[1][1]-1}L${pr[2][0]+1} ${pr[2][1]+1}" fill="none" stroke="${P.trim}" stroke-width="1.8" stroke-linejoin="round"/>`;
+ out+=`<path d="M${pr[0][0]+2} ${pr[0][1]+1}H${pr[2][0]-2}V${pr[0][1]+7}H${pr[0][0]+2}Z" fill="url(#${u}eaves)"/>`;
+ /* lantern */
+ out+=`<g class="fx-lantern"><path d="M${dx0+dw+4} ${dTop+6}v6" stroke="#05010f" stroke-width="1.2"/><rect x="${dx0+dw+1.5}" y="${dTop+12}" width="5" height="7" rx="1.4" fill="${P.accent[0]}"/><circle cx="${dx0+dw+4}" cy="${dTop+15.5}" r="8" fill="${P.accent[0]}" opacity=".22"/></g>`;
+ /* steps, each with a lit top face */
+ [[0,6,dw+16],[1,12,dw+24]].forEach(([n,dy,w])=>{
+  const sx=doorX-w/2,sy=base-4+dy*.55,top=[[sx,sy],[sx+w,sy]],tf=[top[0],top[1],F(top[1],.035),F(top[0],.035)];
+  out+=`<rect x="${sx}" y="${sy}" width="${w}" height="${n?4.4:4}" fill="${P.wall[2]}"/><path d="${h3p(tf)}" fill="${P.trim}" opacity="${n?.5:.65}"/>`});
+ out+=`</g>`;
+ /* tower in front of the left corner */
+ if(P.tower)out+=h3tower(u,P,26,82,base-1,16);
+ /* bay window in front of the left wall */
+ if(P.bay){
+  const bx=10,by=140,bw=34,bh=34,pk=7;
+  out+=`<path d="${h3p([[bx,by],[bx+bw,by],[bx+bw+pk,by+pk*.2],[bx+bw+pk,by+bh],[bx+bw,by+bh-pk*.2],[bx,by+bh-pk*.2]])}" fill="${P.wall[1]}" opacity=".0"/>`}
+ /* cobweb in the top-left corner of the gable */
+ out+=`<g fill="none" stroke="#fff" stroke-opacity=".34" stroke-width=".7"><path d="M${x0+1} ${eave-1}L${x0+14} ${eave-18}M${x0+1} ${eave-1}L${x0+17} ${eave-10}M${x0+1} ${eave-1}L${x0+18} ${eave-1}"/><path d="M${x0+6} ${eave-8}Q${x0+9} ${eave-6} ${x0+10} ${eave-12}M${x0+11} ${eave-14}Q${x0+14} ${eave-11} ${x0+15} ${eave-15}"/></g>`;
+ return out}
+function houseSVG(i){
+ const P=HOUSES[i%HOUSES.length],mirror=i%3===2,body=h3house(i,P,mirror);
+ return `<svg viewBox="0 0 146 200" aria-hidden="true" class="fx-h3 fx-h3-${P.name}">${mirror?`<g transform="translate(146 0) scale(-1 1)">${body}</g>`:body}</svg>`}
+/* where the door and the porch pumpkin sit in each house, in % of the house box — read by the CSS */
+const HOUSE_POS=[{wx:35.6,px:15},{wx:50,px:23},{wx:54.8,px:33}];
+function streetScene(){
+ const vx=180,hz=205;
+ let cob='';for(let i=0;i<14;i++){const x=-60+i*36;cob+=`<path d="M${vx} ${hz}L${x+30} 340" />`}
+ let rows='';[216,230,248,272,306].forEach(y=>{const t=(y-hz)/(340-hz),l=vx-(vx-30)*t,r=vx+(330-vx)*t;rows+=`<path d="M${l} ${y}H${r}"/>`});
+ const win=[[24,176],[58,184],[86,170],[120,186],[236,178],[262,172],[300,184],[336,176]].map(([x,y],i)=>`<rect class="fx-win2" x="${x}" y="${y}" width="3.4" height="4.4" style="animation-delay:${-i*.7}s"/>`).join('');
+ const bat=(x,y,s,c)=>`<g class="fx-bat ${c}"><g transform="translate(${x} ${y}) scale(${s})"><path d="M0 0C-3-4-8-5-12-2C-9-2-8 0-8 2C-6 0-4 1-3 3C-2 1-1 1 0 2C1 1 2 1 3 3C4 1 6 0 8 2C8 0 9-2 12-2C8-5 3-4 0 0Z"/></g></g>`;
+ return `<svg class="fx-scene street" viewBox="0 0 360 340" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+ <defs>
+  <linearGradient id="stSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d0624"/><stop offset=".55" stop-color="#2a1565"/><stop offset="1" stop-color="#6b3a9c"/></linearGradient>
+  <radialGradient id="stMoon" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset="1" stop-color="#e5cf86"/></radialGradient>
+  <radialGradient id="stHalo"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".55"/><stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/></radialGradient>
+  <linearGradient id="stRoad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34205f"/><stop offset="1" stop-color="#1a0d3a"/></linearGradient>
+  <linearGradient id="stGrass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1d1042"/><stop offset="1" stop-color="#0e0722"/></linearGradient>
+  <radialGradient id="stLamp"><stop offset="0" stop-color="#ffcf7a" stop-opacity=".75"/><stop offset=".4" stop-color="#ffb347" stop-opacity=".25"/><stop offset="1" stop-color="#ffb347" stop-opacity="0"/></radialGradient>
+  <radialGradient id="stPool"><stop offset="0" stop-color="#ffcf7a" stop-opacity=".5"/><stop offset="1" stop-color="#ffcf7a" stop-opacity="0"/></radialGradient>
+  <radialGradient id="stVig" cx=".5" cy=".55" r=".75"><stop offset=".55" stop-color="#05010f" stop-opacity="0"/><stop offset="1" stop-color="#05010f" stop-opacity=".75"/></radialGradient>
+  <linearGradient id="stFog" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b9a6f2" stop-opacity="0"/><stop offset=".5" stop-color="#b9a6f2" stop-opacity=".3"/><stop offset="1" stop-color="#b9a6f2" stop-opacity="0"/></linearGradient>
+ </defs>
+ <rect width="360" height="340" fill="url(#stSky)"/>
+ <g fill="#fff">${[[30,22,1.3],[80,60,1],[130,18,1.2],[196,44,1],[238,14,1.3],[330,92,1],[18,104,1],[160,86,.9],[110,110,.9],[216,92,.9]].map(([x,y,r],i)=>`<circle class="fx-star" cx="${x}" cy="${y}" r="${r}" style="animation-delay:${-i*.5}s"/>`).join('')}</g>
+ <circle cx="292" cy="58" r="64" fill="url(#stHalo)"/><circle cx="292" cy="58" r="27" fill="url(#stMoon)"/><circle cx="283" cy="50" r="6" fill="#cdb668" opacity=".45"/><circle cx="300" cy="68" r="4" fill="#cdb668" opacity=".45"/><circle cx="302" cy="46" r="3" fill="#cdb668" opacity=".4"/>
+ <ellipse cx="250" cy="82" rx="90" ry="9" fill="#4a2c92" opacity=".35"/><ellipse cx="330" cy="70" rx="50" ry="6" fill="#4a2c92" opacity=".3"/><ellipse cx="70" cy="64" rx="80" ry="8" fill="#3a2080" opacity=".3"/><ellipse cx="130" cy="130" rx="70" ry="6" fill="#3a2080" opacity=".25"/>
+ <path d="M0 205V178L16 168L30 178V160L40 150L50 160V182L70 174L84 182V170H104L110 150L120 170V186L140 180V205Z M220 205V184L240 176L252 184V168L262 158L272 168V186L292 178L306 188V170L322 160L336 172V190L360 184V205Z" fill="#190d3a"/>
+ <path d="M96 205V150L100 138L104 150V205Z M255 205V158L259 144L263 158V205Z" fill="#150a31"/>${win}
+ <g fill="#120828"><path d="M0 205C20 190 40 196 56 190C34 186 18 180 0 184Z"/><path d="M360 205C340 192 322 198 306 192C326 188 344 182 360 186Z"/></g>
+ <rect x="0" y="205" width="360" height="135" fill="url(#stGrass)"/>
+ <path d="M172 205H188L338 340H22Z" fill="url(#stRoad)"/>
+ <g stroke="#7a5cc8" stroke-opacity=".13" stroke-width="1" fill="none">${cob}${rows}</g>
+ <path d="M172 205L22 340M188 205L338 340" stroke="#a98bff" stroke-opacity=".35" stroke-width="2" fill="none"/>
+ <path d="M178 208L170 340H190L182 208Z" fill="#ffe9a8" opacity=".05"/>
+ <ellipse cx="286" cy="262" rx="46" ry="12" fill="#ffe9a8" opacity=".08" transform="rotate(14 286 262)"/>
+ <g fill="#0a0518" opacity=".6"><path d="M0 232C40 224 80 234 120 232L100 340H0Z"/><path d="M360 232C320 224 280 234 240 232L260 340H360Z"/></g>
+ <g stroke="#2a1760" stroke-width="2" fill="#2a1760"><path d="M8 340V300M24 340V296M40 340V300M58 340V304" opacity=".0"/></g>
+ <g>${[[142,268,.9],[218,268,.9]].map(([x,y,sc],i)=>`<g class="fx-lampg"><ellipse cx="${x}" cy="${y+2}" rx="${26*sc}" ry="${6*sc}" fill="url(#stPool)"/><path d="M${x} ${y}V${y-52*sc}" stroke="#0b0520" stroke-width="3.2"/><path d="M${x-1.4} ${y}V${y-50*sc}" stroke="#34206a" stroke-width="1"/><path d="M${x-5} ${y-52*sc}h10l-1.4-6h-7.2Z" fill="#0b0520"/><rect x="${x-3.6}" y="${y-64*sc}" width="7.2" height="8.4" rx="1.6" fill="#ffd89a"/><path d="M${x-5} ${y-64*sc}h10l-5-6Z" fill="#0b0520"/><circle class="fx-lamp${i?' l2':''}" cx="${x}" cy="${y-60*sc}" r="26" fill="url(#stLamp)"/></g>`).join('')}</g>
+ <g opacity=".95"><path d="M158 226V214" stroke="#0b0520" stroke-width="1.6"/><circle class="fx-lamp l2" cx="158" cy="212" r="8" fill="url(#stLamp)"/><circle cx="158" cy="212" r="1.5" fill="#ffd89a"/><path d="M202 226V214" stroke="#0b0520" stroke-width="1.6"/><circle class="fx-lamp" cx="202" cy="212" r="8" fill="url(#stLamp)"/><circle cx="202" cy="212" r="1.5" fill="#ffd89a"/></g>
+ <g fill="none" stroke="#0b0520" stroke-width="4" stroke-linecap="round"><path d="M8 236C10 214 6 196 12 176M10 206l-9-10M10 194l9-10"/><path d="M352 238C348 216 354 198 346 176M350 208l9-10M348 192l-8-10"/></g>
+ <ellipse class="fx-fog" cx="100" cy="258" rx="140" ry="18" fill="url(#stFog)"/><ellipse class="fx-fog f2" cx="270" cy="276" rx="150" ry="20" fill="url(#stFog)"/><ellipse class="fx-fog f3" cx="180" cy="228" rx="120" ry="12" fill="url(#stFog)"/>
+ ${bat(70,92,1.3,'b1')}${bat(250,120,1,'b2')}${bat(150,60,.9,'b3')}
+ <rect width="360" height="340" fill="url(#stVig)"/></svg>`}
+
+/* a second layer drawn above the houses: fence, branches, webs — it frames the picture and adds depth */
+function streetFore(){
+ const fence=(x0,y0,x1,y1)=>{let d='',tips='';const n=9;for(let i=0;i<=n;i++){const t=i/n,x=x0+(x1-x0)*t,y=y0+(y1-y0)*t,h=17-4*Math.abs(t-(x1>x0?1:0));d+=`M${h3n(x)} ${h3n(y)}V${h3n(y-h)}`;tips+=`<path d="M${h3n(x-1.7)} ${h3n(y-h)}L${h3n(x)} ${h3n(y-h-5)}L${h3n(x+1.7)} ${h3n(y-h)}Z"/>`}
+  return `<g><path d="${d}" stroke="#07031a" stroke-width="2" fill="none"/><g fill="#07031a">${tips}</g><path d="M${x0} ${y0-4}L${x1} ${y1-4}M${x0} ${y0-11}L${x1} ${y1-11}" stroke="#07031a" stroke-width="1.8"/><path d="M${x0+1} ${y0-5}L${x1} ${y1-5}" stroke="#8a6ad8" stroke-opacity=".45" stroke-width=".7"/></g>`};
+ return `<svg class="fx-fore" viewBox="0 0 360 340" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <defs><linearGradient id="stFg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#05010f" stop-opacity="0"/><stop offset="1" stop-color="#05010f" stop-opacity=".8"/></linearGradient></defs>
+  ${fence(0,282,128,266)}${fence(360,282,232,266)}
+  <rect y="290" width="360" height="50" fill="url(#stFg)"/>
+  <g fill="none" stroke="#06020f" stroke-linecap="round"><path d="M-4 40C30 36 60 54 92 50C110 48 120 38 140 40" stroke-width="5"/><path d="M40 46C42 62 36 74 40 86M70 52C76 62 74 72 82 78M100 50C112 58 112 70 122 74" stroke-width="2.4"/><path d="M364 22C330 28 300 12 270 24C250 32 244 44 224 44" stroke-width="5"/><path d="M320 24C326 38 320 50 326 62M284 18C284 30 292 38 290 50M250 30C256 40 252 50 260 56" stroke-width="2.4"/></g>
+  <g stroke="#fff" stroke-opacity=".5" stroke-width=".8" fill="none"><path d="M0 0L38 38M0 0L46 18M0 0L18 46M0 0L46 34"/><path d="M10 10Q22 12 24 24M20 20Q34 22 36 34M5 24Q16 30 26 28"/></g>
+  <g stroke="#fff" stroke-opacity=".5" stroke-width=".8" fill="none"><path d="M360 0L322 38M360 0L314 18M360 0L342 46M360 0L314 34"/><path d="M350 10Q338 12 336 24M340 20Q326 22 324 34M355 24Q344 30 334 28"/></g>
+  <g class="fx-leaves" fill="#c9742a" opacity=".7"><path d="M40 322l5-3 2 5z"/><path d="M300 316l5 2-3 5z"/><path d="M120 330l5-2 1 5z"/><path d="M250 326l4-3 3 4z"/></g>
+ </svg>`}
+
+/* ======================= pumpkin pass: SVG medals, emblem, prize stages ======================= */
+const PZ_KIND={
+ pumpkins:{c:['#ffc062','#e0620f','#7a2a05'],tag:'Тыквы'},
+ tickets:{c:['#9ae6ff','#2f86d8','#12407a'],tag:'Билеты'},
+ ton:{c:['#7fdcff','#1f86e0','#0d3f7a'],tag:'TON'},
+ bonus:{c:['#b6bfff','#5f5de6','#2a2a8a'],tag:'Бонус TON'},
+ promo:{c:['#ecaaff','#a04ade','#4c1a7a'],tag:'Промокод'},
+ catalog:{c:['#ffa8cc','#dc468c','#7a1a48'],tag:'Подарок'},
+ fragment:{c:['#ffa8cc','#dc468c','#7a1a48'],tag:'NFT-подарок'},
+ wager_gift:{c:['#78f2d8','#1fa88e','#0b5a4c'],tag:'На отыгрыш'}
+};
+const pzKind=r=>PZ_KIND[(r&&r.type)||'']||PZ_KIND.pumpkins;
+const pzBig=(l,max)=>{const t=l.reward&&l.reward.type;return l.n===max||l.n%5===0||t==='catalog'||t==='fragment'||t==='wager_gift'};
+/* a coupon for personal promo codes — there is no picture for them in the data */
+function pzCoupon(r){
+ const dep=r.title&&/%/.test(r.title),label=dep?r.title.replace(/\s.*$/,''):'TON';
+ return `<svg class="hw-art-i pz-glyph" viewBox="0 0 72 64" aria-hidden="true"><defs><linearGradient id="pzCp" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6c8ff"/><stop offset=".55" stop-color="#b863ee"/><stop offset="1" stop-color="#6a2aa8"/></linearGradient><linearGradient id="pzCe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4c1a7a"/><stop offset="1" stop-color="#2a0c4a"/></linearGradient></defs>
+ <g transform="rotate(-9 36 32)"><path d="M8 24h56a4 4 0 0 1 4 4v7a5 5 0 0 0 0 9v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-7a5 5 0 0 0 0-9v-7a4 4 0 0 1 4-4Z" fill="url(#pzCe)" transform="translate(0 3)"/>
+ <path d="M8 22h56a4 4 0 0 1 4 4v7a5 5 0 0 0 0 9v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-7a5 5 0 0 0 0-9v-7a4 4 0 0 1 4-4Z" fill="url(#pzCp)"/>
+ <path d="M8 23h56" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" stroke-linecap="round"/>
+ <path d="M50 26v26" stroke="#fff" stroke-opacity=".6" stroke-width="1.6" stroke-dasharray="3 3"/>
+ <text x="27" y="43" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${label.length>4?12:15}" fill="#fff" stroke="#4c1a7a" stroke-width=".8" paint-order="stroke">${esc6(label)}</text>
+ <path d="M59 34l1.8 3.7 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z" fill="#ffe27a"/></g></svg>`}
+function pzGlyph(r){
+ if(r.type==='promo')return pzCoupon(r);
+ return artHTML(r.image_url||'hw:gift','pz-glyph')}
+/* the stage for a prize: a lit pedestal, optional rays, a badge for wager gifts */
+function pzArt(r,o){
+ o=o||{};const k=pzKind(r),badge=r.type==='wager_gift'?`<i class="pz-badge"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="2" fill="#0b5a4c"/><path d="M5.2 7V5.2a2.8 2.8 0 0 1 5.6 0V7" fill="none" stroke="#0b5a4c" stroke-width="1.6"/></svg><b>X${esc6(String(+(+r.wager_multiplier||0).toFixed(2)))}</b></i>`:'';
+ return `<span class="pz-art${o.big?' big':''}" style="--c0:${k.c[0]};--c1:${k.c[1]};--c2:${k.c[2]}">${o.big?'<i class="pz-rays"></i>':''}<i class="pz-glow"></i><i class="pz-disc"></i><span class="pz-ico">${pzGlyph(r)}</span><i class="pz-base"></i>${badge}</span>`}
+/* a coin with an embossed level number: ring, dish, thickness, highlight */
+function pzMedal(n,st,size){
+ const col={locked:['#6a5c98','#3a2f66','#241a4a','#d9ccf5'],open:['#fff1b8','#f5b82e','#9a5a08','#4a2606'],claimed:['#a6f0bf','#2fa466','#145a34','#ffffff']}[st]||[];
+ const id='pzM'+st,txt=String(n).length>2?15:String(n).length>1?19:22;
+ return `<svg class="pz-medal ${st}" viewBox="0 0 60 66" width="${size||54}" height="${(size||54)*1.1}" aria-hidden="true"><defs>
+  <linearGradient id="${id}r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col[0]}"/><stop offset=".55" stop-color="${col[1]}"/><stop offset="1" stop-color="${col[2]}"/></linearGradient>
+  <radialGradient id="${id}d" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="${st==='locked'?'#3a2f66':st==='claimed'?'#2a8a54':'#ffd566'}"/><stop offset="1" stop-color="${st==='locked'?'#1c1440':st==='claimed'?'#145a34':'#c97a10'}"/></radialGradient></defs>
+  <ellipse cx="30" cy="62" rx="23" ry="3.6" fill="#000" opacity=".4"/>
+  <circle cx="30" cy="37" r="27" fill="${col[2]}"/>
+  <circle cx="30" cy="31" r="27" fill="url(#${id}r)"/>
+  <circle cx="30" cy="31" r="21.5" fill="url(#${id}d)"/>
+  <circle cx="30" cy="31" r="21.5" fill="none" stroke="#000" stroke-opacity=".28" stroke-width="2"/>
+  <path d="M11 21A22 22 0 0 1 36 9.2" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M48 41A22 22 0 0 1 24 52" fill="none" stroke="#000" stroke-opacity=".22" stroke-width="2.2" stroke-linecap="round"/>
+  ${st==='claimed'?`<path d="M19.5 31.5l7.5 7.5 14-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`
+  :`<text x="30" y="${31+txt*.36}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${txt}" fill="${col[3]}" stroke="${st==='open'?'#fff3c4':'#0e0826'}" stroke-opacity=".5" stroke-width=".9" paint-order="stroke">${n}</text>`}
+  ${st==='locked'?`<g transform="translate(40 40)"><circle cx="6" cy="6" r="8" fill="#150e33" stroke="#6a5c98" stroke-width="1.4"/><rect x="2.2" y="5.4" width="7.6" height="5.6" rx="1.4" fill="#b4a5d8"/><path d="M3.8 5.6V4.4a2.2 2.2 0 0 1 4.4 0v1.2" fill="none" stroke="#b4a5d8" stroke-width="1.3"/></g>`:''}
+ </svg>`}
+/* the big emblem in the header: gear ring, plum dish, a pumpkin, the level */
+function pzEmblem(level){
+ let teeth='';for(let i=0;i<18;i++){const a=i*20;teeth+=`<rect x="57" y="4" width="6" height="11" rx="2.4" transform="rotate(${a} 60 62)"/>`}
+ return `<svg class="pz-emb-svg" viewBox="0 0 120 132" aria-hidden="true"><defs>
+  <linearGradient id="pzEg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f5b82e"/><stop offset="1" stop-color="#9a5a08"/></linearGradient>
+  <radialGradient id="pzEd" cx=".4" cy=".25" r=".95"><stop offset="0" stop-color="#7a4ce0"/><stop offset=".6" stop-color="#3a1f86"/><stop offset="1" stop-color="#1c0e46"/></radialGradient>
+  <radialGradient id="pzEp" cx=".38" cy=".3" r=".8"><stop offset="0" stop-color="#ffc062"/><stop offset=".6" stop-color="#e8680f"/><stop offset="1" stop-color="#8a3206"/></radialGradient></defs>
+  <ellipse cx="60" cy="124" rx="40" ry="5" fill="#000" opacity=".4"/>
+  <g transform="translate(0 7)"><g fill="#8a4a06">${teeth}</g><circle cx="60" cy="62" r="52" fill="#8a4a06"/></g>
+  <g fill="url(#pzEg)">${teeth}</g><circle cx="60" cy="62" r="52" fill="url(#pzEg)"/>
+  <circle cx="60" cy="62" r="42" fill="#9a5a08"/><circle cx="60" cy="62" r="40" fill="url(#pzEd)"/>
+  <circle cx="60" cy="62" r="40" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="3"/>
+  <path d="M26 46A38 38 0 0 1 66 24" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="3" stroke-linecap="round"/>
+  <g transform="translate(60 37)"><ellipse cx="0" cy="3" rx="16" ry="12.5" fill="#7a2a05" transform="translate(0 2.5)"/><ellipse cx="-8" cy="3" rx="9.5" ry="12.5" fill="url(#pzEp)"/><ellipse cx="8" cy="3" rx="9.5" ry="12.5" fill="url(#pzEp)"/><ellipse cx="0" cy="3" rx="8" ry="13" fill="#f08a26"/><path d="M-1 -10c-.5-4 1-6 4-7" stroke="#3f7a2a" stroke-width="3.4" fill="none" stroke-linecap="round"/><path d="M-9 -2c3-3 6-3 9-1" stroke="#fff" stroke-opacity=".4" stroke-width="2" fill="none" stroke-linecap="round"/></g>
+  <text x="60" y="88" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${String(level).length>2?27:34}" fill="#fff" stroke="#1c0e46" stroke-width="3" paint-order="stroke">${level}</text>
+  <text x="60" y="103" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="8" letter-spacing="1.6" fill="#ffd89a">УРОВЕНЬ</text></svg>`}
 
 /* ======================= Boss raid · pumpkin pass · trick-or-treat ======================= */
 const FX={sheet:null,poll:0,tick:0,boss:null,pass:null,trick:null,busy:false,pend:0,amount:10,seen:{}};
@@ -13453,17 +13873,43 @@ const pct=(a,b)=>b>0?Math.max(0,Math.min(100,a/b*100)):0;
 const hms=ms=>{const s=Math.max(0,Math.floor(ms/1000)),p=n=>String(n).padStart(2,'0');return p(Math.floor(s/3600))+':'+p(Math.floor(s%3600/60))+':'+p(s%60)};
 
 /* ---------- graveyard backdrop for the stage ---------- */
+/* a slab of stone in one-point perspective: front, lit top and a side face turned towards the vanishing point */
+const bsStone=(x,y,w,h,vx,arch)=>{
+ const dir=x+w/2<vx?1:-1,d=Math.min(10,h*.2),dx=dir*d*.9,dy=-d*.5,r=arch?w/2:0;
+ const front=arch?`M${x} ${y+h}V${y+r}a${r} ${r} 0 0 1 ${w} 0V${y+h}Z`:`M${x} ${y+h}V${y}H${x+w}V${y+h}Z`;
+ const ex=dir>0?x+w:x;
+ const side=`M${ex} ${y+(arch?r:0)}l${dx} ${dy}V${y+h+dy}L${ex} ${y+h}Z`;
+ const top=arch?`M${x} ${y+r}a${r} ${r} 0 0 1 ${w} 0l${dx} ${dy}a${r} ${r} 0 0 0 ${-w} 0Z`:`M${x} ${y}h${w}l${dx} ${dy}h${-w}Z`;
+ return `<g><ellipse cx="${x+w/2+dx*.6}" cy="${y+h+1}" rx="${w*.8}" ry="3.2" fill="#05010f" opacity=".55"/><path d="${side}" fill="#150a33"/><path d="${front}" fill="url(#fxStn)"/><path d="${top}" fill="#7a62c0" opacity=".85"/><path d="${front}" fill="url(#fxStnO)"/>
+  <path d="M${x+w*.3} ${y+h*.34}h${w*.4}M${x+w*.5} ${y+h*.2}v${h*.3}" stroke="#0b0520" stroke-opacity=".5" stroke-width="1.6" fill="none"/><path d="M${dir>0?x:x+w} ${y+(arch?r:2)}V${y+h}" stroke="#d9ccff" stroke-opacity=".28" stroke-width="1"/></g>`};
 const bossScene=()=>`<svg class="fx-scene" viewBox="0 0 360 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
- <defs><linearGradient id="fxSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a0c3d"/><stop offset=".7" stop-color="#3a1d78"/><stop offset="1" stop-color="#4b2a8e"/></linearGradient><radialGradient id="fxMoon"><stop offset="0" stop-color="#fff7d6"/><stop offset="1" stop-color="#e2c97a"/></radialGradient></defs>
+ <defs><linearGradient id="fxSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f0726"/><stop offset=".6" stop-color="#2d1668"/><stop offset="1" stop-color="#5a2f96"/></linearGradient>
+  <radialGradient id="fxMoon" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#fffbe6"/><stop offset="1" stop-color="#e2c97a"/></radialGradient>
+  <radialGradient id="fxHalo"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".5"/><stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/></radialGradient>
+  <linearGradient id="fxGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2078"/><stop offset=".25" stop-color="#241250"/><stop offset="1" stop-color="#0d0722"/></linearGradient>
+  <linearGradient id="fxStn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a4a9a"/><stop offset="1" stop-color="#2a1d5e"/></linearGradient>
+  <linearGradient id="fxStnO" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></linearGradient>
+  <radialGradient id="fxPool" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ff9a3c" stop-opacity=".6"/><stop offset=".6" stop-color="#ff7a1c" stop-opacity=".18"/><stop offset="1" stop-color="#ff7a1c" stop-opacity="0"/></radialGradient>
+  <linearGradient id="fxFg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cdbdf5" stop-opacity="0"/><stop offset=".5" stop-color="#cdbdf5" stop-opacity=".26"/><stop offset="1" stop-color="#cdbdf5" stop-opacity="0"/></linearGradient></defs>
  <rect width="360" height="300" fill="url(#fxSky)"/>
- <g fill="#fff">${[[30,30,1.4],[80,64,1],[150,22,1.2],[220,50,1],[268,18,1.4],[330,70,1],[300,120,1],[44,110,1]].map(([x,y,r],i)=>`<circle class="fx-star" cx="${x}" cy="${y}" r="${r}" style="animation-delay:${-i*.4}s"/>`).join('')}</g>
- <circle cx="290" cy="64" r="30" fill="url(#fxMoon)"/><circle cx="280" cy="56" r="6" fill="#d9c27a" opacity=".5"/><circle cx="298" cy="74" r="4" fill="#d9c27a" opacity=".5"/>
- <path d="M0 232C60 210 120 226 180 214C240 202 300 224 360 208V300H0Z" fill="#241247"/>
- <path d="M0 250C70 236 130 252 200 242C270 232 320 250 360 240V300H0Z" fill="#190d36"/>
- <g fill="#120a28"><path d="M26 252V220q0-14 12-14t12 14v32z"/><path d="M300 252V226q0-12 10-12t10 12v26z"/><path d="M70 256V240h22v16z"/><rect x="62" y="236" width="38" height="5" rx="2"/><path d="M262 254v-20h4v20zM254 240h20v4h-20z"/></g>
- <g fill="none" stroke="#120a28" stroke-width="5" stroke-linecap="round"><path d="M10 252C8 220 14 196 8 172M14 200l-8-10M12 214l10-12"/><path d="M348 252C350 224 342 200 352 176M346 206l10-12"/></g>
- <ellipse class="fx-fog" cx="90" cy="262" rx="130" ry="16" fill="#cdbdf5" opacity=".1"/><ellipse class="fx-fog f2" cx="280" cy="268" rx="140" ry="18" fill="#cdbdf5" opacity=".1"/></svg>`;
-
+ <g fill="#fff">${[[30,30,1.4],[80,64,1],[150,22,1.2],[220,50,1],[268,18,1.4],[330,70,1],[300,120,1],[44,110,1],[110,92,.9],[190,80,.9]].map(([x,y,r],i)=>`<circle class="fx-star" cx="${x}" cy="${y}" r="${r}" style="animation-delay:${-i*.4}s"/>`).join('')}</g>
+ <circle cx="290" cy="64" r="70" fill="url(#fxHalo)"/><circle cx="290" cy="64" r="30" fill="url(#fxMoon)"/><circle cx="280" cy="56" r="6" fill="#d9c27a" opacity=".5"/><circle cx="298" cy="74" r="4" fill="#d9c27a" opacity=".5"/><circle cx="302" cy="52" r="3" fill="#d9c27a" opacity=".45"/>
+ <ellipse cx="230" cy="96" rx="80" ry="7" fill="#4a2c92" opacity=".35"/><ellipse cx="60" cy="70" rx="70" ry="7" fill="#3a2080" opacity=".3"/>
+ <path d="M0 196C50 176 110 192 180 180C250 168 310 190 360 176V240H0Z" fill="#1d1042"/>
+ <g fill="#120a2a"><path d="M232 184V150L238 140L244 150V184Z"/><path d="M226 184V164H250V184Z"/><path d="M222 168L238 156L254 168Z"/><rect x="236" y="168" width="4" height="6" fill="#ffc86a" class="fx-win2"/></g>
+ <g fill="none" stroke="#0f0824" stroke-width="3.4" stroke-linecap="round"><path d="M44 200C46 178 40 160 46 140M44 170l-10-10M46 156l9-9"/><path d="M318 202C316 182 322 162 314 144M316 172l10-10"/></g>
+ <path d="M0 214C60 200 120 212 180 204C240 196 300 210 360 200V300H0Z" fill="url(#fxGround)"/>
+ <g stroke="#8a6ad8" stroke-opacity=".12" fill="none"><path d="M180 206L60 300M180 206L130 300M180 206L230 300M180 206L300 300M180 206L-20 300M180 206L380 300"/><path d="M20 224H340M0 240H360M0 262H360M0 288H360"/></g>
+ ${bsStone(40,224,22,30,180,true)}${bsStone(86,214,18,24,180,false)}${bsStone(262,214,20,26,180,true)}${bsStone(300,226,24,32,180,false)}${bsStone(14,246,28,36,180,true)}${bsStone(326,248,26,34,180,true)}
+ <ellipse class="fx-pool" cx="180" cy="278" rx="150" ry="24" fill="url(#fxPool)"/>
+ <ellipse class="fx-fog" cx="90" cy="262" rx="140" ry="16" fill="url(#fxFg)"/><ellipse class="fx-fog f2" cx="280" cy="270" rx="150" ry="18" fill="url(#fxFg)"/>
+ <rect width="360" height="300" fill="url(#fxVig)"/><defs><radialGradient id="fxVig" cx=".5" cy=".55" r=".78"><stop offset=".55" stop-color="#05010f" stop-opacity="0"/><stop offset="1" stop-color="#05010f" stop-opacity=".6"/></radialGradient></defs></svg>`;
+/* in front of the boss: branches and grass frame the picture and push him back into the scene */
+const bossFore=()=>`<svg class="fx-fore" viewBox="0 0 360 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+ <g fill="none" stroke="#06020f" stroke-linecap="round"><path d="M-4 30C30 26 56 44 90 40C108 38 118 30 138 32" stroke-width="5"/><path d="M40 36C42 52 36 62 40 74M72 42C78 52 76 60 84 66" stroke-width="2.4"/><path d="M364 14C330 22 300 6 270 18C250 26 244 38 226 38" stroke-width="5"/><path d="M322 18C328 32 322 44 328 54M286 12C286 24 294 32 292 44" stroke-width="2.4"/></g>
+ <g fill="#06020f"><path d="M0 300V276C6 268 10 280 14 270C18 262 20 278 26 272C28 268 30 282 34 300Z"/><path d="M326 300C330 286 332 272 338 280C342 270 346 266 350 276C354 268 358 274 360 270V300Z"/></g>
+ <g stroke="#fff" stroke-opacity=".45" stroke-width=".8" fill="none"><path d="M0 0L34 34M0 0L42 14M0 0L14 42"/><path d="M8 8Q20 10 22 22M16 16Q30 18 32 30"/></g>
+ <g class="fx-leaves" fill="#c9742a" opacity=".7"><path d="M60 286l5-3 2 5z"/><path d="M300 290l5 2-3 5z"/><path d="M150 294l5-2 1 5z"/></g></svg>`;
 /* ---------- full-screen sheet ---------- */
 function closeFx(){
  clearInterval(FX.poll);clearInterval(FX.tick);FX.poll=FX.tick=0;FX.kind=null;
@@ -13531,7 +13977,7 @@ function paintBoss(){
  if(!pg.dataset.m){
   pg.dataset.m='boss';
   pg.innerHTML=`<div class="fx-hp"><div class="fx-hp-name">${esc6(b.name)}</div><div class="fx-hp-bar"><i class="ghost" id="fxHpGhost"></i><i class="fill" id="fxHpFill"></i><span id="fxHpTx"></span></div></div>
-   <div class="fx-stage" id="fxStage">${bossScene()}<div class="fx-boss" id="fxBossBox">${bossSVG(b.skin)}</div><div class="fx-crystal hidden" id="fxCrystal"></div><div class="fx-bubble hidden" id="fxBubble"></div></div>
+   <div class="fx-stage" id="fxStage">${bossScene()}<div class="fx-boss" id="fxBossBox">${bossSVG(b.skin)}</div>${bossFore()}<div class="fx-crystal hidden" id="fxCrystal"></div><div class="fx-bubble hidden" id="fxBubble"></div></div>
    <div id="fxCtl"></div><div id="fxInfo"></div>`}
  const stage=document.getElementById('fxStage'),svg=document.querySelector('#fxBossBox .bs');
  setHP(b);paintBossArt(svg,b);fxWallet(b.pumpkins.balance);
@@ -13639,23 +14085,33 @@ async function openBoss(){
  FX.poll=setInterval(()=>{if(!document.hidden&&FX.kind==='boss')refreshBoss()},3500)}
 
 /* ======================= PASS ======================= */
-function passLevelHTML(l,cur){
- const st=l.state;
- return `<div class="fx-lv ${st}${l.n===cur+1?' next':''}" data-n="${l.n}"><div class="fx-lv-n"><b>${l.n}</b></div>
-  <div class="fx-lv-card"><span class="fx-lv-art">${artHTML(l.reward.image_url||'hw:gift')}</span><span class="fx-lv-tx"><b>${esc6(l.reward.title)}</b><small>${st==='locked'?n6(l.xp)+' XP':st==='claimed'?'Получено':'Готово — забирайте!'}</small></span>
-  ${st==='open'?'<button class="fx-lv-btn" type="button">Забрать</button>':st==='claimed'?'<span class="fx-lv-ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.500"/></svg></span>':'<span class="fx-lv-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>'}</div></div>`}
+function passLevelHTML(l,p){
+ const st=l.state,big=pzBig(l,p.max_level),k=pzKind(l.reward),r=l.reward,cur=p.level;
+ const worth=(r.type==='catalog'||r.type==='fragment'||r.type==='wager_gift')&&+r.price_ton>0?`<span class="pz-worth">≈ ${(+r.price_ton).toFixed(2).replace(/\.?0+$/,'')} TON</span>`:'';
+ const sub=st==='locked'?`Ещё ${n6(Math.max(0,l.xp-p.xp))} XP · всего ${n6(l.xp)}`:st==='claimed'?'Получено':'Готово!';
+ const tag=esc6(k.tag);
+ const prog=l.n===cur+1?pct(p.into,p.next_need):0;
+ return `<div class="pz-lv ${st}${big?' big':''}${l.n===cur+1?' next':''} k-${esc6(r.type||'')}" data-n="${l.n}" style="--c1:${k.c[1]};--c0:${k.c[0]};--pr:${prog.toFixed(1)}%">
+  <div class="pz-node">${pzMedal(l.n,st,54)}</div>
+  <div class="pz-card">${pzArt(r,{big})}
+   <span class="pz-tx"><span class="pz-tagrow"><span class="pz-tag">${tag}</span>${big?`<span class="pz-star">&#9733; ${l.n===p.max_level?'Главный':'Особый'}</span>`:''}</span><b>${esc6(r.title||'Награда')}</b>${worth}<span class="pz-sub">${esc6(sub)}</span></span>
+   ${st==='open'?'<button class="pz-btn" type="button">Забрать</button>':st==='claimed'?'<span class="pz-ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.500"/></svg></span>':''}</div></div>`}
 function paintPass(){
  const p=FX.pass,pg=document.getElementById('fxPage');if(!p||!pg)return;
  fxWallet(p.pumpkins.balance);
  const full=p.level>=p.max_level,prog=full?100:pct(p.into,p.next_need);
- pg.innerHTML=`<div class="fx-pass-head"><div class="fx-pass-badge"><small>УРОВЕНЬ</small><b>${p.level}</b></div>
-  <div class="fx-pass-info"><b>${esc6(p.name)}</b><div class="fx-xp"><i style="width:${prog}%"></i></div><small>${full?'Все уровни пройдены · '+n6(p.xp)+' XP':n6(p.into)+' / '+n6(p.next_need)+' XP до уровня '+(p.level+1)}</small></div></div>
-  <p class="fx-pass-rule">Каждые <b>${n6(p.pumpkins_step)}</b> ${tkWord(p.pumpkins_step)}${p.xp_source==='all'?' на балансе':' за проигранные TON'} дают <b>${n6(p.xp_step)} XP</b></p>
+ const nxt=p.levels.find(l=>l.state==='open')||p.levels.find(l=>l.state==='locked');
+ const nextBox=nxt?`<div class="pz-next">${pzArt(nxt.reward,{})}<div><small>${nxt.state==='open'?'Можно забрать':'Следующая награда · уровень '+nxt.n}</small><b>${esc6(nxt.reward.title)}</b>${nxt.state==='locked'?`<em>через ${n6(Math.max(0,nxt.xp-p.xp))} XP</em>`:''}</div></div>`:'';
+ pg.innerHTML=`<div class="pz-head"><div class="pz-emb">${pzEmblem(p.level)}</div>
+  <div class="pz-hi"><b>${esc6(p.name)}</b><div class="pz-xp"><i style="width:${prog}%"></i><span>${full?'Максимальный уровень':n6(p.into)+' / '+n6(p.next_need)+' XP'}</span></div><small>${full?'Все уровни пройдены · '+n6(p.xp)+' XP':'До уровня '+(p.level+1)+' осталось '+n6(Math.max(0,p.next_need-p.into))+' XP'}</small></div></div>
+  ${nextBox}
+  <p class="pz-rule">Каждые <b>${n6(p.pumpkins_step)}</b> ${tkWord(p.pumpkins_step)}${p.xp_source==='all'?' на балансе':' за проигранные TON'} дают <b>${n6(p.xp_step)} XP</b></p>
   ${p.claimable?`<button class="fx-claim" id="fxPassAll" type="button">${artHTML('hw:gift')}<span>Забрать всё (${p.claimable})</span></button>`:''}
-  <div class="fx-lvs">${p.levels.map(l=>passLevelHTML(l,p.level)).join('')}</div>`;
+  <div class="pz-track">${p.levels.map(l=>passLevelHTML(l,p)).join('')}</div>
+  <div class="pz-end">${full?'Вы прошли весь пропуск!':'Дальше — только интереснее'}</div>`;
  const all=document.getElementById('fxPassAll');if(all)all.onclick=()=>claimPass(0,all);
- pg.querySelectorAll('.fx-lv-btn').forEach(b=>b.onclick=()=>claimPass(+b.closest('.fx-lv').dataset.n,b));
- const nx=pg.querySelector('.fx-lv.open')||pg.querySelector('.fx-lv.next');if(nx&&!FX.passScrolled){FX.passScrolled=1;setTimeout(()=>nx.scrollIntoView({block:'center',behavior:'smooth'}),250)}}
+ pg.querySelectorAll('.pz-btn').forEach(b=>b.onclick=()=>claimPass(+b.closest('.pz-lv').dataset.n,b));
+ const nx=pg.querySelector('.pz-lv.open')||pg.querySelector('.pz-lv.next');if(nx&&!FX.passScrolled){FX.passScrolled=1;setTimeout(()=>nx.scrollIntoView({block:'center',behavior:'smooth'}),250)}}
 async function claimPass(n,btn){
  if(btn)btn.disabled=true;
  try{const d=await fxPost('/api/halloween/pass/claim',{level:n});FX.pass=d.pass;
@@ -13670,22 +14126,13 @@ async function openPass(){
  FX.poll=setInterval(async()=>{if(document.hidden||FX.kind!=='pass'||document.getElementById('hwDlg'))return;try{const d=await fxGet('/api/halloween/pass');if(JSON.stringify(d.pass.levels.map(l=>l.state))!==JSON.stringify(FX.pass.levels.map(l=>l.state))||d.pass.xp!==FX.pass.xp){FX.pass=d.pass;paintPass()}}catch(e){}},8000)}
 
 /* ======================= TRICK OR TREAT ======================= */
-const HOUSE_COL=[['#5b3aa8','#ffb347'],['#3f2b86','#ff7a9c'],['#6a3fb8','#7fe0ff']];
-function houseSVG(i){
- const [w,l]=HOUSE_COL[i%3];
- return `<svg viewBox="0 0 110 150" aria-hidden="true">
-  <path d="M6 70L55 22L104 70Z" fill="#1a0f3a" stroke="#0e0724" stroke-width="2"/><rect x="14" y="68" width="82" height="76" fill="${w}" stroke="#0e0724" stroke-width="2"/>
-  <rect x="20" y="78" width="16" height="18" rx="2" fill="${l}" opacity=".9" class="fx-win"/><rect x="74" y="78" width="16" height="18" rx="2" fill="${l}" opacity=".9" class="fx-win w2"/>
-  <path d="M55 22v-12" stroke="#0e0724" stroke-width="3"/><circle cx="55" cy="66" r="5" fill="${l}" opacity=".7"/>
-  <g class="fx-door"><path d="M40 144V109a15 15 0 0 1 30 0V144Z" fill="#2a1450" stroke="#0e0724" stroke-width="2"/><path d="M43 144V110a12 12 0 0 1 24 0V144Z" fill="#3a1d6e"/><circle cx="63" cy="122" r="2.4" fill="#ffd27a"/></g>
-  <g class="fx-open"><path d="M40 144V109a15 15 0 0 1 30 0V144Z" fill="${l}" opacity=".85"/></g></svg>`}
 function paintTrick(){
  const t=FX.trick,pg=document.getElementById('fxPage');if(!t||!pg)return;
  fxWallet(t.pumpkins.balance);
  const left=t.left;
  pg.innerHTML=`<div class="fx-tt-head"><h2>${esc6(t.name)}</h2><p>${left>0?'Выберите дверь и постучитесь. Что за ней — сладость или гадость?':'Все двери на сегодня заперты. Возвращайтесь завтра!'}</p>
   <div class="fx-tt-tries"><span class="${left>0?'on':''}">${artHTML('hw:candy')}<b>${left}</b> из ${t.tries}</span>${left>0?'':`<span class="reset">Новые попытки через <b id="fxTtReset">${hms(t.reset_at-Date.now())}</b></span>`}</div></div>
-  <div class="fx-street" id="fxStreet">${bossScene().replace('fx-scene','fx-scene street')}<div class="fx-houses">${[0,1,2].map(i=>`<button class="fx-house${left>0?'':' locked'}" type="button" data-i="${i}">${houseSVG(i)}<span class="fx-pk">${artHTML(i===1?'hw:jack':'hw:pumpkin')}</span><span class="fx-who" id="fxWho${i}"></span><span class="fx-knock">тук-тук</span></button>`).join('')}</div></div>
+  <div class="fx-street" id="fxStreet">${streetScene()}<div class="fx-houses">${[0,1,2].map(i=>`<button class="fx-house${i===1?' mid':''}${left>0?'':' locked'}" type="button" data-i="${i}" style="--wx:${HOUSE_POS[i].wx}%;--px:${HOUSE_POS[i].px}%" aria-label="Дверь ${i+1}">${houseSVG(i)}<span class="fx-pk">${artHTML(i===1?'hw:jack':'hw:pumpkin')}</span><span class="fx-who" id="fxWho${i}"></span><span class="fx-knock">тук-тук</span></button>`).join('')}</div>${streetFore()}<span class="fx-fgp l">${artHTML('hw:jack')}</span><span class="fx-fgp r">${artHTML('hw:pumpkin')}</span></div>
   <p class="fx-note small">Сегодня попыток: ${t.tries}. Новые появляются каждый день в 03:00 по Москве.</p>`;
  pg.querySelectorAll('.fx-house').forEach(h=>h.onclick=()=>knock(+h.dataset.i));
  clearInterval(FX.tick);if(left<=0)FX.tick=setInterval(()=>{const e=document.getElementById('fxTtReset');if(!e)return;const ms=t.reset_at-Date.now();if(ms<=0){clearInterval(FX.tick);openTrick();return}e.textContent=hms(ms)},1000)}
@@ -13733,9 +14180,9 @@ function renderFeatures6(){
  const row=[];
  if(f.pass){const c=E6('button','fx-card fx-mini fx-pass-card'+(f.pass.claimable?' claim':''));c.type='button';
   const full=f.pass.level>=f.pass.max_level;
-  c.innerHTML=`<span class="fx-mini-art"><i>${f.pass.level}</i></span><b>${esc6(f.pass.title)}</b><small>${f.pass.claimable?'Есть награды: '+f.pass.claimable:esc6(f.pass.subtitle||'')}</small><div class="fx-xp"><i style="width:${full?100:pct(f.pass.into,f.pass.next_need)}%"></i></div>${f.pass.claimable?'<span class="fx-dot"></span>':''}`;c.onclick=openPass;row.push(c)}
+  c.innerHTML=`<span class="fx-mini-art">${pzMedal(f.pass.level,f.pass.claimable?'open':'locked',46)}</span><b>${esc6(f.pass.title)}</b><small>${f.pass.claimable?'Есть награды: '+f.pass.claimable:esc6(f.pass.subtitle||'')}</small><div class="fx-xp"><i style="width:${full?100:pct(f.pass.into,f.pass.next_need)}%"></i></div>${f.pass.claimable?'<span class="fx-dot"></span>':''}`;c.onclick=openPass;row.push(c)}
  if(f.trick){const c=E6('button','fx-card fx-mini fx-trick-card'+(f.trick.left>0?' claim':' wait'));c.type='button';
-  c.innerHTML=`<span class="fx-mini-art">${artHTML('hw:jack')}</span><b>${esc6(f.trick.title)}</b><small>${f.trick.left>0?esc6(f.trick.subtitle||'Постучись в дверь'):'Попытки закончились · завтра снова'}</small>${f.trick.left>0?'<span class="fx-dot"></span>':''}`;c.onclick=openTrick;row.push(c)}
+  c.innerHTML=`<span class="fx-mini-art">${houseSVG(0)}</span><b>${esc6(f.trick.title)}</b><small>${f.trick.left>0?esc6(f.trick.subtitle||'Постучись в дверь'):'Попытки закончились · завтра снова'}</small>${f.trick.left>0?'<span class="fx-dot"></span>':''}`;c.onclick=openTrick;row.push(c)}
  if(row.length){const r=E6('div','fx-row n'+row.length);r.append(...row);cards.push(r)}
  box.replaceChildren(...cards);box.classList.toggle('hidden',!cards.length)}
 
@@ -14455,7 +14902,7 @@ function petBoot(){
  if(PET.ready)pApply()}
 
 /* ======================= v6 admin: pumpkins, event buttons, market lots ======================= */
-const RW_TYPES=[['none','— ничего —'],['ton','TON на основной баланс'],['bonus','TON на бонусный баланс'],['pumpkins','Тыквы события'],['tickets','Билеты'],['catalog','Подарок из Portal'],['fragment','NFT-подарок Telegram (ссылка)'],['promo','Личный промокод']];
+const RW_TYPES=[['none','— ничего —'],['ton','TON на основной баланс'],['bonus','TON на бонусный баланс'],['pumpkins','Тыквы события'],['tickets','Билеты'],['catalog','Подарок из Portal'],['wager_gift','Подарок на отыгрыш (из Portal)'],['fragment','NFT-подарок Telegram (ссылка)'],['promo','Личный промокод']];
 function rewardEd6(r,allowNone,label){
  const box=E6('div','hw-rw');if(label)box.append(E6('b','',label));
  const sel=E6('select','text-input');RW_TYPES.filter(t=>allowNone||t[0]!=='none').forEach(([v,t])=>sel.add(new Option(t,v)));
@@ -14466,9 +14913,10 @@ function rewardEd6(r,allowNone,label){
   if(t==='ton'||t==='bonus')f.append(num('Сумма, TON','amount','0.01'));
   else if(t==='pumpkins')f.append(num('Сколько тыкв','amount','1'));
   else if(t==='tickets')f.append(num('Сколько билетов','amount','1'));
-  else if(t==='catalog'){const q=E6('input','text-input');q.placeholder='Поиск подарка Portal…';const s=E6('select','text-input');let items=typeof catalogItems!=='undefined'?catalogItems:[];
+  else if(t==='catalog'||t==='wager_gift'){const q=E6('input','text-input');q.placeholder='Поиск подарка Portal…';const s=E6('select','text-input');let items=typeof catalogItems!=='undefined'?catalogItems:[];
    const fill=()=>{const k=q.value.trim().toLowerCase();s.replaceChildren(...items.filter(g=>!k||String(g.name||'').toLowerCase().includes(k)).slice(0,200).map(g=>new Option((g.name||'Подарок')+' · '+(g.price_ton==null?'?':(+g.price_ton).toFixed(2))+' TON',g.id)));if(r.gift_id&&[...s.options].some(o=>o.value===String(r.gift_id)))s.value=String(r.gift_id);else if(s.options.length)r.gift_id=s.value};
-   q.oninput=fill;s.onchange=()=>r.gift_id=s.value;f.append(q,s);if(!items.length&&typeof loadCatalog==='function')loadCatalog().then(()=>{items=catalogItems;fill()}).catch(()=>{});fill()}
+   q.oninput=fill;s.onchange=()=>r.gift_id=s.value;f.append(q,s);if(!items.length&&typeof loadCatalog==='function')loadCatalog().then(()=>{items=catalogItems;fill()}).catch(()=>{});fill();
+   if(t==='wager_gift'){if(!r.wager_multiplier)r.wager_multiplier='3';const m=num('Отыгрыш подарка: X (от 1)','wager_multiplier','0.5');m.min='1';m.value=r.wager_multiplier;const d=num('Срок подарка, дней (0 — без срока)','expires_days','1');f.append(m,d)}}
   else if(t==='fragment'){const u=E6('input','text-input');u.type='url';u.placeholder='https://t.me/nft/PlushPepe-123';u.value=r.fragment_url||'';u.oninput=()=>r.fragment_url=u.value;f.append(u)}
   else if(t==='promo'){const ks=E6('select','text-input');[['balance','Промокод: TON на основной баланс'],['bonus','Промокод: TON на бонусный баланс'],['deposit_bonus','Промокод: бонус к пополнению, %']].forEach(([v,x])=>ks.add(new Option(x,v)));ks.value=r.promo_kind||'balance';r.promo_kind=ks.value;
    const a=E6('input','text-input');a.type='number';a.step='0.01';a.min='0';const md=num('Мин. пополнение, TON (необязательно)','min_deposit','0.01');const ex=num('Срок действия, дней (0 — без срока)','expires_days','1');
@@ -14513,7 +14961,7 @@ function sortable6(box,onDone,getZoom){
  box.addEventListener('dragstart',e=>e.preventDefault());
  box.addEventListener('click',e=>{if(suppress){e.stopPropagation();e.preventDefault()}},true)}
 const PV_AUTO_IMG={ton:'/static/img/ton.png',bonus:'/static/img/ton2.png',pumpkins:'hw:pumpkin',tickets:'hw:ticket',promo:'hw:gift',fragment:'hw:gift',catalog:'hw:gift'};
-function rewardTitle6(r){r=r||{};const a=Number(r.amount||0);switch(r.type){case 'ton':return (a||'')+' TON';case 'bonus':return (a||'')+' TON бонусом';case 'pumpkins':return n6(a)+' тыкв';case 'tickets':return n6(a)+' билетов';case 'promo':return 'Промокод';case 'fragment':return 'NFT-подарок';case 'catalog':return 'Подарок';default:return 'Награда'}}
+function rewardTitle6(r){r=r||{};const a=Number(r.amount||0);switch(r.type){case 'ton':return (a||'')+' TON';case 'bonus':return (a||'')+' TON бонусом';case 'pumpkins':return n6(a)+' тыкв';case 'tickets':return n6(a)+' билетов';case 'promo':return 'Промокод';case 'fragment':return 'NFT-подарок';case 'catalog':return 'Подарок';case 'wager_gift':return 'Подарок на отыгрыш';default:return 'Награда'}}
 function adminV6(){
  const page=document.getElementById('halloweenPage');if(!page||page.dataset.v6)return;page.dataset.v6='1';
  const S={cfg:null,btns:[],editLot:null,tab:'launch',selLot:null,selB:null,dev:'phone',dirty:false};
@@ -14823,12 +15271,25 @@ function passAdmin(d,h,box){
  const src=h.sel([['earned','Только тыквы, полученные за проигрыши'],['all','Все полученные тыквы (с подарками, наградами, маркетом)']],c.xp_source||'earned');src.onchange=()=>c.xp_source=src.value;
  p.append(h.field('Какие тыквы дают опыт',src,'«Только за проигрыши» — защита от бесконечного цикла: награда тыквами не даёт нового опыта.'));
  out.push(p);
+ /* ---- автогенерация ---- */
+ const gen=h.panel('Автосоздание пропуска','Задайте несколько чисел — получите готовый пропуск: опыт растёт плавно, награды чередуются, на «особых» уровнях — подарки и подарки на отыгрыш, в конце — главный приз. Результат можно поправить вручную, в базу он попадёт только после «Сохранить пропуск».');
+ const gn=numIn(h,20,'Уровней',3,d.max_levels||60),gb=numIn(h,30,'TON',1,1000000,'0.5'),g1=numIn(h,100,'XP',10,100000000),g2=numIn(h,400,'XP',10,100000000),gw=numIn(h,3,'X',1,1000,'0.5');
+ const kindsOn={pumpkins:true,tickets:true,bonus:true,promo:true,gift:true,wager_gift:true};
+ const grid=E6('div','fx-adm-rate');grid.append(E6('span','','Уровней'),gn,E6('span','','Бюджет, TON'),gb);
+ const grid2=E6('div','fx-adm-rate');grid2.append(E6('span','','XP на 1-й уровень'),g1,E6('span','','на последний'),g2);
+ const grid3=E6('div','fx-adm-rate');grid3.append(E6('span','','Отыгрыш подарков X'),gw);
+ const kinds=E6('div','fx-adm-kinds');
+ [['pumpkins','Тыквы'],['tickets','Билеты'],['bonus','Бонусные TON'],['promo','Промокоды'],['gift','Обычные подарки'],['wager_gift','Подарки на отыгрыш']].forEach(([k,t])=>kinds.append(chk6(t,true,v=>{kindsOn[k]=v})));
+ const sum=E6('div','hw-stat','');
+ gen.append(h.field('Размер',grid,'Бюджет — примерная общая стоимость наград в TON (подарки, промокоды, бонусы). Тыквы и билеты в него не входят.'),h.field('Сколько опыта нужно',grid2,'Опыт на уровень плавно растёт от первого значения к последнему.'),h.field('Подарки на отыгрыш',grid3,'Игрок сможет вывести такой подарок, только когда наиграет сумму × X от его цены.'),h.field('Какие награды использовать',kinds),sum,
+  h.btn('Сгенерировать','primary',async()=>{
+   try{const r=await h.post('/api/admin/halloween/pass/autogen',{levels:+gn.value,budget_ton:+gb.value,first_need:+g1.value,last_need:+g2.value,wager_multiplier:+gw.value,kinds:Object.keys(kindsOn).filter(k=>kindsOn[k])});
+    const go=()=>{c.levels=r.levels;draw();const L={pumpkins:'тыквы',tickets:'билеты',ton:'TON',bonus:'бонусные TON',promo:'промокоды',catalog:'подарки',wager_gift:'подарки на отыгрыш',fragment:'NFT'};
+     sum.textContent='Создано '+r.levels.length+' ур.: '+Object.entries(r.counts).map(([k,v])=>v+' × '+(L[k]||k)).join(', ')+'. Примерная ценность подарков и TON: '+n6(r.total_ton)+' TON.'+(r.gifts?'':' В каталоге Portal нет подарков с ценой, поэтому подарки заменены промокодами и бонусами.');
+     toast('Пропуск собран — проверьте и сохраните')};
+    if(c.levels.length)ask6('Заменить весь список уровней новым?','Заменить',go);else go()}catch(e){toast(e.message)}}));
+ out.push(gen);
  const lv=h.panel('Уровни и награды','Для каждого уровня укажите, сколько XP нужно набрать после предыдущего, и награду.');
- const quick=E6('div','fx-adm-quick');
- const qn=numIn(h,10,'Уровней',1,d.max_levels||60),qx=numIn(h,100,'XP на уровень',1,1000000),qp=numIn(h,50,'Тыкв',1,10000000);
- quick.append(E6('span','','Быстро создать:'),qn,E6('span','','ур. по'),qx,E6('span','','XP, награда от'),qp,E6('span','','тыкв'),
-  h.btn('Создать','mini-btn',()=>ask6('Заменить весь список уровней новыми?','Заменить',()=>{const n=Math.min(d.max_levels||60,Math.max(1,+qn.value||10));c.levels=Array.from({length:n},(_,i)=>({need:String(Math.max(1,+qx.value||100)),reward:{type:'pumpkins',amount:String(Math.round((+qp.value||50)*(1+i*.25)))}}));draw()})));
- lv.append(quick);
  const list=E6('div','fx-adm-list');
  const draw=()=>{
   let total=0;

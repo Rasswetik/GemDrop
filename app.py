@@ -2592,7 +2592,7 @@ def admin_halloween_banner():
 # ---------------------------------------------------------------------------
 # Halloween v6: event page buttons, «тыквы» balance and the pumpkin market.
 # ---------------------------------------------------------------------------
-HW_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo', 'pumpkins', 'tickets')
+HW_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo', 'pumpkins', 'tickets', 'wager_gift')
 HW_TARGETS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'market', 'wheel', 'bonus', 'profile', 'giveaways', 'games')
 HW_ICON_META = {
     'pumpkin': ('Основное', 'Тыква'),
@@ -2754,6 +2754,22 @@ def hw_normalize_reward(raw):
         if not 1 <= amount <= 10000000:
             raise ValueError('Количество: от 1 до 10 000 000.')
         return {'type': kind, 'amount': amount}
+    if kind == 'wager_gift':
+        gift = catalog_giveaway_prize(raw.get('gift_id'))
+        if int(gift.get('floor_price') or 0) <= 0:
+            raise ValueError('У этого подарка нет цены в каталоге.')
+        try:
+            multiplier = float(str(raw.get('wager_multiplier') if raw.get('wager_multiplier') not in (None, '') else '3').replace(',', '.'))
+        except ValueError:
+            multiplier = 0
+        if not math.isfinite(multiplier) or not 1 <= multiplier <= 1000:
+            raise ValueError('Отыгрыш подарка: от X1 до X1000.')
+        out = {'type': 'wager_gift'}
+        out.update(gift)
+        out['price_ton'] = int(gift['floor_price']) / 100
+        out['wager_multiplier'] = round(multiplier, 2)
+        out['expires_days'] = max(0, min(365, int(float(str(raw.get('expires_days') or 0) or 0))))
+        return out
     if kind not in HW_REWARD_TYPES:
         kind = 'none'
     return xhunt_normalize_reward(dict(raw, type=kind))
@@ -2766,6 +2782,11 @@ def hw_reward_view(reward):
         return dict(type=kind, title=f'{int(reward.get("amount") or 0)} тыкв', subtitle='Тыквы события', image_url='hw:pumpkin', price_ton=0)
     if kind == 'tickets':
         return dict(type=kind, title=f'{int(reward.get("amount") or 0)} билетов', subtitle='Билеты', image_url='hw:ticket', price_ton=0)
+    if kind == 'wager_gift':
+        mult = float(reward.get('wager_multiplier') or 1)
+        return dict(type=kind, title=str(reward.get('gift_name') or 'Подарок'), subtitle=f'Подарок на отыгрыш · X{mult:g}',
+                    image_url=reward.get('image_url') or '', price_ton=reward.get('price_ton') or 0, wager_multiplier=mult,
+                    expires_days=int(reward.get('expires_days') or 0))
     view = xhunt_reward_view(reward)
     if kind == 'none':
         view['title'] = 'Ничего'
@@ -2780,6 +2801,19 @@ def hw_grant(db, uid, reward, label):
     elif kind == 'tickets':
         record_tickets(db, uid, int(reward.get('amount') or 0), 'halloween', 'halloween', label, label)
         out = dict(reward=hw_reward_view(reward), code='')
+    elif kind == 'wager_gift':
+        price = int(reward.get('floor_price') or 0)
+        multiplier = max(1.0, float(reward.get('wager_multiplier') or 1))
+        target = max(1, round(price * multiplier))
+        expires_at = promo_gift_expiry(reward.get('expires_days'))
+        cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,
+                          promo_locked,promo_wager_multiplier,promo_wager_target,promo_wager_progress,promo_code,expires_at,
+                          bonus_origin,bonus_unlock_required,bonus_unlock_progress,source_label)
+                          VALUES(?,?,?,?,?,'promo_wager',1,?,?,0,'',?,?,?,?,?)""",
+                         (uid, str(reward.get('gift_id') or ''), str(reward.get('gift_name') or 'Подарок'), safe_image(reward.get('image_url')),
+                          price, multiplier, target, expires_at, *bonus_inventory_clause('main', price), label))
+        record_transaction(db, uid, 'promo_wager_gift', 0, 'inventory', cur.lastrowid, f'{reward.get("gift_name") or "Подарок"} · X{multiplier:g} · {label}')
+        out = dict(reward=hw_reward_view(reward), code='', gift_id=str(reward.get('gift_id') or ''))
     elif kind in (None, 'none'):
         out = dict(reward=hw_reward_view(reward), code='')
     else:
@@ -3459,11 +3493,113 @@ def halloween_boss_claim():
 
 
 # ----- pumpkin pass -----
+HW_PASS_AUTOGEN_KINDS = ('pumpkins', 'tickets', 'bonus', 'promo', 'gift', 'wager_gift')
+
+
+def hw_pass_gift_pool():
+    """Visible Portal gifts with a price, cheapest first: [(price_ton, gift_id)]."""
+    try:
+        gifts = read_catalog().get('gifts', [])
+    except (OSError, ValueError, TypeError):
+        return []
+    pool, seen = [], set()
+    for g in gifts:
+        gid = str(g.get('id') or '')
+        try:
+            price = float(g.get('price_ton') or 0)
+        except (TypeError, ValueError):
+            price = 0
+        if not gid or gid in seen or not math.isfinite(price) or price < 0.05 or not safe_image(g.get('image_url') or g.get('portal_image_url')):
+            continue
+        seen.add(gid)
+        pool.append((price, gid))
+    pool.sort()
+    return pool
+
+
+def hw_pass_autogen(params=None, pool=None):
+    """Builds a whole pass: XP curve and a rotating mix of rewards that adds up to roughly `budget_ton`.
+
+    Every 10th level is a big prize (a gift), every 5th a wager gift, every 4th a personal promo code,
+    every 3rd tickets, the rest are pumpkins / bonus TON. Without a catalog gifts turn into promo codes."""
+    params = params if isinstance(params, dict) else {}
+    count = _hw_int(params.get('levels', 20), 3, HW_PASS_MAX_LEVELS, 20)
+    budget = max(1.0, min(1000000.0, float(str(params.get('budget_ton', 30) or 30).replace(',', '.'))))
+    first = _hw_int(params.get('first_need', 100), 10, 100000000, 100)
+    last = max(first, _hw_int(params.get('last_need', first * 4), 10, 100000000, first * 4))
+    mult = max(1.0, min(1000.0, float(str(params.get('wager_multiplier', 3) or 3).replace(',', '.'))))
+    kinds = params.get('kinds')
+    kinds = [k for k in kinds if k in HW_PASS_AUTOGEN_KINDS] if isinstance(kinds, list) else list(HW_PASS_AUTOGEN_KINDS)
+    pool = hw_pass_gift_pool() if pool is None else list(pool)
+    if not pool:
+        kinds = [k for k in kinds if k not in ('gift', 'wager_gift')]
+    if not kinds:
+        kinds = ['pumpkins']
+    weights = [1 + 2.2 * ((i + 1) / count) ** 2 for i in range(count)]
+    for i in range(count):
+        if i + 1 == count:
+            weights[i] *= 9
+        elif (i + 1) % 10 == 0:
+            weights[i] *= 5
+        elif (i + 1) % 5 == 0:
+            weights[i] *= 2
+    unit = budget / sum(weights)
+    used, levels, round_to = set(), [], lambda v, step: max(step, round(v / step) * step)
+
+    def pick_gift(value):
+        free = [x for x in pool if x[1] not in used] or pool
+        best = min(free, key=lambda x: (abs(x[0] - value), -x[0]))
+        used.add(best[1])
+        return best
+
+    for i in range(count):
+        n = i + 1
+        frac = i / max(1, count - 1)
+        need = round_to(first + (last - first) * frac ** 1.25, 10 if last < 2000 else 50)
+        value = max(0.05, weights[i] * unit)
+        big, mid = (n % 10 == 0 or n == count), n % 5 == 0
+        kind = 'pumpkins'
+        if big and 'gift' in kinds:
+            kind = 'gift'
+        elif big and 'wager_gift' in kinds:
+            kind = 'wager_gift'
+        elif mid and 'wager_gift' in kinds:
+            kind = 'wager_gift'
+        elif mid and 'gift' in kinds and n % 2 == 0:
+            kind = 'gift'
+        elif n % 4 == 0 and 'promo' in kinds:
+            kind = 'promo'
+        elif n % 3 == 0 and 'tickets' in kinds:
+            kind = 'tickets'
+        elif n % 2 == 0 and 'bonus' in kinds:
+            kind = 'bonus'
+        elif 'pumpkins' not in kinds:
+            kind = kinds[i % len(kinds)]
+        if kind == 'gift':
+            price, gid = pick_gift(value * 0.9)
+            reward = dict(type='catalog', gift_id=gid)
+        elif kind == 'wager_gift':
+            price, gid = pick_gift(value * (1.2 if big else 1.6))
+            reward = dict(type='wager_gift', gift_id=gid, wager_multiplier=mult, expires_days=30)
+        elif kind == 'promo':
+            if (n // 4) % 3 == 0:
+                reward = dict(type='promo', promo_kind='deposit_bonus', percent=min(100, max(5, round_to(5 + 20 * frac, 5))), min_deposit=1, expires_days=14)
+            else:
+                reward = dict(type='promo', promo_kind='bonus' if (n // 4) % 3 == 1 else 'balance', amount=round(max(0.1, value * 1.1), 2), expires_days=14)
+        elif kind == 'tickets':
+            reward = dict(type='tickets', amount=int(round_to(3 + 22 * frac + value * 2, 1)))
+        elif kind == 'bonus':
+            reward = dict(type='bonus', amount=round(max(0.05, value * 0.9), 2))
+        else:
+            reward = dict(type='pumpkins', amount=int(round_to(need * (0.18 + 0.12 * frac), 5)))
+        levels.append(dict(need=int(need), reward=reward))
+    return levels
+
+
 def hw_pass_defaults():
-    levels = [(100, 20), (150, 30), (200, 40), (250, 60), (300, 80), (400, 100), (500, 150), (700, 250)]
     return dict(enabled=False, name='Тыквенный пропуск', xp_source='earned', pumpkins_step=100, xp_step=100,
                 tile_title='Тыквенный пропуск', tile_subtitle='Копи опыт — забирай награды',
-                levels=[dict(need=need, reward={'type': 'pumpkins', 'amount': amount}) for need, amount in levels])
+                levels=hw_pass_autogen(dict(levels=20, budget_ton=12, first_need=100, last_need=400), pool=[]))
 
 
 def hw_pass_normalize(raw):
@@ -3854,6 +3990,27 @@ def admin_pass_set():
     doc['pass'] = cfg
     _hw_admin_doc_save(doc)
     return jsonify(ok=True)
+
+
+@app.post('/api/admin/halloween/pass/autogen')
+@admin_required
+def admin_pass_autogen():
+    """Draft a full pass from a few parameters; nothing is saved until the admin presses «Сохранить»."""
+    data = request.get_json(silent=True) or {}
+    try:
+        levels = hw_pass_autogen(data)
+        cfg = hw_pass_normalize(dict(hw_pass_cfg(_halloween_doc(fresh=True)), levels=levels))
+    except (ValueError, TypeError, ArithmeticError) as exc:
+        return error(str(exc) or 'Не удалось собрать пропуск.')
+    counts, total = {}, 0.0
+    for lvl in cfg['levels']:
+        r = lvl['reward']
+        counts[r['type']] = counts.get(r['type'], 0) + 1
+        if r['type'] in ('ton', 'bonus', 'promo') and r.get('amount'):
+            total += float(r['amount'])
+        elif r['type'] in ('catalog', 'wager_gift'):
+            total += float(r.get('price_ton') or 0)
+    return jsonify(ok=True, levels=cfg['levels'], counts=counts, total_ton=round(total, 2), gifts=bool(hw_pass_gift_pool()))
 
 
 @app.get('/api/admin/halloween/trick')

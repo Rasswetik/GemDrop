@@ -1493,6 +1493,43 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(r['pass']['levels'][2]['state'], 'claimed')
         self.assertEqual(a.get('/api/halloween/hub').get_json()['features']['pass']['max_level'], 3)
 
+    def test_halloween_pass_autogen_and_wager_gift_reward(self):
+        self._hw_open_event()
+        a = self._hw_player(self.uid, 0)
+        m.save_document('portal_catalog', {'gifts': [
+            {'id': f'qa{i}', 'name': f'QA {i}', 'price_ton': price, 'image_url': 'https://example.com/g.png'}
+            for i, price in enumerate([0.4, 1, 2.5, 5, 9, 14, 30])]})
+        r = self.post('/api/admin/halloween/pass/autogen', {'levels': 30, 'budget_ton': 60, 'wager_multiplier': 4})
+        kinds = {x['reward']['type'] for x in r['levels']}
+        self.assertEqual(len(r['levels']), 30)
+        self.assertTrue({'pumpkins', 'tickets', 'bonus', 'promo', 'catalog', 'wager_gift'} <= kinds, kinds)
+        self.assertEqual(r['levels'][-1]['reward']['type'], 'catalog')
+        wager = next(x['reward'] for x in r['levels'] if x['reward']['type'] == 'wager_gift')
+        self.assertEqual(wager['wager_multiplier'], 4)
+        self.assertGreater(wager['price_ton'], 0)
+        self.post('/api/admin/halloween/pass/autogen', {'levels': 2}, 200)       # clamped, not rejected
+        # without a catalog the draft has no gifts but is still a full pass
+        with m.connect() as db:
+            db.execute("DELETE FROM app_documents WHERE name='portal_catalog'")
+        r2 = self.post('/api/admin/halloween/pass/autogen', {'levels': 12})
+        self.assertFalse({x['reward']['type'] for x in r2['levels']} & {'catalog', 'wager_gift'})
+        # a wager gift level is saved, shown and granted into the inventory with a locked wager
+        m.save_document('portal_catalog', {'gifts': [{'id': 'qa9', 'name': 'QA 9', 'price_ton': 5, 'image_url': 'https://example.com/g.png'}]})
+        self.post('/api/admin/halloween/pass', {'config': {'enabled': True, 'levels': [
+            {'need': 10, 'reward': {'type': 'wager_gift', 'gift_id': 'qa9', 'wager_multiplier': 3, 'expires_days': 7}}]}})
+        self.post('/api/admin/halloween/pass', {'config': {'enabled': True, 'levels': [
+            {'need': 10, 'reward': {'type': 'wager_gift', 'gift_id': 'qa9', 'wager_multiplier': 0}}]}}, 400)
+        with m.connect() as db:
+            db.execute('UPDATE hw_pumpkins SET earned=50,balance=50 WHERE user_id=?', (self.uid,))
+        st = a.get('/api/halloween/pass').get_json()['pass']
+        self.assertEqual(st['levels'][0]['reward']['subtitle'], 'Подарок на отыгрыш · X3')
+        got = a.post('/api/halloween/pass/claim', json={}).get_json()
+        self.assertEqual(got['given'][0]['reward']['type'], 'wager_gift')
+        with m.connect() as db:
+            row = db.execute("SELECT * FROM inventory WHERE user_id=? AND source='promo_wager'", (self.uid,)).fetchone()
+        self.assertEqual((row['gift_id'], int(row['floor_price']), int(row['promo_wager_target']), int(row['promo_locked'])), ('qa9', 500, 1500, 1))
+        self.assertTrue(row['expires_at'])
+
     def test_pumpkin_freebet_promocode_and_premium_emoji(self):
         self._hw_open_event()
         self.assertEqual(m.pumpkin_word(1), 'тыква'); self.assertEqual(m.pumpkin_word(3), 'тыквы')

@@ -1394,6 +1394,128 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/halloween/hub').get_json()['pumpkins']['balance'], 26)
         self.post('/api/admin/halloween', {'enabled': False})
 
+    def _hw_open_event(self):
+        patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)
+        self.post('/api/admin/halloween', {'enabled': True, 'admins_only': False, 'starts_at': 0, 'ends_at': 0})
+        def _reset():
+            m.save_document('halloween', {})
+            m._hw_cache['doc'] = None
+        self.addCleanup(_reset)
+        with m.connect() as db:
+            db.execute('DELETE FROM hw_pumpkins WHERE user_id=?', (self.uid,)); db.execute('DELETE FROM hw_claims WHERE user_id=?', (self.uid,))
+            db.execute('DELETE FROM hw_pass_claims WHERE user_id=?', (self.uid,))
+
+    def _hw_player(self, uid, pumpkins):
+        client = m.app.test_client()
+        with m.connect() as db:
+            db.execute('INSERT OR IGNORE INTO users(id,name,username,balance) VALUES(?,?,?,0)', (uid, f'Игрок {uid}', f'u{uid}'))
+            m.hw_ensure_pumpkin_row(db, uid)
+            db.execute('UPDATE hw_pumpkins SET balance=?,earned=?,spent=0 WHERE user_id=?', (pumpkins, pumpkins, uid))
+        with client.session_transaction() as sess:
+            sess['uid'] = uid
+        return client
+
+    def test_halloween_boss_raid_damage_defeat_and_rewards(self):
+        self._hw_open_event()
+        a = self._hw_player(self.uid, 400)
+        b = self._hw_player(self.uid + 7000, 400)
+        self.assertEqual(a.post('/api/halloween/boss/hit', json={'pumpkins': 5}).status_code, 404)   # raid is off by default
+        cfg = {'enabled': True, 'name': 'Тестовый босс', 'max_hp': 100, 'dmg_per_pumpkin': 1, 'size': 'm', 'min_damage': 10,
+               'reward_all': {'type': 'pumpkins', 'amount': 50}, 'reward_top': [{'type': 'pumpkins', 'amount': 500}, {'type': 'none'}],
+               'reward_last': {'type': 'pumpkins', 'amount': 7}}
+        r = self.post('/api/admin/halloween/boss', {'config': cfg})
+        self.assertTrue(r['round_id'])
+        self.post('/api/admin/halloween/boss', {'config': dict(cfg, reward_all={'type': 'ton', 'amount': '0'})}, 400)
+        self.assertEqual(a.get('/api/halloween/hub').get_json()['features']['boss']['hp_left'], 100)
+        st = a.get('/api/halloween/boss').get_json()['boss']
+        self.assertEqual((st['hp_left'], st['players'], st['defeated']), (100, 0, False))
+        self.assertEqual(a.post('/api/halloween/boss/hit', json={'pumpkins': 0}).status_code, 400)
+        hit = a.post('/api/halloween/boss/hit', json={'pumpkins': 60}).get_json()
+        self.assertEqual((hit['dealt'], hit['boss']['hp_left'], hit['boss']['me']['rank']), (60, 40, 1))
+        self.assertEqual(hit['boss']['pumpkins']['balance'], 340)
+        poor = self._hw_player(self.uid + 7100, 3)
+        self.assertEqual(poor.post('/api/halloween/boss/hit', json={'pumpkins': 9}).status_code, 409)
+        with m.connect() as db:
+            self.assertEqual(m.hw_pumpkin_balance(db, self.uid + 7100)['balance'], 3)
+        hit = b.post('/api/halloween/boss/hit', json={'pumpkins': 15}).get_json()
+        self.assertEqual(hit['boss']['me']['rank'], 2)
+        # the finishing blow only takes as many pumpkins as it needs
+        hit = b.post('/api/halloween/boss/hit', json={'pumpkins': 300}).get_json()
+        self.assertTrue(hit['killed']); self.assertEqual((hit['spent'], hit['dealt'], hit['boss']['hp_left']), (25, 25, 0))
+        self.assertEqual(hit['boss']['pumpkins']['balance'], 400 - 15 - 25)
+        self.assertEqual(a.post('/api/halloween/boss/hit', json={'pumpkins': 1}).status_code, 409)
+        sa = a.get('/api/halloween/boss').get_json()['boss']
+        self.assertTrue(sa['defeated'] and sa['can_claim'])
+        self.assertEqual([x['label'] for x in sa['my_rewards']], ['Участие в рейде', '1 место по урону'])
+        ga = a.post('/api/halloween/boss/claim', json={}).get_json()
+        self.assertEqual(len(ga['given']), 2); self.assertEqual(ga['boss']['pumpkins']['balance'], 340 + 550)
+        self.assertEqual(a.post('/api/halloween/boss/claim', json={}).status_code, 409)       # once
+        gb = b.post('/api/halloween/boss/claim', json={}).get_json()
+        self.assertEqual([x['label'] for x in gb['given']], ['Участие в рейде', 'Добивающий удар'])   # 2nd place has no prize
+        self.assertEqual(poor.post('/api/halloween/boss/claim', json={}).status_code, 409)    # did not take part
+        # a player below the minimum damage gets nothing
+        self.post('/api/admin/halloween/boss', {'action': 'new_round', 'config': cfg})
+        weak = self._hw_player(self.uid + 7200, 50)
+        weak.post('/api/halloween/boss/hit', json={'pumpkins': 4})
+        self.post('/api/admin/halloween/boss', {'action': 'defeat', 'config': cfg})
+        self.assertEqual(weak.post('/api/halloween/boss/claim', json={}).status_code, 409)
+        # HP cannot be lowered under the damage already dealt
+        self.post('/api/admin/halloween/boss', {'action': 'new_round', 'config': cfg})
+        a.post('/api/halloween/boss/hit', json={'pumpkins': 30})
+        self.post('/api/admin/halloween/boss', {'config': dict(cfg, max_hp=20)}, 400)
+        self.post('/api/admin/halloween/boss', {'config': dict(cfg, max_hp=500)})
+        self.assertEqual(a.get('/api/halloween/boss').get_json()['boss']['hp_left'], 470)
+
+    def test_halloween_pass_levels_xp_and_claims(self):
+        self._hw_open_event()
+        a = self._hw_player(self.uid, 0)
+        self.assertEqual(a.get('/api/halloween/pass').status_code, 404)
+        self.post('/api/admin/halloween/pass', {'config': {'enabled': True, 'pumpkins_step': 100, 'xp_step': 100, 'levels': [
+            {'need': 100, 'reward': {'type': 'pumpkins', 'amount': 10}}, {'need': 50, 'reward': {'type': 'pumpkins', 'amount': 20}},
+            {'need': 80, 'reward': {'type': 'tickets', 'amount': 2}}]}})
+        self.post('/api/admin/halloween/pass', {'config': {'enabled': True, 'levels': [{'need': 10, 'reward': {'type': 'none'}}]}}, 400)
+        st = a.get('/api/halloween/pass').get_json()['pass']
+        self.assertEqual((st['xp'], st['level'], st['claimable']), (0, 0, 0))
+        self.assertEqual(a.post('/api/halloween/pass/claim', json={}).status_code, 409)
+        with m.connect() as db:
+            db.execute('UPDATE hw_pumpkins SET earned=120,balance=120 WHERE user_id=?', (self.uid,))
+        st = a.get('/api/halloween/pass').get_json()['pass']
+        self.assertEqual((st['xp'], st['level'], st['claimable']), (120, 1, 1))
+        self.assertEqual([l['state'] for l in st['levels']], ['open', 'locked', 'locked'])
+        self.assertEqual(a.post('/api/halloween/pass/claim', json={'level': 2}).status_code, 409)   # not reached yet
+        r = a.post('/api/halloween/pass/claim', json={'level': 1}).get_json()
+        self.assertEqual(r['pass']['pumpkins']['balance'], 130)
+        self.assertEqual(a.post('/api/halloween/pass/claim', json={'level': 1}).status_code, 409)
+        with m.connect() as db:
+            db.execute('UPDATE hw_pumpkins SET earned=1000 WHERE user_id=?', (self.uid,))
+        r = a.post('/api/halloween/pass/claim', json={}).get_json()          # everything that is ready
+        self.assertEqual([g['level'] for g in r['given']], [2, 3])
+        self.assertEqual(r['pass']['levels'][2]['state'], 'claimed')
+        self.assertEqual(a.get('/api/halloween/hub').get_json()['features']['pass']['max_level'], 3)
+
+    def test_halloween_trick_or_treat_daily_tries_and_outcomes(self):
+        self._hw_open_event()
+        a = self._hw_player(self.uid, 100)
+        self.assertEqual(a.post('/api/halloween/trick/knock', json={}).status_code, 404)
+        self.post('/api/admin/halloween/trick', {'config': {'enabled': True, 'daily_tries': 2, 'outcomes': [
+            {'kind': 'treat', 'weight': 1, 'text': 'Конфеты', 'reward': {'type': 'pumpkins', 'amount': 5}}]}})
+        self.post('/api/admin/halloween/trick', {'config': {'enabled': True, 'outcomes': [{'kind': 'trick', 'weight': 1}]}}, 400)   # needs a treat
+        self.post('/api/admin/halloween/trick', {'config': {'enabled': True, 'outcomes': [{'kind': 'treat', 'weight': 1}]}}, 400)    # treat needs a prize
+        st = a.get('/api/halloween/trick').get_json()['trick']
+        self.assertEqual((st['tries'], st['left']), (2, 2))
+        r = a.post('/api/halloween/trick/knock', json={}).get_json()
+        self.assertEqual((r['kind'], r['trick']['left'], r['trick']['pumpkins']['balance']), ('treat', 1, 105))
+        a.post('/api/halloween/trick/knock', json={})
+        self.assertEqual(a.post('/api/halloween/trick/knock', json={}).status_code, 409)
+        # a trick can take pumpkins, never more than the player has
+        self.post('/api/admin/halloween/trick', {'config': {'enabled': True, 'daily_tries': 1, 'outcomes': [
+            {'kind': 'treat', 'weight': 1, 'reward': {'type': 'pumpkins', 'amount': 1}},
+            {'kind': 'trick', 'weight': 100000, 'text': 'Украл', 'steal': 500}]}})
+        b = self._hw_player(self.uid + 9000, 40)
+        r = b.post('/api/halloween/trick/knock', json={}).get_json()
+        self.assertEqual(r['kind'], 'trick'); self.assertEqual((r['stolen'], r['trick']['pumpkins']['balance']), (40, 0))
+        self.assertEqual(b.get('/api/halloween/hub').get_json()['features']['trick']['left'], 0)
+
     def test_halloween_rollout_modes(self):
         now = int(time.time() * 1000)
         patcher = patch.object(m, 'ADMIN_IDS', {self.uid}); patcher.start(); self.addCleanup(patcher.stop)

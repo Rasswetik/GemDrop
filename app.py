@@ -155,7 +155,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages', 'limbo_bets', 'road_games', 'hw_lots', 'hw_purchases',
+            'creator_chat_messages', 'limbo_bets', 'road_games', 'hw_lots', 'hw_purchases', 'hw_boss_rounds',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -311,6 +311,26 @@ def _initialize_schema():
             price INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_hw_purchases_user ON hw_purchases(user_id, lot_id);
+        CREATE TABLE IF NOT EXISTS hw_boss_rounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT '', skin TEXT NOT NULL DEFAULT 'pumpkin',
+            max_hp INTEGER NOT NULL DEFAULT 1, damage INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'active',
+            last_hit_user INTEGER NOT NULL DEFAULT 0, rewards_json TEXT NOT NULL DEFAULT '{}',
+            defeated_at INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS hw_boss_hits (
+            round_id INTEGER NOT NULL, user_id INTEGER NOT NULL, damage INTEGER NOT NULL DEFAULT 0,
+            hits INTEGER NOT NULL DEFAULT 0, pumpkins INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (round_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_hw_boss_hits_dmg ON hw_boss_hits(round_id, damage DESC);
+        CREATE TABLE IF NOT EXISTS hw_boss_claims (
+            round_id INTEGER NOT NULL, user_id INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (round_id, user_id)
+        );
+        CREATE TABLE IF NOT EXISTS hw_pass_claims (
+            user_id INTEGER NOT NULL, level INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, level)
+        );
         CREATE TABLE IF NOT EXISTS xhunt_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, state TEXT NOT NULL DEFAULT 'active',
             config_json TEXT NOT NULL DEFAULT '{}', start_at TEXT NOT NULL, end_at TEXT NOT NULL DEFAULT '',
@@ -2978,13 +2998,14 @@ def halloween_hub():
         lots = db.execute('SELECT * FROM hw_lots WHERE active=1 ORDER BY sort_order, id').fetchall()
         bought = {r['lot_id']: int(r['n']) for r in db.execute('SELECT lot_id,COUNT(*) AS n FROM hw_purchases WHERE user_id=? GROUP BY lot_id', (uid,)).fetchall()}
         welcome_taken = bool(db.execute("SELECT 1 FROM hw_claims WHERE user_id=? AND button_id='~welcome'", (uid,)).fetchone())
+        features = hw_features(db, uid, doc)
     lot_views = [hw_lot_view(r, bought.get(r['id'], 0), now_ms) for r in lots]
     lot_views = [l for l in lot_views if not l['ended']]
     welcome = hw_welcome_lot(doc, 1 if welcome_taken else 0)
     if welcome:
         lot_views.insert(0, welcome)
     resp = jsonify(ok=True, pumpkins=pump, rate=hw_rate(doc), buttons=[hw_button_public(b, b['id'] in claimed) for b in buttons],
-                   lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)),
+                   lots=lot_views, now=now_ms, ends_at=s['ends_at'], tour=dict(done=tour_done, reward=hw_tour_reward(doc)), features=features,
                    welcome=dict(amount=hw_welcome_amount(doc), taken=welcome_taken), pet=hw_pet_enabled(doc))
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -3172,6 +3193,691 @@ def halloween_buy():
     finally:
         db.close()
     return jsonify(ok=True, reward=given['reward'], code=given.get('code', ''), title=title, price=price, pumpkins=pump)
+
+
+# ---------------------------------------------------------------------------
+# Halloween: boss raid, pumpkin pass, trick-or-treat. Every number, text and reward is edited in the admin panel.
+# ---------------------------------------------------------------------------
+HW_BOSS_SKINS = ('pumpkin', 'toxic', 'void')
+HW_BOSS_TOP = 5
+HW_PASS_MAX_LEVELS = 60
+HW_TRICK_MAX_OUTCOMES = 24
+
+
+def _hw_int(value, low, high, default):
+    try:
+        number = int(float(str(value).replace(',', '.').replace(' ', '')))
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+def _hw_clean(text, limit):
+    return re.sub(r'\s+', ' ', str(text or '')).strip()[:limit]
+
+
+def hw_reward_or_none(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    if str(raw.get('type') or 'none') == 'none':
+        return {'type': 'none'}
+    return hw_normalize_reward(raw)
+
+
+def _hw_reward_public(reward):
+    reward = reward if isinstance(reward, dict) else {}
+    if str(reward.get('type') or 'none') == 'none':
+        return None
+    return hw_reward_view(reward)
+
+
+# ----- boss raid -----
+def hw_boss_defaults():
+    return dict(enabled=False, name='Король Тыкв', skin='pumpkin', max_hp=10000, dmg_per_pumpkin=1, size='l',
+                tile_title='Босс-рейд', tile_subtitle='Бейте Короля Тыкв вместе со всеми', min_damage=1,
+                reward_all={'type': 'pumpkins', 'amount': 100},
+                reward_top=[{'type': 'pumpkins', 'amount': 1000}, {'type': 'pumpkins', 'amount': 500}, {'type': 'pumpkins', 'amount': 250}],
+                reward_last={'type': 'pumpkins', 'amount': 300}, round_id=0)
+
+
+def hw_boss_normalize(raw):
+    base = hw_boss_defaults()
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(base)
+    out['enabled'] = bool(raw.get('enabled', base['enabled']))
+    out['name'] = _hw_clean(raw.get('name'), 40) or base['name']
+    out['skin'] = raw.get('skin') if raw.get('skin') in HW_BOSS_SKINS else 'pumpkin'
+    out['max_hp'] = _hw_int(raw.get('max_hp', base['max_hp']), 1, 1000000000, base['max_hp'])
+    out['dmg_per_pumpkin'] = _hw_int(raw.get('dmg_per_pumpkin', 1), 1, 100000, 1)
+    out['size'] = raw.get('size') if raw.get('size') in HW_SIZES else 'l'
+    out['tile_title'] = _hw_clean(raw.get('tile_title'), 40) or base['tile_title']
+    out['tile_subtitle'] = _hw_clean(raw.get('tile_subtitle', base['tile_subtitle']), 60)
+    out['min_damage'] = _hw_int(raw.get('min_damage', 1), 0, 1000000000, 1)
+    out['reward_all'] = hw_reward_or_none(raw.get('reward_all', base['reward_all']))
+    top = raw.get('reward_top', base['reward_top'])
+    out['reward_top'] = [hw_reward_or_none(item) for item in (top if isinstance(top, list) else [])[:HW_BOSS_TOP]]
+    out['reward_last'] = hw_reward_or_none(raw.get('reward_last', base['reward_last']))
+    out['round_id'] = _hw_int(raw.get('round_id', 0), 0, 2 ** 62, 0)
+    return out
+
+
+def hw_boss_cfg(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return hw_boss_normalize(doc.get('boss') if isinstance(doc.get('boss'), dict) else {})
+    except (ValueError, TypeError):
+        return hw_boss_defaults()
+
+
+def hw_boss_round(db, round_id, lock=False):
+    if not round_id:
+        return None
+    return db.execute('SELECT * FROM hw_boss_rounds WHERE id=?' + (' FOR UPDATE' if (lock and DATABASE_URL) else ''), (int(round_id),)).fetchone()
+
+
+def hw_boss_snapshot(cfg):
+    return dict(all=cfg['reward_all'], top=cfg['reward_top'], last=cfg['reward_last'], min_damage=cfg['min_damage'])
+
+
+def hw_boss_rewards_for(snap, rank, damage, is_last):
+    """[(label, reward)] this player earns from the defeated boss."""
+    out = []
+    if damage <= 0 or damage < int(snap.get('min_damage') or 0):
+        return out
+    reward = snap.get('all') or {}
+    if reward.get('type') not in (None, 'none'):
+        out.append(('Участие в рейде', reward))
+    top = snap.get('top') or []
+    if rank and 1 <= rank <= len(top) and (top[rank - 1] or {}).get('type') not in (None, 'none'):
+        out.append((f'{rank} место по урону', top[rank - 1]))
+    last = snap.get('last') or {}
+    if is_last and last.get('type') not in (None, 'none'):
+        out.append(('Добивающий удар', last))
+    return out
+
+
+def hw_boss_my(db, row, uid):
+    rid = int(row['id'])
+    mine = db.execute('SELECT damage,hits,pumpkins FROM hw_boss_hits WHERE round_id=? AND user_id=?', (rid, int(uid))).fetchone()
+    damage = int(mine['damage']) if mine else 0
+    rank = 0
+    if damage > 0:
+        rank = int(db.execute('SELECT COUNT(*) AS n FROM hw_boss_hits WHERE round_id=? AND (damage>? OR (damage=? AND user_id<?))',
+                              (rid, damage, damage, int(uid))).fetchone()['n']) + 1
+    return dict(damage=damage, hits=int(mine['hits']) if mine else 0, pumpkins=int(mine['pumpkins']) if mine else 0, rank=rank)
+
+
+def hw_boss_defeat_info(db, row, uid, cfg):
+    """Everything a player needs after the boss fell: snapshot, own rewards, claim state."""
+    try:
+        snap = json.loads(row['rewards_json'] or '{}') or hw_boss_snapshot(cfg)
+    except ValueError:
+        snap = hw_boss_snapshot(cfg)
+    me = hw_boss_my(db, row, uid)
+    rewards = hw_boss_rewards_for(snap, me['rank'], me['damage'], int(row['last_hit_user'] or 0) == int(uid))
+    claimed = bool(db.execute('SELECT 1 FROM hw_boss_claims WHERE round_id=? AND user_id=?', (int(row['id']), int(uid))).fetchone())
+    return snap, me, rewards, claimed
+
+
+def hw_boss_state(db, uid, cfg):
+    row = hw_boss_round(db, cfg['round_id'])
+    out = dict(enabled=bool(cfg['enabled']), has_round=bool(row), pumpkins=hw_pumpkin_balance(db, uid), dmg_per_pumpkin=cfg['dmg_per_pumpkin'],
+               title=cfg['tile_title'], now=int(time.time() * 1000))
+    if not row:
+        return out
+    defeated = row['state'] == 'defeated'
+    snap, me, rewards, claimed = hw_boss_defeat_info(db, row, uid, cfg) if defeated else (hw_boss_snapshot(cfg), hw_boss_my(db, row, uid), [], False)
+    rid = int(row['id'])
+    top_rows = db.execute('SELECT h.user_id,h.damage,u.name,u.photo_url FROM hw_boss_hits h LEFT JOIN users u ON u.id=h.user_id '
+                          'WHERE h.round_id=? AND h.damage>0 ORDER BY h.damage DESC, h.user_id ASC LIMIT 10', (rid,)).fetchall()
+    players = int(db.execute('SELECT COUNT(*) AS n FROM hw_boss_hits WHERE round_id=? AND damage>0', (rid,)).fetchone()['n'])
+    finisher = ''
+    if defeated and int(row['last_hit_user'] or 0):
+        f = db.execute('SELECT name FROM users WHERE id=?', (int(row['last_hit_user']),)).fetchone()
+        finisher = str(f['name'] or 'Игрок')[:24] if f else 'Игрок'
+    max_hp, damage = int(row['max_hp']), int(row['damage'])
+    out.update(round=rid, name=str(row['name'] or cfg['name']), skin=row['skin'] if row['skin'] in HW_BOSS_SKINS else 'pumpkin',
+               max_hp=max_hp, damage=damage, hp_left=max(0, max_hp - damage), defeated=defeated, defeated_at=int(row['defeated_at'] or 0),
+               players=players, me=me, finisher=finisher, is_finisher=bool(defeated and int(row['last_hit_user'] or 0) == int(uid)),
+               top=[dict(rank=i + 1, name=str(r['name'] or 'Игрок')[:24], photo=safe_image(r['photo_url'] or ''), damage=int(r['damage']),
+                         me=int(r['user_id']) == int(uid)) for i, r in enumerate(top_rows)],
+               rewards=dict(all=_hw_reward_public(snap.get('all')), top=[_hw_reward_public(x) for x in (snap.get('top') or [])],
+                            last=_hw_reward_public(snap.get('last')), min_damage=int(snap.get('min_damage') or 0)),
+               my_rewards=[dict(label=label, reward=hw_reward_view(reward)) for label, reward in rewards],
+               claimed=claimed, can_claim=bool(defeated and rewards and not claimed))
+    return out
+
+
+def hw_boss_start_round(db, cfg):
+    cur = db.execute('INSERT INTO hw_boss_rounds(name,skin,max_hp) VALUES(?,?,?)', (cfg['name'], cfg['skin'], cfg['max_hp']))
+    return int(cur.lastrowid)
+
+
+def hw_boss_gate():
+    s, err = hw_visible_or_error()
+    if err:
+        return None, None, err
+    cfg = hw_boss_cfg(_halloween_doc(fresh=True))
+    if not cfg['enabled'] or not cfg['round_id']:
+        return None, None, error('Босс-рейд сейчас не проходит.', 404)
+    return s, cfg, None
+
+
+@app.get('/api/halloween/boss')
+@login_required
+def halloween_boss_get():
+    s, cfg, err = hw_boss_gate()
+    if err:
+        return err
+    with connect() as db:
+        state = hw_boss_state(db, int(session['uid']), cfg)
+    resp = jsonify(ok=True, boss=state)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.post('/api/halloween/boss/hit')
+@login_required
+def halloween_boss_hit():
+    s, cfg, err = hw_boss_gate()
+    if err:
+        return err
+    uid = int(session['uid'])
+    n = _hw_int((request.get_json(silent=True) or {}).get('pumpkins'), 0, 1000000, 0)
+    if n < 1:
+        return error('Укажите, сколько тыкв бросить.')
+    db = connect()
+    dealt = spent = 0
+    killed = False
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = hw_boss_round(db, cfg['round_id'], lock=True)
+        if not row:
+            return error('Босс-рейд сейчас не проходит.', 404)
+        if row['state'] != 'active':
+            return error('Босс уже повержен.', 409)
+        per = cfg['dmg_per_pumpkin']
+        remaining = int(row['max_hp']) - int(row['damage'])
+        n = min(n, -(-remaining // per))          # never take more pumpkins than the last hit needs
+        hw_ensure_pumpkin_row(db, uid)
+        paid = db.execute('UPDATE hw_pumpkins SET balance=balance-?,spent=spent+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND balance>=?',
+                          (n, n, uid, n))
+        if not paid.rowcount:
+            return error('Не хватает тыкв.', 409)
+        spent, dealt = n, min(remaining, n * per)
+        now_ms = int(time.time() * 1000)
+        db.execute('UPDATE hw_boss_rounds SET damage=damage+? WHERE id=?', (dealt, int(row['id'])))
+        db.execute('INSERT OR IGNORE INTO hw_boss_hits(round_id,user_id) VALUES(?,?)', (int(row['id']), uid))
+        db.execute('UPDATE hw_boss_hits SET damage=damage+?,hits=hits+1,pumpkins=pumpkins+?,updated_at=? WHERE round_id=? AND user_id=?',
+                   (dealt, n, now_ms, int(row['id']), uid))
+        if int(row['damage']) + dealt >= int(row['max_hp']):
+            killed = True
+            db.execute("UPDATE hw_boss_rounds SET state='defeated',defeated_at=?,last_hit_user=?,rewards_json=? WHERE id=?",
+                       (now_ms, uid, json.dumps(hw_boss_snapshot(cfg), ensure_ascii=False), int(row['id'])))
+        state = hw_boss_state(db, uid, cfg)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween boss hit failed')
+        return error('Удар не засчитан. Тыквы не списаны.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, boss=state, dealt=dealt, spent=spent, killed=killed)
+
+
+@app.post('/api/halloween/boss/claim')
+@login_required
+def halloween_boss_claim():
+    s, cfg, err = hw_boss_gate()
+    if err:
+        return err
+    uid = int(session['uid'])
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = hw_boss_round(db, cfg['round_id'], lock=True)
+        if not row or row['state'] != 'defeated':
+            return error('Босс ещё не повержен.', 409)
+        snap, me, rewards, claimed = hw_boss_defeat_info(db, row, uid, cfg)
+        if not rewards:
+            return error('За этого босса наград нет: вы не участвовали в рейде.', 409)
+        got = db.execute('INSERT OR IGNORE INTO hw_boss_claims(round_id,user_id) VALUES(?,?)', (int(row['id']), uid))
+        if not got.rowcount:
+            return error('Награда уже получена.', 409)
+        given = []
+        for label, reward in rewards:
+            out = hw_grant(db, uid, reward, f'Halloween · босс «{row["name"]}»: {label}')
+            given.append(dict(label=label, reward=out['reward'], code=out.get('code', '')))
+        state = hw_boss_state(db, uid, cfg)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween boss claim failed')
+        return error('Не удалось выдать награду. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, given=given, boss=state)
+
+
+# ----- pumpkin pass -----
+def hw_pass_defaults():
+    levels = [(100, 20), (150, 30), (200, 40), (250, 60), (300, 80), (400, 100), (500, 150), (700, 250)]
+    return dict(enabled=False, name='Тыквенный пропуск', xp_source='earned', pumpkins_step=100, xp_step=100,
+                tile_title='Тыквенный пропуск', tile_subtitle='Копи опыт — забирай награды',
+                levels=[dict(need=need, reward={'type': 'pumpkins', 'amount': amount}) for need, amount in levels])
+
+
+def hw_pass_normalize(raw):
+    base = hw_pass_defaults()
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(base)
+    out['enabled'] = bool(raw.get('enabled', base['enabled']))
+    out['name'] = _hw_clean(raw.get('name'), 40) or base['name']
+    out['xp_source'] = 'all' if raw.get('xp_source') == 'all' else 'earned'
+    out['pumpkins_step'] = _hw_int(raw.get('pumpkins_step', 100), 1, 100000000, 100)
+    out['xp_step'] = _hw_int(raw.get('xp_step', 100), 1, 100000000, 100)
+    out['tile_title'] = _hw_clean(raw.get('tile_title'), 40) or base['tile_title']
+    out['tile_subtitle'] = _hw_clean(raw.get('tile_subtitle', base['tile_subtitle']), 60)
+    levels = raw.get('levels', base['levels'])
+    if not isinstance(levels, list):
+        raise ValueError('Некорректный список уровней.')
+    if len(levels) > HW_PASS_MAX_LEVELS:
+        raise ValueError(f'Уровней не больше {HW_PASS_MAX_LEVELS}.')
+    out['levels'] = []
+    for i, item in enumerate(levels, 1):
+        item = item if isinstance(item, dict) else {}
+        reward = hw_reward_or_none(item.get('reward'))
+        if reward['type'] == 'none':
+            raise ValueError(f'Уровень {i}: выберите награду.')
+        out['levels'].append(dict(need=_hw_int(item.get('need', 100), 1, 1000000000, 100), reward=reward))
+    return out
+
+
+def hw_pass_cfg(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return hw_pass_normalize(doc.get('pass') if isinstance(doc.get('pass'), dict) else {})
+    except (ValueError, TypeError):
+        return hw_pass_defaults()
+
+
+def hw_pass_xp(db, uid, cfg):
+    row = db.execute('SELECT balance,earned,spent FROM hw_pumpkins WHERE user_id=?', (int(uid),)).fetchone()
+    if not row:
+        return 0
+    base = int(row['earned']) if cfg['xp_source'] == 'earned' else max(0, int(row['balance']) + int(row['spent']))
+    return base * cfg['xp_step'] // cfg['pumpkins_step']
+
+
+def hw_pass_state(db, uid, cfg):
+    xp = hw_pass_xp(db, uid, cfg)
+    claimed = {int(r['level']) for r in db.execute('SELECT level FROM hw_pass_claims WHERE user_id=?', (int(uid),)).fetchall()}
+    levels, total, current, next_need, prev_total = [], 0, 0, 0, 0
+    for i, item in enumerate(cfg['levels'], 1):
+        prev_total = total
+        total += int(item['need'])
+        reached = xp >= total
+        if reached:
+            current = i
+        levels.append(dict(n=i, xp=total, need=int(item['need']), reward=hw_reward_view(item['reward']),
+                           state='claimed' if i in claimed else ('open' if reached else 'locked')))
+    if current < len(levels):
+        start = levels[current - 1]['xp'] if current else 0
+        next_need = levels[current]['xp'] - start
+        into = xp - start
+    else:
+        next_need, into = 0, 0
+    return dict(enabled=bool(cfg['enabled']), name=cfg['name'], xp=xp, level=current, max_level=len(levels), into=into, next_need=next_need,
+                levels=levels, claimable=sum(1 for l in levels if l['state'] == 'open'), pumpkins_step=cfg['pumpkins_step'], xp_step=cfg['xp_step'],
+                xp_source=cfg['xp_source'], pumpkins=hw_pumpkin_balance(db, uid))
+
+
+def hw_pass_gate():
+    s, err = hw_visible_or_error()
+    if err:
+        return None, err
+    cfg = hw_pass_cfg(_halloween_doc(fresh=True))
+    if not cfg['enabled']:
+        return None, error('Тыквенный пропуск сейчас не проходит.', 404)
+    return cfg, None
+
+
+@app.get('/api/halloween/pass')
+@login_required
+def halloween_pass_get():
+    cfg, err = hw_pass_gate()
+    if err:
+        return err
+    with connect() as db:
+        state = hw_pass_state(db, int(session['uid']), cfg)
+    resp = jsonify(ok=True, **{'pass': state})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.post('/api/halloween/pass/claim')
+@login_required
+def halloween_pass_claim():
+    cfg, err = hw_pass_gate()
+    if err:
+        return err
+    uid = int(session['uid'])
+    want = _hw_int((request.get_json(silent=True) or {}).get('level'), 0, 1000, 0)    # 0 — everything that is ready
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        hw_ensure_pumpkin_row(db, uid)
+        if DATABASE_URL:
+            db.execute('SELECT user_id FROM hw_pumpkins WHERE user_id=? FOR UPDATE', (uid,))
+        state = hw_pass_state(db, uid, cfg)
+        todo = [l for l in state['levels'] if l['state'] == 'open' and (not want or l['n'] == want)]
+        if not todo:
+            return error('Нет наград, которые можно забрать.', 409)
+        given = []
+        for lvl in todo:
+            got = db.execute('INSERT OR IGNORE INTO hw_pass_claims(user_id,level) VALUES(?,?)', (uid, lvl['n']))
+            if not got.rowcount:
+                continue
+            out = hw_grant(db, uid, cfg['levels'][lvl['n'] - 1]['reward'], f'Halloween · {cfg["name"]}, уровень {lvl["n"]}')
+            given.append(dict(level=lvl['n'], reward=out['reward'], code=out.get('code', '')))
+        if not given:
+            return error('Награда уже получена.', 409)
+        state = hw_pass_state(db, uid, cfg)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween pass claim failed')
+        return error('Не удалось выдать награду. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, given=given, **{'pass': state})
+
+
+# ----- trick or treat -----
+def hw_trick_defaults():
+    def o(i, kind, weight, text, reward, steal=0):
+        return dict(id=i, kind=kind, weight=weight, text=text, reward=reward, steal=steal)
+    return dict(enabled=False, name='Трик или трит', daily_tries=1, tile_title='Трик или трит', tile_subtitle='Постучись в дверь — что откроется?',
+                outcomes=[
+                    o('t1', 'treat', 30, 'Добрые соседи насыпали тебе конфет!', {'type': 'pumpkins', 'amount': 30}),
+                    o('t2', 'treat', 18, 'Целый мешок сладостей — ты настоящий герой Хэллоуина!', {'type': 'pumpkins', 'amount': 80}),
+                    o('t3', 'treat', 6, 'Редкая удача: хозяин дома отдал свои лучшие запасы!', {'type': 'pumpkins', 'amount': 250}),
+                    o('k1', 'trick', 24, 'Из-за двери выскочил паук. Конфет не будет.', {'type': 'none'}),
+                    o('k2', 'trick', 16, 'Дверь распахнул призрак и пропал. Ничего не досталось.', {'type': 'none'}),
+                    o('k3', 'trick', 6, 'Скелет щёлкнул челюстью и забрал немного тыкв!', {'type': 'none'}, 10),
+                ])
+
+
+def hw_trick_normalize(raw):
+    base = hw_trick_defaults()
+    raw = raw if isinstance(raw, dict) else {}
+    out = dict(base)
+    out['enabled'] = bool(raw.get('enabled', base['enabled']))
+    out['name'] = _hw_clean(raw.get('name'), 40) or base['name']
+    out['daily_tries'] = _hw_int(raw.get('daily_tries', 1), 1, 50, 1)
+    out['tile_title'] = _hw_clean(raw.get('tile_title'), 40) or base['tile_title']
+    out['tile_subtitle'] = _hw_clean(raw.get('tile_subtitle', base['tile_subtitle']), 60)
+    items = raw.get('outcomes', base['outcomes'])
+    if not isinstance(items, list):
+        raise ValueError('Некорректный список исходов.')
+    if len(items) > HW_TRICK_MAX_OUTCOMES:
+        raise ValueError(f'Исходов не больше {HW_TRICK_MAX_OUTCOMES}.')
+    out['outcomes'], seen = [], set()
+    for i, item in enumerate(items, 1):
+        item = item if isinstance(item, dict) else {}
+        oid = re.sub(r'[^a-z0-9_]', '', str(item.get('id') or '').lower())[:12] or secrets.token_hex(3)
+        if oid in seen:
+            oid = secrets.token_hex(3)
+        seen.add(oid)
+        kind = 'trick' if item.get('kind') == 'trick' else 'treat'
+        text = _hw_clean(item.get('text'), 160)
+        if not text:
+            text = 'Сладость!' if kind == 'treat' else 'Гадость!'
+        reward = hw_reward_or_none(item.get('reward'))
+        if kind == 'treat' and reward['type'] == 'none':
+            raise ValueError(f'Исход {i}: у «сладости» должна быть награда.')
+        out['outcomes'].append(dict(id=oid, kind=kind, weight=_hw_int(item.get('weight', 10), 1, 100000, 10), text=text, reward=reward,
+                                    steal=_hw_int(item.get('steal', 0), 0, 1000000, 0) if kind == 'trick' else 0))
+    if not any(x['kind'] == 'treat' for x in out['outcomes']):
+        raise ValueError('Нужен хотя бы один исход «сладость».')
+    return out
+
+
+def hw_trick_cfg(doc=None):
+    doc = doc if doc is not None else _halloween_doc()
+    try:
+        return hw_trick_normalize(doc.get('trick') if isinstance(doc.get('trick'), dict) else {})
+    except (ValueError, TypeError):
+        return hw_trick_defaults()
+
+
+def hw_trick_day():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+
+def hw_trick_used(db, uid):
+    day = hw_trick_day()
+    return int(db.execute("SELECT COUNT(*) AS n FROM hw_claims WHERE user_id=? AND button_id='~trick' AND day LIKE ?", (int(uid), day + '#%')).fetchone()['n'])
+
+
+def hw_trick_reset_ms():
+    now = datetime.now(timezone.utc)
+    nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(nxt.timestamp() * 1000)
+
+
+def hw_trick_state(db, uid, cfg):
+    used = hw_trick_used(db, uid)
+    left = max(0, cfg['daily_tries'] - used)
+    treats = sum(1 for x in cfg['outcomes'] if x['kind'] == 'treat')
+    return dict(enabled=bool(cfg['enabled']), name=cfg['name'], tries=cfg['daily_tries'], left=left, used=used, reset_at=hw_trick_reset_ms(),
+                now=int(time.time() * 1000), pumpkins=hw_pumpkin_balance(db, uid), outcomes=len(cfg['outcomes']), treats=treats)
+
+
+def hw_trick_gate():
+    s, err = hw_visible_or_error()
+    if err:
+        return None, err
+    cfg = hw_trick_cfg(_halloween_doc(fresh=True))
+    if not cfg['enabled']:
+        return None, error('«Трик или трит» сейчас не проходит.', 404)
+    return cfg, None
+
+
+@app.get('/api/halloween/trick')
+@login_required
+def halloween_trick_get():
+    cfg, err = hw_trick_gate()
+    if err:
+        return err
+    with connect() as db:
+        state = hw_trick_state(db, int(session['uid']), cfg)
+    resp = jsonify(ok=True, trick=state)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.post('/api/halloween/trick/knock')
+@login_required
+def halloween_trick_knock():
+    cfg, err = hw_trick_gate()
+    if err:
+        return err
+    uid = int(session['uid'])
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        used = hw_trick_used(db, uid)
+        if used >= cfg['daily_tries']:
+            return error('На сегодня попытки закончились. Приходите завтра!', 409)
+        pool = cfg['outcomes']
+        roll = secrets.SystemRandom().uniform(0, sum(x['weight'] for x in pool))
+        pick, acc = pool[-1], 0
+        for item in pool:
+            acc += item['weight']
+            if roll < acc:
+                pick = item
+                break
+        got = db.execute('INSERT OR IGNORE INTO hw_claims(user_id,button_id,day,outcome) VALUES(?,?,?,?)',
+                         (uid, '~trick', f'{hw_trick_day()}#{used + 1}', pick['kind']))
+        if not got.rowcount:
+            return error('Подождите секунду и попробуйте ещё раз.', 409)
+        given, stolen = None, 0
+        if pick['reward'].get('type') not in (None, 'none'):
+            given = hw_grant(db, uid, pick['reward'], f'Halloween · {cfg["name"]}')
+        if pick['steal'] > 0:
+            hw_ensure_pumpkin_row(db, uid)
+            have = int(db.execute('SELECT balance FROM hw_pumpkins WHERE user_id=?', (uid,)).fetchone()['balance'])
+            stolen = min(have, pick['steal'])
+            if stolen > 0:
+                db.execute('UPDATE hw_pumpkins SET balance=balance-?,spent=spent+?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?', (stolen, stolen, uid))
+        state = hw_trick_state(db, uid, cfg)
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('halloween trick failed')
+        return error('Не удалось открыть дверь. Попробуйте ещё раз.', 500)
+    finally:
+        db.close()
+    return jsonify(ok=True, kind=pick['kind'], text=pick['text'], reward=(given or {}).get('reward'), code=(given or {}).get('code', ''),
+                   stolen=stolen, trick=state)
+
+
+# ----- hub summary and admin -----
+def hw_features(db, uid, doc):
+    """Short cards for the event page: only features the admin switched on."""
+    out = {}
+    boss = hw_boss_cfg(doc)
+    if boss['enabled'] and boss['round_id']:
+        row = hw_boss_round(db, boss['round_id'])
+        if row:
+            defeated = row['state'] == 'defeated'
+            can_claim = False
+            if defeated:
+                _snap, _me, _rewards, _claimed = hw_boss_defeat_info(db, row, uid, boss)
+                can_claim = bool(_rewards) and not _claimed
+            out['boss'] = dict(title=boss['tile_title'], subtitle=boss['tile_subtitle'], size=boss['size'], skin=row['skin'], name=row['name'],
+                               max_hp=int(row['max_hp']), hp_left=max(0, int(row['max_hp']) - int(row['damage'])), defeated=defeated, can_claim=can_claim)
+    pas = hw_pass_cfg(doc)
+    if pas['enabled']:
+        st = hw_pass_state(db, uid, pas)
+        out['pass'] = dict(title=pas['tile_title'], subtitle=pas['tile_subtitle'], level=st['level'], max_level=st['max_level'], claimable=st['claimable'],
+                           xp=st['xp'], into=st['into'], next_need=st['next_need'])
+    trick = hw_trick_cfg(doc)
+    if trick['enabled']:
+        st = hw_trick_state(db, uid, trick)
+        out['trick'] = dict(title=trick['tile_title'], subtitle=trick['tile_subtitle'], left=st['left'], reset_at=st['reset_at'])
+    return out
+
+
+def _hw_admin_doc_save(doc):
+    doc['updated_at'] = datetime.now(timezone.utc).isoformat()
+    save_document('halloween', doc)
+    _hw_cache['doc'] = None
+
+
+@app.get('/api/admin/halloween/boss')
+@admin_required
+def admin_boss_get():
+    doc = _halloween_doc(fresh=True)
+    cfg = hw_boss_cfg(doc)
+    info = None
+    with connect() as db:
+        row = hw_boss_round(db, cfg['round_id'])
+        if row:
+            top = db.execute('SELECT h.user_id,h.damage,h.hits,u.name,u.username FROM hw_boss_hits h LEFT JOIN users u ON u.id=h.user_id '
+                             'WHERE h.round_id=? AND h.damage>0 ORDER BY h.damage DESC, h.user_id ASC LIMIT 10', (int(row['id']),)).fetchall()
+            players = int(db.execute('SELECT COUNT(*) AS n FROM hw_boss_hits WHERE round_id=? AND damage>0', (int(row['id']),)).fetchone()['n'])
+            claims = int(db.execute('SELECT COUNT(*) AS n FROM hw_boss_claims WHERE round_id=?', (int(row['id']),)).fetchone()['n'])
+            info = dict(round=int(row['id']), name=row['name'], max_hp=int(row['max_hp']), damage=int(row['damage']), state=row['state'],
+                        players=players, claims=claims,
+                        top=[dict(user_id=int(r['user_id']), name=str(r['name'] or 'Игрок'), username=str(r['username'] or ''), damage=int(r['damage']), hits=int(r['hits'])) for r in top])
+    return jsonify(ok=True, config=cfg, round=info, skins=list(HW_BOSS_SKINS), top_places=HW_BOSS_TOP)
+
+
+@app.post('/api/admin/halloween/boss')
+@admin_required
+def admin_boss_set():
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action') or 'save')
+    doc = dict(_halloween_doc(fresh=True))
+    prev = hw_boss_cfg(doc)
+    try:
+        cfg = hw_boss_normalize(dict(data.get('config') or {}, round_id=prev['round_id'])) if 'config' in data else prev
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        row = hw_boss_round(db, cfg['round_id'], lock=True)
+        if action == 'new_round' or (cfg['enabled'] and not row):
+            cfg['round_id'] = hw_boss_start_round(db, cfg)
+        elif action == 'defeat':
+            if not row or row['state'] != 'active':
+                return error('Нет активного босса.', 409)
+            db.execute("UPDATE hw_boss_rounds SET damage=max_hp,state='defeated',defeated_at=?,last_hit_user=0,rewards_json=? WHERE id=?",
+                       (int(time.time() * 1000), json.dumps(hw_boss_snapshot(cfg), ensure_ascii=False), int(row['id'])))
+        elif row and row['state'] == 'active':
+            if cfg['max_hp'] <= int(row['damage']):
+                return error(f'HP не может быть меньше уже нанесённого урона ({int(row["damage"])}). Начните нового босса или поставьте больше.')
+            db.execute('UPDATE hw_boss_rounds SET name=?,skin=?,max_hp=? WHERE id=?', (cfg['name'], cfg['skin'], cfg['max_hp'], int(row['id'])))
+        doc['boss'] = cfg
+        db.commit()
+    except Exception:
+        db.rollback()
+        app.logger.exception('admin boss save failed')
+        return error('Не удалось сохранить босса.', 500)
+    finally:
+        db.close()
+    _hw_admin_doc_save(doc)
+    return jsonify(ok=True, round_id=cfg['round_id'])
+
+
+@app.get('/api/admin/halloween/pass')
+@admin_required
+def admin_pass_get():
+    cfg = hw_pass_cfg(_halloween_doc(fresh=True))
+    with connect() as db:
+        claims = int(db.execute('SELECT COUNT(*) AS n FROM hw_pass_claims').fetchone()['n'])
+        users = int(db.execute('SELECT COUNT(DISTINCT user_id) AS n FROM hw_pass_claims').fetchone()['n'])
+    return jsonify(ok=True, config=cfg, claims=claims, users=users, max_levels=HW_PASS_MAX_LEVELS)
+
+
+@app.post('/api/admin/halloween/pass')
+@admin_required
+def admin_pass_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        cfg = hw_pass_normalize(data.get('config'))
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    doc = dict(_halloween_doc(fresh=True))
+    doc['pass'] = cfg
+    _hw_admin_doc_save(doc)
+    return jsonify(ok=True)
+
+
+@app.get('/api/admin/halloween/trick')
+@admin_required
+def admin_trick_get():
+    cfg = hw_trick_cfg(_halloween_doc(fresh=True))
+    with connect() as db:
+        rows = db.execute("SELECT outcome,COUNT(*) AS n FROM hw_claims WHERE button_id='~trick' GROUP BY outcome").fetchall()
+    stats = {str(r['outcome']): int(r['n']) for r in rows}
+    return jsonify(ok=True, config=cfg, stats=stats, max_outcomes=HW_TRICK_MAX_OUTCOMES)
+
+
+@app.post('/api/admin/halloween/trick')
+@admin_required
+def admin_trick_set():
+    data = request.get_json(silent=True) or {}
+    try:
+        cfg = hw_trick_normalize(data.get('config'))
+    except (ValueError, TypeError) as exc:
+        return error(str(exc))
+    doc = dict(_halloween_doc(fresh=True))
+    doc['trick'] = cfg
+    _hw_admin_doc_save(doc)
+    return jsonify(ok=True)
 
 
 def hw_lot_admin(row):

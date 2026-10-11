@@ -12127,6 +12127,281 @@ html:not(.hw) #hwPetSettings{display:none}
 @keyframes hwIaBlink{0%{transform:scale(1,1)}40%{transform:scale(1.04,1.04)}60%{transform:scale(1.04,1.04)}62%{transform:scale(1.04,.1)}66%{transform:scale(1.04,1.04)}100%{transform:scale(1,1)}}
 @keyframes hwIaTw{0%{opacity:0;transform:scale(.2) rotate(0)}22%{opacity:1;transform:scale(1.1) rotate(25deg)}44%{opacity:.8;transform:scale(.8) rotate(45deg)}70%{opacity:0;transform:scale(.3) rotate(70deg)}100%{opacity:0;transform:scale(.2) rotate(90deg)}}
 
+/* ===================== boss raid · pass · trick-or-treat ===================== */
+.hw-features{display:grid;gap:12px;margin:14px 0}.hw-features.hidden{display:none}
+.fx-card{position:relative;display:block;width:100%;padding:0;margin:0;text-align:left;cursor:pointer;color:#f1eaff;font:inherit;border:1px solid #6b45d6aa;border-radius:22px;background:radial-gradient(120% 90% at 20% 0,#3d2a80,#221650 62%,#171030);box-shadow:0 12px 28px #0009;transition:transform .12s,border-color .12s;-webkit-tap-highlight-color:transparent}
+.fx-card:active{transform:scale(.98)}
+@media(hover:hover){.fx-card:hover{border-color:#a98bff;transform:translateY(-2px)}}
+.fx-card.claim{border-color:#ffd89a;animation:fxCardPulse 2.6s ease-in-out infinite}
+@keyframes fxCardPulse{0%,100%{box-shadow:0 12px 28px #0009,0 0 0 0 #ffd89a00}50%{box-shadow:0 12px 28px #0009,0 0 22px 2px #ffd89a66}}
+/* the boss button, three sizes */
+.fx-boss-card{display:grid;grid-template-columns:minmax(0,1fr) 44%;align-items:center;gap:6px;overflow:visible;background:radial-gradient(110% 120% at 85% 40%,#7a3a12aa,#2a1550 55%,#171030);border-color:#ff9a4acc}
+.fx-boss-card.sz-l{min-height:196px;padding:16px 8px 16px 18px}
+.fx-boss-card.sz-m{min-height:132px;padding:12px 6px 12px 16px;border-radius:20px}
+.fx-boss-card.sz-s{min-height:68px;padding:8px 10px 8px 14px;grid-template-columns:minmax(0,1fr) 62px;border-radius:18px}
+.fx-card-art{position:relative;order:2;align-self:stretch;display:grid;place-items:center;pointer-events:none}
+.fx-boss-card.sz-l .fx-card-art{margin:-34px -4px -14px 0}.fx-boss-card.sz-m .fx-card-art{margin:-22px -2px -8px 0}.fx-boss-card.sz-s .fx-card-art{margin:-10px 0}
+.fx-card-art svg.bs{width:100%;height:auto;aspect-ratio:1;filter:drop-shadow(0 8px 14px #000a)}
+.fx-card-art .bs-embers,.fx-card-art .bs-vines{display:none}
+.fx-tomb{width:70%;display:block}.fx-tomb svg{width:100%;height:auto}
+.fx-card-tx{order:1;display:grid;gap:5px;align-content:center;min-width:0;z-index:1}
+.fx-card-tx b{font:900 clamp(18px,5.4vw,24px)/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff}
+.fx-boss-card.sz-s .fx-card-tx b{font-size:16px}.fx-boss-card.sz-m .fx-card-tx b{font-size:20px}
+.fx-card-tx small{color:#cdbdf5;font-size:12.5px;line-height:1.25}
+.fx-card-tag{justify-self:start;font:900 9px system-ui;letter-spacing:.12em;color:#3a1604;background:linear-gradient(135deg,#ffe3b0,#ff9a4a);padding:4px 9px;border-radius:999px}
+.fx-boss-card.defeated .fx-card-tag{background:#3a2f66;color:#cdbdf5}.fx-boss-card.claim .fx-card-tag{background:linear-gradient(135deg,#fff3c4,#ffc94a)}
+.fx-card-hp{position:relative;height:18px;border-radius:999px;background:#0f0822;border:1px solid #5a3aa8;overflow:hidden}
+.fx-card-hp i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#ff5a3a,#ff9a2e);border-radius:999px;transition:width .6s}
+.fx-card-hp span{position:absolute;inset:0;display:grid;place-items:center;font:800 10.5px system-ui;color:#fff;text-shadow:0 1px 2px #000a}
+.fx-boss-card.sz-s .fx-card-hp{height:15px}
+.fx-card-cta{font-style:normal;font:900 13px system-ui;color:#ffd89a;margin-top:2px}
+/* the small pass / trick cards */
+.fx-row{display:grid;gap:12px}.fx-row.n2{grid-template-columns:1fr 1fr}
+.fx-mini{display:grid;gap:4px;justify-items:start;align-content:start;min-height:118px;padding:14px 14px 12px}
+.fx-mini-art{position:relative;width:46px;height:46px;display:grid;place-items:center;margin-bottom:2px}
+.fx-mini-art .hw-art-i{width:46px;height:46px;filter:drop-shadow(0 4px 6px #0009)}
+.fx-pass-card .fx-mini-art{border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe9a8,#f5b82e 55%,#b9780f);box-shadow:0 0 0 3px #4b2aa8,0 4px 10px #0008}
+.fx-pass-card .fx-mini-art i{font:900 22px system-ui;font-style:normal;color:#3a1f08}
+.fx-mini b{font:900 15.5px/1.15 system-ui;color:#fff;-webkit-text-fill-color:#fff}.fx-mini small{color:#b4a5d8;font-size:11.5px;line-height:1.25}
+.fx-mini .fx-xp{width:100%;margin-top:3px}
+.fx-trick-card.wait{opacity:.78}.fx-trick-card.wait .fx-mini-art{filter:grayscale(.6)}
+.fx-dot{position:absolute;top:12px;right:12px;width:12px;height:12px;border-radius:50%;background:#ffd89a;box-shadow:0 0 0 4px #ffd89a33;animation:fxDot 1.6s infinite}
+@keyframes fxDot{50%{box-shadow:0 0 0 8px #ffd89a00}}
+.fx-xp{height:9px;border-radius:999px;background:#0f0822;border:1px solid #4a3590;overflow:hidden}
+.fx-xp i{display:block;height:100%;background:linear-gradient(90deg,#8a5cf0,#ffd89a);border-radius:999px;transition:width .5s}
+/* ---------- sheet ---------- */
+.hw-art-sheet.hw-fx .hw-art-page{max-width:560px;gap:14px;padding-top:12px}
+.hw-art-sheet.fx-boss-sheet{background:radial-gradient(120% 60% at 50% 0,#4a1c2e 0,#22103f 48%,#0f0a1f 100%)}
+.fx-wl{margin-left:auto;flex:none}
+.hw-fx .hw-wallet.mini{display:flex;margin:0;padding:5px 10px 5px 6px;border-radius:999px;background:#120b2acc;border:1px solid #7a55e8aa;gap:6px;align-items:center}
+.hw-fx .hw-wallet.mini .hw-wl-ico{width:24px;height:24px}.hw-fx .hw-wallet.mini .hw-wl-tx{display:flex;gap:4px;align-items:baseline}.hw-fx .hw-wallet.mini b{font:900 15px system-ui;color:#ffd89a}.hw-fx .hw-wallet.mini small{font-size:11px;color:#b4a5d8}
+.fx-load{padding:80px 0;text-align:center;color:#b4a5d8;font:700 14px system-ui}
+.fx-hp{display:grid;gap:6px}
+.fx-hp-name{font:900 24px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff;text-align:center;text-shadow:0 2px 12px #ff7a2a88}
+.fx-hp-bar{position:relative;height:34px;border-radius:999px;background:#0f0822;border:2px solid #6b45d6;overflow:hidden;box-shadow:inset 0 3px 8px #000a}
+.fx-hp-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px}
+.fx-hp-bar .ghost{background:#ffd89a;opacity:.85;transition:width .7s .1s ease-out}
+.fx-hp-bar .fill{background:linear-gradient(180deg,#ff8a5a,#e02a2a 55%,#a01414);box-shadow:inset 0 2px 0 #ffffff55;transition:width .35s ease-out}
+.fx-hp-bar>span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:2px;color:#fff;text-shadow:0 1px 3px #000c;font:800 13px system-ui}
+.fx-hp-bar>span b{font-size:16px;font-weight:900}
+.fx-stage{position:relative;height:min(84vw,350px);border-radius:26px;overflow:hidden;border:1px solid #6b45d6aa;box-shadow:0 14px 34px #000a;isolation:isolate}
+.fx-stage.shake{animation:fxShake .38s}
+@keyframes fxShake{0%,100%{transform:none}20%{transform:translate(-5px,2px)}40%{transform:translate(5px,-2px)}60%{transform:translate(-3px,1px)}80%{transform:translate(2px,0)}}
+.fx-stage.flash::after{content:"";position:absolute;inset:0;background:#fff;opacity:0;animation:fxWhite .9s ease-out;z-index:5;pointer-events:none}
+@keyframes fxWhite{0%{opacity:.95}100%{opacity:0}}
+.fx-stage.dying-stage{animation:fxQuake .18s infinite}
+@keyframes fxQuake{0%,100%{transform:translate(0)}25%{transform:translate(-3px,1px)}50%{transform:translate(3px,-1px)}75%{transform:translate(-2px,-1px)}}
+.fx-scene{position:absolute;inset:0;width:100%;height:100%}
+.fx-star{animation:fxTw 3s ease-in-out infinite}@keyframes fxTw{50%{opacity:.25}}
+.fx-fog{animation:fxFog 9s ease-in-out infinite alternate}.fx-fog.f2{animation-duration:12s;animation-direction:alternate-reverse}
+@keyframes fxFog{from{transform:translateX(-26px)}to{transform:translateX(26px)}}
+.fx-boss{position:absolute;left:50%;bottom:-2%;height:98%;aspect-ratio:1;transform:translateX(-50%);z-index:2;pointer-events:none}
+.fx-boss svg.bs{width:100%;height:100%}
+.fx-float{position:absolute;bottom:55%;z-index:6;font:900 28px system-ui;font-style:normal;color:#fff;text-shadow:0 2px 0 #b3200f,0 0 12px #ff7a2a;animation:fxFloat 1.2s ease-out forwards;pointer-events:none}
+.fx-float.big{font-size:40px;color:#ffe27a}
+@keyframes fxFloat{0%{transform:translateY(0) scale(.5);opacity:0}15%{transform:translateY(-10px) scale(1.2);opacity:1}100%{transform:translateY(-90px) scale(1);opacity:0}}
+.fx-spark{position:absolute;bottom:48%;width:70px;height:70px;margin-left:-35px;z-index:5;border-radius:50%;background:radial-gradient(circle,#fff 0,#ffd27a 30%,transparent 70%);animation:fxSpark .5s ease-out forwards;pointer-events:none}
+@keyframes fxSpark{from{transform:scale(.3);opacity:1}to{transform:scale(2.2);opacity:0}}
+.fx-fly{position:absolute;left:var(--x0);bottom:-8%;width:36px;height:34px;margin-left:-18px;z-index:4;pointer-events:none;animation:fxFlyX .55s linear forwards,fxFlyY .55s cubic-bezier(.25,.75,.35,1) forwards}
+.fx-fly svg,.fx-fly img{width:100%;height:100%;animation:fxSpin .55s linear forwards}
+@keyframes fxFlyX{from{left:var(--x0)}to{left:var(--x1)}}
+@keyframes fxFlyY{0%{bottom:-8%;opacity:1}85%{opacity:1}100%{bottom:46%;opacity:.2;transform:scale(.7)}}
+@keyframes fxSpin{to{transform:rotate(540deg)}}
+.fx-crystal{position:absolute;left:50%;bottom:5%;width:min(40vw,156px);aspect-ratio:1/1.214;transform:translateX(-50%);z-index:3;filter:drop-shadow(0 10px 24px #8a5cf099)}
+.fx-crystal.hidden{display:none}
+.fx-crystal .pe-guide{width:100%;height:100%}.fx-crystal svg{width:100%;height:100%}
+.fx-crystal.rise{animation:fxRise 1s cubic-bezier(.2,1.3,.4,1)}
+@keyframes fxRise{0%{transform:translateX(-50%) scale(0) translateY(40px);opacity:0;filter:brightness(3)}60%{transform:translateX(-50%) scale(1.15);opacity:1}100%{transform:translateX(-50%) scale(1)}}
+.fx-bubble{position:absolute;left:50%;top:9%;width:min(76%,300px);transform:translateX(-50%);z-index:7;padding:11px 14px;border-radius:18px;background:#fff;color:#2a1650;font:700 14px/1.3 system-ui;text-align:center;box-shadow:0 8px 22px #000a}
+.fx-bubble::after{content:"";position:absolute;left:50%;bottom:-8px;width:16px;height:16px;margin-left:-8px;background:#fff;transform:rotate(45deg);border-radius:3px}
+.fx-bubble.hidden{display:none}.fx-bubble.pop{animation:fxPopB .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes fxPopB{from{transform:translateX(-50%) scale(.4);opacity:0}to{transform:translateX(-50%) scale(1);opacity:1}}
+/* controls */
+.fx-ctl{display:grid;gap:10px}
+.fx-amts{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}
+.fx-amts button{min-height:40px;border-radius:13px;border:1px solid #4a3590;background:#ffffff0f;color:#d9ccf5;font:800 13.5px system-ui;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.fx-amts button.on{background:linear-gradient(135deg,#ffb347,#f26a14);border-color:#ffd89a;color:#3a1604;box-shadow:0 4px 14px #f26a1455}
+.fx-throw{display:flex;align-items:center;justify-content:center;gap:12px;min-height:66px;padding:0 20px;border-radius:20px;border:1px solid #ffb98a;background:linear-gradient(180deg,#ff8a3a,#e0431a);color:#fff;cursor:pointer;box-shadow:0 12px 28px #e0431a66,inset 0 2px 0 #ffffff55;-webkit-tap-highlight-color:transparent}
+.fx-throw:active{transform:scale(.98)}.fx-throw:disabled{filter:grayscale(.8);opacity:.6;box-shadow:none}
+.fx-throw-art{width:38px;height:36px;flex:none;filter:drop-shadow(0 3px 4px #0008)}.fx-throw-art svg{width:100%;height:100%}
+.fx-throw-tx{display:grid;text-align:left}.fx-throw-tx b{font:900 20px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff}.fx-throw-tx em{font-style:normal}.fx-throw-tx small{font-size:12px;color:#ffe1cc}
+.fx-claim{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:62px;border-radius:20px;border:1px solid #fff3c4;background:linear-gradient(180deg,#ffe27a,#f5a623);color:#3a1f08;font:900 18px system-ui;cursor:pointer;box-shadow:0 12px 28px #f5a62366,inset 0 2px 0 #fff8;animation:fxCardPulse 2s ease-in-out infinite}
+.fx-claim svg{width:32px;height:32px}.fx-claim:disabled{opacity:.6;animation:none}
+.fx-note{margin:0;text-align:center;color:#b4a5d8;font:700 13.5px/1.4 system-ui;padding:6px 0}.fx-note.small{font-size:12px;font-weight:600}
+/* info blocks */
+.fx-sec{display:grid;gap:10px;padding:14px;border-radius:20px;background:#150e2ecc;border:1px solid #3d2c78}
+.fx-sec h4{margin:0;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font:900 16px system-ui;color:#ffd89a}.fx-sec h4 small{font:600 12px system-ui;color:#9c8fc0}
+.fx-rws{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.fx-rw{position:relative;display:grid;justify-items:center;gap:3px;padding:10px 6px 8px;border-radius:15px;background:#0f0a22;border:1px solid #3d2c78;text-align:center;min-width:0}
+.fx-rw>span{width:42px;height:42px}.fx-rw>span .hw-art-i{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 5px #0009)}
+.fx-rw b{font:900 12.5px/1.15 system-ui;color:#fff;max-width:100%;overflow:hidden;text-overflow:ellipsis}.fx-rw small{font:700 10.5px/1.15 system-ui;color:#b4a5d8}
+.fx-rw.gold{border-color:#ffd25e;box-shadow:0 0 14px #ffd25e33}.fx-rw.silver{border-color:#d4dae8}.fx-rw.bronze{border-color:#d9904a}.fx-rw.last{border-color:#ff7a9c}
+.fx-tops{display:grid;gap:6px}
+.fx-top{display:grid;grid-template-columns:28px 34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:7px 10px;border-radius:14px;background:#0f0a22;border:1px solid #2f2262}
+.fx-top.me{border-color:#ffd89a;background:#2a1b4a}
+.fx-top i{font:900 13px system-ui;font-style:normal;text-align:center;color:#b4a5d8}.fx-top i.r1{color:#ffd25e}.fx-top i.r2{color:#d4dae8}.fx-top i.r3{color:#d9904a}
+.fx-top .av{width:34px;height:34px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:#3a2b78;color:#fff;font:900 14px system-ui}.fx-top .av img{width:100%;height:100%;object-fit:cover}
+.fx-top b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:800 14px system-ui;color:#fff}.fx-top b em{font:800 9px system-ui;font-style:normal;letter-spacing:.08em;text-transform:uppercase;background:#ffd89a;color:#3a1f08;padding:2px 6px;border-radius:999px;margin-left:4px;vertical-align:middle}
+.fx-top .dm{font:900 14px system-ui;color:#ffd89a}
+.fx-empty{margin:0;color:#9c8fc0;font-size:13.5px;text-align:center;padding:8px}
+/* given dialog */
+.fx-gvs{display:grid;gap:8px;width:100%;margin:6px 0 10px;max-height:46vh;overflow:auto}
+.fx-gv{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:16px;background:#ffffff0f;border:1px solid #ffffff1c;text-align:left}
+.fx-gv-art{width:46px;height:46px;flex:none}.fx-gv-art .hw-art-i{width:100%;height:100%;object-fit:contain}
+.fx-gv-tx{display:grid;gap:2px;min-width:0}.fx-gv-tx small{color:#b4a5d8;font-size:11.5px}.fx-gv-tx b{font:900 16px system-ui;color:#fff}
+/* ---------- the boss itself ---------- */
+.bs{display:block;overflow:visible}
+.bs *{transform-box:view-box}
+.bs-body{transform-origin:160px 292px;animation:bsBreath 3.4s ease-in-out infinite}
+@keyframes bsBreath{0%,100%{transform:scale(1,1)}50%{transform:scale(1.014,1.028)}}
+.bs-aura{transform-origin:160px 190px;animation:bsAura 3.2s ease-in-out infinite}
+@keyframes bsAura{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.07)}}
+.bs-eyeglow{animation:bsEyes 2.6s ease-in-out infinite}
+@keyframes bsEyes{0%,100%{opacity:.55}50%{opacity:1}}
+.bs-eyes{transform-origin:160px 170px;animation:bsBlink 5.5s infinite}
+@keyframes bsBlink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.08)}}
+.bs-crown{transform-origin:160px 112px;animation:bsCrown 3.4s ease-in-out infinite}
+@keyframes bsCrown{0%,100%{transform:translateY(0) rotate(-.6deg)}50%{transform:translateY(-3px) rotate(.8deg)}}
+.bs-armL{transform-origin:84px 214px;animation:bsArmL 3.1s ease-in-out infinite}.bs-armR{transform-origin:236px 214px;animation:bsArmR 3.1s ease-in-out infinite}
+@keyframes bsArmL{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}@keyframes bsArmR{0%,100%{transform:rotate(0)}50%{transform:rotate(7deg)}}
+.bs-vine{animation:bsSway 4s ease-in-out infinite;transform-origin:70px 268px}.bs-vine.v2{transform-origin:250px 268px;animation-delay:-1.5s}
+@keyframes bsSway{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(3deg)}}
+.bs-leaf{animation:bsSway 4s ease-in-out infinite;transform-origin:30px 196px}.bs-leaf.l2{transform-origin:290px 196px}
+.bs-mglow{animation:bsMouth 1.9s ease-in-out infinite}
+@keyframes bsMouth{0%,100%{opacity:.82}35%{opacity:1}60%{opacity:.88}}
+.bs-mouth{transform-origin:160px 236px}
+.bs-ember{animation:bsEmber 4s linear infinite;opacity:0}
+@keyframes bsEmber{0%{transform:translate(0,0);opacity:0}15%{opacity:.9}100%{transform:translate(12px,-150px);opacity:0}}
+.bs-smoke{animation:bsSmoke 3s ease-in-out infinite}.bs-smoke.s2{animation-delay:-1.4s}
+@keyframes bsSmoke{0%{transform:translateY(0);opacity:.5}100%{transform:translateY(-34px);opacity:0}}
+.bs-cracks path{opacity:0;transition:opacity .5s}
+.bs.d1 .c1,.bs.d2 .c1,.bs.d2 .c2,.bs.d3 .c1,.bs.d3 .c2,.bs.d3 .c3{opacity:1}
+.bs-cracks:not(.sharp){animation:bsCrackPulse 1.6s ease-in-out infinite}
+@keyframes bsCrackPulse{50%{opacity:.55}}
+.bs-remains,.bs-shards .bs-shard,.bs-boom,.bs-flash{opacity:0}
+.bs-shard{transform-box:fill-box;transform-origin:center}
+.bs-ef{fill:var(--eye)}
+/* mood */
+.bs.rage .bs-body{animation:bsRage .42s ease-in-out infinite}
+@keyframes bsRage{0%,100%{transform:translate(0,0) scale(1.01,1.02)}25%{transform:translate(-2px,0) scale(1.02,1.03)}75%{transform:translate(2px,0) scale(1.02,1.03)}}
+.bs.rage .bs-aura{filter:hue-rotate(-24deg) saturate(1.6);animation-duration:1.2s}
+.bs.rage .bs-eyeglow{animation-duration:.8s}.bs.rage .bs-armL,.bs.rage .bs-armR{animation-duration:1.2s}
+.bs.rage .bs-eyes path:nth-of-type(n+3){fill:#ff6a3a}
+.bs.hit .bs-body{animation:bsHit .5s ease-out}
+@keyframes bsHit{0%{transform:none}18%{transform:translate(-9px,3px) scale(1.07,.9) rotate(-2.5deg)}40%{transform:translate(8px,-2px) scale(.96,1.05) rotate(2deg)}65%{transform:translate(-4px,1px) scale(1.02,.99)}100%{transform:none}}
+.bs.hit .bs-lobes{animation:bsFlashBody .5s ease-out}
+@keyframes bsFlashBody{0%{filter:brightness(2.2) saturate(.4)}100%{filter:none}}
+.bs.hit .bs-eyes{animation:bsHurtEyes .5s ease-out}
+@keyframes bsHurtEyes{0%,70%{transform:scaleY(.35)}100%{transform:scaleY(1)}}
+.bs.hit .bs-mouth{animation:bsOpen .5s ease-out}
+@keyframes bsOpen{0%{transform:scale(1.12,1.28)}100%{transform:none}}
+.bs.hit .bs-armL{animation:bsArmHitL .5s ease-out}.bs.hit .bs-armR{animation:bsArmHitR .5s ease-out}
+@keyframes bsArmHitL{30%{transform:rotate(-26deg)}100%{transform:none}}@keyframes bsArmHitR{30%{transform:rotate(26deg)}100%{transform:none}}
+.bs.hit .bs-crown{animation:bsCrownHit .5s ease-out}
+@keyframes bsCrownHit{25%{transform:translate(-8px,-10px) rotate(-14deg)}60%{transform:translate(3px,2px) rotate(4deg)}100%{transform:none}}
+/* death */
+.bs.dying .bs-body{animation:bsDie 2.3s ease-in forwards}
+@keyframes bsDie{0%{transform:none}8%{transform:translate(-5px,0)}16%{transform:translate(5px,0)}24%{transform:translate(-7px,0) scale(1.02)}32%{transform:translate(7px,0) scale(1.03)}40%{transform:translate(-9px,0) scale(1.05)}50%{transform:translate(9px,0) scale(1.07)}60%{transform:translate(-11px,0) scale(1.09)}70%{transform:translate(11px,0) scale(1.12)}80%{transform:translate(-12px,0) scale(1.16)}90%{transform:translate(12px,0) scale(1.2)}100%{transform:scale(1.3)}}
+.bs.dying .bs-lobes{animation:bsGlowUp 2.3s ease-in forwards}
+@keyframes bsGlowUp{0%{filter:none}100%{filter:brightness(2.6) saturate(.5)}}
+.bs.dying .bs-cracks path{opacity:1}.bs.dying .bs-eyes{animation:none;transform:scaleY(1.2)}
+.bs.dying .bs-aura{animation:bsAuraDie 2.3s ease-in forwards}
+@keyframes bsAuraDie{to{opacity:1;transform:scale(1.5)}}
+.bs.dead .bs-body,.bs.dead .bs-armL,.bs.dead .bs-armR,.bs.dead .bs-vines,.bs.dead .bs-aura,.bs.dead .bs-embers{opacity:0;animation:none;visibility:hidden}
+.bs.dead .bs-remains{opacity:1;transition:opacity .6s .35s}
+.bs.burst .bs-shard{animation:bsShard 1.1s cubic-bezier(.15,.7,.3,1) forwards}
+@keyframes bsShard{0%{opacity:1;transform:translate(0,0) rotate(0) scale(1.1)}70%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.5)}}
+.bs.burst .bs-boom{animation:bsBoom .9s ease-out forwards;transform-origin:160px 190px}
+@keyframes bsBoom{0%{opacity:1;transform:scale(.4)}100%{opacity:0;transform:scale(9)}}
+.bs.burst .bs-flash{animation:bsFlashC .7s ease-out forwards;transform-origin:160px 190px}
+@keyframes bsFlashC{0%{opacity:1;transform:scale(.6)}100%{opacity:0;transform:scale(5)}}
+.fx-card-art .bs *{animation-play-state:running}
+@media(prefers-reduced-motion:reduce){.bs *,.fx-card,.fx-claim{animation:none!important}}
+/* ---------- pass ---------- */
+.hw-art-sheet.fx-pass-sheet{background:radial-gradient(120% 50% at 50% 0,#5a3a10 0,#2a1550 40%,#0f0a1f 100%)}
+.fx-pass-head{display:flex;align-items:center;gap:16px;padding:16px;border-radius:24px;background:linear-gradient(135deg,#3d2a80,#221650);border:1px solid #8a5cf0aa;box-shadow:0 12px 30px #0008}
+.fx-pass-badge{flex:none;display:grid;place-items:center;align-content:center;width:84px;height:84px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff1b8,#f5b82e 55%,#a8680c);box-shadow:0 0 0 4px #4b2aa8,0 0 28px #f5b82e66;color:#3a1f08}
+.fx-pass-badge small{font:900 9px system-ui;letter-spacing:.14em}.fx-pass-badge b{font:900 34px/1 system-ui}
+.fx-pass-info{display:grid;gap:7px;min-width:0;flex:1}.fx-pass-info b{font:900 20px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff}.fx-pass-info small{color:#cdbdf5;font-size:12.5px}
+.fx-pass-info .fx-xp{height:14px}
+.fx-pass-rule{margin:0;text-align:center;color:#b4a5d8;font-size:13px;line-height:1.4}.fx-pass-rule b{color:#ffd89a}
+.fx-lvs{display:grid;gap:0;padding-bottom:10px}
+.fx-lv{position:relative;display:grid;grid-template-columns:46px minmax(0,1fr);gap:12px;align-items:center;padding:6px 0}
+.fx-lv::before{content:"";position:absolute;left:22px;top:-6px;bottom:-6px;width:3px;background:#3d2c78;border-radius:3px}
+.fx-lv:first-child::before{top:50%}.fx-lv:last-child::before{bottom:50%}
+.fx-lv.claimed::before{background:linear-gradient(#ffd89a,#ffd89a)}
+.fx-lv-n{position:relative;z-index:1;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:#241649;border:3px solid #4a3590;color:#9c8fc0;font:900 17px system-ui}
+.fx-lv.open .fx-lv-n{background:radial-gradient(circle at 35% 30%,#fff1b8,#f5b82e 60%,#b9780f);border-color:#fff3c4;color:#3a1f08;box-shadow:0 0 18px #f5b82e88;animation:fxDot 1.6s infinite}
+.fx-lv.claimed .fx-lv-n{background:#2f7a4a;border-color:#8fe0aa;color:#fff}
+.fx-lv-card{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:18px;background:#1b1240;border:1px solid #3d2c78;min-width:0}
+.fx-lv.open .fx-lv-card{border-color:#ffd89a;background:linear-gradient(135deg,#3a2a6e,#2a1b55)}
+.fx-lv.locked .fx-lv-card{opacity:.7}.fx-lv.next .fx-lv-card{border-color:#8a5cf0}
+.fx-lv-art{width:50px;height:50px;flex:none}.fx-lv-art .hw-art-i{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 5px #0009)}
+.fx-lv.locked .fx-lv-art{filter:grayscale(.7)}
+.fx-lv-tx{display:grid;gap:2px;flex:1;min-width:0}.fx-lv-tx b{font:900 15.5px/1.15 system-ui;color:#fff}.fx-lv-tx small{color:#b4a5d8;font:700 12px system-ui}
+.fx-lv.open .fx-lv-tx small{color:#ffd89a}
+.fx-lv-btn{flex:none;min-height:38px;padding:0 16px;border-radius:12px;border:1px solid #fff3c4;background:linear-gradient(180deg,#ffe27a,#f5a623);color:#3a1f08;font:900 14px system-ui;cursor:pointer}
+.fx-lv-ok{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#2f7a4a}.fx-lv-ok svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.fx-lv-lock svg{width:22px;height:22px;fill:none;stroke:#7d6fb0;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* ---------- trick or treat ---------- */
+.hw-art-sheet.fx-trick-sheet{background:radial-gradient(120% 60% at 50% 0,#4a2060 0,#1d0f3d 50%,#0b0718 100%)}
+.fx-tt-head{display:grid;gap:8px;text-align:center}.fx-tt-head h2{margin:0;font:900 28px/1.1 system-ui;color:#fff;-webkit-text-fill-color:#fff;text-shadow:0 2px 14px #ff9a4a88}
+.fx-tt-head p{margin:0;color:#cdbdf5;font-size:14px;line-height:1.4}
+.fx-tt-tries{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.fx-tt-tries span{display:inline-flex;align-items:center;gap:7px;padding:6px 14px 6px 8px;border-radius:999px;background:#150e2e;border:1px solid #4a3590;color:#b4a5d8;font:700 13px system-ui}
+.fx-tt-tries span.on{border-color:#ffd89a;color:#ffd89a}.fx-tt-tries .hw-art-i{width:22px;height:26px}.fx-tt-tries b{font:900 15px system-ui;color:#fff}
+.fx-street{position:relative;height:min(80vw,340px);border-radius:26px;overflow:hidden;border:1px solid #6b45d6aa;box-shadow:0 14px 34px #000a;isolation:isolate}
+.fx-street .fx-scene{filter:saturate(.9)}
+.fx-street.scare{animation:fxQuake .12s 4}
+.fx-street.cheer::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 70%,#ffd27a66,transparent 60%);animation:fxWhite 1s ease-out;pointer-events:none;z-index:6}
+.fx-houses{position:absolute;left:0;right:0;bottom:1%;display:flex;justify-content:space-around;align-items:flex-end;padding:0 1%;z-index:2}
+.fx-house{position:relative;flex:0 0 33%;padding:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s}
+.fx-house:nth-child(2){margin-bottom:6%}
+.fx-house svg{display:block;width:100%;height:auto;filter:drop-shadow(0 6px 10px #000a)}
+.fx-house:active{transform:scale(.97)}
+.fx-street.busy .fx-house:not(.knocking):not(.open){opacity:.45;pointer-events:none}
+.fx-win{animation:fxWin 3s ease-in-out infinite}.fx-win.w2{animation-delay:-1.3s}@keyframes fxWin{50%{opacity:.45}}
+.fx-open{opacity:0;transition:opacity .3s}.fx-house.open .fx-open{opacity:1}
+.fx-house.open.bad .fx-open{fill:#ff3a3a}
+.fx-door{transform-origin:40px 120px;transition:transform .5s cubic-bezier(.3,1.4,.5,1)}
+.fx-house.open .fx-door{transform:perspective(200px) rotateY(-70deg)}
+.fx-house.knocking{animation:fxKnock .28s 4}
+@keyframes fxKnock{0%,100%{transform:none}30%{transform:translateX(-3px) rotate(-.8deg)}60%{transform:translateX(3px) rotate(.8deg)}}
+.fx-knock{position:absolute;left:50%;top:-4px;transform:translateX(-50%);padding:3px 9px;border-radius:999px;background:#fff;color:#2a1650;font:900 11px system-ui;white-space:nowrap;opacity:0;pointer-events:none}
+.fx-house.knocking .fx-knock{animation:fxKnockT 1.2s ease-out}
+@keyframes fxKnockT{0%{opacity:0;transform:translate(-50%,10px) scale(.6)}20%,70%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-10px)}}
+.fx-pk{position:absolute;left:-6%;bottom:2%;width:34%;pointer-events:none}.fx-pk svg{filter:drop-shadow(0 3px 4px #000a)}
+.fx-who{position:absolute;left:36%;bottom:4%;width:28%;display:grid;place-items:end center;pointer-events:none;opacity:0;transform:scale(.2) translateY(20px)}
+.fx-who svg,.fx-who img{width:100%;height:auto}
+.fx-house.open .fx-who{animation:fxWho .7s cubic-bezier(.2,1.5,.4,1) forwards}
+.fx-house.open.bad .fx-who{animation:fxWhoBad .6s cubic-bezier(.2,1.8,.4,1) forwards}
+@keyframes fxWho{to{opacity:1;transform:scale(1.5) translateY(-4px)}}
+@keyframes fxWhoBad{0%{opacity:0;transform:scale(.2) translateY(20px)}60%{opacity:1;transform:scale(2.1) translateY(-14px)}100%{opacity:1;transform:scale(1.7) translateY(-8px)}}
+.fx-house.locked{filter:grayscale(.7) brightness(.7);cursor:default}
+.fx-house.locked .fx-door{transform:none}
+@media(min-width:700px){.fx-stage{height:380px}}
+
+/* admin */
+.hw-tabs{flex-wrap:wrap}.hw-tabs .hw-tab{flex:1 1 calc(25% - 6px);min-width:0;white-space:nowrap;padding-left:8px;padding-right:8px}
+.fx-adm{display:grid;gap:14px}
+.fx-adm-cap{font-size:12.5px;color:#b4a5d8}
+.fx-adm-pv{margin:0}.fx-adm-pv .fx-card{pointer-events:none}
+.fx-card-hp.big{height:26px}
+.fx-skins{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fx-skin{display:grid;justify-items:center;gap:2px;padding:6px 4px 8px;border-radius:14px;border:2px solid #3d2c78;background:#150e2e;color:#d9ccf5;cursor:pointer;font:800 12.5px system-ui}
+.fx-skin.on{border-color:#ffd89a;background:#2a1b4a}.fx-skin span{width:78px;height:78px;display:block}
+.fx-skin svg.bs{width:100%;height:100%}.fx-skin .bs-embers,.fx-skin .bs-vines{display:none}
+.fx-adm-list{display:grid;gap:10px}
+.fx-adm-row{display:grid;gap:8px;padding:10px;border-radius:14px;background:#0f0a22;border:1px solid #3d2c78}
+.fx-adm-lv{display:grid;gap:8px;padding:12px;border-radius:16px;background:#0f0a22;border:1px solid #3d2c78}
+.fx-adm-lv.trick{border-color:#7a3a5a}.fx-adm-lv.treat{border-color:#3a6a4a}
+.fx-adm-lvh{display:flex;align-items:center;gap:8px}.fx-adm-lvh b{color:#ffd89a;font:900 14px system-ui}.fx-adm-lvh small{color:#9c8fc0;font-size:12px}
+.fx-adm-mv{margin-left:auto;display:flex;gap:6px}
+.fx-adm-rate,.fx-adm-quick{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:#d9ccf5;font-size:13px}
+.fx-adm-rate input,.fx-adm-quick input{width:84px;flex:none}
+.fx-adm-quick{padding:10px;border-radius:14px;background:#150e2e;border:1px dashed #4a3590}
+.fx-adm .hw-stat{font-size:12.5px;color:#b4a5d8}
+
 </style>
 <script id="halloween-js">(()=>{
 const NS='http://www.w3.org/2000/svg',$$=s=>document.querySelector(s),root=document.documentElement;
@@ -12866,7 +13141,7 @@ function render6(){
  const w=document.getElementById('hwWallet');if(w&&h){w.innerHTML=walletHTML()+`<span class="hw-wl-note">${h.rate>0?esc6(n6(h.rate))+' тыкв за каждый 1 TON проигрыша':'Тыквы можно получить в подарках события'}</span>`}
  const mw=document.getElementById('hwMkWallet');if(mw&&h)mw.innerHTML=walletHTML();
  const tb=document.getElementById('hwTourBtn');if(tb&&h){const t=h.tour||{done:true};tb.classList.toggle('hidden',!!t.done);const sb=document.getElementById('hwTourSub');if(sb)sb.textContent=t.reward>0?'Пройдите и получите +'+n6(t.reward)+' '+tkWord(t.reward):'Короткий тур по тыквам, подаркам и маркету'}
- renderTiles6();renderMarket6()}
+ renderTiles6();renderMarket6();if(typeof renderFeatures6==='function')renderFeatures6()}
 function tileNote(b){
  if(b.kind==='page')return b.subtitle||'Открыть';
  if(b.kind==='article')return b.subtitle||'Читать';
@@ -12946,6 +13221,7 @@ function mountEvent6(pg){
  <div class="hw-ev-pre hidden" id="hwEvPre">Предпросмотр: событие видно только администраторам.</div>
  <button class="hw-tour-cta hidden" id="hwTourBtn" type="button"><span class="hw-tour-cta-gem"><svg viewBox="0 0 120 156" aria-hidden="true"><use href="#hwGem" width="120" height="156"/></svg></span><span class="hw-tour-cta-tx"><b>Экскурсия по событию</b><small id="hwTourSub"></small></span><i>›</i></button>
  <div class="hw-wallet" id="hwWallet"><span class="hw-wl-ico">${artHTML('hw:pumpkin')}</span><span class="hw-wl-tx"><b>0</b><small>тыкв</small></span></div>
+ <div class="hw-features hidden" id="hwFeatures"></div>
  <div class="hw-tiles" id="hwTiles"></div>
  <div class="hw-soon"><span>${artHTML('hw:moon')}</span>Скоро здесь будут доступны новые события</div>`;
  pg.querySelector('#hwEvBack').onclick=()=>show('gamesPage');
@@ -12988,6 +13264,366 @@ function openArticle6(b,preview){
   if(bl.url)openLink6(bl.url);else if(bl.target){closeArticle6();go6(bl.target)}});
  requestAnimationFrame(()=>d.classList.add('open'))}
 window.hwOpenArticle=openArticle6;
+
+/* ======================= Boss raid · pumpkin pass · trick-or-treat ======================= */
+const FX={sheet:null,poll:0,tick:0,boss:null,pass:null,trick:null,busy:false,pend:0,amount:10,seen:{}};
+const fxGet=async(u)=>{const r=await fetch(u,{credentials:'same-origin',cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Ошибка');return d};
+const fxPost=(u,b)=>api(u,{method:'POST',body:JSON.stringify(b||{})});
+const pct=(a,b)=>b>0?Math.max(0,Math.min(100,a/b*100)):0;
+const hms=ms=>{const s=Math.max(0,Math.floor(ms/1000)),p=n=>String(n).padStart(2,'0');return p(Math.floor(s/3600))+':'+p(Math.floor(s%3600/60))+':'+p(s%60)};
+
+/* ---------- the boss: a drawn jack-o'-lantern king ---------- */
+const BOSS_SKIN={
+ pumpkin:{b1:'#ffb347',b2:'#f26a14',b3:'#a63a05',b4:'#5a1a02',glow:'#ffd27a',eye:'#fff0a8',mouth:'#ffcf5a',aura:'#ff8a2a',leaf:'#4f8a2c',stem:'#6b4a1f'},
+ toxic:{b1:'#c8f56a',b2:'#6fcf2a',b3:'#2f8a1a',b4:'#123d0b',glow:'#d9ff8a',eye:'#f4ffb0',mouth:'#b6ff52',aura:'#7fe03a',leaf:'#2f8a1a',stem:'#3f5a1c'},
+ void:{b1:'#c9b0ff',b2:'#8a5cf0',b3:'#4b2aa8',b4:'#1d0f4d',glow:'#e6d6ff',eye:'#b8fff4',mouth:'#9be8ff',aura:'#8a5cf0',leaf:'#3b2a8a',stem:'#2a1f5a'}};
+let BSID=0;
+function bossSVG(skin,opts){
+ opts=opts||{};const k=BOSS_SKIN[skin]||BOSS_SKIN.pumpkin,u='bs'+(++BSID);
+ const st=`--b1:${k.b1};--b2:${k.b2};--b3:${k.b3};--b4:${k.b4};--glow:${k.glow};--eye:${k.eye};--mouth:${k.mouth};--aura:${k.aura}`;
+ const ribs=[[160,190,60,100],[108,193,54,94],[212,193,54,94],[66,199,44,80],[254,199,44,80]];
+ const lobe=(cx,cy,rx,ry,i)=>`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#${u}b${i%2})" stroke="${k.b4}" stroke-width="2.5"/>`;
+ const shards=Array.from({length:12},(_,i)=>{const a=i/12*Math.PI*2+.3,d=120+(i*37)%70;const w=16+(i*5)%14;
+  return `<path class="bs-shard" style="--dx:${Math.round(Math.cos(a)*d)}px;--dy:${Math.round(Math.sin(a)*d*.75-40)}px;--rot:${(i%2?1:-1)*(120+i*37)}deg;animation-delay:${(i%4)*.03}s" d="M160 ${186}l${w} ${-w*.4}l${w*.5} ${w}l${-w*.7} ${w*.8}l${-w*.8} ${-w*.6}z" fill="url(#${u}b${i%2})" stroke="${k.b4}" stroke-width="2"/>`}).join('');
+ const embers=Array.from({length:9},(_,i)=>`<circle class="bs-ember" cx="${60+i*25}" cy="${250-(i*13)%60}" r="${1.6+(i%3)*.8}" fill="${k.glow}" style="animation-delay:${(-i*.6).toFixed(1)}s;animation-duration:${3.2+(i%4)*.7}s"/>`).join('');
+ const spike=(x,h,i)=>`<path d="M${x-9} 108L${x} ${108-h}L${x+9} 108Z" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${x}" cy="${108-h-1}" r="3.2" fill="${k.eye}" stroke="#7a4a05" stroke-width="1"/>`;
+ return `<svg class="bs" viewBox="0 0 320 320" style="${st}" role="img" aria-label="Босс" data-skin="${skin}">
+ <defs>
+  <radialGradient id="${u}a"><stop offset="0" stop-color="${k.aura}" stop-opacity=".62"/><stop offset=".6" stop-color="${k.aura}" stop-opacity=".16"/><stop offset="1" stop-color="${k.aura}" stop-opacity="0"/></radialGradient>
+  <radialGradient id="${u}b0" cx=".38" cy=".3" r=".9"><stop offset="0" stop-color="${k.b1}"/><stop offset=".55" stop-color="${k.b2}"/><stop offset="1" stop-color="${k.b3}"/></radialGradient>
+  <radialGradient id="${u}b1" cx=".62" cy=".3" r=".95"><stop offset="0" stop-color="${k.b1}"/><stop offset=".5" stop-color="${k.b2}"/><stop offset="1" stop-color="${k.b3}"/></radialGradient>
+  <linearGradient id="${u}g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a0"/><stop offset=".55" stop-color="#f5b82e"/><stop offset="1" stop-color="#b9780f"/></linearGradient>
+  <linearGradient id="${u}v" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${k.leaf}"/><stop offset="1" stop-color="${k.b4}"/></linearGradient>
+  <radialGradient id="${u}m" cx=".5" cy=".4" r=".7"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="${k.mouth}"/><stop offset="1" stop-color="${k.b2}"/></radialGradient>
+  <filter id="${u}f" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
+ </defs>
+ <ellipse class="bs-shadow" cx="160" cy="294" rx="118" ry="13" fill="#000" opacity=".42"/>
+ <ellipse class="bs-aura" cx="160" cy="190" rx="162" ry="150" fill="url(#${u}a)"/>
+ <g class="bs-vines">
+  <path class="bs-vine v1" d="M70 268C28 262 14 226 30 196C40 178 24 160 36 140" fill="none" stroke="url(#${u}v)" stroke-width="9" stroke-linecap="round"/>
+  <path class="bs-vine v2" d="M250 268C292 262 306 226 290 196C280 178 296 160 284 140" fill="none" stroke="url(#${u}v)" stroke-width="9" stroke-linecap="round"/>
+  <path class="bs-leaf" d="M30 196c-14-4-20-14-18-24c12 0 20 8 18 24z" fill="${k.leaf}"/><path class="bs-leaf l2" d="M290 196c14-4 20-14 18-24c-12 0-20 8-18 24z" fill="${k.leaf}"/>
+ </g>
+ <g class="bs-armL"><path d="M82 214C48 222 34 246 40 270" fill="none" stroke="url(#${u}v)" stroke-width="15" stroke-linecap="round"/><g fill="${k.b4}" stroke="#000" stroke-opacity=".25"><path d="M30 268l-9 18l13-5z"/><path d="M40 274l-3 20l11-9z"/><path d="M51 270l4 17l8-12z"/></g></g>
+ <g class="bs-armR"><path d="M238 214C272 222 286 246 280 270" fill="none" stroke="url(#${u}v)" stroke-width="15" stroke-linecap="round"/><g fill="${k.b4}" stroke="#000" stroke-opacity=".25"><path d="M290 268l9 18l-13-5z"/><path d="M280 274l3 20l-11-9z"/><path d="M269 270l-4 17l-8-12z"/></g></g>
+ <g class="bs-body">
+  <g class="bs-lobes">${ribs.map(([cx,cy,rx,ry],i)=>lobe(cx,cy,rx,ry,i)).join('')}
+   <path d="M160 92C150 150 150 230 160 288M108 100C96 160 98 230 112 284M212 100C224 160 222 230 208 284" fill="none" stroke="${k.b4}" stroke-opacity=".3" stroke-width="2"/>
+   <path d="M96 128C112 112 134 108 150 112" fill="none" stroke="#fff" stroke-opacity=".34" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <path class="bs-stem" d="M170 96C168 78 176 66 190 62C198 60 200 68 194 72C186 76 184 84 186 98Z" fill="${k.stem}" stroke="${k.b4}" stroke-width="2"/>
+  <path d="M190 62c10-8 24-6 26 6" fill="none" stroke="${k.leaf}" stroke-width="5" stroke-linecap="round"/>
+  <g class="bs-crown"><path d="M104 112L112 84L134 100L160 72L186 100L208 84L216 112Z" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="2.2" stroke-linejoin="round"/>
+   <rect x="102" y="106" width="116" height="12" rx="4" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="2"/>
+   <circle cx="160" cy="112" r="5" fill="${k.eye}" stroke="#7a4a05" stroke-width="1.4"/><circle cx="132" cy="112" r="3.2" fill="#ff6a8a"/><circle cx="188" cy="112" r="3.2" fill="#6adfff"/>
+   <circle cx="160" cy="70" r="3.6" fill="${k.eye}" stroke="#7a4a05" stroke-width="1"/><circle cx="112" cy="82" r="3" fill="${k.eye}" stroke="#7a4a05" stroke-width="1"/><circle cx="208" cy="82" r="3" fill="${k.eye}" stroke="#7a4a05" stroke-width="1"/></g>
+  <g class="bs-face">
+   <g class="bs-eyes">
+    <path d="M100 170L146 148L144 188Q122 196 100 170Z" fill="#1b0700"/><path d="M220 170L174 148L176 188Q198 196 220 170Z" fill="#1b0700"/>
+    <g class="bs-eyeglow" filter="url(#${u}f)"><path d="M108 168L140 154L139 182Q122 187 108 168Z" fill="${k.eye}"/><path d="M212 168L180 154L181 182Q198 187 212 168Z" fill="${k.eye}"/></g>
+    <path d="M110 168L139 156L138 180Q122 184 110 168Z" fill="${k.eye}"/><path d="M210 168L181 156L182 180Q198 184 210 168Z" fill="${k.eye}"/>
+    <ellipse class="bs-pupil" cx="130" cy="170" rx="3.6" ry="9" fill="#2a0d00"/><ellipse class="bs-pupil" cx="190" cy="170" rx="3.6" ry="9" fill="#2a0d00"/>
+   </g>
+   <path d="M160 190L148 214L172 214Z" fill="#1b0700"/>
+   <g class="bs-mouth"><path d="M92 218L112 232L124 220L138 238L150 224L160 240L170 224L182 238L196 220L208 232L228 218L220 244L204 258L192 246L178 266L166 252L160 268L154 252L142 266L128 246L116 258L100 244Z" fill="#1b0700" stroke="#1b0700" stroke-width="6" stroke-linejoin="round"/>
+    <path class="bs-mglow" d="M100 222L114 232L124 224L138 240L150 228L160 242L170 228L182 240L196 224L206 232L220 222L214 242L202 254L192 244L178 262L166 248L160 262L154 248L142 262L128 244L118 254L106 242Z" fill="url(#${u}m)"/></g>
+  </g>
+  <g class="bs-cracks" fill="none" stroke="${k.glow}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#${u}f)">
+   <path class="c1" d="M216 128L204 146L218 160L206 178"/><path class="c1" d="M96 262L112 248L102 232"/>
+   <path class="c2" d="M150 110L158 126L146 140"/><path class="c2" d="M246 214L230 224L240 242L224 256"/><path class="c2" d="M70 188L86 200L74 216"/>
+   <path class="c3" d="M160 276L150 258"/><path class="c3" d="M118 130L130 142"/><path class="c3" d="M196 262L186 278"/></g>
+  <g class="bs-cracks sharp" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" opacity=".9">
+   <path class="c1" d="M216 128L204 146L218 160L206 178"/><path class="c1" d="M96 262L112 248L102 232"/>
+   <path class="c2" d="M150 110L158 126L146 140"/><path class="c2" d="M246 214L230 224L240 242L224 256"/><path class="c2" d="M70 188L86 200L74 216"/>
+   <path class="c3" d="M160 276L150 258"/><path class="c3" d="M118 130L130 142"/><path class="c3" d="M196 262L186 278"/></g>
+ </g>
+ <g class="bs-embers">${embers}</g>
+ <circle class="bs-boom" cx="160" cy="190" r="20" fill="none" stroke="${k.glow}" stroke-width="10"/>
+ <circle class="bs-flash" cx="160" cy="190" r="40" fill="${k.glow}"/>
+ <g class="bs-shards">${shards}</g>
+ <g class="bs-remains"><ellipse cx="160" cy="288" rx="92" ry="14" fill="${k.b4}" opacity=".7"/><path d="M104 288q10-26 28-18q8-14 26-4q14-12 30 2q20-10 30 20z" fill="${k.b3}" opacity=".85"/>
+  <path d="M130 274l8-22l12 12l10-20l10 20l12-12l8 22z" fill="url(#${u}g)" stroke="#7a4a05" stroke-width="1.6" stroke-linejoin="round" transform="translate(0 4)"/><path class="bs-smoke" d="M150 262q-8-14 2-24q10-10 0-24" fill="none" stroke="#cfc3e8" stroke-width="5" stroke-linecap="round" opacity=".5"/><path class="bs-smoke s2" d="M178 262q10-14 0-24q-10-10 2-24" fill="none" stroke="#cfc3e8" stroke-width="5" stroke-linecap="round" opacity=".5"/></g>
+</svg>`}
+
+/* ---------- graveyard backdrop for the stage ---------- */
+const bossScene=()=>`<svg class="fx-scene" viewBox="0 0 360 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+ <defs><linearGradient id="fxSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a0c3d"/><stop offset=".7" stop-color="#3a1d78"/><stop offset="1" stop-color="#4b2a8e"/></linearGradient><radialGradient id="fxMoon"><stop offset="0" stop-color="#fff7d6"/><stop offset="1" stop-color="#e2c97a"/></radialGradient></defs>
+ <rect width="360" height="300" fill="url(#fxSky)"/>
+ <g fill="#fff">${[[30,30,1.4],[80,64,1],[150,22,1.2],[220,50,1],[268,18,1.4],[330,70,1],[300,120,1],[44,110,1]].map(([x,y,r],i)=>`<circle class="fx-star" cx="${x}" cy="${y}" r="${r}" style="animation-delay:${-i*.4}s"/>`).join('')}</g>
+ <circle cx="290" cy="64" r="30" fill="url(#fxMoon)"/><circle cx="280" cy="56" r="6" fill="#d9c27a" opacity=".5"/><circle cx="298" cy="74" r="4" fill="#d9c27a" opacity=".5"/>
+ <path d="M0 232C60 210 120 226 180 214C240 202 300 224 360 208V300H0Z" fill="#241247"/>
+ <path d="M0 250C70 236 130 252 200 242C270 232 320 250 360 240V300H0Z" fill="#190d36"/>
+ <g fill="#120a28"><path d="M26 252V220q0-14 12-14t12 14v32z"/><path d="M300 252V226q0-12 10-12t10 12v26z"/><path d="M70 256V240h22v16z"/><rect x="62" y="236" width="38" height="5" rx="2"/><path d="M262 254v-20h4v20zM254 240h20v4h-20z"/></g>
+ <g fill="none" stroke="#120a28" stroke-width="5" stroke-linecap="round"><path d="M10 252C8 220 14 196 8 172M14 200l-8-10M12 214l10-12"/><path d="M348 252C350 224 342 200 352 176M346 206l10-12"/></g>
+ <ellipse class="fx-fog" cx="90" cy="262" rx="130" ry="16" fill="#cdbdf5" opacity=".1"/><ellipse class="fx-fog f2" cx="280" cy="268" rx="140" ry="18" fill="#cdbdf5" opacity=".1"/></svg>`;
+
+/* ---------- full-screen sheet ---------- */
+function closeFx(){
+ clearInterval(FX.poll);clearInterval(FX.tick);FX.poll=FX.tick=0;FX.kind=null;
+ const d=document.getElementById('hwFxSheet');if(d){d.classList.remove('open');setTimeout(()=>d.remove(),220)}
+ document.body.classList.remove('hw-art-open');loadHub6(true)}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('hwFxSheet')&&!document.getElementById('hwDlg'))closeFx()});
+function openSheet(kind,title,cls){
+ const old=document.getElementById('hwFxSheet');if(old)old.remove();clearInterval(FX.poll);clearInterval(FX.tick);
+ const d=E6('div','hw-art-sheet hw-fx '+cls);d.id='hwFxSheet';d.setAttribute('role','dialog');d.setAttribute('aria-modal','true');FX.kind=kind;
+ d.innerHTML=`<div class="hw-art-top"><button class="hw-art-back" type="button" data-fxclose aria-label="Назад">←</button><b>${esc6(title)}</b><span class="hw-wallet mini fx-wl" id="fxWl"></span></div><div class="hw-art-scroll"><div class="hw-art-page fx-page" id="fxPage"></div></div>`;
+ document.body.append(d);document.body.classList.add('hw-art-open');
+ d.querySelector('[data-fxclose]').onclick=closeFx;requestAnimationFrame(()=>d.classList.add('open'));return d}
+const fxWallet=n=>{const w=document.getElementById('fxWl');if(w)w.innerHTML=`<span class="hw-wl-ico">${artHTML('hw:pumpkin')}</span><span class="hw-wl-tx"><b>${n6(n)}</b><small>тыкв</small></span>`;if(H6.hub&&H6.hub.pumpkins)H6.hub.pumpkins.balance=n};
+
+/* a dialog listing everything that was handed out */
+function givenDlg(title,items,kicker){
+ const rows=items.map(g=>`<div class="fx-gv"><span class="fx-gv-art">${artHTML(g.reward.image_url||'hw:gift')}</span><span class="fx-gv-tx"><small>${esc6(g.label||('Уровень '+g.level))}</small><b>${esc6(g.reward.title||'Награда')}</b>${g.code?`<button class="hw-code" type="button" data-code="${esc6(g.code)}"><span>${esc6(g.code)}</span><small>Нажмите, чтобы скопировать</small></button>`:''}</span></div>`).join('');
+ const c=dlg6(`${RAYS6(12,'#ffd89a')}${SPARK6()}<div class="hw-res-kicker">${esc6(kicker||'Награда получена')}</div><h3>${esc6(title)}</h3><div class="fx-gvs">${rows}</div><button class="primary" type="button" data-close>Отлично</button>`,'hw-res fx-given');
+ c.querySelectorAll('.hw-code').forEach(cb=>cb.onclick=async()=>{try{await navigator.clipboard.writeText(cb.dataset.code);cb.classList.add('ok');cb.querySelector('small').textContent='Скопировано'}catch(e){cb.querySelector('small').textContent='Выделите и скопируйте код'}});
+ try{api('/api/me').then(m=>{if(typeof setUser==='function')setUser(m.user)}).catch(()=>{})}catch(e){}}
+
+/* ======================= BOSS ======================= */
+const rwBadge=(r,label,cls)=>r?`<div class="fx-rw ${cls||''}"><span>${artHTML(r.image_url||'hw:gift')}</span><b>${esc6(r.title)}</b><small>${esc6(label)}</small></div>`:'';
+function bossRewardsHTML(b){
+ const r=b.rewards||{},rows=[];
+ if(r.all)rows.push(rwBadge(r.all,r.min_damage>1?'Всем от '+n6(r.min_damage)+' урона':'Всем участникам'));
+ (r.top||[]).forEach((x,i)=>{if(x)rows.push(rwBadge(x,(i+1)+' место',i===0?'gold':i===1?'silver':i===2?'bronze':''))});
+ if(r.last)rows.push(rwBadge(r.last,'Добивающий удар','last'));
+ return rows.length?`<div class="fx-sec"><h4>Награды за победу</h4><div class="fx-rws">${rows.join('')}</div></div>`:''}
+function bossTopHTML(b){
+ const rows=(b.top||[]).map(t=>`<div class="fx-top${t.me?' me':''}"><i class="r${t.rank}">${t.rank}</i><span class="av">${t.photo?`<img src="${esc6(t.photo)}" alt="" loading="lazy">`:esc6((t.name||'?').slice(0,1).toUpperCase())}</span><b>${esc6(t.name)}${t.me?' <em>вы</em>':''}</b><span class="dm">${n6(t.damage)}</span></div>`);
+ const mine=b.me&&b.me.damage>0&&!(b.top||[]).some(t=>t.me)?`<div class="fx-top me"><i>${b.me.rank}</i><span class="av">В</span><b>Вы <em>вы</em></b><span class="dm">${n6(b.me.damage)}</span></div>`:'';
+ return `<div class="fx-sec"><h4>Лучшие бойцы <small>${n6(b.players)} в рейде</small></h4>${rows.length?`<div class="fx-tops">${rows.join('')}${mine}</div>`:'<p class="fx-empty">Пока никто не нанёс удар. Будьте первым!</p>'}</div>`}
+function bossPhase(b){const p=pct(b.hp_left,b.max_hp);return p<=0?'dead':p<=25?'d3':p<=50?'d2':p<=75?'d1':''}
+function paintBossArt(svg,b,quick){
+ if(!svg)return;const p=pct(b.hp_left,b.max_hp);
+ svg.classList.toggle('rage',p>0&&p<=35);
+ ['d1','d2','d3'].forEach(c=>svg.classList.toggle(c,p>0&&((c==='d1'&&p<=75)||(c==='d2'&&p<=50)||(c==='d3'&&p<=25))));
+ if(quick)svg.classList.add('quick')}
+function setHP(b){
+ const f=document.getElementById('fxHpFill'),t=document.getElementById('fxHpTx'),g=document.getElementById('fxHpGhost');
+ const p=pct(b.hp_left,b.max_hp);
+ if(f)f.style.width=p+'%';if(g)setTimeout(()=>{g.style.width=p+'%'},380);
+ if(t)t.innerHTML=`<b>${n6(b.hp_left)}</b><span> / ${n6(b.max_hp)} HP</span>`}
+function floatNum(stage,txt,cls){
+ const e=E6('i','fx-float '+(cls||''),txt);e.style.left=(38+Math.random()*24)+'%';stage.append(e);setTimeout(()=>e.remove(),1300)}
+function flyPumpkin(stage,fromPct,delay){
+ return new Promise(res=>{
+  const p=E6('span','fx-fly');p.innerHTML=artHTML('hw:pumpkin');
+  const bx=50+(Math.random()*14-7),fx=fromPct==null?(18+Math.random()*64):fromPct;
+  p.style.cssText=`--x0:${fx}%;--x1:${bx}%;animation-delay:${delay||0}ms`;stage.append(p);
+  p.addEventListener('animationend',()=>{p.remove();res()},{once:true});setTimeout(()=>{p.remove();res()},1200+(delay||0))})}
+function hitFx(stage,svg,dmg,n){
+ svg.classList.remove('hit');void svg.getBoundingClientRect();svg.classList.add('hit');
+ clearTimeout(svg._ht);svg._ht=setTimeout(()=>svg.classList.remove('hit'),520);
+ const s=E6('i','fx-spark');s.style.left=(46+Math.random()*10)+'%';stage.append(s);setTimeout(()=>s.remove(),600);
+ if(dmg)floatNum(stage,'−'+n6(dmg),n>=100?'big':'');
+ stage.classList.remove('shake');void stage.offsetWidth;stage.classList.add('shake')}
+function paintBoss(){
+ const b=FX.boss,pg=document.getElementById('fxPage');if(!b||!pg)return;
+ if(!pg.dataset.m){
+  pg.dataset.m='boss';
+  pg.innerHTML=`<div class="fx-hp"><div class="fx-hp-name">${esc6(b.name)}</div><div class="fx-hp-bar"><i class="ghost" id="fxHpGhost"></i><i class="fill" id="fxHpFill"></i><span id="fxHpTx"></span></div></div>
+   <div class="fx-stage" id="fxStage">${bossScene()}<div class="fx-boss" id="fxBossBox">${bossSVG(b.skin)}</div><div class="fx-crystal hidden" id="fxCrystal"></div><div class="fx-bubble hidden" id="fxBubble"></div></div>
+   <div id="fxCtl"></div><div id="fxInfo"></div>`}
+ const stage=document.getElementById('fxStage'),svg=document.querySelector('#fxBossBox .bs');
+ setHP(b);paintBossArt(svg,b);fxWallet(b.pumpkins.balance);
+ document.getElementById('fxInfo').innerHTML=bossRewardsHTML(b)+bossTopHTML(b);
+ const ctl=document.getElementById('fxCtl');
+ if(b.defeated)return;
+ if(!ctl.dataset.built){
+  ctl.dataset.built='1';
+  ctl.innerHTML=`<div class="fx-ctl"><div class="fx-amts" id="fxAmts">${[1,10,100,1000].map(n=>`<button type="button" data-n="${n}">×${n6(n)}</button>`).join('')}<button type="button" data-n="max">Макс</button></div>
+   <button class="fx-throw" id="fxThrow" type="button"><span class="fx-throw-art">${artHTML('hw:pumpkin')}</span><span class="fx-throw-tx"><b>Бросить <em id="fxThrowN">10</em></b><small id="fxThrowS"></small></span></button></div>`;
+  document.getElementById('fxAmts').onclick=e=>{const x=e.target.closest('button');if(!x)return;FX.amount=x.dataset.n==='max'?'max':+x.dataset.n;paintCtl()};
+  document.getElementById('fxThrow').onclick=throwAt}
+ paintCtl()}
+function throwCount(){
+ const b=FX.boss;if(!b)return 0;const per=b.dmg_per_pumpkin||1,need=Math.ceil(b.hp_left/per),have=b.pumpkins.balance-FX.pend;
+ const want=FX.amount==='max'?have:FX.amount;return Math.max(0,Math.min(want,have,need))}
+function paintCtl(){
+ const b=FX.boss;if(!b||b.defeated)return;
+ document.querySelectorAll('#fxAmts button').forEach(x=>x.classList.toggle('on',(x.dataset.n==='max'?'max':+x.dataset.n)===FX.amount));
+ const n=throwCount(),per=b.dmg_per_pumpkin||1;
+ const e=document.getElementById('fxThrowN'),s=document.getElementById('fxThrowS'),t=document.getElementById('fxThrow');if(!e)return;
+ e.textContent=n?n6(n)+' '+tkWord(n):'тыквы';
+ s.textContent=n?('урон '+n6(n*per)+(per>1?' · 1 тыква = '+n6(per):'')):(b.pumpkins.balance-FX.pend<1?'Нет тыкв — их дают за проигранные TON':'');
+ t.disabled=!n}
+async function throwAt(){
+ const b=FX.boss;if(!b||b.defeated)return;const n=throwCount();if(!n)return;
+ const stage=document.getElementById('fxStage'),svg=document.querySelector('#fxBossBox .bs');
+ FX.pend+=n;b.pumpkins.balance-=0;fxWallet(b.pumpkins.balance-FX.pend);paintCtl();
+ const vis=Math.min(6,Math.max(1,Math.round(Math.log10(n+1)*2)));
+ FX.queue=(FX.queue||Promise.resolve()).then(async()=>{
+  const flights=Array.from({length:vis},(_,i)=>flyPumpkin(stage,null,i*70));
+  let d;
+  try{d=await fxPost('/api/halloween/boss/hit',{pumpkins:n})}
+  catch(e){FX.pend-=n;toast(e.message||'Удар не засчитан');await refreshBoss();return}
+  await Promise.all(flights);FX.pend-=n;
+  const was=FX.boss;FX.boss=d.boss;
+  hitFx(stage,svg,d.dealt,d.spent);
+  if(window.hwPet)try{window.hwPet.react&&window.hwPet.react('gift')}catch(e){}
+  if(d.killed){await killBoss(true)}else{paintBoss()}
+ }).catch(()=>{})}
+async function refreshBoss(){
+ try{const d=await fxGet('/api/halloween/boss');const was=FX.boss;FX.boss=d.boss;
+  if(FX.kind!=='boss')return;
+  const stage=document.getElementById('fxStage'),svg=document.querySelector('#fxBossBox .bs');
+  if(was&&!was.defeated&&d.boss.defeated&&!FX.killing){killBoss(false)}
+  else if(was&&d.boss.damage>was.damage&&!FX.killing&&stage&&svg&&!FX.pend){const diff=d.boss.damage-was.damage;
+   const cnt=Math.min(4,Math.max(1,Math.ceil(Math.log10(diff+1))));for(let i=0;i<cnt;i++)flyPumpkin(stage,Math.random()<.5?8:92,i*120);
+   setTimeout(()=>{hitFx(stage,svg,diff,diff);paintBoss()},560)}
+  else if(!FX.pend&&!FX.killing)paintBoss()}catch(e){}}
+/* the end: the king cracks, bursts, and Кристаллик takes his place */
+async function killBoss(mine,instant){
+ if(FX.killing)return;FX.killing=true;
+ const b=FX.boss,svg=document.querySelector('#fxBossBox .bs'),stage=document.getElementById('fxStage');
+ if(!svg){FX.killing=false;return}
+ setHP(Object.assign({},b,{hp_left:0}));
+ document.getElementById('fxCtl').replaceChildren();
+ paintBossArt(svg,Object.assign({},b,{hp_left:Math.max(1,b.max_hp*.1)}));
+ svg.classList.add('dying');stage.classList.add('dying-stage');
+ const wait=ms=>new Promise(r=>setTimeout(r,ms));
+ await wait(instant?1500:2300);
+ svg.classList.remove('dying');svg.classList.add('dead','burst');stage.classList.add('flash');
+ try{navigator.vibrate&&navigator.vibrate([30,40,60])}catch(e){}
+ await wait(1100);stage.classList.remove('flash','dying-stage');
+ FX.seen[b.round]=1;try{localStorage.setItem('hwBossSeen',String(b.round))}catch(e){}
+ FX.killing=false;await showCrystal(true)}
+function crystalSay(txt){const bb=document.getElementById('fxBubble');if(!bb)return;bb.textContent=txt;bb.classList.remove('hidden');bb.classList.remove('pop');void bb.offsetWidth;bb.classList.add('pop')}
+async function showCrystal(animate){
+ const b=FX.boss,cr=document.getElementById('fxCrystal'),ctl=document.getElementById('fxCtl'),stage=document.getElementById('fxStage'),svg=document.querySelector('#fxBossBox .bs');
+ if(!cr)return;
+ if(svg){svg.classList.remove('dying');svg.classList.add('dead')}
+ cr.innerHTML=(window.hwPetGuide?window.hwPetGuide(b.can_claim?'happy':b.me.damage>0?'happy':'idle',true):artHTML('hw:crystal'));
+ cr.classList.remove('hidden');if(animate){cr.classList.remove('rise');void cr.offsetWidth;cr.classList.add('rise')}
+ const mood=b.can_claim?'happy':b.claimed?'stars':b.me.damage>0?'idle':'sad';
+ const g=cr.querySelector('.pe-guide');if(g)g.dataset.st=mood;
+ const fin=b.is_finisher?' Это твой добивающий удар!':'';
+ if(b.can_claim){
+  crystalSay('Король повержен! Вот твоя награда!'+fin);
+  ctl.innerHTML=`<button class="fx-claim" id="fxClaim" type="button">${artHTML('hw:gift')}<span>Забрать награду</span></button>`;
+  document.getElementById('fxClaim').onclick=claimBoss;
+ }else if(b.claimed){
+  crystalSay('Спасибо за бой! Награда уже у тебя.');ctl.innerHTML='<p class="fx-note">Босс повержен · награда получена</p>';
+ }else if(b.me.damage>0){
+  crystalSay('Ты помог, но до награды не хватило урона. В следующий раз бей сильнее!');ctl.innerHTML='<p class="fx-note">Босс повержен · для награды нужно нанести больше урона</p>';
+ }else{
+  crystalSay('Босс уже повержен. Ты не успел принять участие — следи за новыми рейдами!');ctl.innerHTML='<p class="fx-note">Босс повержен</p>'}
+ const info=document.getElementById('fxInfo');if(info)info.innerHTML=bossRewardsHTML(b)+bossTopHTML(b)}
+async function claimBoss(){
+ const btn=document.getElementById('fxClaim');if(btn)btn.disabled=true;
+ try{const d=await fxPost('/api/halloween/boss/claim');FX.boss=d.boss;fxWallet(d.boss.pumpkins.balance);
+  if(window.hwPet)try{window.hwPet.gift&&window.hwPet.gift()}catch(e){}
+  givenDlg('Награда за победу над боссом',d.given,'Король повержен!');await showCrystal(false);
+ }catch(e){toast(e.message||'Не удалось забрать награду');if(btn)btn.disabled=false;await refreshBoss()}}
+async function openBoss(){
+ const d0=openSheet('boss','Босс-рейд','fx-boss-sheet');
+ const pg=document.getElementById('fxPage');pg.innerHTML='<div class="fx-load">Просыпается…</div>';
+ try{const d=await fxGet('/api/halloween/boss');FX.boss=d.boss}catch(e){closeFx();return toast(e.message||'Рейд недоступен')}
+ const b=FX.boss;FX.killing=false;FX.pend=0;FX.queue=null;pg.innerHTML='';delete pg.dataset.m;
+ let seen=false;try{seen=String(localStorage.getItem('hwBossSeen'))===String(b.round)}catch(e){}
+ paintBoss();
+ if(b.defeated){
+  if(b.can_claim||!seen){await killBoss(false,true)}else{await showCrystal(false)}}
+ FX.poll=setInterval(()=>{if(!document.hidden&&FX.kind==='boss')refreshBoss()},3500)}
+
+/* ======================= PASS ======================= */
+function passLevelHTML(l,cur){
+ const st=l.state;
+ return `<div class="fx-lv ${st}${l.n===cur+1?' next':''}" data-n="${l.n}"><div class="fx-lv-n"><b>${l.n}</b></div>
+  <div class="fx-lv-card"><span class="fx-lv-art">${artHTML(l.reward.image_url||'hw:gift')}</span><span class="fx-lv-tx"><b>${esc6(l.reward.title)}</b><small>${st==='locked'?n6(l.xp)+' XP':st==='claimed'?'Получено':'Готово — забирайте!'}</small></span>
+  ${st==='open'?'<button class="fx-lv-btn" type="button">Забрать</button>':st==='claimed'?'<span class="fx-lv-ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.500"/></svg></span>':'<span class="fx-lv-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>'}</div></div>`}
+function paintPass(){
+ const p=FX.pass,pg=document.getElementById('fxPage');if(!p||!pg)return;
+ fxWallet(p.pumpkins.balance);
+ const full=p.level>=p.max_level,prog=full?100:pct(p.into,p.next_need);
+ pg.innerHTML=`<div class="fx-pass-head"><div class="fx-pass-badge"><small>УРОВЕНЬ</small><b>${p.level}</b></div>
+  <div class="fx-pass-info"><b>${esc6(p.name)}</b><div class="fx-xp"><i style="width:${prog}%"></i></div><small>${full?'Все уровни пройдены · '+n6(p.xp)+' XP':n6(p.into)+' / '+n6(p.next_need)+' XP до уровня '+(p.level+1)}</small></div></div>
+  <p class="fx-pass-rule">Каждые <b>${n6(p.pumpkins_step)}</b> ${tkWord(p.pumpkins_step)}${p.xp_source==='all'?' на балансе':' за проигранные TON'} дают <b>${n6(p.xp_step)} XP</b></p>
+  ${p.claimable?`<button class="fx-claim" id="fxPassAll" type="button">${artHTML('hw:gift')}<span>Забрать всё (${p.claimable})</span></button>`:''}
+  <div class="fx-lvs">${p.levels.map(l=>passLevelHTML(l,p.level)).join('')}</div>`;
+ const all=document.getElementById('fxPassAll');if(all)all.onclick=()=>claimPass(0,all);
+ pg.querySelectorAll('.fx-lv-btn').forEach(b=>b.onclick=()=>claimPass(+b.closest('.fx-lv').dataset.n,b));
+ const nx=pg.querySelector('.fx-lv.open')||pg.querySelector('.fx-lv.next');if(nx&&!FX.passScrolled){FX.passScrolled=1;setTimeout(()=>nx.scrollIntoView({block:'center',behavior:'smooth'}),250)}}
+async function claimPass(n,btn){
+ if(btn)btn.disabled=true;
+ try{const d=await fxPost('/api/halloween/pass/claim',{level:n});FX.pass=d.pass;
+  if(window.hwPet)try{window.hwPet.gift&&window.hwPet.gift()}catch(e){}
+  paintPass();givenDlg(d.given.length>1?'Награды пропуска':'Награда пропуска',d.given,'Тыквенный пропуск')
+ }catch(e){toast(e.message||'Не удалось забрать награду');if(btn)btn.disabled=false;try{const d=await fxGet('/api/halloween/pass');FX.pass=d.pass;paintPass()}catch(x){}}}
+async function openPass(){
+ openSheet('pass','Тыквенный пропуск','fx-pass-sheet');FX.passScrolled=0;
+ const pg=document.getElementById('fxPage');pg.innerHTML='<div class="fx-load">Загружаем…</div>';
+ try{const d=await fxGet('/api/halloween/pass');FX.pass=d.pass}catch(e){closeFx();return toast(e.message||'Пропуск недоступен')}
+ paintPass();
+ FX.poll=setInterval(async()=>{if(document.hidden||FX.kind!=='pass'||document.getElementById('hwDlg'))return;try{const d=await fxGet('/api/halloween/pass');if(JSON.stringify(d.pass.levels.map(l=>l.state))!==JSON.stringify(FX.pass.levels.map(l=>l.state))||d.pass.xp!==FX.pass.xp){FX.pass=d.pass;paintPass()}}catch(e){}},8000)}
+
+/* ======================= TRICK OR TREAT ======================= */
+const HOUSE_COL=[['#5b3aa8','#ffb347'],['#3f2b86','#ff7a9c'],['#6a3fb8','#7fe0ff']];
+function houseSVG(i){
+ const [w,l]=HOUSE_COL[i%3];
+ return `<svg viewBox="0 0 110 150" aria-hidden="true">
+  <path d="M6 70L55 22L104 70Z" fill="#1a0f3a" stroke="#0e0724" stroke-width="2"/><rect x="14" y="68" width="82" height="76" fill="${w}" stroke="#0e0724" stroke-width="2"/>
+  <rect x="20" y="78" width="16" height="18" rx="2" fill="${l}" opacity=".9" class="fx-win"/><rect x="74" y="78" width="16" height="18" rx="2" fill="${l}" opacity=".9" class="fx-win w2"/>
+  <path d="M55 22v-12" stroke="#0e0724" stroke-width="3"/><circle cx="55" cy="66" r="5" fill="${l}" opacity=".7"/>
+  <g class="fx-door"><path d="M40 144V109a15 15 0 0 1 30 0V144Z" fill="#2a1450" stroke="#0e0724" stroke-width="2"/><path d="M43 144V110a12 12 0 0 1 24 0V144Z" fill="#3a1d6e"/><circle cx="63" cy="122" r="2.4" fill="#ffd27a"/></g>
+  <g class="fx-open"><path d="M40 144V109a15 15 0 0 1 30 0V144Z" fill="${l}" opacity=".85"/></g></svg>`}
+function paintTrick(){
+ const t=FX.trick,pg=document.getElementById('fxPage');if(!t||!pg)return;
+ fxWallet(t.pumpkins.balance);
+ const left=t.left;
+ pg.innerHTML=`<div class="fx-tt-head"><h2>${esc6(t.name)}</h2><p>${left>0?'Выберите дверь и постучитесь. Что за ней — сладость или гадость?':'Все двери на сегодня заперты. Возвращайтесь завтра!'}</p>
+  <div class="fx-tt-tries"><span class="${left>0?'on':''}">${artHTML('hw:candy')}<b>${left}</b> из ${t.tries}</span>${left>0?'':`<span class="reset">Новые попытки через <b id="fxTtReset">${hms(t.reset_at-Date.now())}</b></span>`}</div></div>
+  <div class="fx-street" id="fxStreet">${bossScene().replace('fx-scene','fx-scene street')}<div class="fx-houses">${[0,1,2].map(i=>`<button class="fx-house${left>0?'':' locked'}" type="button" data-i="${i}">${houseSVG(i)}<span class="fx-pk">${artHTML(i===1?'hw:jack':'hw:pumpkin')}</span><span class="fx-who" id="fxWho${i}"></span><span class="fx-knock">тук-тук</span></button>`).join('')}</div></div>
+  <p class="fx-note small">Сегодня попыток: ${t.tries}. Новые появляются каждый день в 03:00 по Москве.</p>`;
+ pg.querySelectorAll('.fx-house').forEach(h=>h.onclick=()=>knock(+h.dataset.i));
+ clearInterval(FX.tick);if(left<=0)FX.tick=setInterval(()=>{const e=document.getElementById('fxTtReset');if(!e)return;const ms=t.reset_at-Date.now();if(ms<=0){clearInterval(FX.tick);openTrick();return}e.textContent=hms(ms)},1000)}
+async function knock(i){
+ if(FX.busy)return;const t=FX.trick;if(!t||t.left<=0)return toast('На сегодня попытки закончились');FX.busy=true;
+ const street=document.getElementById('fxStreet'),house=street.querySelector(`.fx-house[data-i="${i}"]`);
+ street.classList.add('busy');house.classList.add('knocking');
+ try{navigator.vibrate&&navigator.vibrate([20,60,20,60,20])}catch(e){}
+ const [d]=await Promise.all([fxPost('/api/halloween/trick/knock').catch(e=>({err:e})),new Promise(r=>setTimeout(r,1250))]);
+ house.classList.remove('knocking');
+ if(d.err){FX.busy=false;street.classList.remove('busy');toast(d.err.message||'Не удалось открыть дверь');try{const x=await fxGet('/api/halloween/trick');FX.trick=x.trick;paintTrick()}catch(e){}return}
+ FX.trick=d.trick;fxWallet(d.trick.pumpkins.balance);
+ const bad=d.kind==='trick',who=document.getElementById('fxWho'+i);
+ who.innerHTML=artHTML(bad?['hw:ghost2','hw:spider','hw:skull','hw:mummy'][Math.floor(Math.random()*4)]:['hw:candy','hw:bag','hw:cupcake','hw:lolly'][Math.floor(Math.random()*4)]);
+ house.classList.add('open',bad?'bad':'good');street.classList.add(bad?'scare':'cheer');
+ await new Promise(r=>setTimeout(r,bad?900:1000));
+ if(window.hwPet)try{(bad?window.hwPet.react&&window.hwPet.react('sad'):window.hwPet.gift&&window.hwPet.gift())}catch(e){}
+ const hubT=H6.hub&&H6.hub.features&&H6.hub.features.trick;if(hubT)hubT.left=d.trick.left;
+ if(bad){
+  result6({bad:true,head:'Гадость!',kicker:'Дверь открылась…',text:d.text+(d.stolen?` Потеряно ${n6(d.stolen)} ${tkWord(d.stolen)}.`:'')+(d.reward?` Утешительный приз: ${d.reward.title}.`:''),pumpkins:d.trick.pumpkins.balance});
+ }else{
+  result6({reward:d.reward,kicker:'Сладость!',text:d.text,code:d.code,pumpkins:d.trick.pumpkins.balance});
+  try{api('/api/me').then(m=>{if(typeof setUser==='function')setUser(m.user)}).catch(()=>{})}catch(e){}}
+ FX.busy=false;street.classList.remove('busy','scare','cheer');
+ const closer=new MutationObserver(()=>{if(!document.getElementById('hwDlg')){closer.disconnect();if(FX.kind==='trick')paintTrick()}});
+ closer.observe(document.body,{childList:true})}
+async function openTrick(){
+ openSheet('trick','Трик или трит','fx-trick-sheet');FX.busy=false;
+ const pg=document.getElementById('fxPage');pg.innerHTML='<div class="fx-load">Стучимся…</div>';
+ try{const d=await fxGet('/api/halloween/trick');FX.trick=d.trick}catch(e){closeFx();return toast(e.message||'Недоступно')}
+ paintTrick()}
+
+/* ======================= cards on the event page ======================= */
+function bossCardHTML(f){
+ const p=pct(f.hp_left,f.max_hp),sz=f.size||'l';
+ const state=f.defeated?(f.can_claim?'Награда ждёт вас!':'Босс повержен'):n6(f.hp_left)+' HP';
+ const cta=f.defeated?(f.can_claim?'Забрать награду':'Посмотреть'):'В бой';
+ return `<div class="fx-card-art">${f.defeated&&!f.can_claim?`<span class="fx-tomb">${artHTML('hw:tomb')}</span>`:bossSVG(f.skin||'pumpkin')}</div>
+  <div class="fx-card-tx"><span class="fx-card-tag">${f.defeated?(f.can_claim?'НАГРАДА':'ЗАВЕРШЁН'):'РЕЙД'}</span><b>${esc6(f.title||'Босс-рейд')}</b>${sz!=='s'?`<small>${esc6(f.subtitle||f.name||'')}</small>`:''}
+  <div class="fx-card-hp"><i style="width:${f.defeated?0:p}%"></i><span>${esc6(sz==='s'?(f.defeated?'Повержен':Math.ceil(p)+'%'):state)}</span></div>${sz==='l'?`<em class="fx-card-cta">${cta} ›</em>`:''}</div>`}
+function renderFeatures6(){
+ const box=document.getElementById('hwFeatures');if(!box||!H6.hub)return;
+ const f=H6.hub.features||{},cards=[];
+ if(f.boss){const c=E6('button','fx-card fx-boss-card sz-'+(f.boss.size||'l')+(f.boss.defeated?' defeated':'')+(f.boss.can_claim?' claim':''));c.type='button';c.innerHTML=bossCardHTML(f.boss);c.onclick=openBoss;cards.push(c)}
+ const row=[];
+ if(f.pass){const c=E6('button','fx-card fx-mini fx-pass-card'+(f.pass.claimable?' claim':''));c.type='button';
+  const full=f.pass.level>=f.pass.max_level;
+  c.innerHTML=`<span class="fx-mini-art"><i>${f.pass.level}</i></span><b>${esc6(f.pass.title)}</b><small>${f.pass.claimable?'Есть награды: '+f.pass.claimable:esc6(f.pass.subtitle||'')}</small><div class="fx-xp"><i style="width:${full?100:pct(f.pass.into,f.pass.next_need)}%"></i></div>${f.pass.claimable?'<span class="fx-dot"></span>':''}`;c.onclick=openPass;row.push(c)}
+ if(f.trick){const c=E6('button','fx-card fx-mini fx-trick-card'+(f.trick.left>0?' claim':' wait'));c.type='button';
+  c.innerHTML=`<span class="fx-mini-art">${artHTML('hw:jack')}</span><b>${esc6(f.trick.title)}</b><small>${f.trick.left>0?esc6(f.trick.subtitle||'Постучись в дверь'):'Попытки закончились · завтра снова'}</small>${f.trick.left>0?'<span class="fx-dot"></span>':''}`;c.onclick=openTrick;row.push(c)}
+ if(row.length){const r=E6('div','fx-row n'+row.length);r.append(...row);cards.push(r)}
+ box.replaceChildren(...cards);box.classList.toggle('hidden',!cards.length)}
 
 /* ---------- guided tour: the gem in the hat shows the event; finishing it pays pumpkins once ---------- */
 const TOUR={on:false,i:0,from:'',steps:[],busy:false};
@@ -13775,7 +14411,7 @@ function adminV6(){
  const btn=(t,cls,fn)=>{const b=E6('button',cls||'mini-btn',t);b.type='button';b.onclick=fn;return b};
  const post=(u,b)=>api(u,{method:'POST',body:JSON.stringify(b)});
  /* tabs */
- const TABS=[['launch','Запуск'],['btn','Кнопки'],['market','Маркет'],['pump','Тыквы']];
+ const TABS=[['launch','Запуск'],['btn','Кнопки'],['market','Маркет'],['pump','Тыквы'],['boss','Босс'],['pass','Пропуск'],['trick','Трик-трит']];
  const bar=E6('div','hw-tabs');const head=page.querySelector('.page-heading');(head||page.firstElementChild).after(bar);
  const launch=E6('div','hw-tab-launch');[...page.children].filter(c=>c!==bar&&c!==head&&c.id!=='halloweenBack'&&!c.classList.contains('back')).forEach(c=>launch.append(c));bar.after(launch);
  const wrap=E6('div','hw-cfg hidden');page.append(wrap);
@@ -13783,7 +14419,7 @@ function adminV6(){
  function setTab(k){S.tab=k;try{sessionStorage.setItem('hw_adm_tab',k)}catch(e){}
   bar.querySelectorAll('.hw-tab').forEach(b=>b.classList.toggle('on',b.dataset.t===k));launch.classList.toggle('hidden',k!=='launch');wrap.classList.toggle('hidden',k==='launch');if(k!=='launch'&&S.cfg)paint()}
  async function load(){try{S.cfg=await api('/api/admin/halloween/config');if(!S.dirty)S.btns=JSON.parse(JSON.stringify(S.cfg.buttons||[]));if(!S.dirty)S.selB=null;if(S.tab!=='launch')paint()}catch(e){toast(e.message)}}
- function paint(){wrap.replaceChildren(S.tab==='btn'?btnTab():S.tab==='market'?marketTab():pumpPanel())}
+ function paint(){wrap.replaceChildren(S.tab==='btn'?btnTab():S.tab==='market'?marketTab():(S.tab==='boss'||S.tab==='pass'||S.tab==='trick')?featureTab6(S.tab,{panel,field,inp,sel,btn,post}):pumpPanel())}
  /* shared preview shell */
  function pvShell(title,hint){
   const p=panel(title,hint);
@@ -13986,6 +14622,150 @@ function adminV6(){
   md.onchange=()=>w.classList.toggle('hidden',md.value==='full');
   box.append(lab,w);anchor.after(box)}
 }
+
+/* ======================= admin: boss raid · pass · trick-or-treat tabs ======================= */
+const clone6=o=>JSON.parse(JSON.stringify(o));
+function ask6(text,okLabel,fn){
+ const c=dlg6(`<h3>${esc6(text)}</h3><div class="hw-row2"><button class="hw-ghost" type="button" data-close>Отмена</button><button class="primary" type="button" id="hwAskOk">${esc6(okLabel||'Да')}</button></div>`,'hw-res hw-buy');
+ c.querySelector('#hwAskOk').onclick=()=>{closeDlg6();fn()}}
+function featureTab6(kind,h){
+ const box=E6('div','hw-stackgap fx-adm');box.append(E6('div','fx-load','Загружаем…'));
+ fxAdminLoad(kind,h,box);return box}
+async function fxAdminLoad(kind,h,box){
+ try{const d=await api('/api/admin/halloween/'+kind);
+  box.replaceChildren(...(kind==='boss'?bossAdmin(d,h,box):kind==='pass'?passAdmin(d,h,box):trickAdmin(d,h,box)))}
+ catch(e){box.replaceChildren(E6('p','muted',e.message||'Не удалось загрузить'))}}
+const chk6=(label,get,set)=>{const l=E6('label','hw-chk'),i=E6('input');i.type='checkbox';i.checked=!!get;i.onchange=()=>set(i.checked);l.append(i,E6('span','',label));return l};
+const numIn=(h,v,ph,min,max,step)=>{const i=h.inp(v,ph,'number');if(min!=null)i.min=min;if(max!=null)i.max=max;i.step=step||'1';return i};
+
+/* ---------- boss ---------- */
+function bossAdmin(d,h,box){
+ const c=clone6(d.config),out=[];
+ const reload=()=>fxAdminLoad('boss',h,box);
+ const save=async(action,msg)=>{try{await h.post('/api/admin/halloween/boss',{action:action||'save',config:c});toast(msg||'Сохранено');reload()}catch(e){toast(e.message)}};
+ /* current fight */
+ const r=d.round;
+ const st=h.panel('Босс-рейд сейчас',r?'':'Босса ещё нет: включите рейд ниже и сохраните — босс появится сам.');
+ if(r){
+  const left=Math.max(0,r.max_hp-r.damage),p=pct(left,r.max_hp);
+  st.append(E6('div','fx-adm-hp',''));
+  st.lastChild.innerHTML=`<div class="fx-card-hp big"><i style="width:${p}%"></i><span>${esc6(r.name)} · ${n6(left)} / ${n6(r.max_hp)} HP</span></div>
+   <div class="hw-stat">${r.state==='defeated'?'Босс повержен':'Бой идёт'} · бойцов ${n6(r.players)} · наград получено ${n6(r.claims)} из ${n6(r.players)}</div>`;
+  if(r.top.length){const t=E6('div','fx-tops');t.innerHTML=r.top.map((x,i)=>`<div class="fx-top"><i class="r${i+1}">${i+1}</i><span class="av">${esc6(x.name.slice(0,1).toUpperCase())}</span><b>${esc6(x.name)}${x.username?' <small>@'+esc6(x.username)+'</small>':''}</b><span class="dm">${n6(x.damage)}</span></div>`).join('');st.append(t)}
+  const row=E6('div','hw-row2');
+  row.append(h.btn('Начать нового босса','mini-btn',()=>ask6('Начать нового босса? HP сбросится. Награды, которые игроки ещё не забрали за прошлого, пропадут.','Начать',()=>save('new_round','Новый босс вышел'))));
+  if(r.state==='active')row.append(h.btn('Победить сейчас (тест)','mini-btn',()=>ask6('Мгновенно победить босса? Игроки получат награды как за обычную победу, добивающего удара не будет.','Победить',()=>save('defeat','Босс повержен'))));
+  st.append(row)}
+ out.push(st);
+ /* settings */
+ const p=h.panel('Настройки босса','Всё, что здесь изменено, применяется после «Сохранить».');
+ p.append(chk6('Рейд включён и виден игрокам на странице события',c.enabled,v=>{c.enabled=v}));
+ const prev=E6('div','hw-features fx-adm-pv');const card=E6('div','fx-card fx-boss-card');prev.append(card);
+ const paintCard=()=>{card.className='fx-card fx-boss-card sz-'+c.size;card.innerHTML=bossCardHTML({title:c.tile_title,subtitle:c.tile_subtitle,name:c.name,size:c.size,skin:c.skin,max_hp:Math.max(1,+c.max_hp||1),hp_left:Math.round(Math.max(1,+c.max_hp||1)*.62),defeated:false,can_claim:false})};
+ const name=h.inp(c.name,'Король Тыкв');name.maxLength=40;name.oninput=()=>{c.name=name.value;paintCard()};
+ p.append(h.field('Имя босса',name));
+ const skins=E6('div','fx-skins');
+ const paintSkins=()=>{skins.replaceChildren(...(d.skins||['pumpkin','toxic','void']).map(s=>{const b=E6('button','fx-skin'+(c.skin===s?' on':''));b.type='button';b.innerHTML=`<span>${bossSVG(s)}</span><b>${({pumpkin:'Тыквенный',toxic:'Ядовитый',void:'Пустотный'})[s]||s}</b>`;b.onclick=()=>{c.skin=s;paintSkins();paintCard()};return b}))};
+ paintSkins();p.append(h.field('Облик босса',skins));
+ const hp=numIn(h,c.max_hp,'HP',1,1000000000);hp.oninput=()=>{c.max_hp=hp.value;paintCard()};
+ p.append(h.field('Сколько у босса HP',hp,'Сколько всего урона нужно нанести. При 1 тыква = 1 HP игроки должны бросить столько тыкв. Во время боя HP можно менять, но не ниже уже нанесённого урона.'));
+ const per=numIn(h,c.dmg_per_pumpkin,'1',1,100000);per.oninput=()=>{c.dmg_per_pumpkin=per.value};
+ p.append(h.field('Урон за одну тыкву',per,'По умолчанию 1: одна тыква — один HP.'));
+ const seg=E6('div','hw-seg');
+ const paintSeg=()=>seg.replaceChildren(...[['s','Маленькая'],['m','Средняя'],['l','Большая']].map(([k,t])=>{const b=E6('button','hw-seg-b'+(c.size===k?' on':''),t);b.type='button';b.onclick=()=>{c.size=k;paintSeg();paintCard()};return b}));
+ paintSeg();p.append(h.field('Размер кнопки на странице события',seg));
+ const tt=h.inp(c.tile_title,'Босс-рейд');tt.maxLength=40;tt.oninput=()=>{c.tile_title=tt.value;paintCard()};
+ const ts=h.inp(c.tile_subtitle,'Подпись');ts.maxLength=60;ts.oninput=()=>{c.tile_subtitle=ts.value;paintCard()};
+ p.append(h.field('Название кнопки',tt),h.field('Подпись под названием (в маленькой кнопке не показывается)',ts),E6('b','fx-adm-cap','Так кнопка выглядит у игроков'),prev);
+ paintCard();
+ out.push(p);
+ /* rewards */
+ const rw=h.panel('Награды за победу','Игрок получает их из рук Кристаллика, когда зайдёт в рейд после победы. Каждую награду можно забрать один раз.');
+ rw.append(rewardEd6(c.reward_all,true,'Всем участникам'));
+ const min=numIn(h,c.min_damage,'1',0,1000000000);min.oninput=()=>{c.min_damage=min.value};
+ rw.append(h.field('Минимум урона для награды',min,'Сколько нужно нанести урона, чтобы считаться участником. Награды за места и добивающий удар тоже выдаются только участникам.'));
+ const tops=E6('div','fx-adm-list');
+ const drawTops=()=>{tops.replaceChildren(...c.reward_top.map((x,i)=>{const w=E6('div','fx-adm-row');w.append(rewardEd6(x,true,(i+1)+' место по урону'));w.append(h.btn('Убрать','mini-btn',()=>{c.reward_top.splice(i,1);drawTops()}));return w}));
+  if(c.reward_top.length<(d.top_places||5)){tops.append(h.btn('＋ Награда за место','mini-btn',()=>{c.reward_top.push({type:'pumpkins',amount:'100'});drawTops()}))}};
+ drawTops();rw.append(tops);
+ rw.append(rewardEd6(c.reward_last,true,'За добивающий удар (кто нанёс последний урон)'));
+ rw.append(h.btn('Сохранить босса','primary',()=>save('save')));
+ out.push(rw);
+ return out}
+
+/* ---------- pass ---------- */
+function passAdmin(d,h,box){
+ const c=clone6(d.config),out=[];
+ const reload=()=>fxAdminLoad('pass',h,box);
+ const p=h.panel('Тыквенный пропуск','Игроки копят опыт (XP) за тыквы и забирают награды за уровни. Сначала в списке лежат тестовые уровни — замените их своими.');
+ p.append(chk6('Пропуск включён и виден игрокам',c.enabled,v=>{c.enabled=v}));
+ const name=h.inp(c.name,'Тыквенный пропуск');name.maxLength=40;name.oninput=()=>c.name=name.value;p.append(h.field('Название',name));
+ const tt=h.inp(c.tile_title,'Название кнопки');tt.maxLength=40;tt.oninput=()=>c.tile_title=tt.value;
+ const ts=h.inp(c.tile_subtitle,'Подпись');ts.maxLength=60;ts.oninput=()=>c.tile_subtitle=ts.value;
+ p.append(h.field('Название кнопки на странице события',tt),h.field('Подпись кнопки',ts));
+ const a=numIn(h,c.pumpkins_step,'100',1,100000000),b=numIn(h,c.xp_step,'100',1,100000000);a.oninput=()=>c.pumpkins_step=a.value;b.oninput=()=>c.xp_step=b.value;
+ const rate=E6('div','fx-adm-rate');rate.append(E6('span','','За каждые'),a,E6('span','','тыкв даётся'),b,E6('span','','XP'));
+ p.append(h.field('Сколько опыта даёт одна порция тыкв',rate,'Например, 100 тыкв = 100 XP. Опыт считается автоматически и всегда равен тому, что игрок уже набрал.'));
+ const src=h.sel([['earned','Только тыквы, полученные за проигрыши'],['all','Все полученные тыквы (с подарками, наградами, маркетом)']],c.xp_source||'earned');src.onchange=()=>c.xp_source=src.value;
+ p.append(h.field('Какие тыквы дают опыт',src,'«Только за проигрыши» — защита от бесконечного цикла: награда тыквами не даёт нового опыта.'));
+ out.push(p);
+ const lv=h.panel('Уровни и награды','Для каждого уровня укажите, сколько XP нужно набрать после предыдущего, и награду.');
+ const quick=E6('div','fx-adm-quick');
+ const qn=numIn(h,10,'Уровней',1,d.max_levels||60),qx=numIn(h,100,'XP на уровень',1,1000000),qp=numIn(h,50,'Тыкв',1,10000000);
+ quick.append(E6('span','','Быстро создать:'),qn,E6('span','','ур. по'),qx,E6('span','','XP, награда от'),qp,E6('span','','тыкв'),
+  h.btn('Создать','mini-btn',()=>ask6('Заменить весь список уровней новыми?','Заменить',()=>{const n=Math.min(d.max_levels||60,Math.max(1,+qn.value||10));c.levels=Array.from({length:n},(_,i)=>({need:String(Math.max(1,+qx.value||100)),reward:{type:'pumpkins',amount:String(Math.round((+qp.value||50)*(1+i*.25)))}}));draw()})));
+ lv.append(quick);
+ const list=E6('div','fx-adm-list');
+ const draw=()=>{
+  let total=0;
+  list.replaceChildren(...c.levels.map((x,i)=>{
+   total+=Math.max(1,+x.need||1);
+   const row=E6('div','fx-adm-lv');
+   const head=E6('div','fx-adm-lvh');head.append(E6('b','','Уровень '+(i+1)));const cum=E6('small','','всего '+n6(total)+' XP');head.append(cum);
+   const mv=E6('span','fx-adm-mv');
+   mv.append(h.btn('↑','mini-btn',()=>{if(i){[c.levels[i-1],c.levels[i]]=[c.levels[i],c.levels[i-1]];draw()}}),h.btn('↓','mini-btn',()=>{if(i<c.levels.length-1){[c.levels[i+1],c.levels[i]]=[c.levels[i],c.levels[i+1]];draw()}}),h.btn('×','mini-btn',()=>{c.levels.splice(i,1);draw()}));
+   head.append(mv);row.append(head);
+   const need=numIn(h,x.need,'XP',1,1000000000);need.oninput=()=>{x.need=need.value;let t=0;list.querySelectorAll('.fx-adm-lv').forEach((el,k)=>{t+=Math.max(1,+(c.levels[k]||{}).need||1);const s=el.querySelector('.fx-adm-lvh small');if(s)s.textContent='всего '+n6(t)+' XP'})};
+   row.append(h.field('XP на этот уровень',need),rewardEd6(x.reward,false,'Награда'));return row}));
+  if(c.levels.length<(d.max_levels||60))list.append(h.btn('＋ Уровень','mini-btn',()=>{const last=c.levels[c.levels.length-1];c.levels.push({need:last?last.need:'100',reward:{type:'pumpkins',amount:'50'}});draw()}))};
+ draw();lv.append(list);
+ lv.append(E6('div','hw-stat',`Наград выдано: ${n6(d.claims)} · игроков получали: ${n6(d.users)}`));
+ lv.append(h.btn('Сохранить пропуск','primary',async()=>{try{await h.post('/api/admin/halloween/pass',{config:c});toast('Сохранено');reload()}catch(e){toast(e.message)}}));
+ out.push(lv);return out}
+
+/* ---------- trick or treat ---------- */
+function trickAdmin(d,h,box){
+ const c=clone6(d.config),out=[],stats=d.stats||{};
+ const reload=()=>fxAdminLoad('trick',h,box);
+ const p=h.panel('Трик или трит','Игрок стучится в одну из трёх дверей. Что за ней — решает случай по весам из списка ниже: сладость (с наградой) или гадость.');
+ p.append(chk6('Включено и видно игрокам',c.enabled,v=>{c.enabled=v}));
+ const name=h.inp(c.name,'Трик или трит');name.maxLength=40;name.oninput=()=>c.name=name.value;p.append(h.field('Название',name));
+ const tt=h.inp(c.tile_title,'Название кнопки');tt.maxLength=40;tt.oninput=()=>c.tile_title=tt.value;
+ const ts=h.inp(c.tile_subtitle,'Подпись');ts.maxLength=60;ts.oninput=()=>c.tile_subtitle=ts.value;
+ p.append(h.field('Название кнопки на странице события',tt),h.field('Подпись кнопки',ts));
+ const tries=numIn(h,c.daily_tries,'1',1,50);tries.oninput=()=>c.daily_tries=tries.value;
+ p.append(h.field('Попыток в день на игрока',tries,'Новые попытки появляются каждый день в 03:00 по Москве.'));
+ out.push(p);
+ const ol=h.panel('Что может выпасть','Чем больше вес, тем чаще исход. Шанс считается как вес / сумма всех весов.');
+ const list=E6('div','fx-adm-list');
+ const draw=()=>{
+  const sum=c.outcomes.reduce((a,x)=>a+Math.max(1,+x.weight||1),0)||1;
+  list.replaceChildren(...c.outcomes.map((x,i)=>{
+   const row=E6('div','fx-adm-lv '+(x.kind==='trick'?'trick':'treat'));
+   const head=E6('div','fx-adm-lvh');head.append(E6('b','',x.kind==='trick'?'Гадость':'Сладость'));
+   const chance=E6('small','',(Math.max(1,+x.weight||1)/sum*100).toFixed(1)+'%'+(stats[x.kind]?'':''));head.append(chance);
+   const mv=E6('span','fx-adm-mv');mv.append(h.btn('×','mini-btn',()=>{if(c.outcomes.length<=1)return toast('Нужен хотя бы один исход');c.outcomes.splice(i,1);draw()}));head.append(mv);row.append(head);
+   const w=numIn(h,x.weight,'Вес',1,100000);w.oninput=()=>{x.weight=w.value;draw2()};
+   const tx=h.inp(x.text,'Что увидит игрок');tx.maxLength=160;tx.oninput=()=>x.text=tx.value;
+   row.append(h.field('Вес (шанс выпадения)',w),h.field('Текст для игрока',tx),rewardEd6(x.reward,x.kind==='trick',x.kind==='trick'?'Утешительная награда (необязательно)':'Награда'));
+   if(x.kind==='trick'){const st=numIn(h,x.steal||0,'0',0,1000000);st.oninput=()=>x.steal=st.value;row.append(h.field('Забирает тыкв у игрока',st,'0 — гадость никого не наказывает. Больше, чем есть у игрока, не заберёт.'))}
+   return row}));
+  list.append((()=>{const r=E6('div','hw-row2');r.append(h.btn('＋ Сладость','mini-btn',()=>{c.outcomes.push({kind:'treat',weight:'10',text:'Сладость!',reward:{type:'pumpkins',amount:'30'},steal:0});draw()}),h.btn('＋ Гадость','mini-btn',()=>{c.outcomes.push({kind:'trick',weight:'10',text:'Гадость!',reward:{type:'none'},steal:0});draw()}));return r})())};
+ const draw2=()=>{const sum=c.outcomes.reduce((a,x)=>a+Math.max(1,+x.weight||1),0)||1;list.querySelectorAll('.fx-adm-lv').forEach((el,k)=>{const s=el.querySelector('.fx-adm-lvh small');if(s&&c.outcomes[k])s.textContent=(Math.max(1,+c.outcomes[k].weight||1)/sum*100).toFixed(1)+'%'})};
+ draw();ol.append(list);
+ ol.append(E6('div','hw-stat',`Дверей открыто: сладостей ${n6(stats.treat||0)} · гадостей ${n6(stats.trick||0)}`));
+ ol.append(h.btn('Сохранить','primary',async()=>{try{await h.post('/api/admin/halloween/trick',{config:c});toast('Сохранено');reload()}catch(e){toast(e.message)}}));
+ out.push(ol);return out}
 
 /* ======================= v6: every result / reward / deposit window wears the Halloween skin ======================= */
 const SKIN_SKIP='.ugm,.xh-modal,.wl-modal';

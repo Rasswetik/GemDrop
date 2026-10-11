@@ -25,7 +25,7 @@ from urllib.parse import parse_qsl, quote, quote_plus
 import requests
 
 import notice_defs
-from flask import Flask, jsonify, request, session, send_file, g, has_request_context
+from flask import Flask, Response, jsonify, request, session, send_file, g, has_request_context
 
 
 BASE = Path(__file__).resolve().parent
@@ -22866,6 +22866,145 @@ def admin_gift_models_status():
         gifts = db.execute("SELECT COUNT(*) AS n FROM gift_models_sync WHERE status='ok'").fetchone()['n']
         empty = db.execute("SELECT COUNT(*) AS n FROM gift_models_sync WHERE status<>'ok'").fetchone()['n']
     return jsonify(models=int(models), gifts=int(gifts), empty=int(empty), **{k: _gm_state[k] for k in ('running', 'done', 'total', 'error')})
+
+
+
+# ======================= Анимации подарков (TGS / Lottie) =======================
+# Отдаём клиенту готовый Lottie JSON: сначала точный NFT (Fragment), потом модель/оригинал на CDN,
+# в последнюю очередь - анимированный стикер базового подарка из Bot API. Результат кэшируется.
+import zlib as _zlib
+GIFT_ANIM_MAX_BYTES = 3_000_000
+_ga_cache = {}      # key -> (expires, bytes|None)
+_ga_sticker_ids = {'at': 0.0, 'map': {}}
+
+
+def _ga_slug(value):
+    value = str(value or '').strip()
+    match = re.search(r'(?:t\.me/nft/|fragment\.com/gift/|nft\.fragment\.com/gift/)([A-Za-z0-9_-]+-\d+)', value)
+    if match:
+        return match.group(1).lower()
+    return value.lower() if re.fullmatch(r'[a-z0-9_]+-\d+', value.lower()) else ''
+
+
+def _ga_decode(raw, url):
+    """Lottie JSON из ответа: JSON как есть либо gzip (.tgs). None, если это не анимация."""
+    if not raw:
+        return None
+    if raw[:2] == b'\x1f\x8b':
+        try:
+            decoder = _zlib.decompressobj(16 + _zlib.MAX_WBITS)
+            raw = decoder.decompress(raw, GIFT_ANIM_MAX_BYTES)
+        except _zlib.error:
+            return None
+    try:
+        data = json.loads(raw.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get('layers'), list) and data.get('layers'):
+        return json.dumps(data, separators=(',', ':')).encode('utf-8')
+    return None
+
+
+def _ga_http(url, headers=None):
+    try:
+        response = requests.get(url, headers=headers or {'User-Agent': 'GemDrop/1.0'}, timeout=(3, 7), stream=True)
+    except requests.RequestException:
+        return None
+    try:
+        if response.status_code != 200:
+            return None
+        raw = b''
+        for chunk in response.iter_content(65536):
+            raw += chunk
+            if len(raw) > GIFT_ANIM_MAX_BYTES:
+                return None
+        return _ga_decode(raw, url)
+    finally:
+        response.close()
+
+
+def _ga_telegram_sticker(name):
+    """Анимация базового подарка из Bot API (getAvailableGifts -> sticker.tgs)."""
+    if not BOT_TOKEN or not name:
+        return None
+    now = time.time()
+    if now - _ga_sticker_ids['at'] > 3600 or not _ga_sticker_ids['map']:
+        try:
+            gifts = telegram_api('getAvailableGifts', timeout=(3, 8)).get('gifts') or []
+            ids = gift_id_map()
+        except (RuntimeError, requests.RequestException, ValueError, OSError, AttributeError):
+            gifts, ids = [], {}
+        mapping = {}
+        for gift in gifts:
+            sticker = gift.get('sticker') or {}
+            title = ids.get(str(gift.get('id') or ''))
+            if title and sticker.get('file_id') and sticker.get('is_animated'):
+                mapping[collection_key(title)] = sticker['file_id']
+        _ga_sticker_ids.update(at=now, map=mapping)
+    file_id = _ga_sticker_ids['map'].get(collection_key(name))
+    if not file_id:
+        return None
+    try:
+        info = telegram_api('getFile', {'file_id': file_id}, timeout=(3, 8))
+    except RuntimeError:
+        return None
+    path = str((info or {}).get('file_path') or '')
+    if not path:
+        return None
+    return _ga_http(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{path}')
+
+
+def gift_animation_bytes(name, model='', slug=''):
+    base = quote(str(name or ''), safe='')
+    mdl = quote(str(model or ''), safe='')
+    urls = []
+    if slug:
+        urls += [f'https://nft.fragment.com/gift/{slug}.lottie.json', f'https://nft.fragment.com/gift/{slug}.tgs']
+    if name and model:
+        urls += [f'https://cdn.changes.tg/gifts/models/{base}/lottie/{mdl}.json',
+                 f'https://cdn.changes.tg/gifts/models/{base}/tgs/{mdl}.tgs']
+    if name:
+        urls += [f'https://cdn.changes.tg/gifts/originals/{base}/Original.json',
+                 f'https://cdn.changes.tg/gifts/originals/{base}/Original.tgs']
+    for url in urls:
+        data = _ga_http(url)
+        if data:
+            return data
+    return _ga_telegram_sticker(name) if name else None
+
+
+@app.get('/api/gift-anim')
+@login_required
+def gift_animation():
+    gid = str(request.args.get('gift_id') or '')
+    model = str(request.args.get('model') or '')[:120]
+    if GIFT_MODEL_SEP in gid:
+        gid, model = gid.split(GIFT_MODEL_SEP, 1)
+    slug = _ga_slug(request.args.get('slug'))
+    name = str(request.args.get('name') or '')[:140]
+    gift = next((g for g in read_catalog(include_hidden=True).get('gifts', []) if str(g.get('id')) == gid), None) if gid else None
+    if gift:
+        name = str(gift.get('base_name') or gift.get('name') or name)
+    name = re.sub(r'\s*\((?:Black|Onyx|Onyx Black)\)\s*$', '', name, flags=re.I).strip()
+    name = re.sub(r'\s*#\s*\d+\s*$', '', name).strip()
+    if not (name or slug):
+        return error('Подарок не указан.', 400)
+    key = f'{slug}|{name.casefold()}|{model.casefold()}'
+    now = time.time()
+    hit = _ga_cache.get(key)
+    if hit and hit[0] > now:
+        data = hit[1]
+    else:
+        data = gift_animation_bytes(name, model, slug)
+        if len(_ga_cache) > 300:
+            for old in sorted(_ga_cache, key=lambda k: _ga_cache[k][0])[:100]:
+                _ga_cache.pop(old, None)
+        _ga_cache[key] = (now + (86400 if data else 900), data)
+    if not data:
+        return error('Анимация недоступна.', 404)
+    response = Response(data, mimetype='application/json')
+    response.headers['Cache-Control'] = 'private, max-age=86400'
+    return response
 
 
 PORTAL_PARTNER_BASE='https://portal-market.com'

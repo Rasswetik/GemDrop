@@ -414,6 +414,31 @@ class RegressionTests(unittest.TestCase):
             row = db.execute('SELECT gift_id,floor_price,price_up_to FROM inventory WHERE id=?', (rise,)).fetchone()
         self.assertEqual((row['gift_id'], row['floor_price'], row['price_up_to']), ('pr-b', 9000, 0))
 
+    def test_gift_animation_proxy_decodes_tgs_and_caches_misses(self):
+        import gzip
+        lottie = json.dumps({'v': '5.5.2', 'layers': [{'ty': 4}], 'w': 512, 'h': 512}).encode()
+        m.save_document('portal_catalog', {'gifts': [{'id': 'ga-1', 'name': 'GA Pepe', 'price_ton': 5, 'image_url': 'https://example.com/a.png'}]})
+        calls = []
+
+        def fake_http(url, headers=None):
+            calls.append(url)
+            if url.endswith('/tgs/Da%20Vinci.tgs'):
+                return m._ga_decode(gzip.compress(lottie), url)
+            return None
+        m._ga_cache.clear()
+        with patch.object(m, '_ga_http', side_effect=fake_http), patch.object(m, '_ga_telegram_sticker', return_value=None):
+            res = self.client.get('/api/gift-anim?gift_id=' + quote('ga-1' + m.GIFT_MODEL_SEP + 'Da Vinci'))
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.get_json()['layers'][0]['ty'], 4)
+            self.assertTrue(any('/models/GA%20Pepe/' in u for u in calls))
+            n = len(calls)
+            self.assertEqual(self.client.get('/api/gift-anim?gift_id=ga-1&model=Nope').status_code, 404)
+            m2 = len(calls)
+            self.assertEqual(self.client.get('/api/gift-anim?gift_id=ga-1&model=Nope').status_code, 404)
+            self.assertEqual(len(calls), m2)   # промах закэширован
+        self.assertEqual(m._ga_slug('https://t.me/nft/PlushPepe-12'), 'plushpepe-12')
+        self.assertIsNone(m._ga_decode(b'not json', 'x'))
+
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:
             row = db.execute("INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,created_at) VALUES('QA','once','referral',1,5,'profilePage','2000-01-01')")

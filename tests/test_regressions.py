@@ -439,6 +439,58 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(m._ga_slug('https://t.me/nft/PlushPepe-12'), 'plushpepe-12')
         self.assertIsNone(m._ga_decode(b'not json', 'x'))
 
+    def _seed_models(self, gid='mm-1'):
+        m.save_document('portal_catalog', {'gifts': [{'id': gid, 'name': 'MM Pepe', 'price_ton': 10, 'image_url': 'https://example.com/mm.png', 'image_match': True},
+                                                      {'id': gid + '-b', 'name': 'MM Base', 'price_ton': 3, 'image_url': 'https://example.com/b.png', 'image_match': True}]})
+        with patch.object(m, 'gm_fetch_models', return_value={'Da Vinci': 40.0, 'Classic': 12.0}), patch.object(m, 'saved_portal_key', return_value=''):
+            m.gm_refresh_one({'id': gid, 'name': 'MM Pepe'})
+
+    def test_promo_code_can_grant_a_specific_gift_model(self):
+        self._seed_models()
+        ref = 'mm-1' + m.GIFT_MODEL_SEP + 'Da Vinci'
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/promocodes', {'code': 'MODELPROMO', 'reward_type': 'gift', 'gift_id': ref, 'max_uses': 0})
+            self.post('/api/admin/promocodes', {'code': 'BADMODEL', 'reward_type': 'gift', 'gift_id': 'mm-1' + m.GIFT_MODEL_SEP + 'Nope'}, 400)
+            self.post('/api/admin/promocodes', {'code': 'MODELBUNDLE', 'reward_type': 'multi', 'max_uses': 0,
+                                                'bundle_items': [{'type': 'wager_gift', 'gift_id': ref, 'quantity': 1, 'wager_multiplier': 5}]})
+        with m.connect() as db:
+            row = db.execute("SELECT gift_id,gift_name,gift_price FROM promo_codes WHERE code='MODELPROMO'").fetchone()
+        self.assertEqual((row['gift_id'], row['gift_name'], row['gift_price']), (ref, 'MM Pepe · Da Vinci', 4000))
+        self.post('/api/promocodes/redeem', {'code': 'MODELPROMO'})
+        self.post('/api/promocodes/redeem', {'code': 'MODELBUNDLE'})
+        with m.connect() as db:
+            rows = db.execute('SELECT gift_id,gift_name,floor_price,fragment_model FROM inventory WHERE user_id=? ORDER BY id', (self.uid,)).fetchall()
+        self.assertEqual([(r['gift_id'], r['fragment_model'], r['floor_price']) for r in rows], [('mm-1', 'Da Vinci', 4000)] * 2)
+
+    def test_mines_prize_can_be_a_random_model_and_is_stable(self):
+        self._seed_models()
+        doc = dict(m.read_document('game_settings') or {})
+        try:
+            m.save_document('game_settings', dict(doc, mines_model_percent=100))
+            prize = m.mines_prize(4500, 'seed-1')
+            self.assertEqual((prize['model'], prize['price_ton']), ('Da Vinci', 40.0))
+            self.assertEqual(prize['id'], 'mm-1')
+            self.assertEqual(m.mines_prize(4500, 'seed-1')['name'], prize['name'])
+            self.assertEqual(m.mines_prize(900, 'seed-1')['id'], 'mm-1-b')   # подходящей модели нет - базовый приз
+            m.save_document('game_settings', dict(doc, mines_model_percent=0))
+            self.assertNotIn('model', m.mines_prize(4500, 'seed-1'))
+            self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 140}, 403)
+            with patch.object(m, 'ADMIN_IDS', {self.uid}):
+                self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 140}, 400)
+                self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 20})
+            self.assertEqual(m.mines_model_percent(), 20.0)
+        finally:
+            m.save_document('game_settings', doc)
+
+    def test_base_gift_animation_falls_back_to_a_model(self):
+        self._seed_models('mm-2')
+        lottie = m._ga_decode(json.dumps({'v': '5', 'layers': [{'ty': 4}]}).encode(), 'x')
+        m._ga_cache.clear()
+        with patch.object(m, '_ga_http', side_effect=lambda url, headers=None: lottie if '/lottie/Classic.json' in url else None), \
+                patch.object(m, '_ga_telegram_sticker', return_value=None):
+            res = self.client.get('/api/gift-anim?gift_id=mm-2')
+        self.assertEqual(res.status_code, 200)
+
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:
             row = db.execute("INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,created_at) VALUES('QA','once','referral',1,5,'profilePage','2000-01-01')")

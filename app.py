@@ -5213,6 +5213,56 @@ def prize_for(amount, gifts=None):
     return max(eligible, key=lambda x: (x[0], str(x[1].get('id', ''))))[1] if eligible else None
 
 
+MINES_MODEL_DEFAULT_PERCENT = 35.0
+
+
+def mines_model_percent():
+    """Шанс (в %), что вместо базового подарка в Mines выпадет случайная модель той же или большей цены (не дороже выигрыша)."""
+    try:
+        value = float((read_document('game_settings') or {}).get('mines_model_percent', MINES_MODEL_DEFAULT_PERCENT))
+    except (TypeError, ValueError):
+        value = MINES_MODEL_DEFAULT_PERCENT
+    return min(100.0, max(0.0, value)) if math.isfinite(value) else MINES_MODEL_DEFAULT_PERCENT
+
+
+def mines_prize(amount, seed, gifts=None):
+    """Приз Mines: базовый подарок (prize_for) либо - с шансом mines_model_percent - случайная модель.
+
+    Выбор детерминирован по seed (id раунда) и сумме, поэтому подсказка в игре совпадает с выдачей.
+    Модель не дешевле базового приза и не дороже выигрыша - остаток по-прежнему возвращается TON."""
+    base = prize_for(amount, gifts)
+    percent = mines_model_percent()
+    if percent <= 0 or amount < 1:
+        return base
+    digest = hashlib.sha256(f'mines-model|{seed}|{int(amount)}'.encode('utf-8')).digest()
+    if int.from_bytes(digest[:4], 'big') % 10000 >= int(percent * 100):
+        return base
+    try:
+        catalog = {str(g.get('id')): g for g in (gifts if gifts is not None else read_catalog()['gifts'])
+                   if g.get('id') and g.get('name') and not g.get('base_id')}
+    except (OSError, ValueError, KeyError, TypeError):
+        return base
+    try:
+        floor = max(ton_to_cents(base['price_ton']) if base else 0, int(int(amount) * 0.6))
+    except (ValueError, TypeError, InvalidOperation):
+        floor = int(int(amount) * 0.6)
+    with connect() as db:
+        rows = db.execute('SELECT gift_id,model,price,image_url FROM gift_models WHERE price>=? AND price<=? ORDER BY gift_id,model',
+                          (max(1, floor), int(amount))).fetchall()
+    pool = [r for r in rows if str(r['gift_id']) in catalog]
+    if not pool:
+        return base
+    row = pool[int.from_bytes(digest[4:12], 'big') % len(pool)]
+    gift = catalog[str(row['gift_id'])]
+    image = safe_image(row['image_url']) or safe_image(gift.get('image_url'))
+    if not image:
+        return base
+    out = dict(gift)
+    out.update(name=f"{gift.get('name') or 'Подарок'} · {row['model']}"[:180], model=row['model'], image_url=image,
+               price_ton=int(row['price']) / 100)
+    return out
+
+
 def multiplier_for(mines, opened_count, rtp=None):
     if opened_count <= 0:
         return 1.0
@@ -5359,6 +5409,7 @@ def _catalog_price_map():
 
 def sync_inventory_prices(db, user_id):
     """Цена подарка в инвентаре следует за каталогом: падение - молча, рост - предложение замены."""
+    fix_model_inventory(db, user_id)
     rows = db.execute("""SELECT id,gift_id,floor_price,fragment_model,source,price_up_to FROM inventory
                          WHERE user_id=? AND COALESCE(promo_locked,0)=0 AND COALESCE(external_url,'')=''
                            AND COALESCE(deposit_mirror,0)=0 AND COALESCE(bonus_origin,0)=0""", (int(user_id),)).fetchall()
@@ -5372,7 +5423,7 @@ def sync_inventory_prices(db, user_id):
         new = int(prices.get(str(row['gift_id'])) or 0)
         model = str(row['fragment_model'] or '').strip()
         if model:
-            if row['source'] not in ('upgrade', 'price_replace'):
+            if row['source'] not in ('upgrade', 'price_replace', 'game'):
                 continue
             new, _ = gift_model_price(row['gift_id'], model)
         if new < 1:
@@ -5427,17 +5478,17 @@ def award_round(db, row, opened_count):
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'], detail)
         return
 
-    prize = prize_for(amount)
+    prize = mines_prize(amount, row['id'])
     if prize:
         cents = ton_to_cents(prize['price_ton'])
         remainder = max(0, amount - cents)
         image_url = safe_image(prize.get('image_url'))
         bo, br, bp = bonus_origin_values(cents, bool(int(row['bonus_used'] or 0)))
         cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                               bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                               VALUES(?,?,?,?,?,'game',?,?,?,?)""",
+                               bonus_origin,bonus_unlock_required,bonus_unlock_progress,fragment_model)
+                               VALUES(?,?,?,?,?,'game',?,?,?,?,?)""",
                             (row['user_id'], str(prize['id']), str(prize['name']),
-                             image_url, cents, row['id'], bo, br, bp))
+                             image_url, cents, row['id'], bo, br, bp, str(prize.get('model') or '')))
         db.execute("""UPDATE rounds
                       SET state='won',payout=?,prize_inventory_id=?,win_total=?,win_multiplier=?,
                           win_gift_name=?,win_gift_image=?,win_gift_price=?,settled_at=?
@@ -5469,7 +5520,7 @@ def round_view(row, reveal=False):
         factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
         amount = payout_for(row, len(opened), rtp) if opened else row['bet']
     is_promo = row['bet_type'] == 'promo_gift'
-    prize = prize_for(amount) if opened and row['state'] == 'active' and not is_promo else None
+    prize = mines_prize(amount, row['id']) if opened and row['state'] == 'active' and not is_promo else None
     owned = None
     if row['prize_inventory_id']:
         with connect() as db:
@@ -5800,7 +5851,7 @@ def normalize_level_reward(data):
             reward['amount']=amount
         else:
             gift_id=str(data.get('gift_id') or '')
-            gift=next((x for x in read_catalog().get('gifts',[]) if str(x.get('id'))==gift_id),None)
+            gift=catalog_gift_ref(gift_id)
             if not gift: raise ValueError('Выберите подарок из каталога Portal.')
             try: price=ton_to_cents(gift['price_ton'])
             except (KeyError,ValueError,TypeError,InvalidOperation): raise ValueError('У подарка нет цены Portal.')
@@ -6835,6 +6886,44 @@ def upgrade_target(gift_id):
                     image_url=safe_image(model_image) or image_url,price=model_price)
     return dict(id=str(gift['id']),name=base_name,base_name=base_name,model='',
                 image_url=image_url,price=price)
+
+
+def catalog_gift_ref(gift_id, gifts=None):
+    """Подарок каталога по id ("<id>") или по конкретной модели ("<id>@m:<модель>") - для наград промокодов, фрибетов, мультипромо."""
+    raw = str(gift_id or '').strip()
+    model = ''
+    if GIFT_MODEL_SEP in raw:
+        raw, model = raw.split(GIFT_MODEL_SEP, 1)
+        model = model.strip()
+    if gifts is None:
+        try:
+            gifts = read_catalog().get('gifts', [])
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+    gift = next((g for g in gifts if str(g.get('id')) == raw), None)
+    if not gift or not model:
+        return gift
+    price, image = gift_model_price(raw, model)
+    if price < 1:
+        return None
+    base_name = str(gift.get('name') or 'Подарок')
+    out = dict(gift)
+    out.update(id=raw + GIFT_MODEL_SEP + model, name=f'{base_name} · {model}'[:180], model=model,
+               image_url=safe_image(image) or safe_image(gift.get('image_url') or gift.get('portal_image_url')),
+               portal_image_url=safe_image(image) or gift.get('portal_image_url'), price_ton=price / 100)
+    return out
+
+
+def fix_model_inventory(db, user_id=None):
+    """Выданные по модельной ссылке "<id>@m:<модель>" подарки: id коллекции в gift_id, модель в fragment_model."""
+    sql = "SELECT id,gift_id FROM inventory WHERE gift_id LIKE ?"
+    args = ['%' + GIFT_MODEL_SEP + '%']
+    if user_id is not None:
+        sql += ' AND user_id=?'
+        args.append(int(user_id))
+    for row in db.execute(sql, args).fetchall():
+        base, _, model = str(row['gift_id']).partition(GIFT_MODEL_SEP)
+        db.execute("UPDATE inventory SET gift_id=?, fragment_model=? WHERE id=?", (base, model.strip()[:120], row['id']))
 
 
 UPGRADE_MIN_CHANCE_BP = 500    # displayed chance floor: 5%
@@ -10678,6 +10767,7 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
                       min_deposit=int(promo['min_deposit'] or 0)/100)
     else:
         raise ValueError('Награда фрибета настроена неверно.')
+    fix_model_inventory(db, user_id)
     redemption_type = 'deposit_bonus' if reward_type == 'multi' and 'deposit_bonus' in components else reward_type
     if redemption_type == 'deposit_bonus':
         db.execute("""UPDATE promo_redemptions SET deactivated_at=CURRENT_TIMESTAMP
@@ -16002,6 +16092,16 @@ def promo_is_expired(promo):
     return bool(expires and expires <= datetime.now(timezone.utc))
 
 
+class _CatalogRefs(dict):
+    """Каталог с поддержкой модельных ссылок "<id>@m:<модель>"."""
+    def __init__(self, gifts):
+        super().__init__()
+        self._gifts = gifts
+
+    def get(self, key, default=None):
+        return catalog_gift_ref(key, self._gifts) or default
+
+
 def normalize_promo_bundle_items(items):
     """Normalize a v2 multi-promo bundle.
 
@@ -16014,9 +16114,10 @@ def normalize_promo_bundle_items(items):
     if len(items) > 30:
         raise ValueError('В одном промокоде можно настроить не более 30 строк наград.')
     try:
-        catalog = {str(g.get('id')): g for g in read_catalog().get('gifts', [])}
+        catalog_list = read_catalog().get('gifts', [])
     except (OSError, ValueError, json.JSONDecodeError):
-        catalog = {}
+        catalog_list = []
+    catalog = _CatalogRefs(catalog_list)
     resolved = []
     deposit_count = 0
     for raw in items:
@@ -16897,6 +16998,7 @@ def redeem_promocode():
                         bonus_fixed=int(promo['bonus_fixed'] or 0)/100,min_deposit=int(promo['min_deposit'] or 0)/100)
         else:
             return error('Награда промокода настроена неверно.', 500)
+        fix_model_inventory(db, session['uid'])
         redemption_type='deposit_bonus' if promo['reward_type']=='multi' and has_deposit else promo['reward_type']
         if redemption_type == 'deposit_bonus':
             db.execute('''UPDATE promo_redemptions SET deactivated_at=CURRENT_TIMESTAMP
@@ -17224,7 +17326,7 @@ def _freebet_backing_values(data, code):
             raise ValueError('Количество тыкв во фрибете: от 1 до 100 000 000.')
     elif reward_type in ('gift','wager_gift'):
         gift_id = str(data.get('gift_id') or '')
-        gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+        gift = catalog_gift_ref(gift_id)
         if not gift:
             raise ValueError('Подарок не найден в каталоге Portal.')
         gift_name = str(gift.get('name') or 'Подарок')[:140]
@@ -17503,7 +17605,7 @@ def admin_create_promocode():
     elif reward_type in ('gift', 'wager_gift'):
         gift_id = str(data.get('gift_id') or '')
         try:
-            gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+            gift = catalog_gift_ref(gift_id)
         except (OSError, ValueError, json.JSONDecodeError):
             gift = None
         if not gift:
@@ -17639,7 +17741,7 @@ def admin_create_promo_poll():
             if not 1<=amount<=1000000:return error(f'Некорректное число билетов для «{name}».')
         elif reward_type in ('gift','wager_gift'):
             gift_id=str(raw.get('gift_id') or '')
-            gift=next((g for g in catalog if str(g.get('id'))==gift_id),None)
+            gift=catalog_gift_ref(gift_id,catalog)
             if not gift:return error(f'Подарок для «{name}» не найден в Portal.')
             gift_name=str(gift.get('name') or 'Подарок')[:140]
             gift_image=safe_image(gift.get('image_url') or gift.get('portal_image_url'))
@@ -18065,7 +18167,7 @@ def wheel_clean_prize(data, existing=None):
     else:
         if gift_id:
             try:
-                gift = next((g for g in read_catalog().get('gifts', []) if str(g.get('id')) == gift_id), None)
+                gift = catalog_gift_ref(gift_id)
             except (OSError, ValueError, json.JSONDecodeError):
                 gift = None
             if not gift:
@@ -19869,7 +19971,7 @@ def admin_create_user_promocode(user_id):
         min_deposit=int(deposit.get('min_deposit') or 0)
     else:
         gift_id=str(data.get('gift_id') or '')
-        try:gift=next((g for g in read_catalog().get('gifts',[]) if str(g.get('id'))==gift_id),None)
+        try:gift=catalog_gift_ref(gift_id)
         except (OSError,ValueError,json.JSONDecodeError):gift=None
         if not gift:return error('Подарок не найден в каталоге Portal.')
         gift_name=str(gift.get('name') or 'Подарок')[:140]
@@ -20935,7 +21037,7 @@ def admin_transactions():
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
                    upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
-                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mines_model_percent=mines_model_percent(),mode='global')
 
 
 def _actual_rtp_window(db, hours):
@@ -21012,8 +21114,11 @@ def admin_rtp_set():
         loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
         crash_percent = float(data.get('crash_rtp', crash_rtp()*100))
         hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
+        model_percent = float(data.get('mines_model_percent', mines_model_percent()))
     except (TypeError, ValueError):
         return error('Введите отдачу в процентах.')
+    if not math.isfinite(model_percent) or not 0 <= model_percent <= 100:
+        return error('Шанс модельного подарка в Mines: от 0 до 100%.')
     if not math.isfinite(percent) or not 80 <= percent <= 99.9:
         return error('Отдача Mines должна быть от 80 до 99.9%.')
     if not math.isfinite(promo_percent) or not 70 <= promo_percent <= 96.9:
@@ -21033,11 +21138,12 @@ def admin_rtp_set():
                                     'loss_rtp_max_boost':round(loss_boost,2),
                                     'crash_rtp': crash_percent/100,
                                     'hilo_rtp': hilo_percent/100,
+                                    'mines_model_percent': round(model_percent, 2),
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
                    upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
-                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2), mines_model_percent=mines_model_percent())
 
 
 def ton_settings():
@@ -23166,6 +23272,16 @@ def gift_animation():
         data = hit[1]
     else:
         data = gift_animation_bytes(name, model, slug)
+        if not data and name and not slug and gid:
+            # у самого базового подарка (без модели) может не быть своей анимации - берём анимацию одной из моделей коллекции
+            try:
+                candidates = [m['name'] for m in gift_models_for(gid)][:4]
+            except Exception:
+                candidates = []
+            for candidate in candidates:
+                data = gift_animation_bytes(name, candidate, '')
+                if data:
+                    break
         if len(_ga_cache) > 300:
             for old in sorted(_ga_cache, key=lambda k: _ga_cache[k][0])[:100]:
                 _ga_cache.pop(old, None)

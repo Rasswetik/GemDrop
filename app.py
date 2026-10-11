@@ -22159,7 +22159,7 @@ def store_portal_partner_key(token):
 
 PORTAL_BACKGROUND_LABELS = {
     'black': 'Black',
-    'onyx': 'Onyx',
+    'onyx': 'Onyx Black',
     'onyxblack': 'Onyx Black',
 }
 

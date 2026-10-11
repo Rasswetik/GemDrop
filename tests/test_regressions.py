@@ -627,7 +627,7 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(response['unread'],1)
             self.assertEqual(response['items'][0]['kind'],'transfer_received')
             with m.connect() as db:
-                self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],7)
+                self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],1)   # routine kinds (NOISY_EVENT_KINDS) are not stored at all; only the transfer is
 
     def test_admin_display_is_private_and_persistent(self):
         self.post('/api/admin/display', {'visible':False}, status=403)
@@ -734,7 +734,7 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(response['unread'],1)
             self.assertEqual([x['kind'] for x in response['items']],['transfer_received'])
         with m.connect() as db:
-            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],len(muted)+1)
+            self.assertEqual(db.execute('SELECT COUNT(*) AS n FROM user_events WHERE user_id=?',(self.uid,)).fetchone()['n'],len([k for k in muted if k not in m.NOISY_EVENT_KINDS])+1)
 
     def test_admin_can_delete_normal_and_wager_inventory_without_notifying(self):
         with m.connect() as db:
@@ -880,8 +880,10 @@ class RegressionTests(unittest.TestCase):
             snap=m.youtube_channel_snapshot('https://youtube.com/@creator')
         self.assertEqual(snap['title'],'Creator')
         self.assertEqual(snap['subscribers'],1234)
-        self.assertEqual([x['video_id'] for x in snap['videos']],['v1','v2'])
-        self.assertEqual([x['views'] for x in snap['videos']],[10,20])
+        # the snapshot lists the latest uploads; videos that mention GemDrop are flagged, not dropped
+        self.assertEqual([x['video_id'] for x in snap['videos']],['v1','v2','v3'])
+        self.assertEqual([x['gemdrop'] for x in snap['videos']],[True,True,False])
+        self.assertEqual([x['views'] for x in snap['videos']],[10,20,0])
 
     def test_youtube_public_fallback_without_api_key(self):
         page = '''
@@ -930,7 +932,8 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(snap['title'],'Creator Public')
         self.assertEqual(snap['subscribers'],1200)
         self.assertEqual(snap['channel_id'],'UC1234567890123456789012')
-        self.assertEqual(len(snap['videos']),1)
+        self.assertEqual(len(snap['videos']),2)
+        self.assertEqual([x['gemdrop'] for x in snap['videos']],[True,False])
         self.assertEqual(snap['videos'][0]['views'],321)
 
     def test_arena_weighted_round_settles_and_conserves_pool(self):
@@ -950,7 +953,7 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         with m.connect() as db:
             round_id = db.execute('SELECT id FROM arena_rounds ORDER BY id DESC LIMIT 1').fetchone()['id']
-            db.execute('UPDATE arena_rounds SET close_at=0 WHERE id=?', (round_id,))
+            db.execute('UPDATE arena_rounds SET close_at=1 WHERE id=?', (round_id,))   # close_at=0 now means "timer not started"
         state = self.client.get('/api/arena/state').get_json()
         self.assertEqual(state['round']['state'], 'settled')
         self.assertEqual(state['round']['total_pool'], 4.0)
@@ -961,7 +964,7 @@ class RegressionTests(unittest.TestCase):
         with m.connect() as db:
             total = sum(int(db.execute('SELECT balance FROM users WHERE id=?',(uid,)).fetchone()['balance'])
                         for uid in (self.uid, other))
-        self.assertEqual(total, 20000)
+        self.assertEqual(total, 20000 - m.arena_fee_cents(400))   # 10% house fee of the 4.00 TON pool
 
     def test_demo_gifts_are_usable_in_mines_upgrade_and_crash(self):
         gifts = [
@@ -1086,7 +1089,7 @@ class RegressionTests(unittest.TestCase):
     def test_upgrade_prepared_fairness_is_consumed(self):
         m.save_document('portal_catalog', {'gifts':[{
             'id':'qa-target','name':'QA Target','price_ton':'2.00',
-            'image_url':'/static/img/gift.svg','image_match':True
+            'image_url':'https://example.com/gift.png','image_match':True
         }]})
         proof = self.post('/api/fairness/prepare', {'game':'upgrade','client_seed':'qa-upgrade-seed-123'})['fairness']
         self.assertEqual(proof['state'], 'committed')

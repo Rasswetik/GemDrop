@@ -1,0 +1,18 @@
+/* Compatibility surface for every existing operator control, inside /admin. */
+html,html.hw,body,body.studio{background:#090909!important;color:#eee!important;animation:none!important}
+body>header,#nav,.nav,.topbar,.top-bar,#loader,#auth,.fairness-fab,.bottom-nav,.site-topbar,#profilePage,#gamesPage,.ticker,.gd-bottom-nav{display:none!important}
+body #content,body main{max-width:none!important;width:100%!important;margin:0!important;padding:12px!important;background:#090909!important;border:0!important;min-height:0!important}
+body section .panel,body section .admin-group,body section .admin-heading,body section .page-heading{background:#141414!important;box-shadow:none!important;border:1px solid #333!important;border-radius:3px!important;max-width:100%!important}
+body section h1,body section h2,body section h3,body section strong,body section p{color:#eee!important}
+body section button,body section input,body section select,body section textarea{background:#1b1b1b!important;color:#eee!important;border:1px solid #444!important;border-radius:3px!important;box-shadow:none!important;min-height:40px!important;font-size:14px!important}
+body section button span,body section .muted,body section small,body section .caption{color:#aaa!important}
+body .admin-actions{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important}
+body section .page-heading:before,body section .admin-heading:before{display:none!important}
+body[data-page] #nav{display:none!important}
+html body.studio[data-page] #content section .panel,html body.studio[data-page] #content section .admin-group,html body.studio[data-page] #content section .page-heading{background:#141414!important;border:1px solid #333!important;box-shadow:none!important;border-radius:3px!important}
+html body.studio[data-page] #content section :is(button,input,select,textarea){background:#1b1b1b!important;color:#eee!important;border:1px solid #444!important;border-radius:3px!important;box-shadow:none!important;min-height:40px!important;font-size:14px!important}
+html body.studio[data-page] #content{max-width:none!important;padding:10px!important;margin:0!important;width:100%!important}
+html body.studio[data-page] .wrap,html body.studio[data-page] .container,html body.studio[data-page] #content>section{width:100%!important;max-width:none!important;margin:0!important}
+html body.studio[data-page] main.app{width:100%!important;max-width:none!important;margin:0!important;padding:10px!important;min-height:0!important;background:#090909!important;border:0!important}
+body .site-header,body .app-header,body .mobile-nav,body .profile-settings{display:none!important}
+@media(min-width:800px){body section .ton-settings-grid{max-width:1200px!important}body .admin-profile-tools,body .admin-economy-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}

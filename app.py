@@ -25,6 +25,7 @@ from urllib.parse import parse_qsl, quote, quote_plus
 import requests
 
 import notice_defs
+import management
 from flask import Flask, Response, jsonify, request, session, send_file, g, has_request_context
 
 
@@ -234,6 +235,7 @@ def connect():
     db.execute('PRAGMA synchronous=NORMAL')
     db.execute('PRAGMA temp_store=MEMORY')
     db.execute('PRAGMA cache_size=-16000')
+    db.create_function('CASEFOLD', 1, lambda value: str(value or '').casefold(), deterministic=True)
     return db
 
 
@@ -919,6 +921,8 @@ def _initialize_schema():
             ('bonus_unlock_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('relayer_gift_events', [('portal_price', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('relayer_gift_events', [('fragment_model', "TEXT NOT NULL DEFAULT ''"),
+                                             ('fragment_backdrop', "TEXT NOT NULL DEFAULT ''")])
         ensure_columns('referrals', [
             ('referrer_id', 'INTEGER NOT NULL DEFAULT 0'), ('created_at', "TEXT NOT NULL DEFAULT ''"),
         ])
@@ -1080,6 +1084,7 @@ def _initialize_schema():
             db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',
                        (int(row['level']),))
         db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
+        management.initialize_schema(db)
 
 
 
@@ -1966,11 +1971,7 @@ def confirmed_deposit_last_24h_cents(db, user_id):
     """Confirmed deposits during the rolling previous 24 hours."""
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     stamp = since.strftime('%Y-%m-%d %H:%M:%S')
-    row = db.execute("""SELECT COALESCE(SUM(amount),0) AS total
-                         FROM deposits
-                         WHERE user_id=? AND REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?""",
-                     (int(user_id), stamp)).fetchone()
-    return max(0, int((row['total'] if row else 0) or 0))
+    return management.deposit_total(db, user_id, since=stamp)
 
 
 def refresh_bonus_gift_unlocks(db, user_id):
@@ -2105,6 +2106,13 @@ def gift_counts_for_xp(item):
     if 'promo_code' in keys and str(item['promo_code'] or ''):
         return False
     return True
+
+
+def gift_counts_for_withdrawal_wager(item):
+    if not item or not gift_counts_for_xp(item) or inventory_is_bonus(item):
+        return False
+    source=str(item['source'] or '') if 'source' in item.keys() else ''
+    return source not in ('admin','admin_nft','admin_gift','admin_deposit')
 
 
 def active_round(db, uid):
@@ -2496,7 +2504,7 @@ def maintenance_state(fresh=False):
     return value
 
 
-MAINT_OPEN_PREFIXES = ('/api/maintenance', '/api/ui/', '/api/auth', '/api/logout', '/api/web-auth/', '/api/admin/maintenance')
+MAINT_OPEN_PREFIXES = ('/api/maintenance', '/api/ui/', '/api/auth', '/api/logout', '/api/web-auth/', '/api/admin/maintenance', '/api/cryptobot/webhook/')
 
 
 @app.before_request
@@ -7870,7 +7878,7 @@ def upgrade_spin():
         # Promo-wager gifts are promotional value, not real site turnover.
         # They must never advance turnover or GemDrop levels.
         result['new_level']=increase_turnover(db,session['uid'],source_price,
-                                              withdrawal_wager=bool(amount_text) and not bonus_origin,
+                                              withdrawal_wager=(bool(amount_text) and not bonus_origin) or (not amount_text and gift_counts_for_withdrawal_wager(source)),
                                               xp_factor=(0.2 if bonus_origin else 1.0)) if xp_allowed else None
         db.execute('UPDATE upgrade_spins SET result_json=? WHERE id=?',(json.dumps(result,ensure_ascii=False),request_id))
         db.commit()
@@ -8150,7 +8158,7 @@ def start():
                   game_loss_ton=round(promo_game_loss/100,2) if bet_type=='promo_gift' else None)
         # Promo-wager gifts do not count toward site turnover or levels.
         new_level=None if (bet_type=='promo_gift' or not xp_allowed) else increase_turnover(
-            db,session['uid'],bet,withdrawal_wager=(bet_type=='ton' and not bonus_used),
+            db,session['uid'],bet,withdrawal_wager=(bet_type=='ton' and not bonus_used) or (bet_type=='gift' and gift_counts_for_withdrawal_wager(item)),
             xp_factor=(0.2 if bonus_used else 1.0))
         db.commit()
         if new_level:
@@ -10738,8 +10746,7 @@ def freebet_play_keyboard():
 
 
 def confirmed_deposit_total(db, user_id):
-    row = db.execute('SELECT COALESCE(SUM(amount),0) AS total FROM deposits WHERE user_id=?', (user_id,)).fetchone()
-    return int((row or {}).get('total') or 0)
+    return management.deposit_total(db, user_id)
 
 
 def freebet_options(promo):
@@ -12903,7 +12910,7 @@ def withdrawal_settings():
 def withdrawal_minimum_message(required_cents, deposited_cents):
     required = f'{required_cents / 100:.2f}'.rstrip('0').rstrip('.')
     deposited = f'{deposited_cents / 100:.2f}'.rstrip('0').rstrip('.')
-    return (f'Для вывода нужен подтверждённый депозит от {required} TON через TON Connect. '
+    return (f'Для вывода нужны подтверждённые пополнения от {required} TON: TON Connect, CryptoBot, Stars или оценённые NFT. '
             f'Сейчас учтено: {deposited} TON.')
 
 
@@ -12937,7 +12944,7 @@ def withdrawal_access_error(db, user_id):
     global_required = int(withdrawal_settings()['min_ton_connect_deposit_cents'])
     override = account['withdrawal_min_deposit_override']
     required = global_required if override is None else max(0, int(override or 0))
-    deposited = ton_connect_deposit_total(db, user_id)
+    deposited = confirmed_deposit_total(db, user_id)
     if deposited < required:
         return withdrawal_minimum_message(required, deposited)
     wager = db.execute('SELECT withdrawal_wager_required,withdrawal_wager_progress FROM users WHERE id=?',(user_id,)).fetchone()
@@ -14418,7 +14425,7 @@ def arena_bet():
             record_transaction(db, uid, 'arena_gift_bet', 0, 'arena_round', row['id'],
                                f'Arena #{row["id"]}: {snapshot["name"]} ({amount/100:.2f} TON)')
             if snapshot['xp']:
-                increase_turnover(db, uid, amount, withdrawal_wager=False,
+                increase_turnover(db, uid, amount, withdrawal_wager=gift_counts_for_withdrawal_wager(item),
                                   xp_factor=(0.2 if bonus_used else 1.0))
         else:
             record_transaction(db, uid, 'arena_bet', -amount, 'arena_round', row['id'],
@@ -15055,7 +15062,7 @@ def crash_bet():
                             str(item['gift_name'] or '')[:140], str(item['image_url'] or ''), bet if inventory_is_bonus(item) else 0))
                 record_transaction(db, uid, 'crash_gift_bet', 0, 'crash_round', row['id'], str(item['gift_name'] or '')[:140])
                 if xp_allowed:
-                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                    new_level = increase_turnover(db, uid, bet, withdrawal_wager=gift_counts_for_withdrawal_wager(item),
                                                       xp_factor=(0.2 if inventory_is_bonus(item) else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
@@ -15820,7 +15827,7 @@ def hilo_room_bet():
                              (n, uid, direction, bet, gname, gimage, gsnap, bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_room', cur.lastrowid, gname)
             if xp_allowed:
-                new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                new_level = increase_turnover(db, uid, bet, withdrawal_wager=gift_counts_for_withdrawal_wager(item),
                                                   xp_factor=(0.2 if bonus_used else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
@@ -15930,7 +15937,7 @@ def hilo_start():
                                  json.dumps([dict(r=rank, rel=None)]), bonus_used))
             record_transaction(db, uid, 'hilo_gift_bet', 0, 'hilo_game', cursor.lastrowid, str(item['gift_name'] or '')[:140])
             if xp_allowed:
-                new_level = increase_turnover(db, uid, bet, withdrawal_wager=False,
+                new_level = increase_turnover(db, uid, bet, withdrawal_wager=gift_counts_for_withdrawal_wager(item),
                                                   xp_factor=(0.2 if bonus_used else 1.0))
         else:
             spent = spend_game_balance(db, uid, bet)
@@ -19967,10 +19974,11 @@ def admin_user(user_id):
         referrer = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,r.created_at
                                  FROM referrals r JOIN users u ON u.id=r.referrer_id
                                  WHERE r.referred_id=? LIMIT 1''', (user_id,)).fetchone()
+        access_state = management.withdrawal_state(db, user_id, withdrawal_settings())
     return jsonify(user=dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'] or '',
                              balance=user['balance']/100, bonus_balance=int(user['bonus_balance'] or 0)/100,
                              ref_balance=int(user['ref_balance'] or 0)/100, level=level,
-                             turnover=user['turnover_cents']/100,
+                             turnover=user['turnover_cents']/100, withdrawal_state=access_state,
                              withdrawal_enabled=bool(user['withdrawal_enabled']),
                              withdrawal_block_reason=user['withdrawal_block_reason'] or '',
                              withdrawal_min_deposit_override=(None if user['withdrawal_min_deposit_override'] is None else int(user['withdrawal_min_deposit_override'])/100),
@@ -20933,7 +20941,6 @@ def admin_deposit(user_id):
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'admin_deposit', str(amount)))
         record_transaction(db, user_id, 'deposit', amount, 'deposit', key, 'Пополнение администратором')
-        apply_bonus_gift_deposit_progress(db, user_id, amount)
         balance_now=int(db.execute('SELECT balance FROM users WHERE id=?',(user_id,)).fetchone()['balance'])
         db.commit()
         notify_deposit_async(user_id, amount, balance_now)
@@ -21874,7 +21881,10 @@ def _relayer_credit(info,baseline=False):
                               promo_code=promo_active['code'],transaction=info['external_key'])
             add_withdrawal_wager_requirement(db,uid,price)
         db.execute("INSERT INTO relayer_gift_events(external_key,sender_user_id,sender_name,gift_id,gift_name,image_url,external_url,fragment_number,floor_price,inventory_id,status,raw_json,credited_at) VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,CURRENT_TIMESTAMP)",(info['external_key'],uid,user_row['name'],info.get('gift_id',''),info.get('gift_name',''),info.get('image_url',''),info.get('external_url',''),info.get('fragment_number',''),price,inventory_id,event_status,info.get('raw_json','{}')))
-        db.execute('UPDATE relayer_gift_events SET portal_price=? WHERE external_key=?',(portal_price,info['external_key']))
+        db.execute('UPDATE relayer_gift_events SET portal_price=?,fragment_model=?,fragment_backdrop=? WHERE external_key=?',
+                   (portal_price,info.get('fragment_model',''),info.get('fragment_backdrop',''),info['external_key']))
+        if price>0:
+            apply_bonus_gift_deposit_progress(db,uid,price)
         db.commit()
     finally: db.close()
     number=str(info.get('fragment_number') or '').strip()
@@ -21959,22 +21969,25 @@ def _relayer_entry_model(entry):
 def _relayer_match_withdrawal(row,gifts):
     target_slug=_relayer_slug_from_url(row.get('deposit_external_url') or row.get('external_url'))
     target_number=str(row.get('fragment_number') or '').strip()
-    target_name=_relayer_norm(re.sub(r'\\s*\\((?:Black|Onyx|Onyx Black)\\)\\s*$','',str(row.get('gift_name') or ''),flags=re.I))
+    collection,model,backdrop=management.requested_traits(row,read_catalog().get('gifts',[]))
+    target_name=management.norm(collection)
     infos=[]
     for entry in gifts:
         info=_relayer_transfer_meta(entry,_relayer_entry_info(entry))
         if not info.get('slug'):continue
+        slug=str(info.get('slug') or '')
+        if target_slug and slug.casefold()!=target_slug.casefold():continue
+        if target_number and str(info.get('fragment_number') or '')!=target_number:continue
+        live=management.norm(info.get('gift_name'));base=management.norm(re.sub(r'-\d+$','',slug))
+        if target_name and target_name not in (live,base):continue
+        if model and management.norm(_relayer_entry_model(entry))!=management.norm(model):continue
+        if backdrop:
+            gift=getattr(entry,'gift',None) or entry
+            backgrounds=[str(getattr(a,'name','') or '') for a in getattr(gift,'attributes',None) or [] if 'backdrop' in type(a).__name__.casefold()]
+            if not any(management.norm(b)==management.norm(backdrop) for b in backgrounds):continue
         infos.append((entry,info))
-        if target_slug and str(info.get('slug') or '').casefold()==target_slug.casefold():return entry,info
-    if target_number:
-        for entry,info in infos:
-            if str(info.get('fragment_number') or '')==target_number:return entry,info
-        return None,None
-    target_model=_relayer_norm(re.sub(r'\\s*\\([^)]*\\)\\s*$','',str(row.get('fragment_model') or '')))
     for entry,info in infos:
-        if target_model and _relayer_norm(_relayer_entry_model(entry))!=target_model:continue   # нужна именно эта модель
-        live=_relayer_norm(info.get('gift_name'));base=_relayer_norm(re.sub(r'-\\d+$','',str(info.get('slug') or ''),flags=re.I))
-        if target_name and (target_name==live or target_name==base or target_name in live or live in target_name):return entry,info
+        return entry,info
     return None,None
 
 def _relayer_auto_log(withdrawal_id,row,status,info=None,transfer_stars=0,error_text=''):
@@ -22044,8 +22057,9 @@ async def _relayer_auto_withdraw_one_async(withdrawal_id,client=None,gifts=None)
         _,info=_relayer_match_withdrawal(row,gifts)
         if not info:
             _relayer_auto_log(withdrawal_id,row,'not_found',error_text='Подарок не найден на Relayer. Переходим в Portal Market.')
-            notify_user_async(int(row['user_id']),render_notice('relayer_not_found',None,{'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
-                miniapp_markup('Открыть GemDrop','profile'),'HTML')
+            if portal_partner_token():
+                notify_user_async(int(row['user_id']),render_notice('relayer_not_found',None,{'gift': gift_html(row.get('gift_id'), row.get('gift_name') or 'Подарок')}),
+                    miniapp_markup('Открыть GemDrop','profile'),'HTML')
             return _portal_fallback_withdraw(withdrawal_id,row)
         _relayer_auto_log(withdrawal_id,row,'sending',info,info.get('transfer_stars') or 0)
         try:paid=await _relayer_transfer_saved_gift(client,row,info)
@@ -23618,10 +23632,7 @@ def _portal_partner_request(method,path,params=None,payload=None):
     raise RuntimeError('Portal Market не ответил: '+str(last or 'network error')[:240])
 
 def _portal_requested_collection(row):
-    name=str(row.get('gift_name') or 'Подарок').strip();backdrop=str(row.get('fragment_backdrop') or '').strip()
-    m=re.search(r'\s*\((Black|Onyx(?: Black)?)\)\s*$',name,re.I)
-    if m:backdrop=backdrop or m.group(1);name=name[:m.start()].strip()
-    name=re.sub(r'\s*#\s*\d+\s*$','',name).strip()
+    name,model,backdrop=management.requested_traits(row,read_catalog().get('gifts',[]))
     if not name:
         slug=_relayer_slug_from_url(row.get('external_url'));name=re.sub(r'-\d+$','',slug).replace('_',' ').strip() or 'Подарок'
     return name,backdrop
@@ -23635,20 +23646,15 @@ def _portal_matches(items,name):
         live=_portal_norm(x.get('name'))
         if not (target and live):continue
         if target==live:exact.append(x)
-        elif target in live or live in target:loose.append(x)
     # An exact collection match always wins: "Heart" must never fall back to "Heart Locket" if a real Heart exists.
-    return exact or loose
+    return exact
 
 def _portal_requested_model(row):
-    return re.sub(r'\s*\([^)]*\)\s*$','',str(row.get('fragment_model') or '')).strip()
+    return management.requested_traits(row,read_catalog().get('gifts',[]))[1]
 
 def _portal_item_model(item):
     """Модель NFT из ответа Portal (поле model либо attributes[type=model]); '' если не указана."""
-    value=item.get('model')
-    if not value:
-        for a in item.get('attributes') or []:
-            if isinstance(a,dict) and str(a.get('type') or '').casefold()=='model':value=a.get('value');break
-    return re.sub(r'\s*\([^)]*\)\s*$','',str(value or '')).strip()
+    return management.item_trait(item,'model')
 
 def _portal_filter_model(items,model):
     """Нужна именно эта модель (например Plush Pepe «Da Vinci»), а не любой подарок коллекции."""
@@ -23662,7 +23668,7 @@ def _portal_owned_candidate(row):
     if backdrop:params['filter_by_backdrops']=backdrop
     if model:params['filter_by_models']=model
     data=_portal_partner_request('GET','/partners/nfts/owned',params=params)
-    items=_portal_filter_model(_portal_matches(data.get('nfts') or [],name),model)
+    items=management.exact_portal_items(data.get('nfts') or [],row,read_catalog().get('gifts',[]))
     return (items[0] if items else None),int(data.get('total_count') or len(items))
 
 def _portal_market_candidate(row):
@@ -23671,7 +23677,7 @@ def _portal_market_candidate(row):
     if backdrop:params['filter_by_backdrops']=backdrop
     if model:params['filter_by_models']=model
     data=_portal_partner_request('GET','/partners/nfts/search',params=params)
-    items=[x for x in _portal_filter_model(_portal_matches(data.get('results') or [],name),model) if _portal_decimal(x.get('price'))>0]
+    items=[x for x in management.exact_portal_items(data.get('results') or [],row,read_catalog().get('gifts',[])) if _portal_decimal(x.get('price'))>0]
     # Never overpay: the market price may exceed the gift's floor value by 25% (+0.5 TON) at most.
     try:floor=Decimal(int(row.get('floor_price') or 0))/Decimal(100)
     except (TypeError,ValueError,InvalidOperation):floor=Decimal(0)
@@ -23763,7 +23769,9 @@ def _portal_check_status(withdrawal_id,row,log,nft):
 def _portal_fallback_withdraw(withdrawal_id,row=None):
     row=row or _relayer_withdrawal_target(withdrawal_id)
     if not row or str(row.get('status') or '')!='pending':return dict(ok=False,status='not_pending')
-    if not portal_partner_token():return _portal_manual(withdrawal_id,row,'portal_not_configured','Partner token Portal Market не настроен.','config')
+    if not portal_partner_token():return _portal_manual(withdrawal_id,row,'portal_not_configured',
+        'Без Partner token: откройте закупку в /admin, купите указанную коллекцию и модель в обычном Portal, '
+        'выведите NFT на Relayer и повторите доставку. Заявка и комиссия сохранены.','procurement')
     with portal_withdraw_lock:
         old=_portal_log_row(withdrawal_id) or {}
         nft={'id':old.get('nft_id') or '','name':old.get('nft_name') or ''}
@@ -25126,6 +25134,9 @@ def migrate_rtp_cut_v1():
     save_document('game_settings', doc)
     return True
 
+
+_relayer_auto_withdraw_one_async = management.serialized_withdrawal(_relayer_auto_withdraw_one_async, globals())
+management.register(app, globals())
 
 run_startup_repair(migrate_rtp_cut_v1)
 

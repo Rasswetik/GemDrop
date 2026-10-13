@@ -105,3 +105,15 @@ test('a rejected old animation request cannot destroy the newer player',async()=
   requests[0].reject(Error('old request failed'));await first;
   assert.equal(players.length,1);assert.equal(players[0].destroyed,false);assert.equal(box._ga.key,'|second');
 });
+test('hovering the outer gift surface plays the current gift without a click',()=>{
+  const handlers={},surface={addEventListener:(event,fn)=>handlers[event]=fn,contains:node=>node==='inside'};
+  const box={closest:()=>surface},plays=[],stops=[];
+  const ctx=vm.createContext({window:{},matchMedia:()=>({matches:false}),gaPlay:(...args)=>plays.push(args),gaStop:target=>stops.push(target)});
+  vm.runInContext(section('function gaHover(box,item)', 'const modelPngCache='),ctx);
+  let chosen=goal('Original');ctx.gaHover(box,()=>chosen);
+  handlers.pointerenter({pointerType:'mouse'});assert.equal(plays[0][0],box);assert.equal(plays[0][1].model,'Original');
+  chosen=goal('Pumpkin');handlers.pointerenter({pointerType:'mouse'});assert.equal(plays[1][1].model,'Pumpkin');
+  handlers.pointerleave({relatedTarget:'inside'});assert.equal(stops.length,0);
+  handlers.pointerleave({relatedTarget:null});assert.equal(stops[0],box);
+  assert.equal(handlers.click,undefined);
+});

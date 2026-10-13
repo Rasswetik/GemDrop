@@ -462,23 +462,19 @@ class RegressionTests(unittest.TestCase):
             rows = db.execute('SELECT gift_id,gift_name,floor_price,fragment_model FROM inventory WHERE user_id=? ORDER BY id', (self.uid,)).fetchall()
         self.assertEqual([(r['gift_id'], r['fragment_model'], r['floor_price']) for r in rows], [('mm-1', 'Da Vinci', 4000)] * 2)
 
-    def test_mines_prize_can_be_a_random_model_and_is_stable(self):
+    def test_mines_prize_is_a_fixed_model_independent_of_round_seed(self):
         self._seed_models()
-        doc = dict(m.read_document('game_settings') or {})
-        try:
-            m.save_document('game_settings', dict(doc, mines_model_percent=100))
-            prize = m.mines_prize(4500, 'seed-1')
+        for seed in ('seed-1', 'seed-2', 99, None):
+            prize = m.mines_prize(4500, seed)
             self.assertEqual((prize['model'], prize['price_ton']), ('Da Vinci', 40.0))
             self.assertEqual(prize['id'], 'mm-1')
-            self.assertEqual(m.mines_prize(4500, 'seed-1')['name'], prize['name'])
-            self.assertEqual(m.mines_prize(900, 'seed-1')['id'], 'mm-1-b')   # подходящей модели нет - базовый приз
+            self.assertEqual(prize['image_url'], m.gift_model_image('MM Pepe', 'Da Vinci'))
+        self.assertEqual(m.mines_prize(900)['id'], 'mm-1-b')
+        # The retired random-model percentage cannot affect the fixed prize.
+        doc = dict(m.read_document('game_settings') or {})
+        try:
             m.save_document('game_settings', dict(doc, mines_model_percent=0))
-            self.assertNotIn('model', m.mines_prize(4500, 'seed-1'))
-            self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 140}, 403)
-            with patch.object(m, 'ADMIN_IDS', {self.uid}):
-                self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 140}, 400)
-                self.post('/api/admin/rtp', {'rtp': 97, 'mines_model_percent': 20})
-            self.assertEqual(m.mines_model_percent(), 20.0)
+            self.assertEqual(m.mines_prize(4500)['model'], 'Da Vinci')
         finally:
             m.save_document('game_settings', doc)
 
@@ -521,24 +517,78 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/gift-anim?slug=PlushPepe-12').status_code, 404)
             self.assertTrue(all('/plushpepe-12.' in call.args[0] for call in http.call_args_list))
 
-    def test_mines_ladder_shows_the_model_that_will_be_awarded(self):
+    def test_mines_preview_round_ladder_and_award_use_the_same_fixed_model(self):
         self._seed_models('mm-ladder')
-        doc = dict(m.read_document('game_settings') or {})
-        try:
-            m.save_document('game_settings', dict(doc, mines_model_percent=100))
-            started = self.post('/api/game/start', {'bet': '10', 'mines': 3})['round']
-            ladder = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
-            model_steps = [step for step in ladder if (step['prize'] or {}).get('model')]
-            self.assertTrue(model_steps)
-            for step in model_steps:
-                expected = m.mines_prize(m.ton_to_cents(step['amount']), started['id'])
-                self.assertEqual(step['prize']['image_url'], expected['image_url'])
-                self.assertEqual(step['prize']['model'], expected['model'])
-                self.assertIn('/png/', step['prize']['image_url'])
-            before_round = self.client.get('/api/game/ladder?bet=9&mines=3').get_json()['levels']
-            self.assertTrue(all(not (step['prize'] or {}).get('model') for step in before_round))
-        finally:
-            m.save_document('game_settings', doc)
+        preview = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        self.assertTrue(any((step['prize'] or {}).get('model') for step in preview))
+        model_step = next(step for step in preview if (step['prize'] or {}).get('model'))
+        expected = model_step['prize']
+        self.assertIn('/png/', expected['image_url'])
+        started = self.post('/api/game/start', {'bet': '10', 'mines': 3})['round']
+        ladder = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        self.assertEqual(ladder, preview)
+        # Market changes during the round cannot silently replace the shown model.
+        with m.connect() as db:
+            db.execute("UPDATE gift_models SET price=999999,image_url='https://example.com/wrong.png' WHERE gift_id='mm-ladder'")
+            row = db.execute('SELECT * FROM rounds WHERE id=?', (started['id'],)).fetchone()
+            mines = set(json.loads(row['positions']))
+        self.assertEqual(self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels'], preview)
+        safe = [cell for cell in range(25) if cell not in mines]
+        for cell in safe[:model_step['step']]:
+            self.post('/api/game/open', {'cell': cell})
+        self.post('/api/game/cashout', {})
+        with m.connect() as db:
+            item = db.execute('SELECT fragment_model,image_url,floor_price FROM inventory WHERE user_id=? ORDER BY id DESC LIMIT 1', (self.uid,)).fetchone()
+        self.assertEqual(item['fragment_model'], expected['model'])
+        self.assertEqual(item['image_url'], expected['image_url'])
+        self.assertEqual(item['floor_price'], m.ton_to_cents(expected['price_ton']))
+
+    def test_all_bundled_original_gifts_play_without_external_requests(self):
+        import gzip
+        mapping = json.loads((m.GIFT_ANIM_DIR / 'id-to-name.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(mapping), 123)
+        m._ga_cache.clear()
+        with patch.object(m, '_ga_http', side_effect=AssertionError('original must be bundled')), \
+                patch.object(m, 'gift_id_map', side_effect=AssertionError('mapping must be bundled')):
+            for gid, name in mapping.items():
+                with self.subTest(gift=name):
+                    with m._gift_zipfile.ZipFile(m.GIFT_ANIM_DIR / 'originals.zip') as archive:
+                        original = json.loads(gzip.decompress(archive.read(gid + '.tgs')))
+                    res = self.client.get('/api/gift-anim?' + urlencode({'gift_id': gid, 'name': name, 'kind': 'original', 'v': '3'}))
+                    self.assertEqual(res.status_code, 200)
+                    self.assertEqual(res.headers['X-Gift-Animation-Variant'], 'original')
+                    self.assertEqual(res.get_json(), original)
+
+    def test_explicit_original_ignores_representative_model_and_nft(self):
+        m.save_document('portal_catalog', {'gifts': [{'id': 'qa-random', 'name': 'Plush Pepe', 'price_ton': 10}]})
+        m._ga_cache.clear()
+        with patch.object(m, '_ga_http', side_effect=AssertionError('must use the original')):
+            res = self.client.get('/api/gift-anim?' + urlencode({'gift_id': 'qa-random@m:Pumpkin', 'model': 'Pumpkin', 'slug': 'PlushPepe-1', 'kind': 'original', 'v': '3'}))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.headers['X-Gift-Animation-Variant'], 'original')
+
+    def test_model_png_backup_proxies_and_caches_the_exact_model(self):
+        name = 'QA Backup ' + str(self.uid)
+        m.save_document('portal_catalog', {'gifts': [{'id': 'qa-backup', 'name': name, 'price_ton': 5}]})
+        png = (Path(m.app.static_folder) / 'img/gift.png').read_bytes()
+        response = Mock(status_code=200)
+        response.iter_content.return_value = [png]
+        url = '/api/gift-model-image?' + urlencode({'gift_id': 'qa-backup', 'model': 'Blue Sky'})
+        with patch.object(m.requests, 'get', return_value=response) as fetch:
+            result = self.client.get(url)
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(result.data, png)
+            self.assertEqual(result.mimetype, 'image/png')
+            self.assertEqual(fetch.call_args.args[0], m.gift_model_image(name, 'Blue Sky'))
+        with patch.object(m.requests, 'get', side_effect=AssertionError('must use cached PNG')):
+            self.assertEqual(self.client.get(url).data, png)
+
+    def test_model_png_backup_rejects_an_invalid_image(self):
+        response = Mock(status_code=200)
+        response.iter_content.return_value = [b'<html>not the model image</html>']
+        with patch.object(m.requests, 'get', return_value=response):
+            result = self.client.get('/api/gift-model-image?' + urlencode({'name': 'Unknown ' + str(self.uid), 'model': 'Missing'}))
+        self.assertEqual(result.status_code, 404)
 
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:

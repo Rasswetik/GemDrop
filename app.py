@@ -804,6 +804,7 @@ def _initialize_schema():
             ('promo_wager_multiplier', 'REAL NOT NULL DEFAULT 0'), ('promo_wager_target', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_wager_progress', 'INTEGER NOT NULL DEFAULT 0'), ('promo_progress_after', 'INTEGER NOT NULL DEFAULT 0'),
             ('promo_code', "TEXT NOT NULL DEFAULT ''"), ('rtp_snapshot', 'REAL'), ('bet_expires_at', 'TEXT'),
+            ('prize_plan', "TEXT NOT NULL DEFAULT '[]'"),
             ('promo_attempts_total', 'INTEGER NOT NULL DEFAULT 1'), ('promo_attempts_remaining', 'INTEGER NOT NULL DEFAULT 1'),
             ('promo_burn_on_loss', 'INTEGER NOT NULL DEFAULT 1'), ('bet_external_url', "TEXT NOT NULL DEFAULT ''"),
             ('bonus_used', 'INTEGER NOT NULL DEFAULT 0'),
@@ -5213,54 +5214,66 @@ def prize_for(amount, gifts=None):
     return max(eligible, key=lambda x: (x[0], str(x[1].get('id', ''))))[1] if eligible else None
 
 
-MINES_MODEL_DEFAULT_PERCENT = 35.0
+def mines_model_pool(gifts=None, db=None):
+    """Concrete models with their own PNG and price, in a stable order."""
+    if gifts is None:
+        gifts = read_catalog().get('gifts', [])
+    catalog = {str(g['id']): g for g in gifts
+               if g.get('id') and g.get('name') and not g.get('base_id')}
+    sql = 'SELECT gift_id,model,price FROM gift_models WHERE price>0 ORDER BY price,gift_id,model'
+    if db is None:
+        with connect() as conn:
+            rows = conn.execute(sql).fetchall()
+    else:
+        rows = db.execute(sql).fetchall()
+    pool = []
+    for row in rows:
+        gift = catalog.get(str(row['gift_id']))
+        if not gift:
+            continue
+        base_name = str(gift.get('base_name') or gift['name'])
+        model = str(row['model'])
+        # Build the exact model PNG instead of inheriting a collection thumbnail.
+        image = gift_model_image(base_name, model)
+        pool.append(dict(id=str(gift['id']), base_name=base_name,
+                         name=f'{base_name} · {model}'[:180], model=model,
+                         image_url=image, model_png_url=image, image_match=True,
+                         price_ton=int(row['price']) / 100))
+    return pool
 
 
-def mines_model_percent():
-    """Шанс (в %), что вместо базового подарка в Mines выпадет случайная модель той же или большей цены (не дороже выигрыша)."""
-    try:
-        value = float((read_document('game_settings') or {}).get('mines_model_percent', MINES_MODEL_DEFAULT_PERCENT))
-    except (TypeError, ValueError):
-        value = MINES_MODEL_DEFAULT_PERCENT
-    return min(100.0, max(0.0, value)) if math.isfinite(value) else MINES_MODEL_DEFAULT_PERCENT
-
-
-def mines_prize(amount, seed, gifts=None):
-    """Приз Mines: базовый подарок (prize_for) либо - с шансом mines_model_percent - случайная модель.
-
-    Выбор детерминирован по seed (id раунда) и сумме, поэтому подсказка в игре совпадает с выдачей.
-    Модель не дешевле базового приза и не дороже выигрыша - остаток по-прежнему возвращается TON."""
+def mines_prize(amount, seed=None, gifts=None, models=None):
+    """The most valuable affordable concrete model; no random model selection."""
+    if models is None:
+        models = mines_model_pool(gifts)
+    eligible = [gift for gift in models if ton_to_cents(gift['price_ton']) <= amount]
     base = prize_for(amount, gifts)
-    percent = mines_model_percent()
-    if percent <= 0 or amount < 1:
-        return base
-    digest = hashlib.sha256(f'mines-model|{seed}|{int(amount)}'.encode('utf-8')).digest()
-    if int.from_bytes(digest[:4], 'big') % 10000 >= int(percent * 100):
-        return base
+    if eligible:
+        model = max(eligible, key=lambda gift: (ton_to_cents(gift['price_ton']),
+                                               str(gift['id']), gift['model']))
+        if not base or ton_to_cents(model['price_ton']) >= ton_to_cents(base['price_ton']):
+            return model
+    return base
+
+
+def mines_prize_plan(bet, mines, rtp, gifts=None, db=None):
+    if gifts is None:
+        gifts = read_catalog().get('gifts', [])
+    models = mines_model_pool(gifts, db)
+    dummy = {'bet': bet, 'mines': mines}
+    return [mines_prize(payout_for(dummy, step, rtp), gifts=gifts, models=models)
+            for step in range(1, 26 - mines)]
+
+
+def mines_round_prize(row, opened_count):
     try:
-        catalog = {str(g.get('id')): g for g in (gifts if gifts is not None else read_catalog()['gifts'])
-                   if g.get('id') and g.get('name') and not g.get('base_id')}
-    except (OSError, ValueError, KeyError, TypeError):
-        return base
-    try:
-        floor = max(ton_to_cents(base['price_ton']) if base else 0, int(int(amount) * 0.6))
-    except (ValueError, TypeError, InvalidOperation):
-        floor = int(int(amount) * 0.6)
-    with connect() as db:
-        rows = db.execute('SELECT gift_id,model,price,image_url FROM gift_models WHERE price>=? AND price<=? ORDER BY gift_id,model',
-                          (max(1, floor), int(amount))).fetchall()
-    pool = [r for r in rows if str(r['gift_id']) in catalog]
-    if not pool:
-        return base
-    row = pool[int.from_bytes(digest[4:12], 'big') % len(pool)]
-    gift = catalog[str(row['gift_id'])]
-    image = safe_image(row['image_url']) or safe_image(gift.get('image_url'))
-    if not image:
-        return base
-    out = dict(gift)
-    out.update(name=f"{gift.get('name') or 'Подарок'} · {row['model']}"[:180], model=row['model'], image_url=image,
-               price_ton=int(row['price']) / 100)
-    return out
+        plan = json.loads(row['prize_plan'] or '[]')
+        if isinstance(plan, list) and 0 < opened_count <= len(plan):
+            return plan[opened_count - 1]
+    except (KeyError, IndexError, TypeError, ValueError):
+        pass
+    # Rounds started by an older release have no saved plan yet.
+    return mines_prize(payout_for(row, opened_count, round_rtp(row)))
 
 
 def multiplier_for(mines, opened_count, rtp=None):
@@ -5478,7 +5491,7 @@ def award_round(db, row, opened_count):
         record_transaction(db, row['user_id'], 'promo_wager_progress', amount, 'round', row['id'], detail)
         return
 
-    prize = mines_prize(amount, row['id'])
+    prize = mines_round_prize(row, opened_count)
     if prize:
         cents = ton_to_cents(prize['price_ton'])
         remainder = max(0, amount - cents)
@@ -5520,7 +5533,7 @@ def round_view(row, reveal=False):
         factor = multiplier_for(row['mines'], len(opened), rtp) if opened else 1
         amount = payout_for(row, len(opened), rtp) if opened else row['bet']
     is_promo = row['bet_type'] == 'promo_gift'
-    prize = mines_prize(amount, row['id']) if opened and row['state'] == 'active' and not is_promo else None
+    prize = mines_round_prize(row, len(opened)) if opened and row['state'] == 'active' and not is_promo else None
     owned = None
     if row['prize_inventory_id']:
         with connect() as db:
@@ -5572,11 +5585,18 @@ def ladder():
     if matching_round:
         current_rtp = round_rtp(active)
         promo_mode = active['bet_type'] == 'promo_gift'
+    if promo_mode:
+        plan = [None] * (25 - mines)
+    else:
+        plan = json.loads(active['prize_plan'] or '[]') if matching_round else []
+        if not plan:
+            plan = mines_prize_plan(bet, mines, current_rtp, gifts)
+            if matching_round:
+                with connect() as db:
+                    db.execute("UPDATE rounds SET prize_plan=? WHERE id=? AND prize_plan='[]'",
+                               (json.dumps(plan, ensure_ascii=False), active['id']))
     return jsonify(levels=[dict(step=step, multiplier=multiplier_for(mines, step, current_rtp),
-                                amount=payout_for(dummy, step, current_rtp)/100,
-                                prize=(None if promo_mode else
-                                       mines_prize(payout_for(dummy, step, current_rtp), active['id'], gifts)
-                                       if matching_round else prize_for(payout_for(dummy, step, current_rtp), gifts)))
+                                amount=payout_for(dummy, step, current_rtp)/100, prize=plan[step-1])
                            for step in range(1, 26-mines)])
 
 
@@ -7978,6 +7998,11 @@ def start():
                     snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at'],
                     snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'], bonus_used))
         row = active_round(db, session['uid'])
+        if bet_type != 'promo_gift':
+            plan = mines_prize_plan(bet, mines, rtp_snapshot, db=db)
+            db.execute('UPDATE rounds SET prize_plan=? WHERE id=?',
+                       (json.dumps(plan, ensure_ascii=False), row['id']))
+            row = active_round(db, session['uid'])
         fairness_store(db, proof, str(row['id']), fair_cursor,
                        {'positions': positions, 'mines': mines, 'board_size': 25})
         if bet_type == 'ton':
@@ -21040,7 +21065,7 @@ def admin_transactions():
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
                    upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
-                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mines_model_percent=mines_model_percent(),mode='global')
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
 
 
 def _actual_rtp_window(db, hours):
@@ -21117,11 +21142,8 @@ def admin_rtp_set():
         loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
         crash_percent = float(data.get('crash_rtp', crash_rtp()*100))
         hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
-        model_percent = float(data.get('mines_model_percent', mines_model_percent()))
     except (TypeError, ValueError):
         return error('Введите отдачу в процентах.')
-    if not math.isfinite(model_percent) or not 0 <= model_percent <= 100:
-        return error('Шанс модельного подарка в Mines: от 0 до 100%.')
     if not math.isfinite(percent) or not 80 <= percent <= 99.9:
         return error('Отдача Mines должна быть от 80 до 99.9%.')
     if not math.isfinite(promo_percent) or not 70 <= promo_percent <= 96.9:
@@ -21141,12 +21163,11 @@ def admin_rtp_set():
                                     'loss_rtp_max_boost':round(loss_boost,2),
                                     'crash_rtp': crash_percent/100,
                                     'hilo_rtp': hilo_percent/100,
-                                    'mines_model_percent': round(model_percent, 2),
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
                    upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
-                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2), mines_model_percent=mines_model_percent())
+                   loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
 
 
 def ton_settings():
@@ -22967,6 +22988,55 @@ def gift_model_image(name, model):
     return 'https://cdn.changes.tg/gifts/models/' + quote(str(name), safe='') + '/png/' + quote(str(model), safe='') + '.png'
 
 
+@app.get('/api/gift-model-image')
+@login_required
+def gift_model_image_proxy():
+    """A same-origin backup for the exact model PNG, with a persistent cache."""
+    gid = str(request.args.get('gift_id') or '')[:200].split(GIFT_MODEL_SEP, 1)[0]
+    model = str(request.args.get('model') or '').strip()[:120]
+    gift = next((g for g in read_catalog(include_hidden=True).get('gifts', []) if str(g.get('id')) == gid), None)
+    name = str((gift or {}).get('base_name') or (gift or {}).get('name') or request.args.get('name') or '').strip()[:140]
+    if not name or not model:
+        return error('Укажите подарок и модель.', 400)
+    key = hashlib.sha256(f'{name}|{model}'.encode('utf-8')).hexdigest()
+    cache = DATA / 'gift_model_images' / (key + '.png')
+    png_signature = b'\x89PNG\r\n\x1a\n'
+    try:
+        data = cache.read_bytes()
+    except OSError:
+        data = None
+    if not data or not data.startswith(png_signature):
+        response = None
+        try:
+            response = requests.get(gift_model_image(name, model), timeout=(3, 7), stream=True)
+            if response.status_code != 200:
+                return error('PNG модели пока недоступен.', 404)
+            data = b''
+            for chunk in response.iter_content(65536):
+                data += chunk
+                if len(data) > 4_000_000:
+                    return error('Изображение слишком большое.', 502)
+            if not data.startswith(png_signature):
+                return error('PNG модели пока недоступен.', 404)
+        except requests.RequestException:
+            return error('PNG модели пока недоступен.', 404)
+        finally:
+            if response is not None:
+                response.close()
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=cache.parent, delete=False, suffix='.tmp') as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            os.replace(tmp_path, cache)
+        except OSError:
+            pass
+    response = Response(data, mimetype='image/png')
+    response.headers['Cache-Control'] = 'private, max-age=86400'
+    response.headers['X-Gift-Image-Model'] = quote(model, safe='')
+    return response
+
+
 def gm_store(gift_id, name, models, status='ok', error=''):
     now = time.time()
     db = connect()
@@ -23152,14 +23222,30 @@ def admin_gift_models_status():
 # Отдаём клиенту готовый Lottie JSON: точный NFT (Fragment), выбранная модель или оригинал
 # по Telegram ID. Bot API — запасной источник только для оригинала, без подмены модели.
 import zlib as _zlib
+import zipfile as _gift_zipfile
 GIFT_ANIM_MAX_BYTES = 3_000_000
 _ga_cache = {}      # key -> (expires, bytes|None)
 _ga_sticker_ids = {'at': 0.0, 'map': {}}
 _ga_gift_ids = {'at': 0.0, 'map': {}}
+GIFT_ANIM_DIR = Path(app.static_folder) / 'gift-animations'
+try:
+    _ga_bundled_ids = {collection_key(title): str(gid) for gid, title in
+                       json.loads((GIFT_ANIM_DIR / 'id-to-name.json').read_text(encoding='utf-8')).items()}
+except (OSError, ValueError):
+    _ga_bundled_ids = {}
+
+
+def gift_original_tgs(gift_id):
+    """Read an original TGS from the bundled archive without extracting files."""
+    with _gift_zipfile.ZipFile(GIFT_ANIM_DIR / 'originals.zip') as archive:
+        return archive.read(str(gift_id) + '.tgs')
 
 
 def _ga_original_id(name):
     """Originals on Gift Changes are keyed by Telegram gift ID, not collection name."""
+    bundled = _ga_bundled_ids.get(collection_key(name))
+    if bundled:
+        return bundled
     now = time.time()
     if now >= _ga_gift_ids['at']:
         try:
@@ -23260,6 +23346,12 @@ def gift_animation_bytes(name, model='', slug=''):
     if name and not model and not slug:
         original_id = _ga_original_id(name)
         if original_id:
+            try:
+                data = _ga_decode(gift_original_tgs(original_id), 'bundled')
+                if data:
+                    return data
+            except (OSError, KeyError, _gift_zipfile.BadZipFile):
+                pass
             urls += [f'https://cdn.changes.tg/gifts/originals/{original_id}/Original.tgs',
                      f'https://cdn.changes.tg/gifts/originals/{original_id}/Original.json']
     for url in urls:
@@ -23277,6 +23369,8 @@ def gift_animation():
     if GIFT_MODEL_SEP in gid:
         gid, model = gid.split(GIFT_MODEL_SEP, 1)
     slug = _ga_slug(request.args.get('slug'))
+    if request.args.get('kind') == 'original':
+        model, slug = '', ''
     name = str(request.args.get('name') or '')[:140]
     gift = next((g for g in read_catalog(include_hidden=True).get('gifts', []) if str(g.get('id')) == gid), None) if gid else None
     if gift:
@@ -23287,7 +23381,7 @@ def gift_animation():
         name = re.sub(r'\s*·\s*' + re.escape(model) + r'\s*$', '', name, flags=re.I).strip()
     if not (name or slug):
         return error('Подарок не указан.', 400)
-    key = f'{slug}|{name.casefold()}|{model.casefold()}'
+    key = f'v3|{slug}|{name.casefold()}|{model.casefold()}'
     now = time.time()
     hit = _ga_cache.get(key)
     if hit and hit[0] > now:
@@ -23302,6 +23396,7 @@ def gift_animation():
         return error('Анимация недоступна.', 404)
     response = Response(data, mimetype='application/json')
     response.headers['Cache-Control'] = 'private, max-age=86400'
+    response.headers['X-Gift-Animation-Variant'] = 'nft' if slug else 'model' if model else 'original'
     return response
 
 

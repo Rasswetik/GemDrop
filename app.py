@@ -5568,12 +5568,15 @@ def ladder():
     current_rtp = promo_game_rtp() if promo_mode else game_rtp()
     with connect() as db:
         active = active_round(db, session['uid'])
-    if active and int(active['mines']) == mines and int(active['bet']) == bet:
+    matching_round = active and int(active['mines']) == mines and int(active['bet']) == bet
+    if matching_round:
         current_rtp = round_rtp(active)
         promo_mode = active['bet_type'] == 'promo_gift'
     return jsonify(levels=[dict(step=step, multiplier=multiplier_for(mines, step, current_rtp),
                                 amount=payout_for(dummy, step, current_rtp)/100,
-                                prize=(None if promo_mode else prize_for(payout_for(dummy, step, current_rtp), gifts)))
+                                prize=(None if promo_mode else
+                                       mines_prize(payout_for(dummy, step, current_rtp), active['id'], gifts)
+                                       if matching_round else prize_for(payout_for(dummy, step, current_rtp), gifts)))
                            for step in range(1, 26-mines)])
 
 
@@ -23146,12 +23149,27 @@ def admin_gift_models_status():
 
 
 # ======================= Анимации подарков (TGS / Lottie) =======================
-# Отдаём клиенту готовый Lottie JSON: сначала точный NFT (Fragment), потом модель/оригинал на CDN,
-# в последнюю очередь - анимированный стикер базового подарка из Bot API. Результат кэшируется.
+# Отдаём клиенту готовый Lottie JSON: точный NFT (Fragment), выбранная модель или оригинал
+# по Telegram ID. Bot API — запасной источник только для оригинала, без подмены модели.
 import zlib as _zlib
 GIFT_ANIM_MAX_BYTES = 3_000_000
 _ga_cache = {}      # key -> (expires, bytes|None)
 _ga_sticker_ids = {'at': 0.0, 'map': {}}
+_ga_gift_ids = {'at': 0.0, 'map': {}}
+
+
+def _ga_original_id(name):
+    """Originals on Gift Changes are keyed by Telegram gift ID, not collection name."""
+    now = time.time()
+    if now >= _ga_gift_ids['at']:
+        try:
+            mapping = gift_id_map()
+        except (requests.RequestException, ValueError, OSError):
+            mapping = {}
+        if mapping:
+            _ga_gift_ids['map'] = {collection_key(title): str(gid) for gid, title in mapping.items()}
+        _ga_gift_ids['at'] = now + (3600 if mapping else 60)
+    return _ga_gift_ids['map'].get(collection_key(name), '')
 
 
 def _ga_slug(value):
@@ -23237,16 +23255,18 @@ def gift_animation_bytes(name, model='', slug=''):
     if slug:
         urls += [f'https://nft.fragment.com/gift/{slug}.lottie.json', f'https://nft.fragment.com/gift/{slug}.tgs']
     if name and model:
-        urls += [f'https://cdn.changes.tg/gifts/models/{base}/lottie/{mdl}.json',
-                 f'https://cdn.changes.tg/gifts/models/{base}/tgs/{mdl}.tgs']
-    if name:
-        urls += [f'https://cdn.changes.tg/gifts/originals/{base}/Original.json',
-                 f'https://cdn.changes.tg/gifts/originals/{base}/Original.tgs']
+        urls += [f'https://cdn.changes.tg/gifts/models/{base}/{mdl}.tgs',
+                 f'https://cdn.changes.tg/gifts/models/{base}/lottie/{mdl}.json']
+    if name and not model and not slug:
+        original_id = _ga_original_id(name)
+        if original_id:
+            urls += [f'https://cdn.changes.tg/gifts/originals/{original_id}/Original.tgs',
+                     f'https://cdn.changes.tg/gifts/originals/{original_id}/Original.json']
     for url in urls:
         data = _ga_http(url)
         if data:
             return data
-    return _ga_telegram_sticker(name) if name else None
+    return _ga_telegram_sticker(name) if name and not model and not slug else None
 
 
 @app.get('/api/gift-anim')
@@ -23263,6 +23283,8 @@ def gift_animation():
         name = str(gift.get('base_name') or gift.get('name') or name)
     name = re.sub(r'\s*\((?:Black|Onyx|Onyx Black)\)\s*$', '', name, flags=re.I).strip()
     name = re.sub(r'\s*#\s*\d+\s*$', '', name).strip()
+    if model:
+        name = re.sub(r'\s*·\s*' + re.escape(model) + r'\s*$', '', name, flags=re.I).strip()
     if not (name or slug):
         return error('Подарок не указан.', 400)
     key = f'{slug}|{name.casefold()}|{model.casefold()}'
@@ -23272,16 +23294,6 @@ def gift_animation():
         data = hit[1]
     else:
         data = gift_animation_bytes(name, model, slug)
-        if not data and name and not slug and gid:
-            # у самого базового подарка (без модели) может не быть своей анимации - берём анимацию одной из моделей коллекции
-            try:
-                candidates = [m['name'] for m in gift_models_for(gid)][:4]
-            except Exception:
-                candidates = []
-            for candidate in candidates:
-                data = gift_animation_bytes(name, candidate, '')
-                if data:
-                    break
         if len(_ga_cache) > 300:
             for old in sorted(_ga_cache, key=lambda k: _ga_cache[k][0])[:100]:
                 _ga_cache.pop(old, None)

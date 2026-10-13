@@ -2689,7 +2689,7 @@ body.studio .top-actions{gap:8px}
 body.studio #minesPage .ladder{margin:0 0 18px;padding:0 0 8px;gap:7px;width:100%;max-width:100%}
 body.studio #minesPage .level{width:55px;min-width:55px;height:54px;border-radius:10px;background:#181b2c;border:1px solid #ffffff0a;box-shadow:none;color:#8d9fae}
 body.studio #minesPage .level.current{background:#1d3f66;color:#dee7f1;border-color:#51aeec70;box-shadow:none}
-body.studio #minesPage .level img{width:21px;height:21px;filter:none}
+body.studio #minesPage .level img{display:block;width:32px;height:32px;flex:none;object-fit:contain;filter:none}
 body.studio #minesPage .level b{font-weight:550;font-size:11px}
 body.studio #minesPage .board{width:100%;max-width:440px!important;margin:4px auto 0!important;gap:9px!important;padding:0!important;background:none!important;border:0!important;box-shadow:none!important}
 body.studio #minesPage .cell{aspect-ratio:1;border:1px solid #ffffff0d!important;border-radius:13px!important;background:linear-gradient(145deg,#202338,#171a2a)!important;box-shadow:inset 0 1px #ffffff04!important;transition:background .2s,transform .2s,border-color .2s;opacity:1}
@@ -5337,7 +5337,7 @@ async function loadUpgradeWins(force=false){if(upgradeBusy&&!force){upgradeWinsP
 let uiDisplayPollBusy=false;setInterval(async()=>{if(document.hidden||!user||uiDisplayPollBusy)return;uiDisplayPollBusy=true;try{let d=await api('/api/ui/settings',{timeoutMs:4000});applySectionSettings(d.sections);applyGiftDisplaySettings(d)}catch(e){}finally{uiDisplayPollBusy=false}},5000);
 let recentWinsTimer=setInterval(()=>{if(document.hidden||$('content')?.classList.contains('hidden'))return;if(!$('minesPage')?.classList.contains('hidden'))loadRecentWins();if(!$('upgradePage')?.classList.contains('hidden'))loadUpgradeWins();if(!$('craftPage')?.classList.contains('hidden'))loadCraftWins()},5000);document.addEventListener('visibilitychange',()=>{if(document.hidden||$('content')?.classList.contains('hidden'))return;if(!$('minesPage')?.classList.contains('hidden'))loadRecentWins();if(!$('upgradePage')?.classList.contains('hidden'))loadUpgradeWins();if(!$('craftPage')?.classList.contains('hidden'))loadCraftWins()});
 let ladderSeq=0;async function refreshLadder(){let seq=++ladderSeq;try{let b=round?.bet??betGift?.price_ton??$('bet').value,m=round?.mines??mines,promo=(round?.bet_type==='promo_gift'||betGift?.promo_locked)?'&promo=1':'';if(!b||Number(b)<.1){levels=[];drawLadder();return}let d=await api(`/api/game/ladder?bet=${encodeURIComponent(b)}&mines=${m}${promo}`);if(seq===ladderSeq){levels=d.levels||[];drawLadder()}}catch(e){if(seq===ladderSeq){levels=[];drawLadder()}}}
-function drawLadder(){let strip=$('ladder'),step=round?.opened.length??0;strip.replaceChildren();let wagerGift=round?.bet_type==='promo_gift'?round.bet_gift:(betGift?.promo_locked?betGift:null),finishIndex=-1;if(wagerGift){let remaining=Math.max(0,Number(wagerGift.wager_target||0)-Number(wagerGift.wager_progress||0));if(remaining>0)finishIndex=levels.findIndex(x=>Number(x.amount)+1e-9>=remaining)}let shown=finishIndex>=0?levels.slice(0,finishIndex+1):levels;for(let idx=0;idx<shown.length;idx++){let item=shown[idx],isFinish=finishIndex>=0&&idx===finishIndex;let card=document.createElement('div');card.className='level'+(item.step===step?' current':item.step<step?' passed':'')+(isFinish?' wager-finish':'');let img=new Image;img.src=isFinish?(wagerGift.image_url||TON):(item.prize?.image_url||TON);img.alt=isFinish?(wagerGift.name||'Подарок'):(item.prize?.name||'TON');img.onerror=()=>{img.onerror=null;img.src=TON};let value=document.createElement('b');value.textContent=fmtX(item.multiplier);card.append(img,value);if(isFinish){let label=document.createElement('small');label.textContent='ФИНИШ';card.append(label);card.title='На этом X отыгрыш завершится'}strip.append(card)}let current=strip.querySelector('.current'),finish=strip.querySelector('.wager-finish');(current||finish)?.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'})}
+function drawLadder(){let strip=$('ladder'),step=round?.opened.length??0;strip.replaceChildren();let wagerGift=round?.bet_type==='promo_gift'?round.bet_gift:(betGift?.promo_locked?betGift:null),finishIndex=-1;if(wagerGift){let remaining=Math.max(0,Number(wagerGift.wager_target||0)-Number(wagerGift.wager_progress||0));if(remaining>0)finishIndex=levels.findIndex(x=>Number(x.amount)+1e-9>=remaining)}let shown=finishIndex>=0?levels.slice(0,finishIndex+1):levels;for(let idx=0;idx<shown.length;idx++){let item=shown[idx],isFinish=finishIndex>=0&&idx===finishIndex;let card=document.createElement('div');card.className='level'+(item.step===step?' current':item.step<step?' passed':'')+(isFinish?' wager-finish':'');let img=new Image,prize=isFinish?wagerGift:item.prize;img.alt=prize?.name||'TON';img.decoding='async';if(prize)applyGiftImage(img,prize);else img.src=TON;let value=document.createElement('b');value.textContent=fmtX(item.multiplier);card.append(img,value);if(isFinish){let label=document.createElement('small');label.textContent='ФИНИШ';card.append(label);card.title='На этом X отыгрыш завершится'}strip.append(card)}let current=strip.querySelector('.current'),finish=strip.querySelector('.wager-finish');(current||finish)?.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'})}
 var pendingCells=new Set(),openChain=Promise.resolve(),openEpoch=0;
 function mineDefs(){if(document.getElementById('mxDefs'))return;const w=document.createElement('div');w.innerHTML='<svg id="mxDefs" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false"><defs>'+
 '<linearGradient id="mxGLight" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".42"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#001a12" stop-opacity=".34"/></linearGradient>'+
@@ -5796,16 +5796,37 @@ async function validateDepositPromo(code){return validateDepositPromoKind('ton',
 function bindDepositPromo(kind){let ui=promoUi(kind);ui.input.addEventListener('input',()=>{ui.input.value=ui.input.value.toUpperCase().replace(/\s+/g,'');clearTimeout(depositPromoTimers[kind]);if(!ui.input.value.trim()){depositPromoSeq[kind]++;updateDepositPromoStatusFor(kind);return}depositPromoTimers[kind]=setTimeout(()=>validateDepositPromoKind(kind,ui.input.value),420)});ui.input.addEventListener('blur',()=>{clearTimeout(depositPromoTimers[kind]);validateDepositPromoKind(kind,ui.input.value)});ui.amount.addEventListener('input',()=>updateDepositPromoStatusFor(kind))}
 bindDepositPromo('ton');bindDepositPromo('stars');$('topupAmount').addEventListener('input',()=>{updateWallet();updateTonAutoBonus()});updateTonAutoBonus();
 
-let upgradeLoading=false,upgradeLoadError="",upgradeListMode="mine",upgradeWinsPending=false;let upgradeInventory=[],upgradeCatalog=[],upgradeSettings={min_chance:5,max_chance:80,max_bet_ton:1000},upgradeSource=null,upgradeGoal=null,upgradePreviewData=null,upgradeBusy=false,upgradePendingId=null,upgradePointerAngle=0,upgradeKeepAfterResult=false,upgradeIdleTimer=0,upgradeIdleToken=0;
+let upgradeLoading=false,upgradeLoadError="",upgradeListMode="mine",upgradeWinsPending=false;let upgradeInventory=[],upgradeCatalog=[],upgradeSettings={min_chance:5,max_chance:80,max_bet_ton:1000},upgradeSource=null,upgradeGoal=null,upgradePreviewData=null,upgradeBusy=false,upgradePendingId=null,upgradePreviewRequest=0,upgradePointerAngle=0,upgradeKeepAfterResult=false,upgradeIdleTimer=0,upgradeIdleToken=0;
 function stopUpgradeIdle(){let pointer=$('ugPointer');upgradeIdleToken++;if(upgradeIdleTimer){clearTimeout(upgradeIdleTimer);upgradeIdleTimer=0}if(pointer.classList.contains('idling')){let matrix=new DOMMatrix(getComputedStyle(pointer).transform);upgradePointerAngle=(Math.atan2(matrix.b,matrix.a)*180/Math.PI+360)%360;pointer.classList.remove('idling');pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`}}
 function continueUpgradeIdle(token){if(token!==upgradeIdleToken||upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden'))return;let pointer=$('ugPointer');if(!pointer.classList.contains('idling'))return;let duration=4200,speed=18,delta=speed*duration/1000;upgradePointerAngle+=delta;pointer.style.transition=`transform ${duration}ms linear`;pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;upgradeIdleTimer=setTimeout(()=>continueUpgradeIdle(token),duration-40)}
 function startUpgradeIdle(){if(upgradeBusy||!upgradePreviewData||$('upgradePage').classList.contains('hidden')||!$('upgradeResultModal').classList.contains('hidden')||matchMedia('(prefers-reduced-motion: reduce)').matches)return;let pointer=$('ugPointer');if(pointer.classList.contains('idling'))return;upgradeIdleToken++;let token=upgradeIdleToken;pointer.style.transition='none';pointer.style.transform=`translate(-50%,-50%) rotate(${upgradePointerAngle}deg)`;pointer.classList.add('idling');requestAnimationFrame(()=>continueUpgradeIdle(token))}
-function pickArt(box,item){let _k=item?[item.type||'',item.id==null?'':item.id,item.image_url||'',item.external_url||item.fragment_url||'',giftBackgroundLabel(item)||''].join('|'):'';if(box._pk===_k&&box.firstChild)return;box._pk=_k;if(box._fragmentMotionCleanup)box._fragmentMotionCleanup();box.classList.remove('portal-bg-black','portal-bg-onyx-black');let bg=giftBackgroundClass(giftBackgroundLabel(item));if(bg)box.classList.add(bg);box.replaceChildren();if(item){let im=new Image;im.alt=giftDisplayName(item);applyGiftImage(im,item);box.append(im);if(item?.external_url||item?.fragment_url)attachFragmentMotion(box,item)}else{let sp=document.createElement('span');sp.textContent='＋';box.append(sp)}}
+function pickArt(box,item){let _k=item?[item.type||'',item.id==null?'':item.id,item.image_url||'',item.external_url||item.fragment_url||'',item.model||item.fragment_model||'',giftBackgroundLabel(item)||''].join('|'):'';if(box._pk===_k&&box.firstChild)return;window.gaStop&&gaStop(box);box._pk=_k;if(box._fragmentMotionCleanup)box._fragmentMotionCleanup();box.classList.remove('portal-bg-black','portal-bg-onyx-black');let bg=giftBackgroundClass(giftBackgroundLabel(item));if(bg)box.classList.add(bg);box.replaceChildren();if(item){let im=new Image;im.alt=giftDisplayName(item);applyGiftImage(im,item);box.append(im);if(item?.external_url||item?.fragment_url)attachFragmentMotion(box,item)}else{let sp=document.createElement('span');sp.textContent='＋';box.append(sp)}}
 function upgradeTargetChance(source,target){let sp=Number(source?.price_ton||0),tp=Number(target?.price_ton||0);if(!(sp>0&&tp>sp))return 0;let chance=sp/tp*100,lo=Number(upgradeSettings?.min_chance||5),hi=Number(upgradeSettings?.max_chance||80);return chance>=lo-1e-9&&chance<=hi+1e-9?chance:0}
 function upgradeRawChance(s,tg){let sp=Number(s?.price_ton||0),tp=Number(tg?.price_ton||0);return sp>0&&tp>sp?Math.min(100,sp/tp*100):0}
 function upgradeShownChance(real){let r=upgradeRawChance(upgradeSource,upgradeGoal);return r>0?r:real}
 function upgradePreviewUrl(giftId){if(!upgradeSource)return'';let base='/api/upgrade/preview?gift_id='+encodeURIComponent(giftId);return upgradeSource.type==='ton'?base+'&amount='+encodeURIComponent(money(upgradeSource.price_ton)):base+'&inventory_id='+encodeURIComponent(upgradeSource.id)}
-async function loadUpgrade(){if(upgradeLoading)return;upgradeLoading=true;upgradeLoadError='';try{let [inv,cat,settings]=await Promise.all([api('/api/inventory'),api('/api/catalog'),api('/api/upgrade/settings')]);upgradeSettings=settings||upgradeSettings;ugLoadModelIndex();upgradeInventory=(inv.items||[]).filter(x=>Number(x.price_ton)>0&&Number(x.price_ton)<=Number(upgradeSettings.max_bet_ton||1000)).map(x=>({...x,type:'gift'}));upgradeCatalog=(cat.gifts||[]).filter(x=>Number(x.price_ton)>0&&x.id).map(x=>({...x,type:'gift'})).sort((a,b)=>Number(a.price_ton)-Number(b.price_ton)||String(a.name||'').localeCompare(String(b.name||''),'ru'));if(upgradeSource?.type!=='ton'&&upgradeSource){let fresh=upgradeInventory.find(x=>Number(x.id)===Number(upgradeSource.id));upgradeSource=fresh||null;if(!fresh){upgradeGoal=null;upgradePreviewData=null}}if(upgradeGoal&&!String(upgradeGoal.id).includes('@m:')){let freshGoal=upgradeCatalog.find(x=>String(x.id)===String(upgradeGoal.id));upgradeGoal=freshGoal||null;if(!freshGoal)upgradePreviewData=null}if(upgradeSource&&upgradeGoal){try{upgradePreviewData=await api(upgradePreviewUrl(upgradeGoal.id));if(upgradePreviewData?.source){upgradeSource={...upgradeSource,...upgradePreviewData.source,type:upgradePreviewData.source.type||upgradeSource.type}}if(upgradePreviewData?.target){upgradeGoal={...upgradeGoal,...upgradePreviewData.target}}}catch(e){upgradePreviewData=null;upgradeGoal=null;upgradeLoadError=e.message}}}catch(e){upgradeLoadError=e.message;toast(e.message)}finally{upgradeLoading=false;paintUpgrade();if(!$('upgradeListModal').classList.contains('hidden'))upgradeList(upgradeListMode)}}
+function upgradeSourceKey(){return upgradeSource?[upgradeSource.type,upgradeSource.id,upgradeSource.price_ton,upgradeSource.balance_source].join('|'):''}
+async function loadUpgrade(){if(upgradeLoading)return;upgradeLoading=true;upgradeLoadError='';try{let [inv,cat,settings]=await Promise.all([api('/api/inventory'),api('/api/catalog'),api('/api/upgrade/settings')]);upgradeSettings=settings||upgradeSettings;ugLoadModelIndex();upgradeInventory=(inv.items||[]).filter(x=>Number(x.price_ton)>0&&Number(x.price_ton)<=Number(upgradeSettings.max_bet_ton||1000)).map(x=>({...x,type:'gift'}));upgradeCatalog=(cat.gifts||[]).filter(x=>Number(x.price_ton)>0&&x.id).map(x=>({...x,type:'gift'})).sort((a,b)=>Number(a.price_ton)-Number(b.price_ton)||String(a.name||'').localeCompare(String(b.name||''),'ru'));if(upgradeSource?.type!=='ton'&&upgradeSource){let fresh=upgradeInventory.find(x=>Number(x.id)===Number(upgradeSource.id));upgradeSource=fresh||null;if(!fresh){upgradeGoal=null;upgradePreviewData=null}}if(upgradeGoal&&!String(upgradeGoal.id).includes('@m:')){let freshGoal=upgradeCatalog.find(x=>String(x.id)===String(upgradeGoal.id));upgradeGoal=freshGoal||null;if(!freshGoal)upgradePreviewData=null}if(upgradeSource&&upgradeGoal){const goal=upgradeGoal,sourceKey=upgradeSourceKey(),requestId=++upgradePreviewRequest;const current=()=>requestId===upgradePreviewRequest&&upgradeGoal===goal&&upgradeSourceKey()===sourceKey;try{let preview=await api(upgradePreviewUrl(goal.id));if(!current())return;upgradePreviewData=preview;if(upgradePreviewData?.source){upgradeSource={...upgradeSource,...upgradePreviewData.source,type:upgradePreviewData.source.type||upgradeSource.type}}if(upgradePreviewData?.target){upgradeGoal={...upgradeGoal,...upgradePreviewData.target,id:goal.id}}}catch(e){if(!current())return;upgradePreviewData=null;upgradeGoal=null;upgradeLoadError=e.message}}}catch(e){upgradeLoadError=e.message;toast(e.message)}finally{upgradeLoading=false;paintUpgrade();if(!$('upgradeListModal').classList.contains('hidden'))upgradeList(upgradeListMode)}}
+async function selectUpgradeGoal(goal){
+  if(upgradeBusy||!upgradeSource)return;
+  const source=upgradeSource,requestId=++upgradePreviewRequest;
+  stopUpgradeIdle();upgradeGoal=goal;upgradePreviewData=null;upgradePendingId=null;
+  closeUgm();$('upgradeStatus').textContent='Проверяем цену и шанс…';paintUpgrade();
+  // paintUpgrade refreshes the TON balance metadata, so capture its updated source.
+  const selectedSource=upgradeSourceKey();
+  const stillSelected=()=>requestId===upgradePreviewRequest&&upgradeGoal===goal&&upgradeSourceKey()===selectedSource;
+  try{
+    const preview=await api(upgradePreviewUrl(goal.id));
+    if(!stillSelected())return;
+    upgradePreviewData=preview;
+    if(preview.source)upgradeSource={...source,...preview.source,type:preview.source.type||source.type};
+    if(preview.target)upgradeGoal={...goal,...preview.target,id:goal.id,type:'gift'};
+    $('upgradeStatus').textContent='';paintUpgrade();
+  }catch(e){
+    if(!stillSelected())return;
+    upgradePreviewData=null;$('upgradeStatus').textContent=e.message;paintUpgrade();toast(e.message);
+  }
+}
 function setUpgradePrice(el,price,extra=''){el.replaceChildren();if(price==null){el.textContent=extra||'';return}let value=document.createElement('span');value.textContent=money(price);let icon=new Image;icon.src=TON;icon.alt='TON';icon.className='upgrade-price-ton';el.append(value,icon);if(extra){let note=document.createElement('small');note.textContent=extra;el.append(note)}}
 function paintUpgrade(){
   if(upgradeSource?.type==='ton'&&!upgradeBusy){let bs=gameBalanceState();upgradeSource={...upgradeSource,name:bs.type==='bonus'?'BONUS TON':'TON',image_url:bs.icon,balance_source:bs.type}}
@@ -5824,9 +5845,9 @@ function paintUpgrade(){
     if(upgradeSource)setUpgradePrice($('ugMinePrice'),upgradeSource.price_ton,upgradeSource.promo_locked?'X'+Number(upgradeSource.wager_multiplier||0).toString().replace('.0',''):'');
     else $('ugMinePrice').textContent='';
   }
-  $('ugTargetName').textContent=upgradeGoal?giftDisplayName(upgradeGoal):'';
+  $('ugTargetName').textContent=upgradeGoal?giftDisplayName(upgradeGoal)+(upgradeGoal.model&&!giftDisplayName(upgradeGoal).includes(upgradeGoal.model)?' · '+upgradeGoal.model:''):'';
   if(upgradeGoal)setUpgradePrice($('ugTargetPrice'),upgradeGoal.price_ton);else $('ugTargetPrice').textContent='';
-  let chance=upgradeShownChance(upgradePreviewData?.chance||0);$('ugWheelBox').classList.toggle('ready',!!upgradePreviewData);{let _pct=upgradePreviewData?formatUpgradeChance(chance).replace('%',''):'0',_el=$('upgradeChance');if(_el.textContent!==_pct){_el.textContent=_pct;$('ugCenter').dataset.len=String(_pct.length);_el.classList.remove('pop');void _el.offsetWidth;_el.classList.add('pop')}let _cap=$('ugCap');if(_cap)_cap.textContent=upgradePreviewData?'шанс успеха':(upgradeSource?'Теперь выбери гифт для улучшения':'Добавь свои гифты, чтобы увеличить шанс')};$('ugWin').setAttribute('stroke-dasharray',(upgradePreviewData?Math.max(0,Math.min(100,chance)):0).toFixed(3)+' 100');try{ugPaintChance(upgradePreviewData?chance:0)}catch(e){}let ugGift=$('ugGift');ugGift.replaceChildren();ugGift.classList.toggle('has',!!upgradeGoal?.image_url);if(upgradeGoal?.image_url){let im=new Image;im.src=upgradeGoal.image_url;im.alt='';im.onerror=()=>{im.onerror=null;im.src='/static/img/gift.svg'};ugGift.append(im);window.gaPlay&&gaPlay(ugGift,upgradeGoal,{key:String(upgradeGoal.id)})}else window.gaStop&&gaStop(ugGift);$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&gameSpendBalance()<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Идёт апгрейд…':lowBalance?'Пополните баланс':'Улучшить';startUpgradeIdle()
+  let chance=upgradeShownChance(upgradePreviewData?.chance||0);$('ugWheelBox').classList.toggle('ready',!!upgradePreviewData);{let _pct=upgradePreviewData?formatUpgradeChance(chance).replace('%',''):'0',_el=$('upgradeChance');if(_el.textContent!==_pct){_el.textContent=_pct;$('ugCenter').dataset.len=String(_pct.length);_el.classList.remove('pop');void _el.offsetWidth;_el.classList.add('pop')}let _cap=$('ugCap');if(_cap)_cap.textContent=upgradePreviewData?'шанс успеха':(upgradeGoal?'Цель выбрана':upgradeSource?'Теперь выбери гифт для улучшения':'Добавь свои гифты, чтобы увеличить шанс')};$('ugWin').setAttribute('stroke-dasharray',(upgradePreviewData?Math.max(0,Math.min(100,chance)):0).toFixed(3)+' 100');try{ugPaintChance(upgradePreviewData?chance:0)}catch(e){}let ugGift=$('ugGift');ugGift.classList.toggle('has',!!upgradeGoal?.image_url);if(upgradeGoal?.image_url){pickArt(ugGift,upgradeGoal);window.gaPlay&&gaPlay(ugGift,upgradeGoal)}else{window.gaStop&&gaStop(ugGift);ugGift.replaceChildren();ugGift._pk=''};$('upgradePromoNote').classList.toggle('hidden',!upgradeSource?.promo_locked);let lowBalance=upgradeSource?.type==='ton'&&gameSpendBalance()<Number(upgradeSource.price_ton);$('upgradeAction').disabled=!upgradePreviewData||upgradeBusy||lowBalance;$('upgradeAction').textContent=upgradeBusy?'Идёт апгрейд…':lowBalance?'Пополните баланс':'Улучшить';startUpgradeIdle()
 }
 let ugmStake=null;
 function openStakeSheet(o){ugmStake=o;upgradeList('stake')}
@@ -5873,13 +5894,7 @@ function renderUgmModels(list,q){
     let name=document.createElement('strong');name.className='ugm-name';name.textContent=row.name;
     let price=document.createElement('span');price.className='ugm-price';let pv=document.createElement('b');pv.textContent=money(row.price_ton);let ti=new Image;ti.src=TON;ti.alt='TON';price.append(pv,ti);
     b.append(art,name,price);
-    b.onclick=async()=>{
-      list.querySelectorAll('button').forEach(el=>el.disabled=true);
-      try{let preview=await api(upgradePreviewUrl(goalId));
-        upgradeGoal=row.random?{...item,type:'gift'}:{id:goalId,name:giftDisplayName(item)+' · '+row.name,image_url:row.image_url,price_ton:row.price_ton,type:'gift',model:row.name};
-        upgradePreviewData=preview;upgradePendingId=null;closeUgm();$('upgradeStatus').textContent='';paintUpgrade()}
-      catch(e){toast(e.message)}finally{list.querySelectorAll('button').forEach(el=>el.disabled=false)}
-    };
+    b.onclick=()=>selectUpgradeGoal(row.random?{...item,type:'gift'}:{id:goalId,base_name:giftDisplayName(item),name:giftDisplayName(item)+' · '+row.name,image_url:row.image_url,price_ton:row.price_ton,type:'gift',model:row.name});
     frag.append(b)
   }
   list.append(frag)
@@ -5920,7 +5935,7 @@ function renderUgmGrid(){
       if(stake){ugmStake._done=true;closeUgm();ugmStake.onGift&&ugmStake.onGift(item)}
       else if(mine){upgradeSource=item;upgradeGoal=null;upgradePreviewData=null;upgradePendingId=null;paintUpgrade();upgradeList('target')}
       else if(ugmHasModels(item)){ugmCollection=item;ugmQuery='';$('ugmSearch').value='';renderUgmGrid();let sh=$('upgradeListModal').querySelector('.ugm-sheet');if(sh)sh.scrollTop=0}
-      else{list.querySelectorAll('button').forEach(el=>el.disabled=true);try{let preview=await api(upgradePreviewUrl(item.id));upgradeGoal=item;upgradePreviewData=preview;upgradePendingId=null;closeUgm();$('upgradeStatus').textContent='';paintUpgrade()}catch(e){toast(e.message)}finally{list.querySelectorAll('button').forEach(el=>el.disabled=false)}}
+      else selectUpgradeGoal(item)
     };
     frag.append(b)
   }
@@ -18416,15 +18431,15 @@ function gaData(q){let hit=GA.data.get(q);if(hit&&(hit.exp||Infinity)>Date.now()
 function gaStop(box){let t=box&&box._ga;if(!t)return;t.dead=true;try{t.anim&&t.anim.destroy()}catch(e){}t.layer&&t.layer.remove();box.classList.remove('ga-on');box._ga=null;GA.live=GA.live.filter(x=>x!==box)}
 async function gaPlay(box,item,o={}){
   if(!box||gaOff())return;let q=gaQuery(item);if(!q){gaStop(box);return}
-  let key=o.key||q,old=box._ga;
+  let key=(o.key||'')+'|'+q,old=box._ga;
   if(old&&old.key===key&&!old.dead){if(old.layer&&!old.layer.isConnected){box.append(old.layer);box.classList.add('ga-on')}return}
   gaStop(box);let t={key,dead:false,anim:null,layer:null};box._ga=t;
-  try{let [lib,data]=await Promise.all([gaLib(),gaData(q)]);if(t.dead||!data||!box.isConnected)return;
+  try{let [lib,data]=await Promise.all([gaLib(),gaData(q)]);if(t.dead)return;if(!data||!box.isConnected){gaStop(box);return}
     while(GA.live.length>=GA.max)gaStop(GA.live[0]);
     let layer=document.createElement('div');layer.className='ga-layer';box.append(layer);t.layer=layer;
     t.anim=lib.loadAnimation({container:layer,renderer:'svg',loop:o.loop!==false,autoplay:true,animationData:typeof structuredClone==='function'?structuredClone(data):JSON.parse(JSON.stringify(data)),rendererSettings:{preserveAspectRatio:'xMidYMid meet',progressiveLoad:true}});
-    box.classList.add('ga-on');GA.live.push(box)}
-  catch(e){gaStop(box)}}
+    const ready=()=>{if(!t.dead&&box._ga===t&&box.isConnected)box.classList.add('ga-on')};t.anim.addEventListener('DOMLoaded',ready);t.anim.addEventListener('data_failed',()=>{if(box._ga===t)gaStop(box)});if(t.anim.isLoaded)ready();GA.live.push(box)}
+  catch(e){if(box._ga===t)gaStop(box)}}
 function gaHover(box,item){
   if(!box||box._gaHover)return;box._gaHover=true;
   let get=()=>typeof item==='function'?item():item;
@@ -18856,10 +18871,10 @@ if(animate){st.classList.add('swap');setTimeout(fill,200)}else fill()};
 @media(prefers-reduced-motion:reduce){#arenaPage .arena-summary,#arenaPage .arena-segments:before,#arenaPage .arena-segments:after,#arenaPage .arena-join:after,#arenaPage .arena-summary #arenaTimer:before{animation:none!important}}
 </style>
 <style id="phone-ug-v1">
-/* phones: bigger Upgrade wheel and bigger Upgrade preview card */
+/* Keep the wheel inside its card, including when a target animation is mounted. */
 @media(max-width:560px){
-#upgradePage .ug-wheel{width:min(calc(100vw - 44px),380px,max(270px,calc(100dvh - 400px)))!important;margin:0 auto 18px!important}
-#upgradePage .ug-card{padding-top:18px!important}
+#upgradePage .ug-wheel{width:min(calc(100% - 32px),340px,max(220px,calc(100dvh - 440px)))!important;max-width:calc(100% - 32px)!important;min-width:0!important;height:auto!important;aspect-ratio:1/1;flex:none!important;margin:0 auto 18px!important}
+#upgradePage .ug-card{min-width:0!important;width:100%;max-width:100%;padding-top:18px!important}
 body #gamesPage .game-card.game-card-upgrade .gc-art-upgrade svg{transform:scale(1.24)!important;transform-origin:56% 40%!important}
 }
 </style>
@@ -19266,7 +19281,7 @@ body.studio #minesPage .mines-settings .seg,body.studio #minesPage .mines-settin
 html.hw body.studio #minesPage #quickBets button[data-bet="max"]{background:rgba(124,92,230,.14)!important;border-color:rgba(140,108,240,.5)!important;color:#c3b2f5!important}
 /* Upgrade: подарок в центре колеса — крупнее и без обрезки */
 #upgradePage .ug-center{overflow:visible!important}
-#upgradePage .ug-gift.has{flex:none!important;width:min(40%,92px)!important;height:auto!important;aspect-ratio:1/1;margin:0 auto 6px!important;overflow:visible!important}
+#upgradePage .ug-gift.has{position:relative;flex:none!important;min-width:0!important;width:min(40%,92px)!important;height:auto!important;aspect-ratio:1/1;margin:0 auto 6px!important;overflow:hidden!important;contain:layout size}
 #upgradePage .ug-gift.has img{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:contain!important;object-position:center!important;border-radius:0!important;clip-path:none!important;-webkit-mask:none!important;mask:none!important}
 #upgradePage .ug-pick .pick-art{overflow:visible!important}
 #upgradePage .ug-pick .pick-art img{width:84%!important;height:84%!important;max-width:none!important;max-height:none!important;object-fit:contain!important}

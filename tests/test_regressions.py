@@ -422,7 +422,7 @@ class RegressionTests(unittest.TestCase):
 
         def fake_http(url, headers=None):
             calls.append(url)
-            if url.endswith('/tgs/Da%20Vinci.tgs'):
+            if url.endswith('/GA%20Pepe/Da%20Vinci.tgs'):
                 return m._ga_decode(gzip.compress(lottie), url)
             return None
         m._ga_cache.clear()
@@ -482,14 +482,63 @@ class RegressionTests(unittest.TestCase):
         finally:
             m.save_document('game_settings', doc)
 
-    def test_base_gift_animation_falls_back_to_a_model(self):
+    def test_base_gift_animation_uses_original_telegram_id(self):
         self._seed_models('mm-2')
         lottie = m._ga_decode(json.dumps({'v': '5', 'layers': [{'ty': 4}]}).encode(), 'x')
         m._ga_cache.clear()
-        with patch.object(m, '_ga_http', side_effect=lambda url, headers=None: lottie if '/lottie/Classic.json' in url else None), \
-                patch.object(m, '_ga_telegram_sticker', return_value=None):
+        m._ga_gift_ids.update(at=0, map={})
+        calls = []
+
+        def fake_http(url, headers=None):
+            calls.append(url)
+            return lottie if '/originals/123456789/Original.tgs' in url else None
+
+        with patch.object(m, 'gift_id_map', return_value={'123456789': 'MM Pepe'}) as mapping, \
+                patch.object(m, '_ga_http', side_effect=fake_http), \
+                patch.object(m, '_ga_telegram_sticker', return_value=None), \
+                patch.object(m, 'gift_models_for', side_effect=AssertionError('must not substitute a model')):
             res = self.client.get('/api/gift-anim?gift_id=mm-2')
+            self.assertEqual(m._ga_original_id('MM Pepe'), '123456789')
+            self.assertEqual(mapping.call_count, 1)
         self.assertEqual(res.status_code, 200)
+        self.assertEqual(calls, ['https://cdn.changes.tg/gifts/originals/123456789/Original.tgs'])
+
+    def test_missing_animation_never_substitutes_another_gift(self):
+        self._seed_models('mm-3')
+        m._ga_cache.clear()
+        with patch.object(m, '_ga_original_id', return_value='123456789'), \
+                patch.object(m, '_ga_http', return_value=None) as http, \
+                patch.object(m, '_ga_telegram_sticker', return_value=None) as sticker, \
+                patch.object(m, 'gift_models_for', side_effect=AssertionError('must not substitute a model')):
+            self.assertEqual(self.client.get('/api/gift-anim?gift_id=mm-3').status_code, 404)
+            self.assertTrue(all('/originals/123456789/' in call.args[0] for call in http.call_args_list))
+            http.reset_mock()
+            sticker.reset_mock()
+            self.assertEqual(self.client.get('/api/gift-anim?gift_id=mm-3&model=Classic').status_code, 404)
+            self.assertTrue(all('/models/MM%20Pepe/' in call.args[0] for call in http.call_args_list))
+            sticker.assert_not_called()
+            http.reset_mock()
+            self.assertEqual(self.client.get('/api/gift-anim?slug=PlushPepe-12').status_code, 404)
+            self.assertTrue(all('/plushpepe-12.' in call.args[0] for call in http.call_args_list))
+
+    def test_mines_ladder_shows_the_model_that_will_be_awarded(self):
+        self._seed_models('mm-ladder')
+        doc = dict(m.read_document('game_settings') or {})
+        try:
+            m.save_document('game_settings', dict(doc, mines_model_percent=100))
+            started = self.post('/api/game/start', {'bet': '10', 'mines': 3})['round']
+            ladder = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+            model_steps = [step for step in ladder if (step['prize'] or {}).get('model')]
+            self.assertTrue(model_steps)
+            for step in model_steps:
+                expected = m.mines_prize(m.ton_to_cents(step['amount']), started['id'])
+                self.assertEqual(step['prize']['image_url'], expected['image_url'])
+                self.assertEqual(step['prize']['model'], expected['model'])
+                self.assertIn('/png/', step['prize']['image_url'])
+            before_round = self.client.get('/api/game/ladder?bet=9&mines=3').get_json()['levels']
+            self.assertTrue(all(not (step['prize'] or {}).get('model') for step in before_round))
+        finally:
+            m.save_document('game_settings', doc)
 
     def test_reward_claim_is_single_use(self):
         with m.connect() as db:

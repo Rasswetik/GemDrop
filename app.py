@@ -20018,11 +20018,7 @@ def admin_user_max_drop(user_id):
             db.commit()
             return jsonify(ok=True, max_drop=None)
         gift_id = str(data.get('gift_id') or '').strip()
-        try:
-            gifts = read_catalog().get('gifts', [])
-        except Exception:
-            gifts = []
-        gift = next((g for g in gifts if str(g.get('id')) == gift_id), None)
+        gift = catalog_gift_ref(gift_id)
         if not gift:
             return error('Подарок не найден в каталоге Portal.', 404)
         try:
@@ -20717,7 +20713,21 @@ def _activity_event(r):
 _ADMIN_ACTION_TITLES = {'max_drop_override': 'Администратор изменил «макс. дроп» профиля',
                         'withdrawal_access': 'Администратор изменил доступ к выводу',
                         'promo_create': 'Администратор создал промокод',
-                        'promo_issue': 'Администратор выдал промокод'}
+                        'promo_issue': 'Администратор выдал промокод',
+                        'promo_remove': 'Администратор удалил личный промокод',
+                        'withdrawal_wager': 'Администратор изменил остаток отыгрыша',
+                        'admin_deposit': 'Администратор подтвердил ручное начисление',
+                        'main_balance_add': 'Администратор пополнил основной баланс',
+                        'main_balance_set': 'Администратор установил основной баланс',
+                        'bonus_balance_add': 'Администратор пополнил бонусный баланс',
+                        'bonus_balance_set': 'Администратор установил бонусный баланс',
+                        'referral_balance_add': 'Администратор пополнил реферальный баланс',
+                        'referral_balance_set': 'Администратор установил реферальный баланс',
+                        'referral_bind': 'Администратор привязал реферала',
+                        'referral_unbind': 'Администратор отвязал реферала',
+                        'gift_add': 'Администратор выдал подарок',
+                        'gift_add_nft': 'Администратор выдал конкретный NFT',
+                        'gift_remove': 'Администратор удалил подарок из инвентаря'}
 _ADMIN_ACTION_HIDDEN = {'balance_set', 'level_set'}
 
 
@@ -20726,8 +20736,21 @@ def _activity_admin(r):
     if action in _ADMIN_ACTION_HIDDEN:
         return None
     title = _ADMIN_ACTION_TITLES.get(action, 'Действие администратора: ' + action)
+    detail = str(r['details'] or '')[:300]
+    if action == 'withdrawal_wager':
+        try:
+            value = json.loads(r['details'] or '{}')
+            detail = f'Остаток отыгрыша: {int(value["before"])/100:.2f} → {int(value["after"])/100:.2f} TON'
+        except (ValueError, TypeError, KeyError):
+            pass
+    elif action in ('admin_deposit','main_balance_add','main_balance_set','bonus_balance_add','bonus_balance_set',
+                    'referral_balance_add','referral_balance_set'):
+        try:
+            detail = f'Сумма: {int(detail)/100:.2f} TON'
+        except (ValueError, TypeError):
+            pass
     return _ev('a' + str(r['id']), r['created_at'], 'admin_action', title,
-               [str(r['details'] or '')[:300], f'Админ ID {r["admin_id"]}'], group='admin',
+               [detail, f'Админ ID {r["admin_id"]}'], group='admin',
                details=dict(action=action, admin_id=r['admin_id']))
 
 
@@ -21023,7 +21046,7 @@ def admin_add_inventory(user_id):
 
     gift_id = str(data.get('gift_id', '')).strip()
     try:
-        gift = next((gift for gift in read_catalog()['gifts'] if str(gift.get('id')) == gift_id), None)
+        gift = catalog_gift_ref(gift_id)
     except (OSError, ValueError, TypeError):
         gift = None
     if not gift:
@@ -21038,12 +21061,13 @@ def admin_add_inventory(user_id):
         if not db.execute('SELECT 1 FROM users WHERE id=?', (user_id,)).fetchone():
             return error('Пользователь не найден.', 404)
         bo, br, bp = bonus_origin_values(price, bonus_origin)
+        base_id, _, model = gift_id.partition(GIFT_MODEL_SEP)
         cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,price_source,source_label,
-                            bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                            VALUES(?,?,?,?,?,'admin',?,'Выдано администратором',?,?,?)""",
-                         (user_id, gift_id, str(gift['name']),
+                            bonus_origin,bonus_unlock_required,bonus_unlock_progress,fragment_model)
+                            VALUES(?,?,?,?,?,'admin',?,'Выдано администратором',?,?,?,?)""",
+                         (user_id, base_id, str(gift['name']),
                           safe_image(gift.get('image_url') or gift.get('portal_image_url')),
-                          price, str(gift.get('price_source') or 'Portal'), bo, br, bp))
+                          price, str(gift.get('price_source') or 'Portal'), bo, br, bp, model.strip()[:120]))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'], user_id, 'gift_add', f'{gift_id}:bonus={int(bonus_origin)}'))
         log_event(db,user_id,'admin_gift_add',gift_name=str(gift['name']),price_ton=price/100,admin_id=session['uid'])
@@ -25137,6 +25161,7 @@ def migrate_rtp_cut_v1():
 
 _relayer_auto_withdraw_one_async = management.serialized_withdrawal(_relayer_auto_withdraw_one_async, globals())
 management.register(app, globals())
+management.operator_insights.register(app, globals(), management)
 
 run_startup_repair(migrate_rtp_cut_v1)
 

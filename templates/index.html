@@ -5001,7 +5001,7 @@ html.perf-lite .gc-art-road *{animation:none!important}
 <div id="depositMethodStep" class="deposit-method-step">
   <div class="deposit-choice-head"><span class="deposit-kicker">ПОПОЛНЕНИЕ</span><h2>Выберите способ пополнения</h2><p>GRAM через TON Connect, Telegram Stars или подарки</p></div>
   <div class="deposit-methods">
-    <button id="chooseCryptoDeposit" class="deposit-method-card hidden" type="button" hidden><span class="deposit-method-icon">₮</span><span class="deposit-method-copy"><b>CryptoBot</b><small>Оплата TON в Telegram</small></span><span class="deposit-method-arrow">›</span></button>
+    <button id="chooseCryptoDeposit" class="deposit-method-card hidden" type="button" hidden><span class="deposit-method-icon"><img src="/static/img/cryptobot.png" alt="CryptoBot"></span><span class="deposit-method-copy"><b>CryptoBot</b><small>Оплата TON в Telegram</small></span><span class="deposit-method-arrow">›</span></button>
     <button id="chooseTonDeposit" class="deposit-method-card ton-method" type="button"><span class="deposit-method-icon"><img src="/static/img/ton.png" alt="GRAM"></span><span class="deposit-method-copy"><b>GRAM <em class="deposit-bonus-badge">+10%</em></b><small>Пополнение через TON Connect</small></span><span class="deposit-method-arrow">›</span></button>
     <button id="chooseStarsDeposit" class="deposit-method-card stars-method" type="button"><span class="deposit-method-icon"><img src="/static/img/star.png" alt="Stars"></span><span class="deposit-method-copy"><b>Stars</b><small>Оплата Telegram Stars через бота</small></span><span class="deposit-method-arrow">›</span></button>
     <button id="chooseGiftDeposit" class="deposit-method-card gift-method" type="button"><span class="deposit-method-icon"><img src="/static/img/gift.png" alt="Gift" onerror="this.onerror=null;this.src='/static/img/gift.svg'"></span><span class="deposit-method-copy"><b>Подарки</b><small>Передайте NFT @Gemdrop_relay</small></span><span class="deposit-method-arrow">›</span></button>
@@ -5009,11 +5009,11 @@ html.perf-lite .gc-art-road *{animation:none!important}
 </div>
 <div id="depositCryptoStep" class="hidden">
 <button type="button" id="cryptoDepositBack" class="back">← Способы пополнения</button>
-<h2>Пополнение через CryptoBot</h2><p class="muted">Счёт в TON. После подтверждения оплаты пополнение засчитывается для вывода; требуется отыгрыш ×2.</p>
-<label class="caption" for="cryptoTopupAmount">Сумма пополнения · TON</label><input id="cryptoTopupAmount" class="text-input" type="number" min="0.10" step="0.01" placeholder="10.00">
-<button type="button" id="cryptoTopupCreate" class="primary">Создать счёт</button>
-<a id="cryptoTopupLink" class="primary hidden" target="_blank" rel="noopener">Оплатить в CryptoBot</a>
-<button type="button" id="cryptoTopupVerify" class="hidden">Проверить зачисление</button><div id="cryptoDepositStatus" role="status" class="muted"></div>
+<div class="crypto-heading"><img src="/static/img/cryptobot.png" alt="CryptoBot"><h2>Пополнение через CryptoBot</h2></div>
+<p class="crypto-caption">Оплатите счёт в TON. После подтверждения баланс обновится автоматически. Пополнение засчитывается для вывода; отыгрыш ×2.</p>
+<div class="crypto-amount"><label for="cryptoTopupAmount">Сумма пополнения · TON</label><input id="cryptoTopupAmount" class="text-input" type="number" inputmode="decimal" min="0.10" max="10000" step="0.01" placeholder="10.00"></div>
+<div class="crypto-actions"><button type="button" id="cryptoTopupCreate" class="primary">Создать счёт</button><a id="cryptoTopupLink" class="primary hidden" target="_blank" rel="noopener">Оплатить в CryptoBot ↗</a><button type="button" id="cryptoTopupVerify" class="hidden">Проверить сейчас</button></div>
+<div id="cryptoDepositStatus" role="status" aria-live="polite" data-state="waiting" hidden></div>
 </div>
 <div id="depositTonStep" class="deposit-payment-step hidden">
   <button class="deposit-back" type="button" data-deposit-back aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg></button>

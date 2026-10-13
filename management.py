@@ -14,7 +14,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import requests
-from flask import jsonify, request, session, send_file
+import operator_insights
+from flask import jsonify, request, session, Response, render_template
 
 
 PAYMENT_LEDGER = """
@@ -233,7 +234,7 @@ def register(app, ns):
     @app.get('/admin')
     @admin
     def operator_console():
-        response = send_file(Path(ns['BASE'])/'templates'/'admin.html', max_age=0)
+        response = Response(render_template('admin.html'), mimetype='text/html')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return response
@@ -275,21 +276,32 @@ def register(app, ns):
             pending = db.execute("SELECT COUNT(*) AS count,COALESCE(SUM(floor_price),0) AS total FROM withdrawals WHERE status='pending'").fetchone()
             grants = db.execute('''SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS count FROM deposits
                     WHERE admin_id<>0 AND REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?''', (stamp,)).fetchone()
+            gaming,registrations=operator_insights.period_insights(db,ns,stamp)
+            funded=db.execute(f'''SELECT SUBSTR(REPLACE(created_at,'T',' '),1,10) AS day,COUNT(DISTINCT user_id) AS count
+                                 FROM {ledger} WHERE REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?
+                                 GROUP BY SUBSTR(REPLACE(created_at,'T',' '),1,10)''',(stamp,)).fetchall()
+            depositors={r['day']:int(r['count']) for r in funded}
         pmap = {r['day']: dict(r) for r in paid}; wmap = {r['day']: dict(r) for r in drawn}
         series = []
         for offset in range(days):
             day = (start+timedelta(days=offset)).isoformat()
             p = pmap.get(day, {}); w = wmap.get(day, {})
+            game=gaming.get(day,{})
             series.append(dict(day=day, deposits=int(p.get('total') or 0)/100, nft=int(p.get('nft') or 0)/100,
                                deposit_count=int(p.get('count') or 0), withdrawals=int(w.get('total') or 0)/100,
-                               withdrawal_count=int(w.get('count') or 0)))
+                               withdrawal_count=int(w.get('count') or 0),new_users=registrations.get(day,0),
+                               depositors=depositors.get(day,0),stake=int(game.get('stake') or 0)/100,
+                               payout=int(game.get('payout') or 0)/100,game_count=int(game.get('count') or 0),
+                               active_players=int(game.get('players') or 0)))
         return jsonify(days=days, timezone='UTC', series=series,
                        methods=[dict(method=r['method'], total=int(r['total'] or 0)/100,count=int(r['count'])) for r in split],
                        totals=dict(deposits=sum(r['deposits'] for r in series),withdrawals=sum(r['withdrawals'] for r in series),
                                    deposit_count=sum(r['deposit_count'] for r in series),withdrawal_count=sum(r['withdrawal_count'] for r in series),
                                    users=int(users['count']),balance=int(users['balance'])/100,
                                    pending_count=int(pending['count']),pending_value=int(pending['total'])/100,
-                                   admin_grants=int(grants['total'])/100))
+                                   admin_grants=int(grants['total'])/100,stake=sum(r['stake'] for r in series),
+                                   payout=sum(r['payout'] for r in series),game_count=sum(r['game_count'] for r in series),
+                                   new_users=sum(r['new_users'] for r in series)))
 
     def page_args():
         return max(0, request.args.get('offset', 0, type=int) or 0), max(1, min(100, request.args.get('limit', 50, type=int) or 50))

@@ -462,21 +462,83 @@ class RegressionTests(unittest.TestCase):
             rows = db.execute('SELECT gift_id,gift_name,floor_price,fragment_model FROM inventory WHERE user_id=? ORDER BY id', (self.uid,)).fetchall()
         self.assertEqual([(r['gift_id'], r['fragment_model'], r['floor_price']) for r in rows], [('mm-1', 'Da Vinci', 4000)] * 2)
 
-    def test_mines_prize_is_a_fixed_model_independent_of_round_seed(self):
+    def test_mines_prize_type_is_60_40_and_stable_for_the_preview_seed(self):
         self._seed_models()
-        for seed in ('seed-1', 'seed-2', 99, None):
-            prize = m.mines_prize(4500, seed)
-            self.assertEqual((prize['model'], prize['price_ton']), ('Da Vinci', 40.0))
+        index = m.mines_model_pool()
+        model_count = 0
+        for seed in range(10000):
+            prize = m.mines_prize(4500, seed, models=index)
+            if prize.get('model'):
+                model_count += 1
+                self.assertEqual((prize['model'], prize['price_ton']), ('Da Vinci', 40.0))
+                self.assertEqual(prize['image_url'], m.gift_model_image('MM Pepe', 'Da Vinci'))
+            else:
+                self.assertTrue(prize['random_model'])
+                self.assertEqual(prize['price_ton'], 10)
             self.assertEqual(prize['id'], 'mm-1')
-            self.assertEqual(prize['image_url'], m.gift_model_image('MM Pepe', 'Da Vinci'))
+            if seed < 10:
+                self.assertEqual(prize, m.mines_prize(4500, seed, models=index))
+        self.assertTrue(5800 <= model_count <= 6200, model_count)
         self.assertEqual(m.mines_prize(900)['id'], 'mm-1-b')
-        # The retired random-model percentage cannot affect the fixed prize.
-        doc = dict(m.read_document('game_settings') or {})
-        try:
-            m.save_document('game_settings', dict(doc, mines_model_percent=0))
-            self.assertEqual(m.mines_prize(4500)['model'], 'Da Vinci')
-        finally:
-            m.save_document('game_settings', doc)
+        self.assertIsNone(m.mines_prize(200))
+
+    def test_mines_light_cell_response_and_next_preview_are_ready_on_settlement(self):
+        self._seed_models('mm-fast')
+        before = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        started = self.post('/api/game/start', {'bet': '10', 'mines': 3})
+        self.assertEqual(started['levels'], before)
+        with m.connect() as db:
+            row = db.execute('SELECT positions FROM rounds WHERE id=?', (started['round']['id'],)).fetchone()
+        bombs = set(json.loads(row['positions']))
+        safe = [cell for cell in range(25) if cell not in bombs]
+        with patch.object(m, 'profile', side_effect=AssertionError('safe cells must skip profile')):
+            opened = self.post('/api/game/open', {'cell': safe[0], 'light': True})
+        self.assertIsNone(opened['user'])
+        self.assertIsNone(opened['next_ladder'])
+        self.assertEqual(opened['round']['opened'], [safe[0]])
+        legacy = self.post('/api/game/open', {'cell': safe[1]})
+        self.assertEqual(legacy['user']['id'], self.uid)
+        lost = self.post('/api/game/open', {'cell': min(bombs), 'light': True})
+        self.assertEqual(lost['round']['state'], 'lost')
+        self.assertEqual(lost['user']['id'], self.uid)
+        next_preview = lost['next_ladder']['levels']
+        self.assertNotEqual(next_preview, before)
+        self.assertEqual(self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels'], next_preview)
+        self.assertEqual(self.post('/api/game/start', {'bet': '10', 'mines': 3})['levels'], next_preview)
+
+    def test_mines_price_refresh_invalidates_cached_upcoming_plans(self):
+        self._seed_models('mm-refresh')
+        preview = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        self.assertTrue(any((step['prize'] or {}).get('model') for step in preview))
+        m.gm_store('mm-refresh', 'MM Pepe', {'Da Vinci': 99999, 'Classic': 99999})
+        refreshed = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        self.assertTrue(all(not (step['prize'] or {}).get('model') for step in refreshed))
+
+    def test_mines_demo_preview_is_fixed_and_rotates_after_loss(self):
+        self._seed_models('mm-demo')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}', {})
+        self.post('/api/creator/demo-balance', {'amount': '100'})
+        self.post('/api/creator/demo-mode', {'enabled': True})
+        preview = self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels']
+        started = self.post('/api/game/start', {'bet': '10', 'mines': 3})
+        self.assertEqual(started['levels'], preview)
+        positions = m.creator_record(self.uid)['demo_mines']['positions']
+        lost = self.post('/api/game/open', {'cell': positions[0], 'light': True})
+        self.assertEqual(lost['round']['state'], 'lost')
+        next_preview = lost['next_ladder']['levels']
+        self.assertNotEqual(preview, next_preview)
+        self.assertEqual(self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels'], next_preview)
+        self.assertEqual(self.post('/api/game/start', {'bet': '10', 'mines': 3})['levels'], next_preview)
+        model_step = next(step for step in next_preview if (step['prize'] or {}).get('model'))
+        state = m.creator_record(self.uid)['demo_mines']
+        safe = [cell for cell in range(25) if cell not in state['positions']]
+        for cell in safe[:model_step['step']]:
+            self.post('/api/game/open', {'cell': cell, 'light': True})
+        won = self.post('/api/game/cashout')
+        self.assertEqual(won['round']['awarded']['fragment_model'], model_step['prize']['model'])
+        self.assertEqual(won['round']['awarded']['image_url'], model_step['prize']['image_url'])
+        self.assertEqual(won['next_ladder']['levels'], self.client.get('/api/game/ladder?bet=10&mines=3').get_json()['levels'])
 
     def test_base_gift_animation_uses_original_telegram_id(self):
         self._seed_models('mm-2')

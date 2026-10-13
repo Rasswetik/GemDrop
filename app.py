@@ -1471,7 +1471,7 @@ def demo_add_catalog_gift(record, gift, source='creator_demo_game'):
         image_url=safe_image(gift.get('image_url')),
         price_ton=price / 100, source=source,
         created_at=datetime.now(timezone.utc).isoformat(), external_url='',
-        fragment_url='', fragment_number='', fragment_model='', fragment_backdrop='',
+        fragment_url='', fragment_number='', fragment_model=str(gift.get('model') or ''), fragment_backdrop='',
         fragment_symbol='', price_source='Portal', animation_url='',
         source_label='', promo_locked=False, promo_code='', wager_multiplier=0,
         wager_target=0, wager_progress=0, wager_complete=False, wager_percent=0,
@@ -1534,6 +1534,9 @@ def demo_mines_start(data):
         mines=mines, positions=positions, opened=[], state='active', payout=0,
         multiplier=1, potential=bet_cents / 100, prize=None, awarded=None, lost_cell=None,
     )
+    state['rtp_snapshot'] = game_rtp()
+    state['prize_plan'] = mines_prize_plan(bet_cents, mines, state['rtp_snapshot'],
+                                         seed=demo_mines_preview_seed(uid, record))
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
                               'demo_turnover_cents': record['demo_turnover_cents'],
                               'demo_inventory': record['demo_inventory'], 'demo_mines': state})
@@ -1559,9 +1562,11 @@ def demo_mines_open(cell):
         opened.append(cell)
         state['opened'] = opened
         mines = int(state.get('mines') or 3)
-        factor = multiplier_for(mines, len(opened), game_rtp())
+        factor = multiplier_for(mines, len(opened), state.get('rtp_snapshot', game_rtp()))
         state['multiplier'] = float(factor)
         state['potential'] = round(float(state.get('bet') or 0) * float(factor), 2)
+        plan = state.get('prize_plan') or []
+        state['prize'] = plan[len(opened)-1] if len(plan) >= len(opened) else None
         if len(opened) >= 25 - mines:
             state = demo_mines_cashout_state(record, state)
     save_creator_record(uid, {'demo_mines': state, 'demo_inventory': record.get('demo_inventory', []),
@@ -1575,13 +1580,13 @@ def demo_mines_cashout_state(record, state):
     payout_cents = parse_amount(state.get('potential') or state.get('bet') or 0)
     state['state'] = 'won'
     state['positions'] = list(state.get('positions') or [])
-    prize = prize_for(payout_cents)
+    plan = state.get('prize_plan') or []
+    step = len(state['opened'])
+    prize = plan[step-1] if len(plan) >= step else prize_for(payout_cents)
     if prize:
         price_cents = ton_to_cents(prize.get('price_ton') or 0)
         remainder = max(0, payout_cents - price_cents)
-        awarded = demo_add_catalog_gift(record, dict(
-            id=prize.get('id'), name=prize.get('name'), image_url=prize.get('image_url'),
-            price_cents=price_cents), 'creator_demo_mines')
+        awarded = demo_add_catalog_gift(record, dict(prize, price_cents=price_cents), 'creator_demo_mines')
         state['payout'] = remainder / 100
         state['prize'] = dict(id=prize.get('id'), name=prize.get('name'),
                               image_url=safe_image(prize.get('image_url')), price_ton=price_cents / 100)
@@ -2118,6 +2123,10 @@ def save_document(name, document):
     with connect() as db:
         db.execute('INSERT INTO app_documents(name,payload) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload',
                    (name, json.dumps(document, ensure_ascii=False)))
+    if name in ('portal_catalog', 'gift_display_settings') and '_mines_pool_cache' in globals():
+        with _mines_pool_lock:
+            _mines_pool_cache['expires'] = 0.0
+            _mines_plan_cache.clear()
     if has_request_context():
         g.get('documents', {}).pop(name, None)
 
@@ -5214,55 +5223,131 @@ def prize_for(amount, gifts=None):
     return max(eligible, key=lambda x: (x[0], str(x[1].get('id', ''))))[1] if eligible else None
 
 
+from bisect import bisect_right as _mines_bisect_right
+MINES_MODEL_CHANCE_PERCENT = 60
+_mines_pool_cache = {'signature': None, 'expires': 0.0, 'index': None}
+_mines_pool_lock = __import__('threading').RLock()
+_mines_plan_cache = {}
+
+
+def compact_mines_prize(gift):
+    keys = ('id', 'name', 'base_name', 'base_id', 'image_url', 'price_ton',
+            'image_match', 'background_label', 'model', 'model_png_url')
+    prize = {key: gift[key] for key in keys if key in gift}
+    if not gift.get('model'):
+        prize['random_model'] = True
+    return prize
+
+
 def mines_model_pool(gifts=None, db=None):
-    """Concrete models with their own PNG and price, in a stable order."""
+    """Cache sorted integer prices; create a PNG URL only for a selected model."""
     if gifts is None:
         gifts = read_catalog().get('gifts', [])
-    catalog = {str(g['id']): g for g in gifts
-               if g.get('id') and g.get('name') and not g.get('base_id')}
-    sql = 'SELECT gift_id,model,price FROM gift_models WHERE price>0 ORDER BY price,gift_id,model'
-    if db is None:
-        with connect() as conn:
-            rows = conn.execute(sql).fetchall()
-    else:
-        rows = db.execute(sql).fetchall()
-    pool = []
-    for row in rows:
-        gift = catalog.get(str(row['gift_id']))
-        if not gift:
-            continue
-        base_name = str(gift.get('base_name') or gift['name'])
-        model = str(row['model'])
-        # Build the exact model PNG instead of inheriting a collection thumbnail.
-        image = gift_model_image(base_name, model)
-        pool.append(dict(id=str(gift['id']), base_name=base_name,
-                         name=f'{base_name} · {model}'[:180], model=model,
-                         image_url=image, model_png_url=image, image_match=True,
-                         price_ton=int(row['price']) / 100))
-    return pool
+    signature = tuple((str(g.get('id')), g.get('name'), g.get('base_name'),
+                       g.get('price_ton'), g.get('image_url'), bool(g.get('image_match')))
+                      for g in gifts)
+    with _mines_pool_lock:
+        now = time.monotonic()
+        hit = _mines_pool_cache
+        if hit['signature'] == signature and hit['expires'] > now:
+            return hit['index']
+        catalog = {str(g['id']): g for g in gifts
+                   if g.get('id') and g.get('name') and not g.get('base_id')}
+        sql = 'SELECT gift_id,model,price FROM gift_models WHERE price>0'
+        if db is None:
+            with connect() as conn:
+                rows = conn.execute(sql).fetchall()
+        else:
+            rows = db.execute(sql).fetchall()
+        models = sorted((int(row['price']), str(row['gift_id']), str(row['model']),
+                         str(catalog[str(row['gift_id'])].get('base_name') or catalog[str(row['gift_id'])]['name']))
+                        for row in rows if str(row['gift_id']) in catalog)
+        bases = []
+        for gift in gifts:
+            try:
+                price = ton_to_cents(gift['price_ton'])
+                if gift.get('id') and gift.get('name') and gift.get('image_match') and price > 0:
+                    bases.append((price, str(gift['id']), compact_mines_prize(gift)))
+            except (KeyError, TypeError, ValueError, InvalidOperation):
+                continue
+        bases.sort(key=lambda row: (row[0], row[1]))
+        index = dict(rows=models, prices=[row[0] for row in models],
+                     bases=bases, base_prices=[row[0] for row in bases])
+        hit.update(signature=signature, expires=now + 60, index=index)
+        return index
+
+
+def mines_model_roll(seed):
+    digest = hashlib.sha256(f'mines-prize-type-v1|{seed}'.encode('utf-8')).digest()
+    return int.from_bytes(digest[:8], 'big') % 10000 < MINES_MODEL_CHANCE_PERCENT * 100
 
 
 def mines_prize(amount, seed=None, gifts=None, models=None):
-    """The most valuable affordable concrete model; no random model selection."""
-    if models is None:
-        models = mines_model_pool(gifts)
-    eligible = [gift for gift in models if ton_to_cents(gift['price_ton']) <= amount]
-    base = prize_for(amount, gifts)
-    if eligible:
-        model = max(eligible, key=lambda gift: (ton_to_cents(gift['price_ton']),
-                                               str(gift['id']), gift['model']))
-        if not base or ton_to_cents(model['price_ton']) >= ton_to_cents(base['price_ton']):
-            return model
-    return base
+    """60% concrete model / 40% collection gift, fixed by the preview seed."""
+    index = models if models is not None else mines_model_pool(gifts)
+    model_pos = _mines_bisect_right(index['prices'], amount) - 1
+    base_pos = _mines_bisect_right(index['base_prices'], amount) - 1
+    if model_pos >= 0 and (base_pos < 0 or seed is None or mines_model_roll(seed)):
+        price, gid, model, name = index['rows'][model_pos]
+        image = gift_model_image(name, model)
+        return dict(id=gid, base_name=name, name=f'{name} · {model}'[:180], model=model,
+                    image_url=image, model_png_url=image, image_match=True, price_ton=price / 100)
+    return dict(index['bases'][base_pos][2]) if base_pos >= 0 else None
 
 
-def mines_prize_plan(bet, mines, rtp, gifts=None, db=None):
-    if gifts is None:
-        gifts = read_catalog().get('gifts', [])
-    models = mines_model_pool(gifts, db)
+def mines_preview_seed(db, uid):
+    row = db.execute('SELECT id FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
+    return f'{uid}:{row["id"] if row else 0}'
+
+
+def demo_mines_preview_seed(uid, record):
+    return f'demo:{uid}:{(record.get("demo_mines") or {}).get("id", 0)}'
+
+
+def demo_mines_ladder(bet, mines, next_round=False):
+    record = creator_record(session['uid'])
+    state = record.get('demo_mines') or {}
+    matching = (not next_round and state.get('state') == 'active'
+                and parse_amount(state.get('bet') or 0) == bet and state.get('mines') == mines)
+    rtp = state.get('rtp_snapshot', game_rtp()) if matching else game_rtp()
+    plan = state.get('prize_plan') if matching else None
+    if not plan:
+        plan = mines_prize_plan(bet, mines, rtp, seed=demo_mines_preview_seed(session['uid'], record))
+    return dict(bet=bet/100, mines=mines, levels=mines_ladder_levels(bet, mines, rtp, plan))
+
+
+def mines_prize_plan(bet, mines, rtp, gifts=None, db=None, seed=None):
+    cache_key = (str(seed), int(bet), int(mines), float(rtp))
+    now = time.monotonic()
+    with _mines_pool_lock:
+        hit = _mines_plan_cache.get(cache_key) if seed is not None else None
+    if hit and hit[0] > now:
+        return hit[1]
+    index = mines_model_pool(gifts, db)
     dummy = {'bet': bet, 'mines': mines}
-    return [mines_prize(payout_for(dummy, step, rtp), gifts=gifts, models=models)
+    plan = [mines_prize(payout_for(dummy, step, rtp), seed=f'{seed}|{bet}|{mines}|{step}', models=index)
             for step in range(1, 26 - mines)]
+    if seed is not None:
+        with _mines_pool_lock:
+            if len(_mines_plan_cache) >= 128:
+                _mines_plan_cache.pop(next(iter(_mines_plan_cache)))
+            _mines_plan_cache[cache_key] = (now + 120, plan)
+    return plan
+
+
+def mines_ladder_levels(bet, mines, rtp, plan):
+    dummy = {'bet': bet, 'mines': mines}
+    return [dict(step=step, multiplier=multiplier_for(mines, step, rtp),
+                 amount=payout_for(dummy, step, rtp)/100, prize=plan[step-1])
+            for step in range(1, 26-mines)]
+
+
+def mines_next_ladder(row):
+    bet, mines = int(row['bet']), int(row['mines'])
+    rtp = game_rtp()
+    seed = f'{row["user_id"]}:{row["id"]}'
+    plan = mines_prize_plan(bet, mines, rtp, seed=seed)
+    return dict(bet=bet/100, mines=mines, levels=mines_ladder_levels(bet, mines, rtp, plan))
 
 
 def mines_round_prize(row, opened_count):
@@ -5571,6 +5656,8 @@ def ladder():
         return error('Неверные параметры.')
     if not (MIN_MINES <= mines <= MAX_MINES and MIN_BET_CENTS <= bet <= MAX_BET_CENTS):
         return error('Неверные параметры.')
+    if creator_demo_active(session['uid']):
+        return jsonify(demo_mines_ladder(bet, mines))
     try:
         gifts = read_catalog()['gifts']
     except (OSError, ValueError):
@@ -5581,6 +5668,7 @@ def ladder():
     current_rtp = promo_game_rtp() if promo_mode else game_rtp()
     with connect() as db:
         active = active_round(db, session['uid'])
+        seed = mines_preview_seed(db, session['uid'])
     matching_round = active and int(active['mines']) == mines and int(active['bet']) == bet
     if matching_round:
         current_rtp = round_rtp(active)
@@ -5590,14 +5678,12 @@ def ladder():
     else:
         plan = json.loads(active['prize_plan'] or '[]') if matching_round else []
         if not plan:
-            plan = mines_prize_plan(bet, mines, current_rtp, gifts)
+            plan = mines_prize_plan(bet, mines, current_rtp, gifts, seed=seed)
             if matching_round:
                 with connect() as db:
                     db.execute("UPDATE rounds SET prize_plan=? WHERE id=? AND prize_plan='[]'",
                                (json.dumps(plan, ensure_ascii=False), active['id']))
-    return jsonify(levels=[dict(step=step, multiplier=multiplier_for(mines, step, current_rtp),
-                                amount=payout_for(dummy, step, current_rtp)/100, prize=plan[step-1])
-                           for step in range(1, 26-mines)])
+    return jsonify(levels=mines_ladder_levels(bet, mines, current_rtp, plan), preview_seed=seed)
 
 
 def parse_amount(value):
@@ -7907,7 +7993,9 @@ def start():
     data = request.get_json(silent=True) or {}
     if creator_demo_active(session['uid']):
         try:
-            return jsonify(round=demo_mines_start(data), user=profile(), new_level=None)
+            result = demo_mines_start(data)
+            levels = demo_mines_ladder(parse_amount(result['bet']), result['mines'])['levels']
+            return jsonify(round=result, user=profile(), new_level=None, levels=levels)
         except (ValueError, InvalidOperation, TypeError) as exc:
             return error(str(exc), 409)
     try:
@@ -7982,6 +8070,7 @@ def start():
                 return error('Недостаточно средств.')
             bonus_used = int(spent[1])
 
+        preview_seed = mines_preview_seed(db, session['uid'])
         proof = fairness_make('mines', session['uid'], data.get('client_seed'))
         positions, fair_cursor = fairness_positions(proof, mines)
         if bet_type == 'promo_gift':
@@ -7999,7 +8088,7 @@ def start():
                     snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'], bonus_used))
         row = active_round(db, session['uid'])
         if bet_type != 'promo_gift':
-            plan = mines_prize_plan(bet, mines, rtp_snapshot, db=db)
+            plan = mines_prize_plan(bet, mines, rtp_snapshot, db=db, seed=preview_seed)
             db.execute('UPDATE rounds SET prize_plan=? WHERE id=?',
                        (json.dumps(plan, ensure_ascii=False), row['id']))
             row = active_round(db, session['uid'])
@@ -8024,7 +8113,8 @@ def start():
         db.commit()
         if new_level:
             notify_level_up_async(session['uid'], new_level)
-        return jsonify(round=round_view(row), user=profile(), new_level=new_level)
+        levels = mines_ladder_levels(bet, mines, rtp_snapshot, plan if bet_type != 'promo_gift' else [None]*(25-mines))
+        return jsonify(round=round_view(row), user=profile(), new_level=new_level, levels=levels)
     finally:
         db.close()
 
@@ -8039,7 +8129,11 @@ def open_cell():
         return error('Неверная клетка.')
     if creator_demo_active(session['uid']):
         try:
-            return jsonify(round=demo_mines_open(cell), user=profile())
+            result = demo_mines_open(cell)
+            light = data.get('light') is True
+            user_view = None if light and result['state'] == 'active' else profile()
+            next_ladder = demo_mines_ladder(parse_amount(result['bet']), result['mines'], True) if light and result['state'] != 'active' else None
+            return jsonify(round=result, user=user_view, next_ladder=next_ladder)
         except (ValueError, InvalidOperation, TypeError) as exc:
             return error(str(exc), 409)
     if cell not in range(25):
@@ -8114,7 +8208,10 @@ def open_cell():
         log_event(db,session['uid'],'mines_cell',round_id=row['id'],cell=cell,
                   lost=cell in positions,opened=len(opened))
         db.commit()
-        return jsonify(round=round_view(result), user=profile())
+        light = data.get('light') is True
+        user_view = None if light and result['state'] == 'active' else profile()
+        next_ladder = mines_next_ladder(result) if light and result['state'] != 'active' else None
+        return jsonify(round=round_view(result), user=user_view, next_ladder=next_ladder)
     finally:
         db.close()
 
@@ -8124,7 +8221,9 @@ def open_cell():
 def cashout():
     if creator_demo_active(session['uid']):
         try:
-            return jsonify(round=demo_mines_cashout(), user=profile())
+            result = demo_mines_cashout()
+            return jsonify(round=result, user=profile(),
+                           next_ladder=demo_mines_ladder(parse_amount(result['bet']), result['mines'], True))
         except (ValueError, InvalidOperation, TypeError) as exc:
             return error(str(exc), 409)
     db = connect()
@@ -8144,7 +8243,7 @@ def cashout():
                   mines=row['mines'],opened=opened,payout=result['payout']/100,
                   gift_name=result['win_gift_name'],gift_image=result['win_gift_image'])
         db.commit()
-        return jsonify(round=round_view(result), user=profile())
+        return jsonify(round=round_view(result), user=profile(), next_ladder=mines_next_ladder(result))
     finally:
         db.close()
 
@@ -23057,6 +23156,9 @@ def gm_store(gift_id, name, models, status='ok', error=''):
     finally:
         db.close()
     _gm_index_cache['at'] = 0.0
+    with _mines_pool_lock:
+        _mines_pool_cache['expires'] = 0.0
+        _mines_plan_cache.clear()
 
 
 def gift_models_for(gift_id):

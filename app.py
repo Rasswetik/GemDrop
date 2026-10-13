@@ -67,6 +67,7 @@ app.secret_key = os.environ.get('SECRET_KEY') or (
     hashlib.sha256(('gemdrop-session:' + BOT_TOKEN).encode()).hexdigest() if BOT_TOKEN
     else secret_path.read_text(encoding='utf-8'))
 WEBHOOK_SECRET = hashlib.sha256((app.secret_key + BOT_TOKEN).encode()).hexdigest()[:48]
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                   SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER_EXTERNAL_HOSTNAME')),
                   MAX_CONTENT_LENGTH=96 * 1024 * 1024)
@@ -817,6 +818,7 @@ def _initialize_schema():
                                           ('prize_price', 'INTEGER NOT NULL DEFAULT 0'), ('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('arena_bets', [('gift_amount', 'INTEGER NOT NULL DEFAULT 0'),
                                       ('gifts', "TEXT NOT NULL DEFAULT '[]'"), ('bonus_used', 'INTEGER NOT NULL DEFAULT 0')])
+        ensure_columns('limbo_bets', [('prize_name', "TEXT NOT NULL DEFAULT ''"), ('prize_image', "TEXT NOT NULL DEFAULT ''"), ('prize_price', 'INTEGER NOT NULL DEFAULT 0')])
         ensure_columns('crash_bets', [
             ('bet_type', "TEXT NOT NULL DEFAULT 'ton'"), ('bet_inventory_id', 'INTEGER'),
             ('bet_gift_id', "TEXT NOT NULL DEFAULT ''"), ('bet_gift_name', "TEXT NOT NULL DEFAULT ''"),
@@ -1010,6 +1012,9 @@ def _initialize_schema():
         CREATE INDEX IF NOT EXISTS creator_chat_messages_id ON creator_chat_messages(id DESC);
         CREATE INDEX IF NOT EXISTS rounds_active_user ON rounds(user_id,id DESC) WHERE state='active';
         CREATE INDEX IF NOT EXISTS rounds_user_history ON rounds(user_id,id DESC);
+        CREATE INDEX IF NOT EXISTS crash_rounds_finished ON crash_rounds(id DESC) WHERE state='crashed';
+        CREATE INDEX IF NOT EXISTS crash_bets_round_value ON crash_bets(round_id,bet DESC);
+        CREATE INDEX IF NOT EXISTS crash_bets_user_history ON crash_bets(user_id,round_id DESC);
         CREATE INDEX IF NOT EXISTS rounds_recent_wins ON rounds(settled_at DESC,id DESC) WHERE state='won';
         CREATE INDEX IF NOT EXISTS upgrade_user_history ON upgrade_spins(user_id,id DESC);
         CREATE INDEX IF NOT EXISTS inventory_promo_expiry ON inventory(expires_at) WHERE promo_locked=1;
@@ -1156,6 +1161,7 @@ def auth():
         return banned_response()
     session.clear()
     session['uid'] = user_id
+    session['auth_kind'] = 'miniapp'
     return jsonify(ok=True, user=profile())
 
 
@@ -1192,10 +1198,13 @@ def start_web_auth():
             db.execute('DELETE FROM web_login_challenges WHERE id=? AND user_id=0', (old,))
         db.execute('INSERT INTO web_login_challenges(id,code_hash,created_at,expires_at) VALUES(?,?,?,?)',
                    (challenge_id, web_login_hash(code), now, now+300))
+    browser_id = str(referrer.get('browser_id') or '')[:80]
+    if re.fullmatch(r'[A-Za-z0-9_-]{20,80}', browser_id):
+        session['browser_hash'] = web_login_hash('browser:'+browser_id)
     session['web_auth_id'] = challenge_id
     session['web_auth_started'] = now
     session['web_auth_referrer'] = referrer_id if referrer_id > 0 else 0
-    return jsonify(command=f'/auf {code}', expires_in=300,
+    return jsonify(command=f'/auth {code}', expires_in=300,
                    bot_username=current_bot_username())
 
 
@@ -1222,12 +1231,16 @@ def web_auth_status():
         referrer = int(session.get('web_auth_referrer') or 0)
         if referrer and referrer != uid and db.execute('SELECT 1 FROM users WHERE id=?', (referrer,)).fetchone():
             db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (uid,referrer))
-        log_event(db,uid,'login',via='web_bot')
+        log_event(db,uid,'login',via='web_bot',browser_hash=session.get('browser_hash',''))
         db.commit()
     if uid not in ADMIN_IDS and is_banned(uid, fresh=True):
         return banned_response()
+    browser_hash = session.get('browser_hash')
     session.clear()
+    session.permanent = True
     session['uid'] = uid
+    session['auth_kind'] = 'browser'
+    if browser_hash:session['browser_hash'] = browser_hash
     return jsonify(status='approved', user=profile())
 
 
@@ -1706,7 +1719,8 @@ def demo_crash_state_payload(record=None, now=None):
         round=dict(id=state.get('id'), open_at=state.get('open_at'), launch_at=state.get('launch_at')),
         growth=CRASH_GROWTH, boom_ms=CRASH_BOOM_MS, betting_ms=CRASH_BETTING_MS,
         min_bet=MIN_BET_CENTS / 100, max_bet=MAX_BET_CENTS / 100,
-        min_nft=0, available=game_available('crash'), demo=True,
+        multiplier_x100=crash_mult_x100(dict(launch_at=int(state['launch_at']), crash_x100=int(round(float(state.get('crash') or 1)*100))), now),
+        min_nft=crash_min_prize_cents()/100, available=game_available('crash'), demo=True,
         my_bet=state.get('my_bet'), bets=[], history=[],
         balance=record.get('demo_balance_cents', 0) / 100,
     )
@@ -1771,21 +1785,19 @@ def demo_crash_cashout(data=None):
     if state.get('phase') != 'flying' or not isinstance(state.get('my_bet'), dict) or state['my_bet'].get('state') != 'active':
         raise ValueError('Нет активной DEMO-ставки.')
     launch_at = int(state.get('launch_at') or now)
-    mult = max(1.0, math.exp(CRASH_GROWTH * max(0, now - launch_at) / 1000.0))
+    mult = crash_mult_x100(dict(launch_at=launch_at, crash_x100=int(round(float(state.get('crash') or 1)*100))), now)/100
     if now >= int(state.get('crash_at') or 0):
         raise ValueError('Ракета уже взорвалась.')
     payout_cents = int(round(float(state['my_bet']['bet']) * 100 * mult))
     want_gift = bool((data or {}).get('gift'))
-    prize_info = crash_prize_preview(payout_cents) if want_gift else None
+    prize_info = crash_prize_preview(payout_cents, seed=f'demo-crash:{uid}:{state["id"]}') if want_gift else None
     if want_gift and not prize_info:
         raise ValueError('Сумма ещё ниже самого дешёвого подарка — заберите TON.')
     prize = None
     remainder = 0
     if prize_info:
         remainder = max(0, payout_cents - int(prize_info['price_cents']))
-        awarded = demo_add_catalog_gift(record, dict(
-            id=prize_info.get('id'), name=prize_info.get('name'),
-            image_url=prize_info.get('image_url'), price_cents=int(prize_info['price_cents'])),
+        awarded = demo_add_catalog_gift(record, dict(prize_info),
             'creator_demo_crash')
         prize = dict(name=awarded['name'], image_url=awarded['image_url'], price_ton=awarded['price_ton'])
         record['demo_balance_cents'] = int(record.get('demo_balance_cents') or 0) + remainder
@@ -1811,7 +1823,7 @@ def profile():
     stars_locked = bool(stars_until and stars_until > datetime.now(timezone.utc))
     main_balance = int(creator['demo_balance_cents'] if demo else user['balance'] or 0)
     bonus_balance = 0 if demo else int(user['bonus_balance'] or 0)
-    return dict(id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
+    return dict(auth_kind=session.get('auth_kind','browser'), id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=main_balance / 100,
                 bonus_balance=bonus_balance / 100,
                 playable_balance=(main_balance + bonus_balance) / 100,
@@ -2127,6 +2139,8 @@ def save_document(name, document):
         with _mines_pool_lock:
             _mines_pool_cache['expires'] = 0.0
             _mines_plan_cache.clear()
+        if '_hilo_tier_cache' in globals():
+            _hilo_tier_cache['at'] = 0
     if has_request_context():
         g.get('documents', {}).pop(name, None)
 
@@ -2135,10 +2149,23 @@ def read_document(name):
     # Reuse documents only inside one HTTP request. No stale cross-worker cache.
     cache = g.setdefault('documents', {}) if has_request_context() else {}
     if name not in cache:
-        with connect() as db:
+        if has_request_context():
+            db = g.get('document_db')
+            if db is None:
+                db = g.document_db = connect()
             row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
+        else:
+            with connect() as db:
+                row = db.execute('SELECT payload FROM app_documents WHERE name=?', (name,)).fetchone()
         cache[name] = json.loads(row['payload']) if row else None
     return deepcopy(cache[name])
+
+
+@app.teardown_request
+def close_document_db(_error=None):
+    db = g.pop('document_db', None)
+    if db is not None:
+        db.close()
 
 
 def section_settings():
@@ -4904,7 +4931,8 @@ def prune_old_logs():
     try:
         with connect() as db:
             marks = ','.join('?' for _ in NOISY_EVENT_KINDS)
-            db.execute(f'DELETE FROM user_events WHERE kind IN ({marks})', NOISY_EVENT_KINDS)
+            db.execute(f'DELETE FROM user_events WHERE kind IN ({marks}) AND payload NOT LIKE ?',
+                       (*NOISY_EVENT_KINDS, '%"browser_hash":%'))
             cutoff = (datetime.now(timezone.utc) - timedelta(days=EVENT_RETENTION_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
             db.execute('DELETE FROM user_events WHERE created_at < ?', (cutoff,))
             db.execute("DELETE FROM notification_outbox WHERE state IN ('sent','failed') AND created_at < ?",
@@ -4922,7 +4950,9 @@ def log_pruner_loop():
 
 
 def log_event(db,user_id,kind,**details):
-    if kind not in NOISY_EVENT_KINDS:
+    if has_request_context() and session.get('browser_hash'):
+        details.setdefault('browser_hash',session['browser_hash'])
+    if kind not in NOISY_EVENT_KINDS or details.get('browser_hash'):
         db.execute('INSERT INTO user_events(user_id,kind,payload) VALUES(?,?,?)',
                    (user_id,kind,json.dumps(details,ensure_ascii=False)))
     notification_details = dict(details)
@@ -5298,6 +5328,19 @@ def mines_prize(amount, seed=None, gifts=None, models=None):
 def mines_preview_seed(db, uid):
     row = db.execute('SELECT id FROM rounds WHERE user_id=? ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
     return f'{uid}:{row["id"] if row else 0}'
+
+
+def award_rotated_gift(db, uid, prize, round_id=None, bonus_origin=False, source='game'):
+    price = int(prize.get('price_cents') or ton_to_cents(prize['price_ton']))
+    ref = str(prize.get('id') or '')
+    base, _, ref_model = ref.partition(GIFT_MODEL_SEP)
+    model = str(prize.get('model') or ref_model)
+    bo, br, bp = bonus_origin_values(price, bonus_origin)
+    return db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
+                          fragment_model,bonus_origin,bonus_unlock_required,bonus_unlock_progress)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                      (uid, str(prize.get('base_id') or base), prize['name'], prize['image_url'], price,
+                       source, round_id, model, bo, br, bp))
 
 
 def demo_mines_preview_seed(uid, record):
@@ -6790,12 +6833,12 @@ def admin_save_rolls():
                     return error('Шанс: 1–10000; Boost: от 1 до 3.')
                 eid=str(item.get('id') or secrets.token_hex(8))
                 if kind=='gift':
-                    gift=catalog.get(str(item.get('gift_id')))
+                    gift=catalog_gift_ref(str(item.get('gift_id')), list(catalog.values()))
                     if not gift or not gift.get('name') or not gift.get('image_match') or not gift.get('price_ton'):
                         return error('Подарок отсутствует в каталоге Portal или его PNG не найден.')
                     entries.append(dict(id=eid,kind=kind,weight=weight,gift_id=str(gift['id']),
                                         name=str(gift['name'])[:140],image_url=safe_image(gift.get('image_url')),
-                                        price=ton_to_cents(gift['price_ton'])))
+                                        price=ton_to_cents(gift['price_ton']),model=gift.get('model',''),base_id=gift.get('base_id','')))
                 else:
                     entries.append(dict(id=eid,kind=kind,weight=weight,
                                         name='Boost ×'+f'{boost:g}' if kind=='boost' else 'Без подарка',
@@ -6837,8 +6880,7 @@ def spin_roll(roll_id):
         if not updated.rowcount: return error('Недостаточно TON.')
         spin_id=secrets.token_hex(16)
         if entry['kind']=='gift':
-            db.execute('INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,?)',
-                       (session['uid'],entry['gift_id'],entry['name'],entry['image_url'],entry['price'],'roll'))
+            award_rotated_gift(db, session['uid'], dict(entry, id=entry['gift_id'], price_ton=entry['price']/100), source='roll')
         db.execute('INSERT INTO roll_spins(id,user_id,roll_id,price,outcome,gift_name) VALUES(?,?,?,?,?,?)',
                    (spin_id,session['uid'],roll_id,roll['price'],entry['kind'],entry['name'] if entry['kind']=='gift' else ''))
         proof=fairness_complete_action(db,proof,spin_id,fair_cursor,{
@@ -10040,7 +10082,7 @@ def public_user_profile(user_id):
             max_mines_x = max(max_mines_x, mult)
             gift_price = int(row['win_gift_price'] or 0)
             total = int(row['win_total'] or row['payout'] or 0)
-            candidate_price = gift_price or total
+            candidate_price = gift_price if row['win_gift_name'] else 0
             if (show_black or not gift_black_background({'name': row['win_gift_name']})) and drop_is_after_override(row['created_at']) and candidate_price > 0 and (not mines_drop or candidate_price > mines_drop['price_cents']):
                 mines_drop = dict(price_cents=candidate_price,
                                   name=row['win_gift_name'] or 'Выигрыш Mines',
@@ -10113,12 +10155,12 @@ def public_user_profile(user_id):
                 continue
             crash_wins += 1
             max_crash_x = max(max_crash_x, float(row['cashout_x100'] or 0) / 100)
-            value = int(row['prize_price'] or 0) or int(row['payout'] or 0)
-            if value > 0 and drop_is_after_override(row['created_at']) and (not crash_drop or value > crash_drop['price_cents']):
+            value = int(row['prize_price'] or 0) if row['prize_name'] else 0
+            if value > 0 and (show_black or not gift_black_background({'name': row['prize_name']})) and drop_is_after_override(row['created_at']) and (not crash_drop or value > crash_drop['price_cents']):
                 crash_drop = dict(price_cents=value, name=row['prize_name'] or 'Выигрыш Crash',
                                   image_url=row['prize_image'] or '', source='Crash')
 
-        limbo_rows = db.execute("""SELECT multiplier_x100,won,payout,created_at
+        limbo_rows = db.execute("""SELECT multiplier_x100,won,payout,created_at,prize_name,prize_image,prize_price
                                   FROM limbo_bets WHERE user_id=? ORDER BY id DESC""", (user_id,)).fetchall()
         limbo_count, limbo_wins, max_limbo_x, limbo_drop = len(limbo_rows), 0, 0.0, None
         for row in limbo_rows:
@@ -10126,9 +10168,9 @@ def public_user_profile(user_id):
                 continue
             limbo_wins += 1
             max_limbo_x = max(max_limbo_x, int(row['multiplier_x100'] or 0) / 100)
-            value = int(row['payout'] or 0)
+            value = int(row['prize_price'] or 0) if row['prize_name'] else 0
             if value > 0 and drop_is_after_override(row['created_at']) and (not limbo_drop or value > limbo_drop['price_cents']):
-                limbo_drop = dict(price_cents=value, name='Выигрыш Limbo', image_url='', source='Limbo')
+                limbo_drop = dict(price_cents=value, name=row['prize_name'], image_url=row['prize_image'] or '', source='Limbo')
 
         road_rows = db.execute("""SELECT state,mult_x100,payout,prize_name,prize_image,prize_price,created_at
                                   FROM road_games WHERE user_id=? AND state IN ('cashed','won','lost')""", (user_id,)).fetchall()
@@ -10138,8 +10180,8 @@ def public_user_profile(user_id):
                 continue
             road_wins += 1
             max_road_x = max(max_road_x, int(row['mult_x100'] or 0) / 100)
-            value = int(row['prize_price'] or 0) or int(row['payout'] or 0)
-            if value > 0 and drop_is_after_override(row['created_at']) and (not road_drop or value > road_drop['price_cents']):
+            value = int(row['prize_price'] or 0) if row['prize_name'] else 0
+            if value > 0 and (show_black or not gift_black_background({'name': row['prize_name']})) and drop_is_after_override(row['created_at']) and (not road_drop or value > road_drop['price_cents']):
                 road_drop = dict(price_cents=value, name=row['prize_name'] or 'Выигрыш Hamster Road',
                                  image_url=row['prize_image'] or '', source='Hamster Road')
 
@@ -10149,7 +10191,7 @@ def public_user_profile(user_id):
         if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
-        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, arena_drop, hilo_drop, crash_drop, limbo_drop, road_drop) if x),
+        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, hilo_drop, crash_drop, limbo_drop, road_drop) if x),
                        key=lambda x: x['price_cents'], default=None)
 
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
@@ -10683,8 +10725,8 @@ def freebet_keyboard(code, channel=None):
     channel = channel or post_channel_settings()
     rows = []
     if channel.get('join_url'):
-        rows.append([{'text': '📢 Подписаться', 'url': channel['join_url'], 'style': 'primary'}])
-    rows.append([{'text': '✅ Проверить подписку', 'callback_data': f'freebet_check:{code}', 'style': 'success'}])
+        rows.append([{'text': bot_plain_text('bot_label_a9e4da9d2d',64), 'url': channel['join_url'], 'style': 'primary'}])
+    rows.append([{'text': bot_plain_text('bot_label_716f13def3',64), 'callback_data': f'freebet_check:{code}', 'style': 'success'}])
     return {'inline_keyboard': rows}
 
 
@@ -10985,24 +11027,24 @@ def freebet_reward_html(reward, fallback=''):
 def try_activate_freebet(user_id, code):
     code = str(code or '').strip().upper()
     if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
-        return {'status': 'invalid', 'text': 'Фрибет не найден.'}
+        return {'status': 'invalid', 'text': bot_plain_text('bot_label_74d8091fb3',3500)}
     with connect() as db:
         fb = db.execute('SELECT * FROM freebets WHERE code=?', (code,)).fetchone()
         if not fb or not fb['active']:
-            return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+            return {'status': 'invalid', 'text': bot_plain_text('bot_label_72cf9df40b',3500)}
         if int(fb['author_user_id'] or 0) == int(user_id):
-            return {'status': 'condition', 'text': 'Автор не может активировать собственный фрибет.'}
+            return {'status': 'condition', 'text': bot_plain_text('bot_label_ec6bfe158c',3500)}
         if fb['expires_at']:
             expires = parse_datetime_utc(fb['expires_at'])
             if expires and expires <= datetime.now(timezone.utc):
-                return {'status': 'expired', 'text': 'Срок действия этого фрибета закончился.'}
+                return {'status': 'expired', 'text': bot_plain_text('bot_label_8093c49156',3500)}
         if db.execute('SELECT 1 FROM freebet_redemptions WHERE code=? AND user_id=?', (code, user_id)).fetchone():
-            return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
+            return {'status': 'used', 'text': bot_plain_text('bot_label_4ac92080d6',3500), 'reply_markup': freebet_play_keyboard()}
         if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
-            return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
+            return {'status': 'exhausted', 'text': bot_plain_text('bot_label_a345d2f3b2',3500)}
         user = db.execute('SELECT turnover_cents FROM users WHERE id=?', (user_id,)).fetchone()
         if not user:
-            return {'status': 'invalid', 'text': 'Сначала запустите бота заново.'}
+            return {'status': 'invalid', 'text': bot_plain_text('bot_label_7642a0d39f',3500)}
         turnover = int(user['turnover_cents'] or 0)
         current_level = level_number(db, turnover)
         if int(fb['min_level'] or 0) and current_level < int(fb['min_level']):
@@ -11029,13 +11071,13 @@ def try_activate_freebet(user_id, code):
         db.execute('BEGIN IMMEDIATE')
         fb = db.execute('SELECT * FROM freebets WHERE code=?' + (' FOR UPDATE' if DATABASE_URL else ''), (code,)).fetchone()
         if not fb or not fb['active']:
-            return {'status': 'invalid', 'text': 'Фрибет не найден или отключён.'}
+            return {'status': 'invalid', 'text': bot_plain_text('bot_label_72cf9df40b',3500)}
         if int(fb['author_user_id'] or 0) == int(user_id):
-            return {'status': 'condition', 'text': 'Автор не может активировать собственный фрибет.'}
+            return {'status': 'condition', 'text': bot_plain_text('bot_label_ec6bfe158c',3500)}
         if db.execute('SELECT 1 FROM freebet_redemptions WHERE code=? AND user_id=?', (code, user_id)).fetchone():
-            return {'status': 'used', 'text': 'Вы уже получили этот фрибет. Награда уже находится в GemDrop.', 'reply_markup': freebet_play_keyboard()}
+            return {'status': 'used', 'text': bot_plain_text('bot_label_4ac92080d6',3500), 'reply_markup': freebet_play_keyboard()}
         if int(fb['max_uses'] or 0) > 0 and int(fb['uses_count'] or 0) >= int(fb['max_uses'] or 0):
-            return {'status': 'exhausted', 'text': 'Фрибет закончился — все доступные активации уже получили пользователи.'}
+            return {'status': 'exhausted', 'text': bot_plain_text('bot_label_a345d2f3b2',3500)}
         min_deposit = int(fb['min_deposit'] or 0)
         if min_deposit and confirmed_deposit_total(db, user_id) < min_deposit:
             return {'status': 'condition', 'text': f'Для этого фрибета нужен подтверждённый депозит от {min_deposit/100:.2f} TON.'}
@@ -11361,7 +11403,7 @@ def start_buttons_for_api(settings):
     rows = settings.get('buttons') if isinstance(settings, dict) else None
     if isinstance(rows, list):
         return rows
-    return [[{'text': '🎮 Играть', 'type': 'web_app', 'value': '', 'style': 'primary'}]]
+    return [[{'text': bot_plain_text('bot_label_213c9c38aa',3500), 'type': 'web_app', 'value': '', 'style': 'primary'}]]
 
 
 def build_start_keyboard(uid, referrer=None):
@@ -11412,10 +11454,10 @@ def build_start_keyboard(uid, referrer=None):
         if built:
             inline.append(built)
     if not inline:
-        inline = [[{'text': '🎮 Играть', 'web_app': {'url': play_url}, 'style': 'primary'}]]
+        inline = [[{'text': bot_plain_text('bot_label_213c9c38aa',64), 'web_app': {'url': play_url}, 'style': 'primary'}]]
     if uid in ADMIN_IDS:
-        inline.append([{'text': 'Определить ID эмодзи', 'callback_data': 'admin:emoji'}])
-        inline.append([{'text': 'Импортировать пост', 'callback_data': 'admin:post'}])
+        inline.append([{'text': bot_plain_text('bot_label_232c31695d',64), 'callback_data': 'admin:emoji'}])
+        inline.append([{'text': bot_plain_text('bot_label_a66fb0b07a',64), 'callback_data': 'admin:post'}])
     return {'inline_keyboard': inline}
 
 
@@ -12362,9 +12404,9 @@ def admin_post_draft():
 
 
 def emoji_admin_keyboard():
-    return {'inline_keyboard': [[{'text': 'Определить ещё', 'callback_data': 'admin:emoji'}],
-                                [{'text': 'Импортировать пост', 'callback_data': 'admin:post'}],
-                                [{'text': 'Скопировать пост для рассылки', 'callback_data': 'admin:copypost'}]]}
+    return {'inline_keyboard': [[{'text': bot_plain_text('bot_label_117d58bca5',64), 'callback_data': 'admin:emoji'}],
+                                [{'text': bot_plain_text('bot_label_a66fb0b07a',64), 'callback_data': 'admin:post'}],
+                                [{'text': bot_plain_text('bot_label_10c4071687',64), 'callback_data': 'admin:copypost'}]]}
 
 
 def handle_admin_emoji_message(message):
@@ -12378,12 +12420,10 @@ def handle_admin_emoji_message(message):
         save_document('bot_input:' + str(uid), {'mode': mode})
         if mode == 'copypost':
             return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
-                        text='Перешлите сюда пост из канала (альбом — целиком). Я запомню его: в админке в «Рассылке» '
-                             'появится кнопка «Скопировать пост из канала», и пост уйдёт пользователям с premium emoji, '
-                             'форматированием и вложениями. Для выхода: /cancel.')
+                        text=render_notice('bot_input_fadb73626b'),parse_mode='HTML')
         return dict(method='sendMessage', chat_id=uid,
-                    text=('Отправьте или перешлите пост с premium emoji. Его текст и форматирование появятся в редакторе Post. Текущий черновик будет заменён.' if mode == 'post' else
-                          'Пришлите premium emoji, сообщение с ними или custom emoji стикер. Для выхода: /cancel.' if mode else 'Готово. Режим ввода закрыт.'))
+                    text=(render_notice('bot_input_cf990673b8') if mode == 'post' else
+                          render_notice('bot_input_c97d352ebf') if mode else render_notice('bot_input_89fa1ac94b')),parse_mode='HTML')
     if command.startswith('/'):
         return None
     mode = (read_document('bot_input:' + str(uid)) or {}).get('mode')
@@ -12393,31 +12433,30 @@ def handle_admin_emoji_message(message):
         src_id = origin.get('message_id') if origin.get('type') == 'channel' else message.get('forward_from_message_id')
         if not src_chat or not src_id:
             return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
-                        text='Это не пересланный пост канала. Перешлите сообщение прямо из канала (у него должна быть подпись канала).')
+                        text=render_notice('bot_input_94490dacb3'),parse_mode='HTML')
         entry = record_channel_post(src_chat, src_id, message) or {}
         premium = ' ✨ premium emoji' if entry.get('premium') else ''
         return dict(method='sendMessage', chat_id=uid, reply_markup=emoji_admin_keyboard(),
-                    text=f'Пост сохранён для рассылки ({entry.get("chat_title", "канал")}, сообщений: {entry.get("count", 1)}){premium}.\n'
-                         'Откройте в админке Рассылка → «Скопировать пост из канала».')
+                    text=render_notice('bot_channel_saved',{'channel':entry.get('chat_title','канал'),'count':entry.get('count',1),'premium':premium}),parse_mode='HTML')
     html, emojis = telegram_message_html(message)
     if not mode and not emojis:
         return None
     remember_emojis(emojis)
     if mode == 'post':
         if not html.strip() and not message.get('photo'):
-            return dict(method='sendMessage', chat_id=uid, text='Пришлите текст поста или фото с подписью.')
+            return dict(method='sendMessage', chat_id=uid, text=render_notice('bot_input_9b379119a7'),parse_mode='HTML')
         photo = (message.get('photo') or [{}])[-1].get('file_id', '')
-        save_document('post_draft:' + str(uid), dict(text=html, buttons=[], image=photo, silent=False, protect=False))
+        save_document('post_draft:' + str(uid), dict(text=html, buttons=[], image=photo, silent=False, protect=False,parse_mode='HTML'))
         save_document('bot_input:' + str(uid), {'mode': ''})
-        text = 'Пост сохранён в черновик. Откройте Post → «Загрузить сохранённый». Альбом присылайте по одному фото; остальные фото можно добавить в редакторе.'
+        text = render_notice('bot_input_9a76d2c4f1')
     elif emojis:
         unique = {e['id']: e for e in emojis}
-        text = '<b>ID эмодзи сохранены</b>\n\n' + '\n'.join(escape(e['emoji']) + ' — <code>' + e['id'] + '</code>' for e in list(unique.values())[:40])
+        text = render_notice('bot_input_2a27b4713c') + '\n'.join(escape(e['emoji']) + ' — <code>' + e['id'] + '</code>' for e in list(unique.values())[:40])
         if len(unique) > 40:
-            text += '\nВсе остальные ID также сохранены в каталоге сайта.'
-        text += '\n\nОни доступны в разделе Post, в тексте и на кнопках.'
+            text += render_notice('bot_input_6ae697d626')
+        text += render_notice('bot_input_cf1d3fe3c0')
     else:
-        text = 'Custom emoji не найдены. У обычных Unicode-эмодзи нет Telegram custom emoji ID. Пришлите именно premium emoji или перешлите исходное сообщение.'
+        text = render_notice('bot_input_60e6ea16df')
     return dict(method='sendMessage', chat_id=uid, text=text, parse_mode='HTML', reply_markup=emoji_admin_keyboard())
 
 def normalize_post_buttons(raw):
@@ -12544,6 +12583,10 @@ def render_notice(key, values=None, html_values=None):
         except ValueError:
             app.logger.warning('Notice template %s is invalid, default text used', key)
     return _notice_fill(spec['text'], values, html_values)
+
+
+def bot_plain_text(key, limit=3500):
+    return unescape(re.sub(r'<[^>]+>', '', render_notice(key)))[:limit]
 
 
 def notice_validate_text(key, text):
@@ -12824,7 +12867,7 @@ def notify_giveaway_wins_async(user_id, giveaway_title, winnings, db=None):
     body = render_notice('giveaway_win', {'title': str(giveaway_title)}, {'prizes': '\n'.join(lines)})
     keyboard = []
     if WEBAPP_URL.startswith('https://'):
-        keyboard.append([{'text': '🎁 Открыть инвентарь', 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
+        keyboard.append([{'text': bot_plain_text('bot_label_6f808af467',64), 'web_app': {'url': WEBAPP_URL + '/?open=profile'}}])
     seen = set()
     for win in winnings:
         url = str(win.get('fragment_url') or '')
@@ -13347,7 +13390,7 @@ def road_pay(db, uid, game, payout, state, mult_x100):
     gift (the rest goes to the balance), otherwise it stays in TON - same as Hi-Lo/Mines."""
     bonus_origin = bool(int(game['bonus_used'] or 0))
     label = 'Hamster Road x%.2f' % (mult_x100 / 100)
-    prize_info = crash_prize_preview(payout)
+    prize_info = crash_prize_preview(payout, seed=f'road:{uid}:{game["id"]}', db=db)
     remainder = max(0, payout - prize_info['price_cents']) if prize_info else payout
     if prize_info:
         moved = db.execute("""UPDATE road_games SET state=?,steps=?,mult_x100=?,payout=?,prize_name=?,prize_image=?,prize_price=?,
@@ -13362,17 +13405,13 @@ def road_pay(db, uid, game, payout, state, mult_x100):
         raise ValueError('Раунд уже завершён.')
     prize = None
     if prize_info:
-        bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
-        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                      VALUES(?,?,?,?,?,'game',?,?,?,?)""",
-                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id'], bo, br, bp))
+        award_rotated_gift(db, uid, prize_info, game['id'], bonus_origin)
         if remainder:
             credit_game_balance(db, uid, remainder, bonus_origin)
             record_transaction(db, uid, 'road_win', remainder, 'road_game', game['id'],
                                f'{label}: остаток после подарка {prize_info["name"]}')
         record_transaction(db, uid, 'road_gift_win', 0, 'road_game', game['id'], f'{prize_info["name"]} · {label}')
-        prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
+        prize = {key: value for key, value in prize_info.items() if key != 'price_cents'}
     else:
         credit_game_balance(db, uid, payout, bonus_origin)
         record_transaction(db, uid, 'road_win', payout, 'road_game', game['id'], label)
@@ -13571,17 +13610,19 @@ def limbo_config():
 
 
 def limbo_row_view(row):
-    return dict(id=int(row['id']), bet=int(row['bet']) / 100, chance=int(row['chance_bp']) / 100,
+    row = dict(row)
+    prize = crash_gift_view(row.get('prize_name'),row.get('prize_image'),row.get('prize_price',0)) if row.get('prize_name') else None
+    return dict(prize=prize, remainder=max(0,int(row['payout'])-int(row.get('prize_price',0)))/100, id=int(row['id']), bet=int(row['bet']) / 100, chance=int(row['chance_bp']) / 100,
                 multiplier=int(row['multiplier_x100']) / 100, roll=int(row['roll']) / 100,
                 won=bool(row['won']), payout=int(row['payout']) / 100, created_at=str(row['created_at'] or ''))
 
 
 def limbo_feed(db, user_id):
-    wins = db.execute("""SELECT b.id,b.bet,b.chance_bp,b.multiplier_x100,b.roll,b.won,b.payout,b.created_at,
+    wins = db.execute("""SELECT b.id,b.bet,b.chance_bp,b.multiplier_x100,b.roll,b.won,b.payout,b.created_at,b.prize_name,b.prize_image,b.prize_price,
                                 u.name,u.photo_url
                          FROM limbo_bets b JOIN users u ON u.id=b.user_id
                          WHERE b.won=1 ORDER BY b.id DESC LIMIT ?""", (LIMBO_FEED_SIZE,)).fetchall()
-    mine = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at
+    mine = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at,prize_name,prize_image,prize_price
                          FROM limbo_bets WHERE user_id=? ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
     feed = []
     for row in wins:
@@ -13616,9 +13657,15 @@ def demo_limbo_play(data):
     misc = dict(record.get('demo_misc') or {})
     row = dict(id=int(time.time() * 1000), bet=bet, chance_bp=chance * 100, multiplier_x100=mult_x100, roll=roll,
                won=int(won), payout=payout, created_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
+    if payout:
+        prize = crash_prize_preview(payout, seed=f'demo-limbo:{uid}:{row["id"]}')
+        if prize:
+            demo_add_catalog_gift(record,prize,'creator_demo_limbo')
+            record['demo_balance_cents'] -= prize['price_cents']
+            row.update(prize_name=prize['name'],prize_image=prize['image_url'],prize_price=prize['price_cents'])
     misc['limbo'] = ([row] + list(misc.get('limbo') or []))[:20]
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
-                              'demo_turnover_cents': record['demo_turnover_cents'], 'demo_misc': misc})
+                              'demo_turnover_cents': record['demo_turnover_cents'], 'demo_misc': misc, 'demo_inventory':record.get('demo_inventory',[])})
     return limbo_row_view(row)
 
 
@@ -13684,8 +13731,16 @@ def limbo_play():
         new_level = increase_turnover(db, uid, bet, withdrawal_wager=not bool(bonus_used),
                                       xp_factor=(0.2 if bonus_used else 1.0))
         if payout:
-            credit_game_balance(db, uid, payout, bool(bonus_used))
-            record_transaction(db, uid, 'limbo_win', payout, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
+            prize = crash_prize_preview(payout, seed=f'limbo:{uid}:{bet_id}', db=db)
+            remainder = payout
+            if prize:
+                award_rotated_gift(db, uid, prize, bet_id, bool(bonus_used))
+                db.execute('UPDATE limbo_bets SET prize_name=?,prize_image=?,prize_price=? WHERE id=?', (prize['name'],prize['image_url'],prize['price_cents'],bet_id))
+                remainder -= prize['price_cents']
+                record_transaction(db, uid, 'limbo_gift_win', 0, 'limbo', bet_id, prize['name'])
+            if remainder:
+                credit_game_balance(db, uid, remainder, bool(bonus_used))
+                record_transaction(db, uid, 'limbo_win', remainder, 'limbo', bet_id, 'Limbo · x%.2f' % (mult_x100 / 100))
         elif not bonus_used:
             credit_main_loss_cashback(db, uid, bet, 'limbo', bet_id, f'Limbo · шанс {chance}%')
         outcome = dict(upper=LIMBO_ROLL_RANGE, ticket=roll, roll=roll, chance_bp=chance * 100, won=bool(won))
@@ -13701,10 +13756,10 @@ def limbo_play():
     if new_level:
         notify_level_up_async(uid, new_level)
     with connect() as db:
-        row = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at
+        row = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at,prize_name,prize_image,prize_price
                             FROM limbo_bets WHERE id=?""", (bet_id,)).fetchone()
         fair = fairness_public(fairness_get(db, proof_id=proof['id']), True)
-    return jsonify(ok=True, result=limbo_row_view(row), fairness=fair, user=profile(), new_level=new_level)
+    return jsonify(ok=True, result=dict(limbo_row_view(row),bonus_origin=bool(bonus_used)), fairness=fair, user=profile(), new_level=new_level)
 
 
 
@@ -13785,8 +13840,9 @@ def arena_award_gift(db, user_id, snapshot, round_id):
     """Give a staked gift to the round winner as a brand-new inventory item."""
     row = dict(snapshot.get('row') or {})
     if not row:
-        row = dict(gift_id='arena', gift_name=str(snapshot.get('name') or 'Подарок'),
-                   image_url=str(snapshot.get('image_url') or ''), floor_price=int(snapshot.get('price') or 0))
+        row = dict(gift_id=str(snapshot.get('gift_id') or 'arena'), gift_name=str(snapshot.get('name') or 'Подарок'),
+                   image_url=str(snapshot.get('image_url') or ''), floor_price=int(snapshot.get('price') or 0),
+                   fragment_model=str(snapshot.get('model') or ''))
     row.pop('id', None)
     row.pop('created_at', None)
     row['source'] = 'arena_win'
@@ -14419,21 +14475,20 @@ def arena_bot_roll_cents(h):
 
 
 def arena_bot_random_gift(h, lo=None, hi=None):
-    """A random catalog gift priced lo..hi cents (default 0.10 TON .. opening cap). None when nothing fits."""
     lo = ARENA_BOT_MIN_CENTS if lo is None else int(lo)
     hi = ARENA_BOT_MAX_CENTS if hi is None else int(hi)
-    try:
-        pool = []
-        for g in read_catalog().get('gifts', []):
-            price = ton_to_cents(g.get('price_ton') or 0)
-            if lo <= price <= hi and g.get('name') and safe_image(g.get('image_url')):
-                pool.append((price, g))
-    except Exception:
+    index = mines_model_pool()
+    a, b = _mines_bisect_right(index['prices'], lo-1), _mines_bisect_right(index['prices'], hi)
+    c, d = _mines_bisect_right(index['base_prices'], lo-1), _mines_bisect_right(index['base_prices'], hi)
+    if b > a and (d <= c or mines_model_roll(f'arena:{h}')):
+        price, gid, model, name = index['rows'][a+h%(b-a)]
+        gift = dict(id=gid, name=f'{name} · {model}', model=model, image_url=gift_model_image(name,model))
+    elif d > c:
+        price, gid, gift = index['bases'][c+h%(d-c)]
+    else:
         return None
-    if not pool:
-        return None
-    price, g = pool[h % len(pool)]
-    return dict(name=str(g['name'])[:140], image_url=safe_image(g.get('image_url')), price=price, xp=False, house=True)
+    return dict(name=gift['name'][:140], image_url=gift['image_url'], price=price,
+                model=gift.get('model',''), gift_id=gid, xp=False, house=True)
 
 
 def arena_bot_dice(round_id, started):
@@ -14639,7 +14694,7 @@ def crash_promo_loss(db, bet, round_id):
 
 
 def crash_settle_round(db, row):
-    """Close a finished round exactly once and pay auto cash-outs (always in TON)."""
+    """Close once; auto cash-outs use their exact target and the same gift preview."""
     claimed = db.execute("UPDATE crash_rounds SET state='crashed' WHERE id=? AND state='open'", (row['id'],))
     if not claimed.rowcount:
         return
@@ -14658,9 +14713,19 @@ def crash_settle_round(db, row):
                 elif int(bet['user_id']) == _arena_bot['uid']:
                     pass   # house bot: its stake was never taken, so its win is not paid out of anyone's balance
                 else:
-                    credit_game_balance(db, bet['user_id'], payout, bool(int(bet['bonus_used'] or 0)))
-                    record_transaction(db, bet['user_id'], 'crash_win', payout, 'crash_round', row['id'],
-                                       f'Crash x{auto/100:.2f} (авто)')
+                    bonus = bool(int(bet['bonus_used'] or 0))
+                    prize = crash_prize_preview(payout, seed=f'crash:{bet["user_id"]}:{row["id"]}', db=db)
+                    remainder = payout
+                    if prize:
+                        item = award_rotated_gift(db, bet['user_id'], prize, row['id'], bonus)
+                        db.execute('UPDATE crash_bets SET prize_inventory_id=?,prize_name=?,prize_image=?,prize_price=? WHERE round_id=? AND user_id=?',
+                                   (item.lastrowid, prize['name'], prize['image_url'], prize['price_cents'], row['id'], bet['user_id']))
+                        remainder -= prize['price_cents']
+                        record_transaction(db, bet['user_id'], 'crash_gift_win', 0, 'crash_round', row['id'], prize['name'])
+                    if remainder:
+                        credit_game_balance(db, bet['user_id'], remainder, bonus)
+                        record_transaction(db, bet['user_id'], 'crash_win', remainder, 'crash_round', row['id'],
+                                           f'Crash x{auto/100:.2f} (авто)')
         else:
             lost = db.execute("UPDATE crash_bets SET state='lost' WHERE round_id=? AND user_id=? AND state='active'",
                               (row['id'], bet['user_id']))
@@ -14777,7 +14842,11 @@ def crash_gift_view(name, image, price_cents):
     image = str(image or '')
     if not (image.startswith('https://') or image.startswith('/static/')) or len(image) > 1000:
         image = ''
-    return dict(name=name or '', image_url=image, price_ton=(price_cents or 0) / 100)
+    gift = dict(name=name or '', image_url=image, price_ton=(price_cents or 0) / 100)
+    if ' · ' in str(name or ''):
+        gift['base_name'], gift['model'] = str(name).split(' · ', 1)
+        gift['model_png_url'] = image
+    return gift
 
 
 def crash_bet_gift_view(row):
@@ -14803,6 +14872,7 @@ def crash_user_view(row):
         prize = crash_gift_view(row['prize_name'], row['prize_image'], row['prize_price'])
     return dict(bet=row['bet'] / 100, auto=(row['auto_x100'] or 0) / 100, state=row['state'],
                 cashout=(row['cashout_x100'] or 0) / 100, payout=(row['payout'] or 0) / 100,
+                remainder=max(0, int(row['payout'] or 0)-int(row['prize_price'] or 0))/100 if prize else 0,
                 bet_type=(row['bet_type'] if is_gift else 'ton'), promo=is_promo, promo_min=CRASH_PROMO_MIN_X100 / 100,
                 bonus_origin=bool(int(row['bonus_used'] or 0)),
                 bet_gift=crash_bet_gift_view(row) if is_gift else None,
@@ -14815,33 +14885,26 @@ def crash_min_prize_cents():
         gifts = read_catalog()['gifts']
     except (OSError, ValueError, KeyError):
         return 0
-    prices = []
-    for gift in gifts:
-        try:
-            if not gift.get('id') or not gift.get('name') or not gift.get('image_match'):
-                continue
-            price = ton_to_cents(gift['price_ton'])
-            if price > 0:
-                prices.append(price)
-        except (KeyError, TypeError, ValueError, InvalidOperation):
-            continue
+    index = mines_model_pool(gifts)
+    prices = [pool[0] for pool in (index['prices'], index['base_prices']) if pool]
     return min(prices) if prices else 0
 
 
-def crash_prize_preview(amount_cents, gifts=None):
-    """The gift a player would receive for this cash-out (Mines rules: best gift not above the amount)."""
-    prize = prize_for(int(amount_cents), gifts)
+def crash_prize_preview(amount_cents, gifts=None, seed=None, db=None):
+    """The exact model or collection gift affordable at the cash-out amount."""
+    index = mines_model_pool(gifts, db)
+    prize = mines_prize(int(amount_cents), seed=seed or f'prize:{int(amount_cents)}', models=index)
     if not prize:
         return None
     price = ton_to_cents(prize['price_ton'])
-    return dict(id=str(prize['id']), name=str(prize['name']), image_url=safe_image(prize.get('image_url')),
-                price_ton=price / 100, price_cents=price)
+    return dict(prize, price_ton=price / 100, price_cents=price)
 
 
 def crash_state_payload(db, uid, now):
     row = crash_latest(db)
     phase = crash_phase(row, now)
-    payload = dict(now=now, phase=phase,
+    mult = crash_mult_x100(row, now)
+    payload = dict(now=now, phase=phase, multiplier_x100=mult, multiplier=mult/100,
                    round=dict(id=row['id'], open_at=row['open_at'], launch_at=row['launch_at'],
                               fairness=fairness_view(db, 'crash', row['id'], phase == 'crashed')),
                    growth=CRASH_GROWTH, boom_ms=CRASH_BOOM_MS, betting_ms=CRASH_BETTING_MS,
@@ -15023,7 +15086,14 @@ def crash_prize():
         amount = int(round(float(request.args.get('amount', '0')) * 100))
     except (TypeError, ValueError):
         return error('Неверная сумма.')
-    prize = crash_prize_preview(max(0, amount))
+    with connect() as db:
+        if creator_demo_active(session['uid']):
+            rid = (creator_record(session['uid']).get('demo_crash') or {}).get('id', 0)
+            seed = f'demo-crash:{session["uid"]}:{rid}'
+        else:
+            row = crash_latest(db)
+            seed = f'crash:{session["uid"]}:{row["id"] if row else 0}'
+        prize = crash_prize_preview(max(0, amount), seed=seed, db=db)
     return jsonify(prize=prize, min_nft=crash_min_prize_cents() / 100)
 
 
@@ -15053,6 +15123,9 @@ def crash_cashout():
             db.rollback()
             return error('Ракета уже взорвалась.' if crash_phase(row, now) == 'crashed' else 'Раунд ещё не стартовал.', 409)
         mult = crash_mult_x100(row, now)
+        auto = int(mine['auto_x100'] or 0)
+        if 101 <= auto <= mult and auto <= int(row['crash_x100']):
+            mult = auto
         if mult >= int(row['crash_x100']):
             db.rollback()
             return error('Ракета уже взорвалась.', 409)
@@ -15075,7 +15148,7 @@ def crash_cashout():
                            state=crash_state_payload(db, uid, crash_ms()), user=profile())
         prize_info = None
         if want_gift:
-            prize_info = crash_prize_preview(payout)
+            prize_info = crash_prize_preview(payout, seed=f'crash:{uid}:{row["id"]}', db=db)
             if not prize_info:
                 db.rollback()
                 return error('Сумма ещё ниже самого дешёвого подарка — заберите TON.', 409)
@@ -15093,12 +15166,7 @@ def crash_cashout():
             return error('Ставка уже закрыта.', 409)
         bonus_origin = bool(int(mine['bonus_used'] or 0))
         if prize_info:
-            bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
-            cursor = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                                   bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                                   VALUES(?,?,?,?,?,'game',?,?,?,?)""",
-                                (uid, prize_info['id'], prize_info['name'], prize_info['image_url'],
-                                 prize_info['price_cents'], row['id'], bo, br, bp))
+            cursor = award_rotated_gift(db, uid, prize_info, row['id'], bonus_origin)
             db.execute('UPDATE crash_bets SET prize_inventory_id=? WHERE round_id=? AND user_id=?',
                        (cursor.lastrowid, row['id'], uid))
             if remainder:
@@ -15107,7 +15175,7 @@ def crash_cashout():
                                    f'Crash x{mult/100:.2f}: остаток после подарка {prize_info["name"]}')
             record_transaction(db, uid, 'crash_gift_win', 0, 'crash_round', row['id'],
                                f'{prize_info["name"]} · x{mult/100:.2f}')
-            prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
+            prize = {key: value for key, value in prize_info.items() if key != 'price_cents'}
         else:
             credit_game_balance(db, uid, payout, bonus_origin)
             record_transaction(db, uid, 'crash_win', payout, 'crash_round', row['id'], f'Crash x{mult/100:.2f}')
@@ -15215,7 +15283,7 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     bonus_origin = bool(int(game['bonus_used'] or 0))
     # The win always arrives as a Telegram gift, the rest goes to the balance.
     # Only if it is below the cheapest gift does it stay in TON.
-    prize_info = crash_prize_preview(payout)
+    prize_info = crash_prize_preview(payout, seed=f'hilo:{uid}:{game["id"]}', db=db)
     if prize_info:
         remainder = max(0, payout - prize_info['price_cents'])
         moved = db.execute("""UPDATE hilo_games SET state='cashed',payout=?,prize_name=?,prize_image=?,prize_price=?,
@@ -15230,17 +15298,13 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     label = f'Hi-Lo x{mult / HILO_MICRO:.2f}'
     prize = None
     if prize_info:
-        bo, br, bp = bonus_origin_values(prize_info['price_cents'], bonus_origin)
-        db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                          bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                      VALUES(?,?,?,?,?,'game',?,?,?,?)""",
-                   (uid, prize_info['id'], prize_info['name'], prize_info['image_url'], prize_info['price_cents'], game['id'], bo, br, bp))
+        award_rotated_gift(db, uid, prize_info, game['id'], bonus_origin)
         if remainder:
             credit_game_balance(db, uid, remainder, bonus_origin)
             record_transaction(db, uid, 'hilo_win', remainder, 'hilo_game', game['id'],
                                f'{label}: остаток после подарка {prize_info["name"]}')
         record_transaction(db, uid, 'hilo_gift_win', 0, 'hilo_game', game['id'], f'{prize_info["name"]} · {label}')
-        prize = dict(name=prize_info['name'], image_url=prize_info['image_url'], price_ton=prize_info['price_ton'])
+        prize = {key: value for key, value in prize_info.items() if key != 'price_cents'}
     else:
         credit_game_balance(db, uid, payout, bonus_origin)
         record_transaction(db, uid, 'hilo_win', payout, 'hilo_game', game['id'], label)
@@ -15343,34 +15407,29 @@ _hilo_tier_cache = dict(at=0, gifts=[])
 
 
 def hilo_tier_gifts():
-    """15 gifts, one per rank: rank 1 is the ~3 TON gift, prices strictly grow up to rank 15."""
-    if time.time() - _hilo_tier_cache['at'] < 60 and _hilo_tier_cache['gifts']:
+    """Rank art includes exact models, with strictly increasing prices."""
+    if time.time()-_hilo_tier_cache['at'] < 60 and _hilo_tier_cache['gifts']:
         return _hilo_tier_cache['gifts']
-    try:
-        pool = [g for g in read_catalog()['gifts']
-                if g.get('name') and safe_image(g.get('image_url')) and not g.get('background_label')]
-    except (OSError, ValueError, KeyError, TypeError):
-        pool = []
-    priced = []
-    for g in pool:
-        try:
-            c = ton_to_cents(g['price_ton'])
-        except Exception:
-            continue
-        if c > 0:
-            priced.append((c, g))
-    priced.sort(key=lambda t: t[0])
+    index = mines_model_pool()
     out, last = [], 0
-    for target in HILO_TIER_TARGETS:
-        cand = [p for p in priced if p[0] > last]
-        if not cand:
-            break
-        best = min(cand, key=lambda p: abs(p[0] - target * 100))
-        last = best[0]
-        out.append(dict(name=str(best[1]['name'])[:140], image_url=safe_image(best[1].get('image_url')),
-                        price_ton=best[0] / 100))
-    if out:
-        _hilo_tier_cache.update(at=time.time(), gifts=out)
+    for rank, target in enumerate(HILO_TIER_TARGETS, 1):
+        choices = []
+        for kind, prices in (('model',index['prices']),('base',index['base_prices'])):
+            low = _mines_bisect_right(prices,last)
+            pos = max(low, _mines_bisect_right(prices,target*100)-1)
+            if pos < len(prices):
+                if pos+1 < len(prices) and abs(prices[pos+1]-target*100) < abs(prices[pos]-target*100):pos+=1
+                choices.append((kind,pos,prices[pos]))
+        preferred = 'model' if mines_model_roll(f'hilo-tier:{rank}') else 'base'
+        pick = next((x for x in choices if x[0]==preferred),choices[0] if choices else None)
+        if not pick:break
+        kind,pos,last = pick
+        if kind=='model':
+            price,gid,model,name=index['rows'][pos]
+            gift=dict(id=gid,name=f'{name} · {model}',base_name=name,model=model,image_url=gift_model_image(name,model),price_ton=price/100)
+        else:gift=dict(index['bases'][pos][2])
+        out.append(gift)
+    _hilo_tier_cache.update(at=time.time(),gifts=out)
     return out
 
 
@@ -15461,7 +15520,7 @@ def hilo_room_settle(db, n, phase):
         prize = None
         if won and not push and total > 0:
             try:
-                prize = crash_prize_preview(total)
+                prize = crash_prize_preview(total, seed=f'hilo-room:{r["user_id"]}:{r["round_no"]}', db=db)
             except Exception:
                 prize = None
         keep_stake = gift_bet and (push or not prize)
@@ -15481,11 +15540,7 @@ def hilo_room_settle(db, n, phase):
         if prize:
             remainder = max(0, total - int(prize['price_cents']))
             bonus_origin = bool(int(r['bonus_used'] or 0))
-            bo, br, bp = bonus_origin_values(prize['price_cents'], bonus_origin)
-            db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,round_id,
-                              bonus_origin,bonus_unlock_required,bonus_unlock_progress)
-                          VALUES(?,?,?,?,?,'game',?,?,?,?)""",
-                       (r['user_id'], prize['id'], prize['name'], prize['image_url'], prize['price_cents'], r['id'], bo, br, bp))
+            award_rotated_gift(db, r['user_id'], prize, r['id'], bonus_origin)
             db.execute('UPDATE hilo_room_bets SET prize_name=?,prize_image=?,prize_price=? WHERE id=?',
                        (prize['name'][:140], prize['image_url'], prize['price_cents'], r['id']))
             record_transaction(db, r['user_id'], 'hilo_gift_win', 0, 'hilo_room', r['id'], f"{prize['name']} · {label}")
@@ -15806,7 +15861,11 @@ def hilo_prize():
         amount = int(round(float(request.args.get('amount', '0')) * 100))
     except (TypeError, ValueError):
         return error('Неверная сумма.')
-    return jsonify(prize=crash_prize_preview(max(0, amount)), min_nft=crash_min_prize_cents() / 100)
+    with connect() as db:
+        game = db.execute("SELECT id FROM hilo_games WHERE user_id=? AND state='active' ORDER BY id DESC LIMIT 1",(session['uid'],)).fetchone()
+        seed = f'hilo:{session["uid"]}:{game["id"] if game else 0}'
+        prize = crash_prize_preview(max(0, amount), seed=seed, db=db)
+    return jsonify(prize=prize, min_nft=crash_min_prize_cents() / 100)
 
 
 @app.post('/api/hilo/start')
@@ -23159,6 +23218,7 @@ def gm_store(gift_id, name, models, status='ok', error=''):
     with _mines_pool_lock:
         _mines_pool_cache['expires'] = 0.0
         _mines_plan_cache.clear()
+    _hilo_tier_cache['at'] = 0
 
 
 def gift_models_for(gift_id):
@@ -24066,7 +24126,7 @@ def telegram_webhook():
         uid = int(callback['from']['id'])
         if callback_data in ('admin:emoji', 'admin:post', 'admin:copypost'):
             if uid not in ADMIN_IDS or ((callback.get('message') or {}).get('chat') or {}).get('type') != 'private':
-                return jsonify(method='answerCallbackQuery', callback_query_id=callback_id, text='Нет доступа.')
+                return jsonify(method='answerCallbackQuery', callback_query_id=callback_id, text=render_notice('bot_reply_88f710877c'))
             try:
                 telegram_api('answerCallbackQuery', {'callback_query_id': callback_id})
             except RuntimeError:
@@ -24076,7 +24136,7 @@ def telegram_webhook():
             return jsonify(**handle_admin_emoji_message(command_message))
         if callback_data.startswith('start:'):
             try:
-                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id, 'text': 'Готово'})
+                telegram_api('answerCallbackQuery', {'callback_query_id': callback_id, 'text': render_notice('bot_callback_done')[:200]})
             except RuntimeError:
                 pass
             return jsonify(ok=True)
@@ -24099,11 +24159,11 @@ def telegram_webhook():
                 return jsonify(ok=True)
             except Exception:
                 app.logger.exception('Freebet callback failed')
-                try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Не удалось проверить фрибет. Повторите попытку.','show_alert':True})
+                try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text': render_notice('bot_freebet_check_failed')[:200],'show_alert':True})
                 except RuntimeError:pass
                 return jsonify(ok=True)
         if callback_data.startswith('post:'):
-            try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text':'Готово'})
+            try:telegram_api('answerCallbackQuery', {'callback_query_id':callback_id,'text': render_notice('bot_callback_done')[:200]})
             except RuntimeError:pass
             return jsonify(ok=True)
         return jsonify(ok=True)
@@ -24123,12 +24183,12 @@ def telegram_webhook():
                 db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                            (sender['id'], sender['id'], 'post_channel_bind_chat', info['chat_id']))
             return jsonify(method='sendMessage', chat_id=chat['id'],
-                           text=f'✅ Чат «{info["title"]}» привязан к GemDrop. Публикации теперь можно отправлять из админ-панели.')
+                           text=render_notice('bot_chat_bound', {'title':info['title']}),parse_mode='HTML')
         except RuntimeError as exc:
             return jsonify(method='sendMessage', chat_id=chat.get('id'),
-                           text='Не удалось привязать чат: ' + str(exc))
+                           text=render_notice('bot_chat_bind_failed', {'error':str(exc)}),parse_mode='HTML')
     if (chat.get('type') == 'private' and command and
-            command[0].split('@')[0].lower() in ('/auf','auf') and isinstance(sender.get('id'), int)):
+            command[0].split('@')[0].lower() in ('/auth','auth','/auf','auf') and isinstance(sender.get('id'), int)):
         code = command[1].strip().upper() if len(command) == 2 else ''
         uid = sender['id']
         success = False
@@ -24150,12 +24210,11 @@ def telegram_webhook():
                     (uid,web_login_hash(code),int(time.time()))).rowcount)
             db.commit()
         return jsonify(method='sendMessage',chat_id=chat['id'],
-                       text=('✅ Вход подтверждён. Вернитесь на страницу GemDrop.' if success else
-                             'Код неверный или срок его действия истёк. Получите новый код на сайте.'))
+                       text=render_notice('web_login_approved' if success else 'web_login_rejected'), parse_mode='HTML')
     if (chat.get('type') == 'private' and command and
             command[0].split('@')[0].lower() == '/paysupport' and isinstance(sender.get('id'), int)):
         return jsonify(method='sendMessage', chat_id=chat['id'],
-                       text='По вопросам оплаты Telegram Stars обратитесь в поддержку GemDrop через приложение.')
+                       text=render_notice('bot_reply_c1ced3f125'),parse_mode='HTML')
     if (chat.get('type') != 'private' or not command or
             command[0].split('@')[0] != '/start' or not isinstance(sender.get('id'), int)):
         return jsonify(ok=True)
@@ -24194,7 +24253,7 @@ def telegram_webhook():
             except Exception:
                 app.logger.exception('Freebet activation failed for %s', uid)
                 return jsonify(method='sendMessage', chat_id=chat['id'],
-                               text='Не удалось активировать фрибет. Попробуйте ещё раз через несколько секунд.')
+                               text=render_notice('bot_reply_8e6a2fc8eb'),parse_mode='HTML')
         button = build_start_keyboard(uid, referrer)
         save_document('bot_input:' + str(uid), {'mode': ''})
         # /start intentionally uses the same sendMessage + HTML path that is

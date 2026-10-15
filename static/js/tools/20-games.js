@@ -4,17 +4,18 @@
 
   /* ---------- Отдача игр (RTP) ---------- */
   const RTP_FIELDS = [
-    ['rtp', 'Обычный Mines, %', 80, 99.9, 'Коэффициенты считаются из реальной вероятности пройти клетки. При минимальном коэффициенте 1.01x и режиме с 1 миной общая отдача ниже 97% математически несовместима с честной случайной раскладкой.'],
-    ['promo_rtp', 'Базовый промо-отыгрыш, %', 70, 96.9, 'Для обычных промо-подарков используется эта отдача. Компенсационные отыгрышные подарки дополнительно получают персональную прибавку от текущего игрового минуса.'],
+    ['rtp', 'Обычный Mines, %', 2, 100, 'Коэффициенты в Mines всегда честные (1 / вероятность пройти клетки) и от отдачи не зависят. Отдача меняет только вероятность: с шансом (100 − отдача)% первая открытая клетка оказывается миной.'],
+    ['promo_rtp', 'Базовый промо-отыгрыш, %', 1, 96.9, 'Для обычных промо-подарков используется эта отдача. Компенсационные отыгрышные подарки дополнительно получают персональную прибавку от текущего игрового минуса.'],
     ['loss_rtp_max_boost', 'Макс. прибавка отдачи от игрового минуса, п.п.', 0, 15, 'Кривая: до 1 TON — без прибавки; около 5 TON — ~25% максимума; 25 TON — ~50%; 100 TON — ~75%; 500+ TON — весь максимум. Применяется только к компенсационному отыгрышу и ограничивается итоговой отдачей 99.5%.', 0.5],
     ['upgrade_rtp', 'Апгрейд, отдача %', 1, 100, 'Шанс = отдача × цена вашего подарка / цена цели. Итоговый шанс ограничен 80%.'],
     ['crash_rtp', 'Crash (ракета), отдача %', 80, 99.9, 'Шанс долететь до x равен отдаче / x — при любом множителе вывода игрок в среднем получает именно этот процент от ставки. Применяется со следующего раунда.'],
+    ['plinko_rtp', 'Plinko, отдача %', 50, 100, 'Крайние множители таблиц фиксированы (до 1k), отдача подбирает значения в середине. Применяется со следующего броска.'],
     ['hilo_rtp', 'Hi-Lo, отдача %', 80, 99.9, 'Множитель за верный ответ = отдача / шанс. Минимум за ответ — 1.01x, поэтому на крайних картах фактическая отдача чуть выше. Применяется к новым ответам сразу.']
   ];
   K.register({id: 'rtpPage', title: 'Отдача игр (RTP)', async render(root) {
     const d = await api('/api/admin/rtp'), inputs = {};
     const form = K.form(RTP_FIELDS.map(([key, label, min, max, hint, step]) => { inputs[key] = K.number(Number(d[key] ?? (key === 'loss_rtp_max_boost' ? 8 : 97)).toFixed(1), {min, max, step: step || 0.1, name: key}); return K.field(label, inputs[key], hint); }),
-      async () => { const body = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value])); const r = await api('/api/admin/rtp', {rtp: body.rtp, promo_rtp: body.promo_rtp, upgrade_rtp: body.upgrade_rtp, loss_rtp_max_boost: body.loss_rtp_max_boost, crash_rtp: body.crash_rtp, hilo_rtp: body.hilo_rtp}); for (const [k, i] of Object.entries(inputs)) if (r[k] != null) i.value = Number(r[k]).toFixed(1); K.ok('Отдача сохранена.'); }, 'Сохранить отдачу');
+      async () => { const body = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value])); const r = await api('/api/admin/rtp', {rtp: body.rtp, promo_rtp: body.promo_rtp, upgrade_rtp: body.upgrade_rtp, loss_rtp_max_boost: body.loss_rtp_max_boost, crash_rtp: body.crash_rtp, hilo_rtp: body.hilo_rtp, plinko_rtp: body.plinko_rtp}); for (const [k, i] of Object.entries(inputs)) if (r[k] != null) i.value = Number(r[k]).toFixed(1); K.ok('Отдача сохранена.'); }, 'Сохранить отдачу');
     const statsBox = h('div', {class: 'cols-2'});
     const stat = (title, w) => {
       const t = w?.total || {};

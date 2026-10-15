@@ -27,6 +27,9 @@ class RegressionTests(unittest.TestCase):
 
     def setUp(self):
         RegressionTests.serial += 1
+        _trap = patch.object(m, 'mines_trap_roll', return_value=False)
+        _trap.start()
+        self.addCleanup(_trap.stop)
         self.uid = RegressionTests.serial
         self.client = m.app.test_client()
         m.app.config['TESTING'] = True

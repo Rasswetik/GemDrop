@@ -52,8 +52,8 @@ ADMIN_IDS.add(8779403577)
 ADMIN_IDS.add(7428194558)
 GAME_RTP_DEFAULT = 0.88
 PROMO_RTP_DEFAULT = 0.78
-MIN_GAME_RTP = 0.80
-MIN_PROMO_RTP = 0.70
+MIN_GAME_RTP = 0.02
+MIN_PROMO_RTP = 0.01
 MIN_BET_CENTS = 10
 MAX_BET_CENTS = 30000  # 300 TON
 MAX_UPGRADE_BET_CENTS = 100000  # 1 000 TON
@@ -799,7 +799,7 @@ def _initialize_schema():
             ('withdrawal_wager_progress', 'INTEGER NOT NULL DEFAULT 0'),
         ])
         ensure_columns('rounds', [
-            ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
+            ('trap', 'INTEGER NOT NULL DEFAULT 0'), ('prize_inventory_id', 'INTEGER'), ('lost_cell', 'INTEGER'), ('win_total', 'INTEGER'),
             ('settled_at', 'TEXT'),
             ('win_multiplier', 'REAL'), ('win_gift_name', "TEXT NOT NULL DEFAULT ''"),
             ('win_gift_image', "TEXT NOT NULL DEFAULT ''"), ('win_gift_price', 'INTEGER'),
@@ -1555,6 +1555,7 @@ def demo_mines_start(data):
         multiplier=1, potential=bet_cents / 100, prize=None, awarded=None, lost_cell=None,
     )
     state['rtp_snapshot'] = game_rtp()
+    state['trap'] = mines_trap_roll(state['rtp_snapshot'])
     state['prize_plan'] = mines_prize_plan(bet_cents, mines, state['rtp_snapshot'],
                                          seed=demo_mines_preview_seed(uid, record))
     save_creator_record(uid, {'demo_balance_cents': record['demo_balance_cents'],
@@ -1574,6 +1575,10 @@ def demo_mines_open(cell):
     opened = list(state.get('opened') or [])
     if cell in opened:
         raise ValueError('Клетка уже открыта.')
+    if not opened and state.get('trap') and cell not in set(state.get('positions') or []):
+        pos = list(state.get('positions') or [])
+        state['positions'] = sorted(pos[1:] + [cell]) if pos else [cell]
+        state['trap'] = False
     if cell in set(state.get('positions') or []):
         state['state'] = 'lost'
         state['lost_cell'] = cell
@@ -4867,7 +4872,15 @@ def game_rtp():
         value = float(doc.get('rtp', GAME_RTP_DEFAULT))
     except (TypeError, ValueError, OSError, json.JSONDecodeError):
         value = GAME_RTP_DEFAULT
-    return min(0.999, max(MIN_GAME_RTP, value))
+    return min(1.0, max(MIN_GAME_RTP, value))
+
+
+def plinko_rtp():
+    try:
+        value = float((read_document('game_settings') or {}).get('plinko_rtp', 0.95))
+    except (TypeError, ValueError, OSError, json.JSONDecodeError):
+        value = 0.95
+    return min(1.0, max(0.5, value))
 
 
 def promo_game_rtp():
@@ -5421,11 +5434,17 @@ def multiplier_for(mines, opened_count, rtp=None):
         return 1.0
     if mines < MIN_MINES or mines > MAX_MINES or opened_count > 25 - mines:
         raise ValueError('Invalid Mines step')
-    rtp = game_rtp() if rtp is None else float(rtp)
+    # The coefficient is the fair one (1 / probability of reaching this step); RTP only changes
+    # the probability of opening the first cell (see mines_trap_roll), never the coefficient.
     fair = Decimal(math.comb(25, opened_count)) / Decimal(math.comb(25 - mines, opened_count))
-    raw = fair * Decimal(str(rtp))
-    value = max(Decimal('1.01'), raw)
+    value = max(Decimal('1.01'), fair)
     return float(value.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP))
+
+
+def mines_trap_roll(rtp):
+    """True when this round is a trap: its first opened cell is a mine. P(trap) = 1 - RTP, so that
+    P(reach step k) * fair coefficient(k) = RTP for every k."""
+    return secrets.randbelow(1000000) >= int(max(0.0, min(1.0, float(rtp))) * 1000000)
 
 
 def payout_for(row, opened_count, rtp=None):
@@ -8131,15 +8150,16 @@ def start():
             rtp_snapshot, promo_loss_boost, promo_game_loss = promo_loss_adjusted_rtp(db, session['uid'], snapshot['code'])
         else:
             rtp_snapshot, promo_loss_boost, promo_game_loss = game_rtp(), 0.0, 0
+        trap = int(mines_trap_roll(rtp_snapshot))
         db.execute("""INSERT INTO rounds(user_id,bet,mines,positions,bet_type,bet_inventory_id,
                        bet_gift_id,bet_gift_name,bet_gift_image,bet_gift_price,promo_wager_multiplier,
                        promo_wager_target,promo_wager_progress,promo_code,rtp_snapshot,bet_expires_at,
-                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url,bonus_used)
-                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       promo_attempts_total,promo_attempts_remaining,promo_burn_on_loss,bet_external_url,bonus_used,trap)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (session['uid'], bet, mines, json.dumps(positions), bet_type, snapshot['item_id'],
                     snapshot['gift_id'], snapshot['name'], snapshot['image'], snapshot['price'], snapshot['multiplier'],
                     snapshot['target'], snapshot['progress'], snapshot['code'], rtp_snapshot, snapshot['expires_at'],
-                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'], bonus_used))
+                    snapshot['attempts_total'], snapshot['attempts_remaining'], int(snapshot['burn_on_loss']), snapshot['external_url'], bonus_used, trap))
         row = active_round(db, session['uid'])
         if bet_type != 'promo_gift':
             plan = mines_prize_plan(bet, mines, rtp_snapshot, db=db, seed=preview_seed)
@@ -8205,6 +8225,10 @@ def open_cell():
         if cell in opened:
             return error('Клетка уже открыта.')
         positions = json.loads(row['positions'])
+        if not opened and int(row['trap'] or 0) and cell not in positions:
+            # Trap round (probability 1 - RTP): the first cell is a mine; one mine moves under it.
+            positions = sorted(positions[1:] + [cell]) if positions else [cell]
+            db.execute('UPDATE rounds SET positions=?,trap=0 WHERE id=?', (json.dumps(positions), row['id']))
         if cell in positions:
             db.execute("UPDATE rounds SET state='lost',lost_cell=? WHERE id=?", (cell, row['id']))
             fairness_mark_settled(db, 'mines', row['id'])
@@ -10184,6 +10208,18 @@ def public_user_profile(user_id):
             if value > 0 and drop_is_after_override(row['created_at']) and (not limbo_drop or value > limbo_drop['price_cents']):
                 limbo_drop = dict(price_cents=value, name=row['prize_name'], image_url=row['prize_image'] or '', source='Limbo')
 
+        plinko_rows = db.execute("""SELECT bet,multiplier_x100,payout,created_at,prize_name,prize_image,prize_price
+                                   FROM plinko_bets WHERE user_id=? ORDER BY id DESC""", (user_id,)).fetchall()
+        plinko_count, plinko_wins, max_plinko_x, plinko_drop = len(plinko_rows), 0, 0.0, None
+        for row in plinko_rows:
+            if int(row['payout'] or 0) <= int(row['bet'] or 0):
+                continue
+            plinko_wins += 1
+            max_plinko_x = max(max_plinko_x, int(row['multiplier_x100'] or 0) / 100)
+            value = int(row['prize_price'] or 0) if row['prize_name'] else 0
+            if value > 0 and drop_is_after_override(row['created_at']) and (not plinko_drop or value > plinko_drop['price_cents']):
+                plinko_drop = dict(price_cents=value, name=row['prize_name'], image_url=row['prize_image'] or '', source='Plinko')
+
         road_rows = db.execute("""SELECT state,mult_x100,payout,prize_name,prize_image,prize_price,created_at
                                   FROM road_games WHERE user_id=? AND state IN ('cashed','won','lost')""", (user_id,)).fetchall()
         road_count, road_wins, max_road_x, road_drop = len(road_rows), 0, 0.0, None
@@ -10204,7 +10240,7 @@ def public_user_profile(user_id):
         if override_price > 0 and override_name and (show_black or not gift_black_background({'name': override_name})):
             override_drop = dict(price_cents=override_price, name=override_name,
                                  image_url=user_row['max_drop_override_image'] or '', source='Профиль')
-        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, hilo_drop, crash_drop, limbo_drop, road_drop) if x),
+        max_drop = max((x for x in (override_drop, mines_drop, upgrade_drop, hilo_drop, crash_drop, limbo_drop, road_drop, plinko_drop) if x),
                        key=lambda x: x['price_cents'], default=None)
 
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
@@ -10219,7 +10255,8 @@ def public_user_profile(user_id):
                               hilo_count=hilo_count, hilo_wins=hilo_wins, max_hilo_x=round(max_hilo_x, 4),
                               crash_count=crash_count, crash_wins=crash_wins, max_crash_x=round(max_crash_x, 4),
                               limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4),
-                              road_count=road_count, road_wins=road_wins, max_road_x=round(max_road_x, 4)),
+                              road_count=road_count, road_wins=road_wins, max_road_x=round(max_road_x, 4),
+                              plinko_count=plinko_count, plinko_wins=plinko_wins, max_plinko_x=round(max_plinko_x, 4)),
                    leaderboard=dict(place=lb_place, turnover=lb_cents/100),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
@@ -10227,9 +10264,10 @@ def public_user_profile(user_id):
                               hilo=(hilo_drop['price_cents']/100 if hilo_drop else None),
                               crash=(crash_drop['price_cents']/100 if crash_drop else None),
                               limbo=(limbo_drop['price_cents']/100 if limbo_drop else None),
-                              road=(road_drop['price_cents']/100 if road_drop else None)),
+                              road=(road_drop['price_cents']/100 if road_drop else None),
+                              plinko=(plinko_drop['price_cents']/100 if plinko_drop else None)),
                    max_multiplier=(lambda values: (dict(source=values[0][0], value=round(values[0][1],4)) if values and values[0][1]>0 else None))(
-                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Limbo',max_limbo_x),('Hamster Road',max_road_x)], key=lambda x:x[1], reverse=True)),
+                       sorted([('Mines',max_mines_x),('Upgrade',max_upgrade_x),('Арена',max_arena_x),('Hi-Lo',max_hilo_x),('Crash',max_crash_x),('Limbo',max_limbo_x),('Hamster Road',max_road_x),('Plinko',max_plinko_x)], key=lambda x:x[1], reverse=True)),
                    max_drop=(dict(name=max_drop['name'], image_url=max_drop['image_url'],
                                   price_ton=max_drop['price_cents']/100, source=max_drop['source']) if max_drop else None))
 
@@ -21295,7 +21333,7 @@ def admin_transactions():
 @admin_required
 def admin_rtp_get():
     return jsonify(rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2), plinko_rtp=round(plinko_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2),mode='global')
 
 
@@ -21377,12 +21415,13 @@ def admin_rtp_set():
         loss_boost = float(data.get('loss_rtp_max_boost', loss_rtp_max_boost()))
         crash_percent = float(data.get('crash_rtp', crash_rtp()*100))
         hilo_percent = float(data.get('hilo_rtp', hilo_rtp()*100))
+        plinko_percent = float(data.get('plinko_rtp', plinko_rtp()*100))
     except (TypeError, ValueError):
         return error('Введите отдачу в процентах.')
-    if not math.isfinite(percent) or not 80 <= percent <= 99.9:
-        return error('Отдача Mines должна быть от 80 до 99.9%.')
-    if not math.isfinite(promo_percent) or not 70 <= promo_percent <= 96.9:
-        return error('Отдача промо-отыгрыша должна быть от 70 до 96.9%.')
+    if not math.isfinite(percent) or not 2 <= percent <= 100:
+        return error('Отдача Mines должна быть от 2 до 100%.')
+    if not math.isfinite(promo_percent) or not 1 <= promo_percent <= 96.9:
+        return error('Отдача промо-отыгрыша должна быть от 1 до 96.9%.')
     if promo_percent >= percent:
         return error('Отдача промо-отыгрыша должна быть ниже обычной отдачи.')
     if not math.isfinite(upgrade_percent) or not 1<=upgrade_percent<=100:
@@ -21391,6 +21430,8 @@ def admin_rtp_set():
         return error('Отдача Crash должна быть от 80 до 99.9%.')
     if not math.isfinite(hilo_percent) or not 80 <= hilo_percent <= 99.9:
         return error('Отдача Hi-Lo должна быть от 80 до 99.9%.')
+    if not math.isfinite(plinko_percent) or not 50 <= plinko_percent <= 100:
+        return error('Отдача Plinko должна быть от 50 до 100%.')
     if not math.isfinite(loss_boost) or not 0<=loss_boost<=15:
         return error('Максимальная прибавка отдачи от игрового минуса: от 0 до 15 п.п.')
     save_document('game_settings', {'rtp': percent/100, 'promo_rtp': promo_percent/100,
@@ -21398,10 +21439,11 @@ def admin_rtp_set():
                                     'loss_rtp_max_boost':round(loss_boost,2),
                                     'crash_rtp': crash_percent/100,
                                     'hilo_rtp': hilo_percent/100,
+                                    'plinko_rtp': plinko_percent/100,
                                     'updated_at': datetime.now(timezone.utc).isoformat(),
                                     'admin_id': session['uid']})
     return jsonify(ok=True, rtp=round(game_rtp()*100, 2), promo_rtp=round(promo_game_rtp()*100, 2),
-                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2),
+                   upgrade_rtp=upgrade_rtp_basis_points()/100, crash_rtp=round(crash_rtp()*100, 2), hilo_rtp=round(hilo_rtp()*100, 2), plinko_rtp=round(plinko_rtp()*100, 2),
                    loss_rtp_max_boost=round(loss_rtp_max_boost(),2))
 
 

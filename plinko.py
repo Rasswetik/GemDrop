@@ -1,6 +1,6 @@
-"""Plinko: a ball falls through 12 rows of pins into one of 13 multiplier slots.
+"""Plinko: a ball falls through 16 rows of pins into one of 17 multiplier slots.
 
-Provably fair: one HMAC draw in [0, 4096) gives 12 bits, bit (11 - i) is the ball's direction on row i (row 1 = highest bit)
+Provably fair: one HMAC draw in [0, 65536) gives 16 bits, bit (15 - i) is the ball's direction on row i (row 1 = highest bit)
 (0 = left, 1 = right), the slot is the number of right turns. That is exactly a binomial fall,
 and the client animates the very same path. Payouts follow the same rules as Limbo
 (gift first, the rest in balance, cashback on a lost bet).
@@ -8,17 +8,18 @@ and the client animates the very same path. Payouts follow the same rules as Lim
 import time
 from math import comb
 
-ROWS = 12
+ROWS = 16
 SLOTS = ROWS + 1
 RANGE = 1 << ROWS
-MAX_PAYOUT_CENTS = 100000      # one drop never pays more than 1000 TON
+MAX_PAYOUT_CENTS = 30000000    # 300 000 TON: effectively "max bet x top multiplier"
 FEED_SIZE = 14
 RISKS = ('low', 'medium', 'high')
-# Half of the symmetric slot table (centre first) for every risk, scaled to the site RTP at run time.
+# Half of the symmetric slot table (centre first, edge last). The edge multiplier is fixed
+# (16x / 110x / 1000x); the site RTP only tunes the other slots.
 SHAPES = {
-    'low': (0.5, 1.0, 1.1, 1.4, 1.6, 3.0, 10.0),
-    'medium': (0.3, 0.6, 1.1, 2.0, 4.0, 11.0, 33.0),
-    'high': (0.2, 0.2, 0.7, 2.0, 8.1, 24.0, 170.0),
+    'low': (0.5, 1.0, 1.1, 1.2, 1.4, 1.4, 2.0, 9.0, 16.0),
+    'medium': (0.3, 0.5, 1.0, 1.5, 3.0, 5.0, 10.0, 41.0, 110.0),
+    'high': (0.2, 0.2, 0.2, 2.0, 4.0, 9.0, 26.0, 130.0, 1000.0),
 }
 PROB = [comb(ROWS, k) / RANGE for k in range(SLOTS)]
 
@@ -43,12 +44,17 @@ def slot_of(path):
 
 
 def multipliers(risk, rtp):
-    """x100 multipliers for the 13 slots; floored, so the real RTP never exceeds the configured one."""
+    """x100 multipliers for the 17 slots, floored so the real RTP never exceeds the configured one."""
     half = SHAPES[risk if risk in SHAPES else 'medium']
-    table = [half[abs(k - ROWS // 2)] for k in range(SLOTS)]
-    base = sum(p * m for p, m in zip(PROB, table))
-    scale = float(rtp) / base
-    return [max(1, int(m * scale * 100)) for m in table]
+    mid = ROWS // 2
+    table = [half[abs(k - mid)] for k in range(SLOTS)]
+    edge_p = PROB[0] + PROB[ROWS]
+    rest = sum(p * m for k, (p, m) in enumerate(zip(PROB, table)) if abs(k - mid) != mid)
+    scale = (float(rtp) - edge_p * half[mid]) / rest
+    if scale <= 0.05:   # very low RTP: scale everything, the edge included
+        scale = float(rtp) / (rest + edge_p * half[mid])
+        return [max(10, int(m * scale * 100)) for m in table]
+    return [int(round(m * 100)) if abs(k - mid) == mid else max(10, int(m * scale * 100)) for k, m in enumerate(table)]
 
 
 def result_view(row):
@@ -76,7 +82,7 @@ def register(app, ns):
         app.logger.exception('Plinko schema setup failed')
 
     def config():
-        rtp = ns['game_rtp']()
+        rtp = ns['plinko_rtp']()
         return dict(rows=ROWS, risks=list(RISKS), rtp=rtp, min_bet=ns['MIN_BET_CENTS'] / 100, max_bet=ns['MAX_BET_CENTS'] / 100,
                     max_payout=MAX_PAYOUT_CENTS / 100, multipliers={r: [m / 100 for m in multipliers(r, rtp)] for r in RISKS})
 
@@ -120,7 +126,7 @@ def register(app, ns):
         risk = str(data.get('risk') or 'medium')
         if risk not in RISKS:
             return error('Выберите уровень риска.')
-        table = multipliers(risk, ns['game_rtp']())
+        table = multipliers(risk, ns['plinko_rtp']())
         proof = ns['fairness_make']('plinko', uid, data.get('client_seed'))
         path, fair_cursor, _ = ns['fairness_draw'](proof, RANGE, 0)
         slot = slot_of(path)

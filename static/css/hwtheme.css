@@ -1,0 +1,43 @@
+/* Halloween theme for leaderboard, VIP levels, profiles, inventory, rewards (active only under html.hw) */
+html.hw{--hwp:#b68cff;--hwo:#ff9a2e;--hwbg:#150b26;--hwcard:#1f1136;--hwline:rgba(182,140,255,.22)}
+html.hw #leadersPage .lb-title,html.hw .vip-top h2{background:linear-gradient(90deg,#d9b8ff,#ff9a2e);-webkit-background-clip:text;background-clip:text;color:transparent}
+html.hw .lb-pill{background:rgba(45,22,78,.85);border-color:var(--hwline)}
+html.hw .lb-pill-q i{background:var(--hwo);color:#2a1200}
+html.hw .lb-sub,html.hw .lb-head,html.hw .lb-rank,html.hw .lb-name small,html.hw .lb-more{color:#b7a3d9}
+html.hw .lb-row{background:linear-gradient(180deg,#24133f,#1a0e30);border-color:var(--hwline)}
+html.hw .lb-row:hover{border-color:#8f62e0}
+html.hw .lb-row.lbfree{background:#150b26}
+html.hw .lb-ped{background:linear-gradient(180deg,rgba(80,40,140,.55),rgba(24,12,44,.9));border-color:color-mix(in srgb,var(--pc) 40%,#3a2166)}
+html.hw .lb-pc-av{background:#24133f}
+html.hw .lb-pc.p1{--pc:#ff9a2e}
+html.hw .lb-me .lb-row{background:linear-gradient(90deg,#7a3bd6,#a24ad0);border-color:#c49bff;box-shadow:0 10px 26px rgba(140,70,220,.4)}
+html.hw .lbi-card{background:linear-gradient(180deg,#2a1450,#150b26)!important}
+html.hw .lbi-go{background:linear-gradient(180deg,#ffb04a,#ff7a12);color:#2a1200}
+html.hw .lbi-badge{background:rgba(182,140,255,.14);border-color:rgba(182,140,255,.3)}
+html.hw .lbi-steps li>i{background:var(--hwo);color:#2a1200}
+/* VIP window */
+html.hw .vipm{background:radial-gradient(120% 60% at 50% 0,#3a1a6b 0,#150b26 60%)!important}
+html.hw .vip-x{background:#2a1650;border-color:var(--hwline);color:#e6d6ff}
+html.hw .vip-hero{background:radial-gradient(120% 70% at 50% 0,rgba(255,154,46,.2),transparent 62%),linear-gradient(180deg,#2a1450,#1a0e30);border-color:var(--hwline)}
+html.hw .vip-hero-av{box-shadow:0 0 0 3px #1a0e30,0 0 0 5px var(--hwo)}
+html.hw .vip-status{background:rgba(182,140,255,.1);border-color:var(--hwline)}
+html.hw .vip-track{background:#0e0719}
+html.hw .vip-tier{background:#1d1033;border-color:var(--hwline)}
+html.hw .vip-tier.cur{background:#2a1650;border-color:var(--hwo)}
+html.hw .vip-h small,html.hw .vip-prog-foot,html.hw .vip-prog-row{color:#b7a3d9}
+html.hw .vip-tier.open .vt-body ul{border-top-color:var(--hwline)}
+/* profile / inventory / rewards */
+html.hw .vip-badge-btn{border-color:#150b26;background:#2a1650}
+html.hw #invSellAll{background:linear-gradient(180deg,#ffb04a,#ff7a12);color:#2a1200;border-color:transparent}
+html.hw .inv-cnt{background:#2a1650;color:#e6d6ff;border-color:var(--hwline)}
+html.hw #vipPb,html.hw .vip-pb{background:linear-gradient(180deg,#2a1450,#1a0e30);border-color:var(--hwline)}
+html.hw .vip-rw,html.hw .vr-card{background:linear-gradient(180deg,#2a1450,#150b26);border-color:var(--hwo)}
+html.hw #publicProfileModal .modal-card,html.hw .pp-card{background:linear-gradient(180deg,#24133f,#150b26);border-color:var(--hwline)}
+html.hw .pp-stage,html.hw .pp-tabs{border-color:var(--hwline)}
+html.hw .vip-pop-card{background:linear-gradient(180deg,#2a1450,#150b26)!important;border:1px solid var(--hwo)!important}
+html.hw .vr-gift{background:rgba(182,140,255,.1)}
+html.hw .vr-gift small,html.hw .vr-pb{color:#ffd29a}
+html.hw .vr-pb{background:rgba(255,154,46,.14)}
+html.hw .vr-chips span{background:rgba(182,140,255,.16)}
+html.hw .vip-pop-ok{background:linear-gradient(180deg,#ffb04a,#ff7a12)!important;color:#2a1200!important}
+html.hw .vip-pb{background:linear-gradient(135deg,rgba(255,154,46,.16),rgba(150,90,255,.16)),#1d1033}

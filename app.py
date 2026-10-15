@@ -7904,6 +7904,9 @@ def upgrade_spin():
                     datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f'), source_price if bonus_origin else 0))
         record_transaction(db,session['uid'],'upgrade_bet',-source_price if amount_text else 0,'upgrade',request_id,
                            f'{source["gift_name"]} → {target["name"]} · {chance/100:.2f}% · {"успех" if won else "проигрыш"}')
+        if won and not bonus_origin and not wager:
+            try:vip.log_win(db,session['uid'],'upgrade_gift_win',target['price'],target['name'])
+            except Exception:pass
         log_event(db,session['uid'],'upgrade',source_name=source['gift_name'],source_image=source_image_url,
                   source_price=source_price/100,target_name=target['name'],target_image=target['image_url'],
                   target_price=target['price']/100,chance=chance/100,won=won,promo_wager=wager,

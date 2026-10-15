@@ -11,6 +11,7 @@ GAME_OF_KIND = {
     'road_win': 'Hamster Road', 'road_gift_win': 'Hamster Road',
     'plinko_win': 'Plinko', 'plinko_gift_win': 'Plinko',
     'arena_win': 'Арена', 'arena_gift_win': 'Арена',
+    'upgrade_gift_win': 'Апгрейд',
 }
 MIN_FEED_CENTS = 50          # smaller wins are not worth a feed row (gifts always are)
 FEED_SIZE = 16

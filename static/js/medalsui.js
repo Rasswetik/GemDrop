@@ -134,9 +134,9 @@
   }
   function mountRow() {
     if ($('pfMedals')) return true;
-    var anchor = $('pfHaptics'); if (!anchor) return false;
+    var anchor = $('pfSettingsRow'); if (!anchor) return false;
     var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedals';
-    row.innerHTML = '<span class="pf-row-t"><b>Коллекция медалей</b><small>Собирайте и надевайте до 3</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg('hw1', 30, true) + '</button>';
+    row.innerHTML = '<span class="pf-row-t"><b>Коллекция медалей</b><small>Собирайте и надевайте до 3</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg('hw1', 46, true) + '</button>';
     row.querySelector('button').onclick = open; row.onclick = function (e) { if (e.target.closest('button')) return; open(); };
     anchor.parentNode.insertBefore(row, anchor); return true;
   }
@@ -207,7 +207,7 @@
       var pc = d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',');
       el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-3d"></div><p class="mdi-hint">Потяните, чтобы покрутить · двойной клик — перевернуть</p><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
         '<div class="mdi-g"><div><span>Статус</span><b>' + esc(d.status) + '</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у игроков</span><b>' + pc + '%</b></div>' + (d.mine ? '<div><span>У вас</span><b style="color:#2fd163">Есть</b></div>' : '') + '</div><p class="mdi-how">' + esc(d.how) + '</p></div>';
-      function close() { if (el._mus && window.GDMusic) GDMusic.stop(); el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
+      function close() { if (el._mus && window.GDMusic) GDMusic.fadeOut(600); el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
       el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('mdi-x')) close(); });
       document.body.appendChild(el); spin3d(el.querySelector('.mdi-3d'), d);
       if (window.GDMusic && GDMusic.KEYS[d.key]) { GDMusic.playShort(d.key); el._mus = 1; }

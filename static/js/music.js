@@ -61,6 +61,12 @@
   function fmt(s) { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
   function stopProfile() { if (P.a) { try { P.a.pause(); } catch (e) {} } }
   function removePlayer() { var o = document.getElementById('ppPlayer'); if (o) o.remove(); if (P.a) { try { P.a.pause(); } catch (e) {} P.a = null; } }
+  function fadePlayer() {
+    var o = document.getElementById('ppPlayer'), a = P.a; P.tk = (P.tk || 0) + 1; if (o) o.remove(); P.a = null;
+    if (!a || a.paused) return;
+    var v0 = a.volume, t0 = performance.now();
+    (function step(now) { var q = Math.min(1, (now - t0) / 700); a.volume = Math.max(0, v0 * (1 - q)); if (q < 1) requestAnimationFrame(step); else try { a.pause(); } catch (e) {} })(t0);
+  }
   var PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   window.GDMusicProfile = function (d) {
     removePlayer(); stop(); var tk = P.tk = (P.tk || 0) + 1; READY.then(function () { if (P.tk === tk) buildProfile(d, tk); });
@@ -90,12 +96,12 @@
     });
   }
   var mo = document.getElementById('publicProfileModal');
-  if (mo) new MutationObserver(function () { if (mo.classList.contains('hidden')) removePlayer(); }).observe(mo, {attributes: true, attributeFilter: ['class']});
+  if (mo) new MutationObserver(function () { if (mo.classList.contains('hidden')) fadePlayer(); }).observe(mo, {attributes: true, attributeFilter: ['class']});
   function mountRow() {
     if (document.getElementById('pfMedalSound')) return true;
     var anchor = document.getElementById('pfHaptics'); if (!anchor) return false;
-    var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedalSound';
-    row.innerHTML = '<span class="pf-row-t"><b>Звук медалей</b><small>Музыка медалей в профилях и при победах</small></span><label class="hp-switch"><input type="checkbox" aria-label="Звук медалей"><i></i></label>';
+    var row = document.createElement('label'); row.className = 'perf-row'; row.id = 'pfMedalSound';
+    row.innerHTML = '<span class="perf-copy"><b>Звук медалей</b><small>Музыка медалей в профилях и при победах</small></span><input class="perf-switch-input" type="checkbox" aria-label="Звук медалей"><i class="perf-switch" aria-hidden="true"></i>';
     var cb = row.querySelector('input'); cb.checked = enabled();
     cb.onchange = function () { setEnabled(cb.checked); };
     anchor.parentNode.insertBefore(row, anchor.nextSibling); return true;

@@ -140,7 +140,8 @@
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
 
-  function svg(key, size, still) {
+  function svg(key, size, still, opt) {
+    opt = opt || {};
     css();
     var m = BY[key] || BY.c1, p = PAL[AUTHOR3[key] ? 'red' : (m.pal || 'gold')], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : AUTHOR3[m.key] ? 118 : 110, h = Math.round(w * vh / 96), sh = AUTHOR3[m.key] ? 'round' : (m.shape || 'round'), i, a;
     var rar = m.rarity || 'common', st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
@@ -194,6 +195,7 @@
         '<path d="' + shape('round', 37.2) + '" fill="none" stroke="url(#' + id + 'y)" stroke-width="4.2"/>' +
         '<g clip-path="url(#' + id + 'c)"><rect class="gm-shine2" x="6" y="20" width="4.5" height="84" fill="#fff" opacity=".7" transform="skewX(-18)"/><rect class="gm-shine2 b" x="14" y="20" width="1.6" height="84" fill="#fff" opacity=".8" transform="skewX(-18)"/></g>' +
         '<g class="' + (st ? '' : 'gm-gl') + '" fill="#fff"><circle cx="20" cy="40" r="1.1"/><circle cx="77" cy="82" r="1.1" style="animation-delay:.9s"/><circle cx="66" cy="30" r=".9" style="animation-delay:1.7s"/><circle cx="28" cy="92" r=".9" style="animation-delay:2.4s"/></g>'; }
+    if (opt.noRibbon) ribbon = '';
     var shapeO = shape(sh, 38), disc = ring(sh, 29.5);
     var beadRing = sh === 'seal' ? shape('round', 34.4) : shape(sh, 35.2);
     var gem = (rar === 'rare') ? '' : '<path d="' + beadRing + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".8" stroke-width="1.15" stroke-linecap="round" stroke-dasharray=".01 2.5"/>';
@@ -222,6 +224,7 @@
       '<linearGradient id="' + id + 'v" gradientUnits="userSpaceOnUse" x1="10" y1="22" x2="86" y2="102" spreadMethod="reflect">' + (st ? '' : '<animateTransform attributeName="gradientTransform" type="rotate" from="0 48 62" to="360 48 62" dur="9s" repeatCount="indefinite"/>') + '<stop offset="0" stop-color="#ff9ad5"/><stop offset=".16" stop-color="#ffd98a"/><stop offset=".33" stop-color="#a6ffc4"/><stop offset=".5" stop-color="#8fdcff"/><stop offset=".66" stop-color="#c3a3ff"/><stop offset=".83" stop-color="#ff9ad5"/><stop offset="1" stop-color="#ffd98a"/></linearGradient>' +
       '<clipPath id="' + id + 'c"><path d="' + disc + '"/></clipPath><clipPath id="' + id + 'o"><path d="' + shapeO + '"/></clipPath></defs>';
 
+    if (opt.ribbonOnly) return '<svg class="gdm st" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs + ribbon.replace('class="gm-rb"', '') + '</svg>';
     return '<svg class="gdm' + (st ? ' st' : '') + '" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs +
       '<circle class="gm-glow" cx="48" cy="62" r="48" fill="url(#' + id + 'g)" opacity="' + glowOp + '"/>' +
       ribbon +

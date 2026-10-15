@@ -4,8 +4,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]; }); };
   var st = document.createElement('style');
-  st.textContent = '.mdl-modal{position:fixed;inset:0;z-index:2600;display:flex;align-items:flex-end;justify-content:center;background:rgba(5,4,12,.66);backdrop-filter:blur(6px)}.mdl-modal.hidden{display:none}' +
-    '.mdl-card{width:min(100%,520px);max-height:88dvh;overflow:auto;padding:18px 16px calc(18px + env(safe-area-inset-bottom));border-radius:26px 26px 0 0;background:#14161d;border:1px solid rgba(255,255,255,.08);color:#f2f4f8}' +
+  st.textContent = '.mdl-modal{position:fixed;inset:0;z-index:2600;display:grid;place-items:center;padding:20px;box-sizing:border-box;background:rgba(5,4,12,.66)}.mdl-modal.hidden{display:none}' +
+    '' +
     '.mdl-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}.mdl-top h2{margin:0;font-size:20px}.mdl-x{width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#fff;font-size:20px;cursor:pointer}' +
     '.mdl-sub{margin:0 0 12px;color:#8d99a8;font-size:13px}.mdl-list{display:grid;gap:10px}' +
     '.mdl-item{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 12px;border-radius:18px;background:#1b1e27;border:1px solid rgba(255,255,255,.06)}' +
@@ -27,27 +27,29 @@
     return fetch(url, {method: body ? 'POST' : 'GET', credentials: 'same-origin', headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined})
       .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || 'Ошибка'); return j; }); });
   }
-  st.textContent += '.mdl-card{width:min(100%,560px);height:min(88dvh,820px);display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}.mdl-body{overflow:auto;flex:1;margin:0 -16px;padding:0 16px calc(18px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}' +
-    '.mdl-prog{display:grid;gap:6px;margin:2px 0 10px}.mdl-prog div{height:8px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}.mdl-prog i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#7a3fe0,#b27dff,#6ac8ff);transition:width .5s}.mdl-prog span{font-size:12.5px;color:#9aa6b6}.mdl-prog b{color:#fff}' +
-    '.mdl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.mdl-slot{display:grid;justify-items:center;align-content:center;gap:2px;min-height:112px;padding:8px 4px;border-radius:18px;border:1.5px dashed rgba(255,255,255,.16);background:rgba(255,255,255,.03);font-size:11px;color:#6f7b8c;text-align:center}.mdl-slot.on{border-style:solid;border-color:rgba(178,125,255,.45);background:rgba(160,102,255,.09);color:#e8dcff}.mdl-slot em{font-style:normal;font-size:22px;opacity:.5}' +
-    '.mdl-search{width:100%;box-sizing:border-box;height:42px;margin-bottom:6px;padding:0 14px;border-radius:14px;border:1px solid rgba(255,255,255,.1);background:#1b1e27;color:#fff;font:inherit;font-size:14px;outline:0}.mdl-search:focus{border-color:#a066ff}' +
-    '.mdl-filt{display:flex;gap:6px;overflow:auto;padding:4px 0 8px;margin-bottom:2px}.mdl-filt button{flex:none;height:30px;padding:0 12px;border-radius:99px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#9aa6b6;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.mdl-filt button.on{background:#a066ff;border-color:#a066ff;color:#fff}' +
-    '.mdl-h{display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px;font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}.mdl-h small{font-weight:600;color:#8d99a8;text-transform:none;letter-spacing:0}' +
-    '.mdl-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mdl-c{position:relative;display:grid;justify-items:center;align-content:start;gap:3px;padding:10px 6px 10px;border-radius:18px;background:#1b1e27;border:1px solid rgba(255,255,255,.06);text-align:center;min-width:0}.mdl-c.on{border-color:rgba(178,125,255,.55);box-shadow:0 0 0 1px rgba(178,125,255,.25) inset}' +
-    '.mdl-c b{font-size:12.5px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.mdl-c small{font-size:10.5px;color:#8d99a8;line-height:1.2}' +
-    '.mdl-eq{margin-top:4px;width:100%;height:30px;border:0;border-radius:11px;background:linear-gradient(180deg,#b27dff,#7a3fe0);color:#fff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.mdl-eq.off{background:rgba(255,255,255,.1);color:#d5dbe6}.mdl-eq:active{transform:scale(.97)}' +
-    '.mdl-lock{position:relative;display:grid;place-items:center}.mdl-lock .gdm{filter:grayscale(1) brightness(.22) contrast(1.2);opacity:.55}.mdl-lock .gdm *{animation:none!important}.mdl-lock span{position:absolute;inset:0;display:grid;place-items:center;font-size:26px;font-weight:900;color:rgba(255,255,255,.7);text-shadow:0 2px 8px rgba(0,0,0,.7)}.mdl-c.lk{background:#15171e;opacity:.92}.mdl-c.lk b{color:#6f7b8c}' +
-    '.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#c9a3ff}';
+  st.textContent += '.mdl-card{position:relative;width:min(100%,440px)!important;max-height:calc(100dvh - 40px);display:flex;flex-direction:column;padding:20px 16px 16px!important;text-align:left!important;overflow:hidden!important}' +
+    '.mdl-card h2{margin:0 36px 2px 4px;font-size:22px}.mdl-card .modal-x{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#fff;font-size:18px;line-height:1;padding:0;cursor:pointer}' +
+    '.mdl-meta{margin:0 4px 12px;font-size:13px;color:var(--muted,#96a0a8)}.mdl-meta b{color:var(--text,#f4f5f7);font-weight:700}' +
+    '.mdl-body{overflow:auto;flex:1;margin:0 -16px;padding:0 16px 4px;overscroll-behavior:contain}' +
+    '.mdl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.mdl-slot{display:grid;justify-items:center;align-content:center;gap:3px;min-height:104px;padding:8px 4px;border-radius:16px;border:1px dashed rgba(255,255,255,.14);background:rgba(255,255,255,.02);font-size:11px;color:var(--muted,#96a0a8);text-align:center}.mdl-slot.on{border:1px solid rgba(71,176,245,.45);background:rgba(71,176,245,.07);color:var(--text,#f4f5f7)}.mdl-slot em{font-style:normal;font-size:20px;opacity:.5}.mdl-slot span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.mdl-search{width:100%;box-sizing:border-box;margin:0 0 8px}' +
+    '.mdl-filt{display:flex;gap:6px;margin-bottom:4px}.mdl-filt button{flex:1;height:34px;padding:0 8px;border-radius:12px;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.045);color:var(--muted,#96a0a8);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.mdl-filt button.on{background:linear-gradient(110deg,#9ae9e3,#47b0f5);border-color:transparent;color:#131524}' +
+    '.mdl-h{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}.mdl-h small{font-weight:600;color:var(--muted,#96a0a8);text-transform:none;letter-spacing:0}' +
+    '.mdl-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mdl-c{position:relative;display:grid;justify-items:center;align-content:start;gap:3px;padding:10px 6px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid var(--gd-line,#22253d);text-align:center;min-width:0}.mdl-c.on{border-color:rgba(71,176,245,.55)}' +
+    '.mdl-c b{font-size:12.5px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.mdl-c small{font-size:10.5px;color:var(--muted,#96a0a8);line-height:1.2}' +
+    '.mdl-eq{margin-top:5px;width:100%;height:30px;border-radius:10px;border:1px solid rgba(242,245,249,.3);background:linear-gradient(110deg,#9ae9e3,#47b0f5);color:#131524;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.mdl-eq.off{background:rgba(255,255,255,.06);border-color:var(--gd-line,#22253d);color:var(--text,#f4f5f7);font-weight:700}.mdl-eq:active{transform:scale(.97)}' +
+    '.mdl-lock{position:relative;display:grid;place-items:center}.mdl-lock .gdm{filter:grayscale(1) brightness(.22) contrast(1.2);opacity:.55}.mdl-lock .gdm *{animation:none!important}.mdl-lock span{position:absolute;inset:0;display:grid;place-items:center;font-size:24px;font-weight:900;color:rgba(255,255,255,.7);text-shadow:0 2px 8px rgba(0,0,0,.7)}.mdl-c.lk{background:rgba(255,255,255,.02)}.mdl-c.lk b{color:var(--muted,#96a0a8)}' +
+    '.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#9ae9e3;font-style:normal}';
   var RARS = ['legendary', 'epic', 'rare', 'common'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
   var state = {q: '', f: 'all', own: {}, max: 3, shown: {}};
   function modal() {
     var m = $('mdlModal');
     if (m) return m;
-    m = document.createElement('div'); m.id = 'mdlModal'; m.className = 'mdl-modal hidden'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
-    m.innerHTML = '<div class="mdl-card"><div class="mdl-top"><h2>Коллекция медалей</h2><button type="button" class="mdl-x" aria-label="Закрыть">×</button></div><div class="mdl-body">' +
-      '<div class="mdl-prog" id="mdlProg"></div><p class="mdl-sub" id="mdlSub"></p><div class="mdl-slots" id="mdlSlots"></div>' +
-      '<input class="mdl-search" id="mdlQ" type="search" placeholder="Поиск медали" autocomplete="off"><div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div></div>';
-    m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('mdl-x')) m.classList.add('hidden'); });
+    m = document.createElement('div'); m.id = 'mdlModal'; m.className = 'modal mdl-modal hidden'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="modal-card mdl-card"><button type="button" class="modal-x" aria-label="Закрыть">×</button><h2>Коллекция медалей</h2><p class="mdl-meta" id="mdlMeta"></p><div class="mdl-body">' +
+      '<div class="mdl-slots" id="mdlSlots"></div>' +
+      '<input class="text-input mdl-search" id="mdlQ" type="search" placeholder="Поиск медали" autocomplete="off"><div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div></div>';
+    m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('modal-x')) m.classList.add('hidden'); });
     m.querySelector('#mdlQ').addEventListener('input', function () { state.q = this.value.trim().toLowerCase(); paint(); });
     document.body.appendChild(m); return m;
   }
@@ -63,8 +65,7 @@
   }
   function paint() {
     var all = collection(), got = all.filter(function (m) { return state.own[m.key]; }).length, shownN = Object.keys(state.shown).length;
-    $('mdlProg').innerHTML = '<span>Собрано <b>' + got + '</b> из <b>' + all.length + '</b></span><div><i style="width:' + (all.length ? Math.round(got * 100 / all.length) : 0) + '%"></i></div>';
-    $('mdlSub').textContent = 'Наденьте до ' + state.max + ' медалей — они будут видны в вашем профиле.';
+    $('mdlMeta').innerHTML = 'Собрано <b>' + got + ' из ' + all.length + '</b> · надето <b>' + shownN + ' из ' + state.max + '</b>';
     var slots = '', keys = Object.keys(state.shown), i;
     for (i = 0; i < state.max; i++) slots += keys[i] ? '<div class="mdl-slot on">' + GDMedals.svg(keys[i], 56) + '<span>' + esc(GDMedals.name(keys[i])) + '</span></div>' : '<div class="mdl-slot"><em>＋</em><span>Свободно</span></div>';
     $('mdlSlots').innerHTML = slots;

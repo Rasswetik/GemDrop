@@ -64,6 +64,15 @@ def floor_index(have, turnover_cents):
     return idx
 
 
+def public_state(db, user_id, turnover_cents):
+    """VIP status of any player for the public profile (never lower than a tier already received)."""
+    have = {r['tier_key'] for r in db.execute('SELECT tier_key FROM vip_claims WHERE user_id=?', (int(user_id),)).fetchall()}
+    st = tier_state(turnover_cents, floor_index(have, turnover_cents))
+    cur = VIP_TIERS[st['index']]
+    return dict(index=st['index'], reached=st['reached'], name=cur['name'], key=cur['key'], turnover=st['turnover'],
+                progress=st['progress'], next=st['next'])
+
+
 def cashback_percent(turnover_cents):
     """PLAYBONUS percent for a player with that turnover."""
     ton = int(turnover_cents or 0) / 100

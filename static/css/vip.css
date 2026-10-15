@@ -155,3 +155,20 @@ body.vip-open{overflow:hidden}
 .inv-sell{flex-direction:column;align-items:stretch;gap:12px}
 .is-sum b{white-space:nowrap;font-size:24px}.is-sum small{white-space:nowrap}
 #invSellAll{width:100%}
+/* public profile: VIP chip, svg rank, stats that use the whole card (desktop + phone) */
+html body #publicProfileModal.modal .pp-stage{display:block!important;padding:12px!important}
+html body #publicProfileModal.modal .pp-stage-body{display:block!important;width:100%}
+html body #publicProfileModal.modal .pp-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+@media(min-width:701px){html body #publicProfileModal.modal .pp-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ html body #publicProfileModal.modal .pp-tabs{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;overflow:visible!important}
+ html body #publicProfileModal.modal .pp-tabs button{flex:none!important;min-width:0}}
+html body #publicProfileModal.modal .pp-grid>div{width:auto!important;min-width:0}
+html body #publicProfileModal.modal .pp-grid b{font-size:19px;white-space:nowrap;overflow:visible;text-overflow:clip}
+html body #publicProfileModal.modal .pp-grid>div.pp-wide{grid-column:1/-1}
+.pp-chip.pp-lv.vipc{background:#1b2140!important;color:#fff!important;border:1px solid rgba(110,150,255,.35)!important;box-shadow:none!important;padding-left:6px}
+.pp-chip .vip-gem{width:20px;height:20px}
+.pp-chip.pp-top svg{width:15px;height:15px;fill:currentColor}
+.pp-chip.pp-top.none svg{opacity:.5}
+.vip-rank{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:800;color:#2a1d00;background:linear-gradient(135deg,#ffe38a,#e0a92a)}
+.vip-rank.r2{background:linear-gradient(135deg,#f4f6fa,#a9b1c0);color:#1b2030}.vip-rank.r3{background:linear-gradient(135deg,#f0b27a,#b4682f);color:#2a1300}.vip-rank.rn{background:#242a46;color:#aebbe6}
+@media(min-width:701px){html body #publicProfileModal.modal .pp-tabs{box-sizing:border-box;width:100%;margin:6px 0 8px!important;padding:4px 0 8px!important}}

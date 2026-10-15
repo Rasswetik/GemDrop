@@ -118,7 +118,7 @@
       var i=Math.max(0,KEYS.indexOf(r.tier));
       var o=document.createElement('div');o.className='vip-pop vip-reward';
       var g=r.gift?'<div class="vr-gift"><img src="'+esc(r.gift.image_url)+'" alt=""><b>'+esc(r.gift.name)+'</b><small>'+tonIcon()+fmt(r.gift.price)+' TON</small></div>':'';
-      var chips='<div class="vr-chips"><span><i>🎟</i>+'+fmt(r.tickets)+' билетов</span><span><i>💎</i>+'+fmt(r.balance)+' TON на баланс</span></div>';
+      var chips='<div class="vr-chips"><span><i>🎟</i>+'+fmt(r.tickets)+' билетов</span>'+(r.balance?'<span><i>💎</i>+'+fmt(r.balance)+' TON на баланс</span>':'')+'</div>';
       var pb=r.playbonus_unlocked?'<div class="vr-pb">Открыт <b>PLAYBONUS</b> — кэшбэк с проигрышей теперь можно забирать на основной баланс</div>':'';
       o.innerHTML='<div class="vip-pop-card"><div class="vr-gem">'+gem(i,84)+'</div><small class="vr-k">Новый VIP-статус</small><h3>'+esc(r.name)+'</h3>'+g+chips+pb+'<button type="button" class="vip-pop-ok">Отлично</button></div>';
       o.onclick=function(e){if(e.target.classList.contains('vip-pop-ok')){o.remove();next()}};

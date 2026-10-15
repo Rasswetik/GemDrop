@@ -16,26 +16,34 @@ MIN_FEED_CENTS = 50          # smaller wins are not worth a feed row (gifts alwa
 FEED_SIZE = 16
 FEED_KEEP = 400
 
-def _tier(key, name, ton, tickets, bonus_ton, gift_min, gift_max, playbonus=False):
-    perks = ['NFT-подарок %s–%s TON' % (gift_min, gift_max), '%s билетов' % format(tickets, ',').replace(',', ' '), '%s TON на баланс' % bonus_ton]
-    if playbonus:
-        perks.append('PLAYBONUS')
-    return dict(key=key, name=name, ton=ton, tickets=tickets, bonus_ton=bonus_ton, gift_min=gift_min, gift_max=gift_max,
-                playbonus=playbonus, perks=perks)
+def _tier(key, name, ton, tickets, bonus_ton, gift=None, level=0):
+    """Rewards follow the reference screens: Quartz gives a bonus NFT gift, the rest tickets + TON.
+    level: 0 base perks, 1 = + VIP raffles and PLAYBONUS, 2 = + personal manager."""
+    perks = ['Разовое задание: %s билетов' % format(tickets, ',').replace(',', ' ')]
+    if gift:
+        perks.append('Бонусный NFT Gift за достижение уровня')
+    if bonus_ton:
+        perks.append('Бонус %s TON за достижение уровня' % format(bonus_ton, ',').replace(',', ' '))
+    perks += ['Эксклюзивные промокоды', 'Спонтанные раздачи подарков']
+    if level >= 1:
+        perks += ['Эксклюзивные VIP-розыгрыши', 'PLAYBONUS']
+    if level >= 2:
+        perks += ['Персональный VIP-менеджер', 'Бонусы от VIP-менеджера']
+    return dict(key=key, name=name, ton=ton, tickets=tickets, bonus_ton=bonus_ton, gift_min=gift[0] if gift else 0,
+                gift_max=gift[1] if gift else 0, gift=bool(gift), playbonus=level >= 1, perks=perks)
 
 
 PLAYBONUS_TIER = 2      # index of the first tier that lets the player pay PLAYBONUS out (Opal)
 
-# Rewards are given automatically the moment a tier is reached: a random catalog gift priced between gift_min and gift_max TON,
-# tickets and TON on the main balance. Edit this table to change the economy.
+# Rewards are given automatically the moment a tier is reached. Edit this table to change the economy.
 VIP_TIERS = [
-    _tier('iron', 'Quartz', 500, 500, 2, 1, 3),
-    _tier('bronze', 'Amber', 2500, 1500, 5, 3, 8),
-    _tier('silver', 'Opal', 10000, 5000, 15, 8, 20, True),
-    _tier('gold', 'Citrine', 30000, 15000, 40, 20, 60, True),
-    _tier('platinum', 'Aquamarine', 100000, 50000, 120, 60, 150, True),
-    _tier('diamond', 'Amethyst', 300000, 150000, 400, 150, 400, True),
-    _tier('obsidian', 'Onyx', 1000000, 500000, 1500, 400, 1000, True),
+    _tier('iron', 'Quartz', 500, 1000, 0, gift=(1, 3)),
+    _tier('bronze', 'Amber', 2500, 2500, 10),
+    _tier('silver', 'Opal', 10000, 5000, 25, level=1),
+    _tier('gold', 'Citrine', 30000, 10000, 50, level=1),
+    _tier('platinum', 'Aquamarine', 100000, 25000, 100, level=2),
+    _tier('diamond', 'Amethyst', 300000, 100000, 500, level=2),
+    _tier('obsidian', 'Onyx', 1000000, 500000, 2500, level=2),
 ]
 
 SCHEMA = """
@@ -139,7 +147,7 @@ def grant_due(db, user_id, turnover_cents):
             continue
         reward = dict(name=t['name'], tickets=t['tickets'], balance=t['bonus_ton'], gift=None,
                       playbonus_unlocked=bool(i == PLAYBONUS_TIER))
-        g = pick_gift(db, t, '%s:%s:%s' % (user_id, t['key'], ton))
+        g = pick_gift(db, t, '') if t['gift'] else None
         if g:
             cents = int(round(float(g['price_ton']) * 100))
             db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'vip')",
@@ -147,14 +155,16 @@ def grant_due(db, user_id, turnover_cents):
             reward['gift'] = dict(name=str(g.get('name') or ''), image_url=str(g.get('image_url') or ''), price=cents / 100)
         db.execute('UPDATE users SET tickets=tickets+?, balance=balance+? WHERE id=?', (t['tickets'], t['bonus_ton'] * 100, int(user_id)))
         _ns['record_tickets'](db, int(user_id), t['tickets'], 'vip', 'vip', t['key'], 'VIP-статус ' + t['name'])
-        _ns['record_transaction'](db, int(user_id), 'vip_bonus', t['bonus_ton'] * 100, 'vip', t['key'], 'VIP-статус ' + t['name'])
+        if t['bonus_ton']:
+            _ns['record_transaction'](db, int(user_id), 'vip_bonus', t['bonus_ton'] * 100, 'vip', t['key'], 'VIP-статус ' + t['name'])
         db.execute('INSERT INTO vip_claims(user_id,tier_key,reward_json,seen) VALUES(?,?,?,0)',
                    (int(user_id), t['key'], _ns['json'].dumps(reward, ensure_ascii=False)))
         lines = ['Новый VIP-статус: %s' % t['name'], '']
         if reward['gift']:
             lines.append('🎁 Подарок: %s (%s TON)' % (reward['gift']['name'], format(reward['gift']['price'], 'g')))
         lines.append('🎟 Билеты: %d' % t['tickets'])
-        lines.append('💎 Баланс: +%s TON' % t['bonus_ton'])
+        if t['bonus_ton']:
+            lines.append('💎 Баланс: +%s TON' % t['bonus_ton'])
         if reward['playbonus_unlocked']:
             lines.append('⚡ Открыт PLAYBONUS: кэшбэк можно забирать на основной баланс')
         _ns['add_user_notification'](db, int(user_id), 'vip_level', '\n'.join(lines))

@@ -46,7 +46,7 @@ class VipTests(unittest.TestCase):
             row = db.execute('SELECT tickets,balance FROM users WHERE id=?', (self.uid,)).fetchone()
             inv = db.execute("SELECT gift_name FROM inventory WHERE user_id=? AND source='vip'", (self.uid,)).fetchall()
             n = db.execute("SELECT COUNT(*) FROM user_notifications WHERE user_id=? AND kind='vip_level'", (self.uid,)).fetchone()[0]
-        self.assertEqual((row['tickets'], row['balance']), (500, 200))
+        self.assertEqual((row['tickets'], row['balance']), (1000, 0))
         self.assertEqual([r['gift_name'] for r in inv], ['Cheap'])
         self.assertEqual(n, 1)
         data = self.client.get('/api/vip').get_json()

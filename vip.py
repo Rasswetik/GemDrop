@@ -59,7 +59,7 @@ def floor_index(have, turnover_cents):
     ton = int(turnover_cents or 0) / 100
     idx = -1
     for i, t in enumerate(VIP_TIERS):
-        if t['key'] in have or ton >= LEGACY_TON.get(t['key'], 10 ** 12):
+        if t['key'] in have or ('__nolegacy' not in have and ton >= LEGACY_TON.get(t['key'], 10 ** 12)):
             idx = i
     return idx
 
@@ -343,6 +343,16 @@ def register(app, ns):
                 db.rollback()
                 return ns['error']('Пользователь не найден.', 404)
             db.execute('UPDATE users SET turnover_cents=? WHERE id=?', (cents, user_id))
+            reset = []
+            if cents < int(row['turnover_cents'] or 0):
+                # an admin rollback: forget the claims above the new status, so it really drops and the rewards can be earned again
+                above = [t['key'] for t in VIP_TIERS if t['ton'] * 100 > cents]
+                if not db.execute("SELECT 1 FROM vip_claims WHERE user_id=? AND tier_key='__nolegacy'", (user_id,)).fetchone():
+                    db.execute("INSERT INTO vip_claims(user_id,tier_key,reward_json,seen) VALUES(?,'__nolegacy','{}',1)", (user_id,))
+                for key in above:
+                    if db.execute('SELECT 1 FROM vip_claims WHERE user_id=? AND tier_key=?', (user_id, key)).fetchone():
+                        reset.append(key)
+                        db.execute('DELETE FROM vip_claims WHERE user_id=? AND tier_key=?', (user_id, key))
             granted = grant_due(db, user_id, cents)
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], user_id, 'vip_turnover_set', '%s → %s TON' % (int(row['turnover_cents'] or 0) / 100, cents / 100)))
@@ -353,7 +363,7 @@ def register(app, ns):
             return ns['error']('Не удалось изменить оборот.', 500)
         finally:
             db.close()
-        return jsonify(ok=True, turnover=cents / 100, state=tier_state(cents), granted=[g['name'] for g in granted])
+        return jsonify(ok=True, turnover=cents / 100, state=tier_state(cents), reset=reset, granted=[g['name'] for g in granted])
 
     @app.post('/api/admin/recent-wins/clear')
     @ns['admin_required']

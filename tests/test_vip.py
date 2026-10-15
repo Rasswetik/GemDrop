@@ -84,6 +84,28 @@ class VipTests(unittest.TestCase):
             card = self.client.get('/api/admin/users/%d' % self.uid).get_json()
             self.assertEqual(len(card['vip']['tiers']), 8)
 
+    def test_admin_rollback_resets_claims_and_status(self):
+        from unittest.mock import patch
+        with m.connect() as db:
+            db.execute('UPDATE users SET turnover_cents=0 WHERE id=?', (self.uid,))
+            db.execute('DELETE FROM vip_claims WHERE user_id=?', (self.uid,))
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/users/%d/vip' % self.uid, {'tier': 'silver'})
+            r = self.post('/api/admin/users/%d/vip' % self.uid, {'tier': 'jade'})
+            self.assertIn('silver', r['reset'])
+            self.assertEqual(r['state']['index'], 0)
+            self.assertEqual(self.client.get('/api/vip').get_json()['state']['index'], 0)
+
+    def test_admin_can_clear_plinko_feed(self):
+        from unittest.mock import patch
+        m.save_document('game_modes', {'plinko': 'on'})
+        with m.connect() as db:
+            db.execute('INSERT INTO plinko_bets(user_id,bet,risk,path,slot,multiplier_x100,payout) VALUES(?,?,?,?,?,?,?)', (self.uid, 100, 'low', 0, 0, 500, 500))
+        self.assertGreaterEqual(len(self.client.get('/api/plinko/state').get_json()['wins']), 1)
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/wins-feeds/clear', {'mode': 'plinko'})
+        self.assertEqual(len(self.client.get('/api/plinko/state').get_json()['wins']), 0)
+
     def test_admin_can_clear_live_feed(self):
         from unittest.mock import patch
         with m.connect() as db:

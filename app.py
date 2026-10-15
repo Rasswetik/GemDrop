@@ -10338,19 +10338,27 @@ def admin_wins_feeds():
 @admin_required
 def admin_clear_wins_feeds():
     mode = str((request.get_json(silent=True) or {}).get('mode') or '')
-    if mode not in ('mines','upgrade','craft','hilo','both','all'):
-        return error('Выберите Мины, Апгрейд, Крафт, Hi-Lo или все разделы.')
+    if mode not in ('mines','upgrade','craft','hilo','plinko','limbo','road','live','both','all'):
+        return error('Выберите раздел или все разделы.')
     if mode == 'both':
         kinds = ['mines','upgrade']
     elif mode == 'all':
-        kinds = ['mines','upgrade','craft','hilo']
+        kinds = ['mines','upgrade','craft','hilo','plinko','limbo','road','live']
     else:
         kinds = [mode]
     db = connect()
     try:
         db.execute('BEGIN IMMEDIATE')
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+        id_tables = dict(plinko='plinko_bets', limbo='limbo_bets', road='road_games')
         for kind in kinds:
+            if kind == 'live':
+                db.execute('DELETE FROM recent_wins')
+                continue
+            if kind in id_tables:
+                highest_round = db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM ' + id_tables[kind]).fetchone()['last_id']
+                db.execute('INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id', (kind,timestamp,highest_round))
+                continue
             highest_round = (db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM rounds').fetchone()['last_id'] if kind=='mines' else db.execute('SELECT COALESCE(MAX(id),0) AS last_id FROM hilo_room_bets').fetchone()['last_id'] if kind=='hilo' else 0)
             db.execute('INSERT INTO wins_feed_clears(kind,cleared_at,max_round_id) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET cleared_at=excluded.cleared_at,max_round_id=excluded.max_round_id', (kind,timestamp,highest_round))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'],session['uid'],'wins_feed_clear',mode))
@@ -13520,8 +13528,8 @@ def road_active_game(db, uid):
 def road_state_payload(db, uid):
     wins = db.execute("""SELECT g.id,g.bet,g.difficulty,g.steps,g.state,g.mult_x100,g.payout,g.created_at,u.name,u.photo_url
                          FROM road_games g JOIN users u ON u.id=g.user_id
-                         WHERE g.state IN ('cashed','won') AND g.payout>g.bet ORDER BY g.id DESC LIMIT ?""",
-                      (ROAD_FEED_SIZE,)).fetchall()
+                         WHERE g.state IN ('cashed','won') AND g.payout>g.bet AND g.id>? ORDER BY g.id DESC LIMIT ?""",
+                      (wins_feed_cutoff(db, 'road')[1], ROAD_FEED_SIZE)).fetchall()
     mine = db.execute("""SELECT id,bet,difficulty,steps,state,mult_x100,payout,created_at FROM road_games
                          WHERE user_id=? AND state<>'active' ORDER BY id DESC LIMIT 20""", (uid,)).fetchall()
     feed = []
@@ -13774,7 +13782,7 @@ def limbo_feed(db, user_id):
     wins = db.execute("""SELECT b.id,b.bet,b.chance_bp,b.multiplier_x100,b.roll,b.won,b.payout,b.created_at,b.prize_name,b.prize_image,b.prize_price,
                                 u.name,u.photo_url
                          FROM limbo_bets b JOIN users u ON u.id=b.user_id
-                         WHERE b.won=1 ORDER BY b.id DESC LIMIT ?""", (LIMBO_FEED_SIZE,)).fetchall()
+                         WHERE b.won=1 AND b.id>? ORDER BY b.id DESC LIMIT ?""", (wins_feed_cutoff(db, 'limbo')[1], LIMBO_FEED_SIZE)).fetchall()
     mine = db.execute("""SELECT id,bet,chance_bp,multiplier_x100,roll,won,payout,created_at,prize_name,prize_image,prize_price
                          FROM limbo_bets WHERE user_id=? ORDER BY id DESC LIMIT 20""", (user_id,)).fetchall()
     feed = []

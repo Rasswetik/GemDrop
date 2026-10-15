@@ -118,7 +118,7 @@
     });
     await loadFeeds();
     root.append(K.head('Последние победы', 'Очищайте публичные ленты побед и настраивайте награды за ТОП дня отдельно для Mines, Upgrade и Hi-Lo.', 'Игры'),
-      feeds, K.card('Очистка лент', 'Удаляет записи из публичных лент победителей. Данные игр в базе не затрагиваются.', h('div', {class: 'actions', style: {marginTop: 0}}, clear('mines', 'Очистить Мины'), clear('upgrade', 'Очистить Апгрейд'), clear('craft', 'Очистить Крафт'), clear('hilo', 'Очистить Hi-Lo'), clear('all', 'Очистить все ленты')), status),
+      feeds, K.card('Очистка лент', 'Удаляет записи из публичных лент победителей и живой ленты на главной. Данные игр в базе не затрагиваются.', h('div', {class: 'actions', style: {marginTop: 0}}, clear('mines', 'Очистить Мины'), clear('upgrade', 'Очистить Апгрейд'), clear('craft', 'Очистить Крафт'), clear('hilo', 'Очистить Hi-Lo'), clear('plinko', 'Очистить Plinko'), clear('limbo', 'Очистить Limbo'), clear('road', 'Очистить Hamster Road'), clear('live', 'Очистить живую ленту (главная)'), clear('all', 'Очистить все ленты')), status),
       h('div', {class: 'group-title', text: 'Награды за ТОП дня'}), h('div', {class: 'cols-3', style: {alignItems: 'start'}}, cards));
   }});
 })();

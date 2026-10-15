@@ -155,3 +155,5 @@ body.vip-open{overflow:hidden}
 #invSellAll.hidden{display:none}
 #invSellAll:disabled{background:rgba(255,255,255,.08);color:#8b93a4;cursor:default}
 @media(max-width:380px){.inv-right{gap:8px}#invSellAll{padding:0 11px}.inv-cnt{gap:6px;font-size:14px}}
+/* Mines: breathing room between the multiplier ladder and the grid */
+html body #minesPage .ladder{margin-bottom:20px!important;padding-bottom:10px!important}

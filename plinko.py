@@ -98,7 +98,7 @@ def register(app, ns):
         wins = db.execute("""SELECT b.id,b.user_id,b.bet,b.risk,b.path,b.slot,b.multiplier_x100,b.payout,b.created_at,
                                     b.prize_name,b.prize_image,b.prize_price,u.name,u.photo_url
                              FROM plinko_bets b JOIN users u ON u.id=b.user_id
-                             WHERE b.payout>b.bet ORDER BY b.id DESC LIMIT ?""", (FEED_SIZE,)).fetchall()
+                             WHERE b.payout>b.bet AND b.id>? ORDER BY b.id DESC LIMIT ?""", (ns['wins_feed_cutoff'](db, 'plinko')[1], FEED_SIZE)).fetchall()
         mine = db.execute("""SELECT id,bet,risk,path,slot,multiplier_x100,payout,created_at,prize_name,prize_image,prize_price
                              FROM plinko_bets WHERE user_id=? ORDER BY id DESC LIMIT 20""", (uid,)).fetchall()
         out = []

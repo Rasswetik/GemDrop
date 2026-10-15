@@ -133,6 +133,43 @@ class LeaderboardTests(unittest.TestCase):
         keys = sorted(x['key'] for x in self.client.get('/api/medals').get_json()['medals'])
         self.assertEqual(keys, ['champ', 'vip'])
 
+    def test_collection_reward_by_percent_event_and_main_medal(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals'); db.execute('DELETE FROM medal_collection_claims')
+            db.execute("DELETE FROM app_documents WHERE name='medal_settings'")
+            before = db.execute('SELECT tickets,balance FROM users WHERE id=?', (self.uid,)).fetchone()
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/medals/collection', {'scope': '*', 'percent': 0, 'tickets': 5}, 400)
+            self.post('/api/admin/medals/collection', {'scope': 'nope', 'percent': 50}, 400)
+            names = m.leaderboard.all_names()
+            need = -(-len(names) * 10 // 100)   # 10% of the collection
+            self.post('/api/admin/medals/collection', {'scope': '*', 'percent': 10, 'tickets': 7, 'ton': '1.5'})
+            self.post('/api/admin/medals/collection', {'scope': 'Хэллоуин', 'percent': 100, 'tickets': 3})
+            for k in list(names)[:need - 1]:
+                self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': k, 'notify': False})
+        self.post('/api/medals/collection/claim', {'scope': '*'}, 409)          # not enough yet
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': list(names)[need - 1], 'notify': False})
+        got = self.client.get('/api/medals').get_json()
+        star = next(c for c in got['collections'] if c['scope'] == '*')
+        self.assertTrue(star['ready'] and not star['claimed'] and star['need'] == need)
+        self.assertIn('Хэллоуин', [c['scope'] for c in got['collections']])
+        self.post('/api/medals/collection/claim', {'scope': '*'})
+        self.post('/api/medals/collection/claim', {'scope': '*'}, 409)          # only once
+        with m.connect() as db:
+            after = db.execute('SELECT tickets,balance FROM users WHERE id=?', (self.uid,)).fetchone()
+        self.assertEqual((after['tickets'] - before['tickets'], after['balance'] - before['balance']), (7, 150))
+        # a new medal later does not reopen the reward
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/medals/event', {'key': 'vip', 'event': 'Зима'})
+        self.assertIn('Зима', [c['scope'] for c in self.client.get('/api/medals').get_json()['collections']])
+        # first slot medal is shown next to the nickname
+        worn = [x for x in got['medals'] if x['shown']]
+        self.post('/api/medals/main', {'key': worn[-1]['key']})
+        with m.connect() as db:
+            self.assertEqual(m.leaderboard.main_medals(db, [self.uid])[self.uid], worn[-1]['key'])
+        self.post('/api/medals/main', {'key': 'nope'}, 409)
+
     def test_admin_grants_and_revokes_manual_medal(self):
         with m.connect() as db:
             db.execute('DELETE FROM user_medals')

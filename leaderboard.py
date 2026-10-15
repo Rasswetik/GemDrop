@@ -22,6 +22,7 @@ MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный
           'rocket': 'Ракета Plinko', 'gambler': 'Азартный', 'miner': 'Сапёр', 'cards': 'Мастер карт', 'night': 'Ночной игрок'}   # drawn in static/js/medals.js
 MAX_SHOWN_MEDALS = 3
 BASE_MEDALS = dict(MEDALS)
+DEFAULT_EVENTS = {k: 'Хэллоуин' for k in ('hw1', 'hw2', 'hw3', 'hw4', 'hw5')}   # event collections: medals tied to a seasonal event
 MEDAL_DOC, MEDAL_SET_DOC, PROMO_MEDAL_DOC = 'custom_medals', 'medal_settings', 'promo_medals'
 RARITIES = {'common': 'Обычная', 'rare': 'Редкая', 'epic': 'Эпическая', 'legendary': 'Легендарная'}
 DEFAULT_RARITY = {'hw1': 'epic', 'hw2': 'rare', 'hw3': 'rare', 'hw4': 'rare', 'hw5': 'rare', 'vip': 'epic', 'gem': 'epic', 'champ': 'epic'}
@@ -66,7 +67,19 @@ def medal_settings():
     names = doc.get('names') if isinstance(doc.get('names'), dict) else {}
     hidden = doc.get('hidden') if isinstance(doc.get('hidden'), list) else []
     rar = doc.get('rarity') if isinstance(doc.get('rarity'), dict) else {}
+    ev = doc.get('events') if isinstance(doc.get('events'), dict) else {}
+    cols = doc.get('collections') if isinstance(doc.get('collections'), dict) else {}
+    clean = {}
+    for scope, c in cols.items():
+        if not isinstance(c, dict):
+            continue
+        try:
+            clean[str(scope)[:40]] = dict(percent=max(1, min(100, int(c.get('percent') or 100))), tickets=max(0, int(c.get('tickets') or 0)),
+                                          ton=max(0.0, min(1000000.0, float(c.get('ton') or 0))), medal=str(c.get('medal') or ''))
+        except (TypeError, ValueError):
+            continue
     return dict(names={str(k): str(v)[:40] for k, v in names.items() if v}, hidden=[str(x) for x in hidden], rarity={str(k): v for k, v in rar.items() if v in RARITIES},
+                events={str(k): str(v)[:30] for k, v in ev.items()}, collections=clean,
                 notify=str(doc.get('notify') or DEFAULT_NOTIFY)[:600], season=str(doc.get('season') or DEFAULT_SEASON_NOTE)[:300])
 
 
@@ -83,6 +96,46 @@ def rarity_map():
     for k, v in custom_medals().items():
         out[k] = v.get('rarity') if v.get('rarity') in RARITIES else 'common'
     out.update({k: v for k, v in medal_settings()['rarity'].items() if k in out})
+    return out
+
+
+def event_map():
+    out = dict(DEFAULT_EVENTS)
+    for k, v in custom_medals().items():
+        if v.get('event'):
+            out[k] = str(v['event'])[:30]
+    for k, v in medal_settings()['events'].items():
+        if v:
+            out[k] = v
+        else:
+            out.pop(k, None)
+    return {k: v for k, v in out.items() if k in all_names()}
+
+
+def collection_scopes():
+    """{scope: [medal keys]} — '*' is everything visible, every event name is its own collection."""
+    hidden = set(medal_settings()['hidden'])
+    keys = [k for k in all_names() if k not in hidden]
+    out = {'*': keys}
+    for k, ev in event_map().items():
+        if k in keys:
+            out.setdefault(ev, []).append(k)
+    return out
+
+
+def collections_state(db, uid):
+    own = {r['medal_key'] for r in db.execute('SELECT DISTINCT medal_key FROM user_medals WHERE user_id=?', (int(uid),)).fetchall()}
+    done = {r['scope'] for r in db.execute('SELECT scope FROM medal_collection_claims WHERE user_id=?', (int(uid),)).fetchall()}
+    cfg = medal_settings()['collections']
+    out = []
+    for scope, keys in collection_scopes().items():
+        c = cfg.get(scope)
+        has_reward = bool(c and (c['tickets'] or c['ton'] or c['medal']))
+        got = sum(1 for k in keys if k in own)
+        pct = c['percent'] if c else 100
+        out.append(dict(scope=scope, label='Все медали' if scope == '*' else scope, total=len(keys), owned=got, percent=pct,
+                        need=-(-len(keys) * pct // 100), reward=(dict(tickets=c['tickets'], ton=c['ton'], medal=c['medal'], medal_name=mname(c['medal']) if c['medal'] else '') if has_reward else None),
+                        claimed=scope in done, ready=bool(has_reward and keys and got * 100 >= pct * len(keys) and scope not in done)))
     return out
 
 
@@ -117,6 +170,10 @@ CREATE TABLE IF NOT EXISTS user_medals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,medal_key TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',
     place INTEGER NOT NULL DEFAULT 0,period_id INTEGER NOT NULL DEFAULT 0,shown INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS medal_collection_claims (
+    user_id INTEGER NOT NULL,scope TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id,scope)
 );
 CREATE INDEX IF NOT EXISTS user_medals_user ON user_medals(user_id,id);
 CREATE INDEX IF NOT EXISTS lb_turnover_rank ON lb_turnover(period_id,cents);
@@ -462,6 +519,14 @@ def register(app, ns):
                 db.execute('ALTER TABLE user_medals ADD COLUMN claimed INTEGER NOT NULL DEFAULT 1')   # medals issued before this stay claimed
     except Exception:
         app.logger.exception('user_medals.claimed migration failed')
+    try:
+        with connect() as db:
+            if ns['DATABASE_URL']:
+                db.execute('ALTER TABLE user_medals ADD COLUMN IF NOT EXISTS main INTEGER NOT NULL DEFAULT 0')
+            elif 'main' not in {r['name'] for r in db.execute('PRAGMA table_info(user_medals)').fetchall()}:
+                db.execute('ALTER TABLE user_medals ADD COLUMN main INTEGER NOT NULL DEFAULT 0')
+    except Exception:
+        app.logger.exception('user_medals.main migration failed')
     try:   # the profile now holds up to 3 medals: keep the newest three of those already shown
         with connect() as db:
             seen = {}
@@ -610,7 +675,7 @@ def register(app, ns):
     @app.get('/api/medals/catalog')
     def medal_catalog():
         items = custom_medals()
-        return jsonify(ok=True, names=all_names(), hidden=medal_settings()['hidden'], rarity=rarity_map(), rarities=RARITIES,
+        return jsonify(ok=True, names=all_names(), hidden=medal_settings()['hidden'], rarity=rarity_map(), rarities=RARITIES, events=event_map(),
                        custom=[dict(key=k, name=mname(k), hidden=k in medal_settings()['hidden'], manual_only=bool(v.get('manual_only')), pal=v.get('pal') or 'gold',
                                     img='/api/medals/img/%s?v=%d' % (k, int(v.get('v') or 0))) for k, v in items.items()])
 
@@ -641,7 +706,9 @@ def register(app, ns):
             o['hidden'] = o['key'] in st['hidden']
             o['rarity'] = rar.get(o['key'], 'common')
             o['pal'] = (cust.get(o['key']) or {}).get('pal', '')
-        return jsonify(ok=True, medals=out, notify=st['notify'], season=st['season'], rarities=RARITIES,
+            o['event'] = event_map().get(o['key'], '')
+        cs = medal_settings()['collections']
+        return jsonify(ok=True, medals=out, scopes=[dict(scope=sc, label='Все медали' if sc == '*' else sc, total=len(ks), cfg=cs.get(sc) or dict(percent=100, tickets=0, ton=0, medal='')) for sc, ks in collection_scopes().items()], notify=st['notify'], season=st['season'], rarities=RARITIES,
                        codes=[dict(code=c, medal=v.get('medal'), title=v.get('title', '')) for c, v in promo_medals().items()],
                        defaults=dict(notify=DEFAULT_NOTIFY, season=DEFAULT_SEASON_NOTE))
 
@@ -770,7 +837,7 @@ def register(app, ns):
         while 'u%d' % n in items or 'u%d' % n in BASE_MEDALS:
             n += 1
         key = 'u%d' % n
-        items[key] = dict(name=name, manual_only=bool(data.get('manual_only', True)), pal=data.get('pal') if data.get('pal') in PAL_KEYS else 'gold', rarity=data.get('rarity') if data.get('rarity') in RARITIES else 'common', v=int(_t.time()),
+        items[key] = dict(name=name, manual_only=bool(data.get('manual_only', True)), pal=data.get('pal') if data.get('pal') in PAL_KEYS else 'gold', rarity=data.get('rarity') if data.get('rarity') in RARITIES else 'common', event=str(data.get('event') or '').strip()[:30], v=int(_t.time()),
                           image='data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode())
         _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True, seeded_keys=list((_ns['read_document'](MEDAL_DOC) or {}).get('seeded_keys') or [])))
         return jsonify(ok=True, key=key)
@@ -860,8 +927,140 @@ def register(app, ns):
     def my_medals():
         with connect() as db:
             rows = db.execute('SELECT id,medal_key,title,place,shown,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (int(session['uid']),)).fetchall()
-        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'),
+            main = main_medals(db, [session['uid']]).get(int(session['uid']), '')
+            cols = collections_state(db, session['uid'])
+        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, main=main, collections=cols, events=event_map(),
+                       medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'),
                        title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
+
+    BADGE_PATHS = ('/api/game/recent-wins', '/api/upgrade/recent-wins', '/api/hilo/recent-wins', '/api/craft/recent-wins', '/api/leaderboard/', '/api/arena/state',
+                   '/api/crash/state', '/api/xhunt/', '/api/transfers/recipient', '/api/rolls', '/api/giveaways', '/api/wheel', '/api/users/')
+
+    @app.after_request
+    def attach_main_medals(resp):
+        """Put each player's first-slot medal (`medal`) on every user object in the feeds, so it can be drawn next to the nickname."""
+        try:
+            if request.method != 'GET' or resp.status_code != 200 or not resp.mimetype == 'application/json' or not request.path.startswith(BADGE_PATHS):
+                return resp
+            data = resp.get_json(silent=True)
+            if data is None:
+                return resp
+            found = []
+
+            def walk(o, depth=0):
+                if depth > 7:
+                    return
+                if isinstance(o, dict):
+                    uid = o.get('user_id')
+                    if isinstance(uid, int) and ('name' in o or 'username' in o or 'photo_url' in o):
+                        found.append((o, uid))
+                    elif isinstance(o.get('id'), int) and 'username' in o and ('photo_url' in o or 'name' in o):
+                        found.append((o, o['id']))
+                    for v in o.values():
+                        if isinstance(v, (dict, list)):
+                            walk(v, depth + 1)
+                elif isinstance(o, list):
+                    for v in o[:300]:
+                        walk(v, depth + 1)
+            walk(data)
+            if not found:
+                return resp
+            with connect() as db:
+                mm = main_medals(db, [u for _, u in found])
+            if not mm:
+                return resp
+            for o, u in found:
+                if u in mm:
+                    o['medal'] = mm[u]
+            resp.set_data(json.dumps(data, ensure_ascii=False, separators=(',', ':')))
+        except Exception:
+            _ns['app'].logger.exception('Main medal badge injection failed')
+        return resp
+
+    @app.post('/api/medals/main')
+    @login
+    def medal_make_main():
+        key = str((request.get_json(silent=True) or {}).get('key') or '')
+        uid = int(session['uid'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT id FROM user_medals WHERE user_id=? AND medal_key=? AND shown=1 ORDER BY id DESC LIMIT 1', (uid, key)).fetchone()
+            if not row:
+                return error('Сначала наденьте эту медаль.', 409)
+            db.execute('UPDATE user_medals SET main=0 WHERE user_id=?', (uid,))
+            db.execute('UPDATE user_medals SET main=1 WHERE id=?', (int(row['id']),))
+        return jsonify(ok=True)
+
+    @app.post('/api/medals/collection/claim')
+    @login
+    def medal_collection_claim():
+        scope = str((request.get_json(silent=True) or {}).get('scope') or '*')
+        uid = int(session['uid'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            state = next((c for c in collections_state(db, uid) if c['scope'] == scope), None)
+            if not state or not state['reward']:
+                return error('Для этой коллекции награда не назначена.', 404)
+            if state['claimed']:
+                return error('Награда за эту коллекцию уже получена.', 409)
+            if not state['ready']:
+                return error('Соберите больше медалей: нужно %d из %d.' % (state['need'], state['total']), 409)
+            db.execute('INSERT INTO medal_collection_claims(user_id,scope) VALUES(?,?)', (uid, scope))
+            rw = state['reward']
+            label = 'Коллекция «%s»' % state['label']
+            if rw['tickets']:
+                db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (rw['tickets'], uid))
+                _ns['record_tickets'](db, uid, rw['tickets'], 'medal_collection', 'medals', scope, label)
+            if rw['ton']:
+                cents = int(round(rw['ton'] * 100))
+                db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cents, uid))
+                _ns['record_transaction'](db, uid, 'medal_collection', cents, 'medals', scope, label)
+            if rw['medal']:
+                award_medal(db, uid, rw['medal'], label)
+            db.commit()
+        return jsonify(ok=True, reward=rw)
+
+    @app.post('/api/admin/medals/event')
+    @admin
+    def admin_medal_event():
+        data = request.get_json(silent=True) or {}
+        key, ev = str(data.get('key') or ''), str(data.get('event') or '').strip()[:30]
+        if key not in all_names():
+            return error('Выберите медаль.')
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        events = dict(doc.get('events') or {})
+        events[key] = ev            # '' = explicitly not an event medal
+        doc['events'] = events
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/collection')
+    @admin
+    def admin_medal_collection():
+        data = request.get_json(silent=True) or {}
+        scope = str(data.get('scope') or '*')
+        if scope != '*' and scope not in collection_scopes():
+            return error('Такой коллекции нет.')
+        try:
+            percent = int(data.get('percent') if data.get('percent') not in (None, '') else 100)
+            tickets = int(data.get('tickets') or 0)
+            ton = float(str(data.get('ton') or 0).replace(',', '.'))
+        except (TypeError, ValueError):
+            return error('Проверьте числа.')
+        medal = str(data.get('medal') or '')
+        if not 1 <= percent <= 100 or tickets < 0 or not 0 <= ton <= 1000000:
+            return error('Процент: 1–100, билеты и TON — не отрицательные.')
+        if medal and medal not in all_names():
+            return error('Такой медали нет.')
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        cols = dict(doc.get('collections') or {})
+        if not (tickets or ton or medal) and percent == 100:
+            cols.pop(scope, None)
+        else:
+            cols[scope] = dict(percent=percent, tickets=tickets, ton=round(ton, 2), medal=medal)
+        doc['collections'] = cols
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        return jsonify(ok=True)
 
     @app.post('/api/medals/equip')
     @login
@@ -1018,8 +1217,21 @@ def award_medal(db, user_id, medal, title='Особая награда', notify=
     return int(cur.lastrowid)
 
 
+def main_medals(db, user_ids):
+    """{user_id: medal_key} — the medal in each player's first slot, shown next to the nickname everywhere."""
+    ids = sorted({int(x) for x in user_ids if x})
+    if not ids:
+        return {}
+    marks = ','.join('?' for _ in ids)
+    rows = db.execute('SELECT user_id,medal_key FROM user_medals WHERE shown=1 AND user_id IN (%s) ORDER BY main ASC,id ASC' % marks, tuple(ids)).fetchall()
+    out = {}
+    for r in rows:   # ascending: the last row written wins -> main=1 first, otherwise the newest
+        out[int(r['user_id'])] = r['medal_key']
+    return out
+
+
 def shown_medals(db, user_id):
     """Medals the player chose to show on the public profile (newest first)."""
-    rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY id DESC LIMIT ?',
+    rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY main DESC,id DESC LIMIT ?',
                       (int(user_id), MAX_SHOWN_MEDALS)).fetchall()
     return [dict(key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'), title=r['title'], place=int(r['place'])) for r in rows]

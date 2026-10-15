@@ -39,9 +39,9 @@
     '.mdl-c b{font-size:12.5px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.mdl-c small{font-size:10.5px;color:var(--muted,#96a0a8);line-height:1.2}' +
     '.mdl-eq{margin-top:5px;width:100%;height:30px;border-radius:10px;border:1px solid rgba(242,245,249,.3);background:linear-gradient(110deg,#9ae9e3,#47b0f5);color:#131524;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.mdl-eq.off{background:rgba(255,255,255,.06);border-color:var(--gd-line,#22253d);color:var(--text,#f4f5f7);font-weight:700}.mdl-eq:active{transform:scale(.97)}' +
     '.mdl-lock{position:relative;display:grid;place-items:center}.mdl-lock .gdm{filter:grayscale(1) brightness(.22) contrast(1.2);opacity:.55}.mdl-lock .gdm *{animation:none!important}.mdl-lock span{position:absolute;inset:0;display:grid;place-items:center;font-size:24px;font-weight:900;color:rgba(255,255,255,.7);text-shadow:0 2px 8px rgba(0,0,0,.7)}.mdl-c.lk{background:rgba(255,255,255,.02)}.mdl-c.lk b{color:var(--muted,#96a0a8)}' +
-    '.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#9ae9e3;font-style:normal}';
-  var RARS = ['legendary', 'epic', 'rare', 'common'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
-  var state = {q: '', f: 'all', own: {}, max: 3, shown: {}};
+    '.mdl-rw{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;margin:0 0 10px;padding:11px 12px;border-radius:16px;background:rgba(71,176,245,.07);border:1px solid rgba(71,176,245,.28)}.mdl-rw b{font-size:13px}.mdl-rw small{grid-column:1;font-size:11.5px;color:var(--muted,#96a0a8);line-height:1.3}.mdl-rw .mdl-eq{grid-column:2;grid-row:1/3;width:auto;min-width:96px;margin:0;padding:0 12px}.mdl-rw .mdl-eq:disabled{opacity:.55}.mdl-star{position:absolute;top:5px;left:6px;font-size:13px;color:#ffd34d;text-shadow:0 1px 4px rgba(0,0,0,.7)}.mdl-slot.on{cursor:pointer}.mdl-slot em.mn{opacity:1;color:#ffd34d;font-size:11px;font-weight:800;margin-top:1px}.mdl-slot{position:relative}.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#9ae9e3;font-style:normal}';
+  var RARS = ['common', 'rare', 'epic', 'legendary'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
+  var state = {q: '', f: 'all', own: {}, max: 3, shown: {}, cols: [], events: {}, main: ''};
   function modal() {
     var m = $('mdlModal');
     if (m) return m;
@@ -60,35 +60,52 @@
     var o = state.own[m.key], r = m.rarity || 'common';
     if (!o) return '<div class="mdl-c lk" data-k="' + m.key + '"><div class="mdl-lock">' + GDMedals.svg(m.key, 62, true) + '<span>?</span></div><b>???</b><small>Не найдена</small></div>';
     var on = !!state.shown[m.key];
-    return '<div class="mdl-c' + (on ? ' on' : '') + '" data-k="' + m.key + '">' + (o.n > 1 ? '<i class="mdl-cnt">×' + o.n + '</i>' : '') + GDMedals.svg(m.key, 62) + '<b>' + esc(m.name) + '</b>' + rarTag(r) +
+    return '<div class="mdl-c' + (on ? ' on' : '') + '" data-k="' + m.key + '">' + (on && state.main === m.key ? '<i class="mdl-star">★</i>' : '') + (o.n > 1 ? '<i class="mdl-cnt">×' + o.n + '</i>' : '') + GDMedals.svg(m.key, 62) + '<b>' + esc(m.name) + '</b>' + rarTag(r) +
       '<button type="button" class="mdl-eq' + (on ? ' off' : '') + '" data-k="' + m.key + '">' + (on ? 'Снять' : 'Надеть') + '</button></div>';
   }
   function paint() {
     var all = collection(), got = all.filter(function (m) { return state.own[m.key]; }).length, shownN = Object.keys(state.shown).length;
     $('mdlMeta').innerHTML = 'Собрано <b>' + got + ' из ' + all.length + '</b> · надето <b>' + shownN + ' из ' + state.max + '</b>';
-    var slots = '', keys = Object.keys(state.shown), i;
-    for (i = 0; i < state.max; i++) slots += keys[i] ? '<div class="mdl-slot on">' + GDMedals.svg(keys[i], 56) + '<span>' + esc(GDMedals.name(keys[i])) + '</span></div>' : '<div class="mdl-slot"><em>＋</em><span>Свободно</span></div>';
+    var slots = '', keys = Object.keys(state.shown), i, mk = state.shown[state.main] ? state.main : keys[keys.length - 1];
+    keys.sort(function (a, b) { return (a === mk ? -1 : 0) - (b === mk ? -1 : 0); });
+    for (i = 0; i < state.max; i++) slots += keys[i] ? '<div class="mdl-slot on" data-main="' + keys[i] + '">' + GDMedals.svg(keys[i], 52) + '<span>' + esc(GDMedals.name(keys[i])) + '</span>' + (keys[i] === mk ? '<em class="mn">★ у ника</em>' : '<em class="mn" style="color:#8d99a8">сделать главной</em>') + '</div>' : '<div class="mdl-slot"><em>＋</em><span>Свободно</span></div>';
     $('mdlSlots').innerHTML = slots;
     $('mdlF').innerHTML = [['all', 'Все'], ['own', 'Мои'], ['lock', 'Не найденные']].map(function (f) { return '<button type="button" data-f="' + f[0] + '" class="' + (state.f === f[0] ? 'on' : '') + '">' + f[1] + '</button>'; }).join('');
-    var q = state.q, html = '';
+    var q = state.q, html = '', evOf = state.events;
+    function pass(m) {
+      var o = !!state.own[m.key];
+      if (state.f === 'own' && !o) return false;
+      if (state.f === 'lock' && o) return false;
+      if (q) { if (!o) return false; if (m.name.toLowerCase().indexOf(q) < 0) return false; }   // not found medals stay secret
+      return true;
+    }
+    function reward(c) {
+      if (!c || !c.reward) return '';
+      var r = c.reward, parts = [];
+      if (r.tickets) parts.push(r.tickets + ' билетов'); if (r.ton) parts.push(r.ton + ' TON'); if (r.medal) parts.push('медаль «' + esc(r.medal_name) + '»');
+      var btn = c.claimed ? '<button type="button" class="mdl-eq off" disabled>Получено</button>' : '<button type="button" class="mdl-eq mdl-claim" data-scope="' + esc(c.scope) + '"' + (c.ready ? '' : ' disabled') + '>' + (c.ready ? 'Забрать' : c.owned + ' / ' + c.need) + '</button>';
+      return '<div class="mdl-rw"><b>Награда: ' + parts.join(' + ') + '</b><small>Соберите ' + c.percent + '% коллекции (' + c.need + ' из ' + c.total + '). У вас ' + c.owned + '.</small>' + btn + '</div>';
+    }
+    var colOf = {}; state.cols.forEach(function (c) { colOf[c.scope] = c; });
+    if (colOf['*'] && colOf['*'].reward && state.f === 'all' && !q) html += reward(colOf['*']);
     RARS.forEach(function (r) {
-      var items = all.filter(function (m) {
-        if ((m.rarity || 'common') !== r) return false;
-        var o = !!state.own[m.key];
-        if (state.f === 'own' && !o) return false;
-        if (state.f === 'lock' && o) return false;
-        if (q) { if (!o) return false; if (m.name.toLowerCase().indexOf(q) < 0) return false; }   // not found medals stay secret
-        return true;
-      });
+      var items = all.filter(function (m) { return !evOf[m.key] && (m.rarity || 'common') === r && pass(m); });
       if (!items.length) return;
       var have = items.filter(function (m) { return state.own[m.key]; }).length;
       html += '<div class="mdl-h">' + rarTag(r).replace(/>[^<]*</, '>' + RPL[r] + '<') + '<small>' + have + ' / ' + items.length + '</small></div><div class="mdl-grid">' + items.map(medalCard).join('') + '</div>';
+    });
+    var evs = {}; all.forEach(function (m) { if (evOf[m.key]) (evs[evOf[m.key]] = evs[evOf[m.key]] || []).push(m); });
+    Object.keys(evs).forEach(function (ev) {
+      var items = evs[ev].filter(pass).sort(function (a, b) { return RARS.indexOf(a.rarity || 'common') - RARS.indexOf(b.rarity || 'common'); });
+      if (!items.length) return;
+      var have = items.filter(function (m) { return state.own[m.key]; }).length;
+      html += '<div class="mdl-h"><span class="rar" style="color:#ffb454">Коллекция · ' + esc(ev) + '</span><small>' + have + ' / ' + evs[ev].length + '</small></div>' + (state.f === 'all' && !q ? reward(colOf[ev]) : '') + '<div class="mdl-grid">' + items.map(medalCard).join('') + '</div>';
     });
     $('mdlList').innerHTML = html || '<div class="mdl-empty">' + (q ? 'Среди найденных медалей ничего не нашлось.' : 'Здесь пока пусто.') + '</div>';
   }
   function load() {
     return Promise.all([api('/api/medals'), GDMedals.ready]).then(function (r) {
-      var d = r[0]; state.max = d.max_shown || 3; state.own = {}; state.shown = {};
+      var d = r[0]; state.max = d.max_shown || 3; state.own = {}; state.shown = {}; state.cols = d.collections || []; state.events = d.events || {}; state.main = d.main || '';
       d.medals.forEach(function (x) { var o = state.own[x.key] || (state.own[x.key] = {n: 0}); o.n++; if (x.shown) state.shown[x.key] = 1; });
     });
   }
@@ -99,6 +116,10 @@
       m.dataset.bound = '1';
       m.addEventListener('click', function (e) {
         var f = e.target.closest('[data-f]'); if (f) { state.f = f.dataset.f; paint(); return; }
+        var sl = e.target.closest('[data-main]');
+        if (sl) { api('/api/medals/main', {key: sl.dataset.main}).then(function () { state.main = sl.dataset.main; paint(); if (window.GDMedalsMainChanged) GDMedalsMainChanged(state.main); }).catch(function (er) { if (window.toast) toast(er.message); }); return; }
+        var cl = e.target.closest('.mdl-claim');
+        if (cl) { cl.disabled = true; api('/api/medals/collection/claim', {scope: cl.dataset.scope}).then(function () { if (window.toast) toast('Награда получена'); return load(); }).then(paint).then(function () { try { if (typeof api === 'function' && typeof setUser === 'function') fetch('/api/me', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) { if (d && d.user) setUser(d.user); }); } catch (x) {} }).catch(function (er) { cl.disabled = false; if (window.toast) toast(er.message); }); return; }
         var b = e.target.closest('.mdl-eq'); if (!b) return;
         var k = b.dataset.k, on = !state.shown[k]; b.disabled = true;
         api('/api/medals/equip', {key: k, on: on}).then(function () { if (on) state.shown[k] = 1; else delete state.shown[k]; paint(); })

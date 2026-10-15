@@ -33,21 +33,43 @@ class VipTests(unittest.TestCase):
         self.assertEqual(items[1]['amount'], 12.34)
         self.assertEqual(items[0]['prize'], 'Cool Gift')
 
-    def test_claim_gives_tickets_and_bonus_once(self):
+    def test_rewards_are_granted_automatically_once(self):
+        m.save_document('portal_catalog', {'gifts': [
+            {'id': 'cheap', 'name': 'Cheap', 'price_ton': 2, 'image_url': 'https://example.com/c.png'},
+            {'id': 'dear', 'name': 'Dear', 'price_ton': 500, 'image_url': 'https://example.com/d.png'}]})
         with m.connect() as db:
-            db.execute('UPDATE users SET turnover_cents=?, tickets=0, bonus_balance=0 WHERE id=?', (60000, self.uid))
-            db.execute('DELETE FROM vip_claims')
-        self.post('/api/vip/claim', {'tier': 'bronze'}, 403)
-        self.post('/api/vip/claim', {'tier': 'nope'}, 404)
+            db.execute('UPDATE users SET turnover_cents=0, tickets=0, balance=0 WHERE id=?', (self.uid,))
+            db.execute('DELETE FROM vip_claims'); db.execute("DELETE FROM inventory WHERE source='vip'")
+            db.execute("DELETE FROM user_notifications WHERE kind='vip_level'")
+            m.increase_turnover(db, self.uid, 60000)
+            m.increase_turnover(db, self.uid, 100)
+            row = db.execute('SELECT tickets,balance FROM users WHERE id=?', (self.uid,)).fetchone()
+            inv = db.execute("SELECT gift_name FROM inventory WHERE user_id=? AND source='vip'", (self.uid,)).fetchall()
+            n = db.execute("SELECT COUNT(*) FROM user_notifications WHERE user_id=? AND kind='vip_level'", (self.uid,)).fetchone()[0]
+        self.assertEqual((row['tickets'], row['balance']), (500, 200))
+        self.assertEqual([r['gift_name'] for r in inv], ['Cheap'])
+        self.assertEqual(n, 1)
         data = self.client.get('/api/vip').get_json()
         self.assertEqual(data['pending'], 1)
-        res = self.post('/api/vip/claim', {'tier': 'iron'})
-        self.assertEqual((res['reward']['tickets'], res['reward']['bonus_ton']), (500, 2))
-        self.post('/api/vip/claim', {'tier': 'iron'}, 409)
-        with m.connect() as db:
-            row = db.execute('SELECT tickets,bonus_balance FROM users WHERE id=?', (self.uid,)).fetchone()
-        self.assertEqual((row['tickets'], row['bonus_balance']), (500, 200))
+        self.assertEqual(data['unseen'][0]['gift']['name'], 'Cheap')
+        self.post('/api/vip/seen', {})
         self.assertEqual(self.client.get('/api/vip').get_json()['pending'], 0)
+
+    def test_playbonus_cashback_and_claim(self):
+        with m.connect() as db:
+            db.execute('UPDATE users SET turnover_cents=0, playbonus=0, bonus_balance=0, balance=0, loss_cashback_residual=0 WHERE id=?', (self.uid,))
+            m.credit_main_loss_cashback(db, self.uid, 10000, 'test', '1')
+            row = db.execute('SELECT playbonus,bonus_balance FROM users WHERE id=?', (self.uid,)).fetchone()
+        self.assertEqual((row['playbonus'], row['bonus_balance']), (200, 0))
+        self.post('/api/playbonus/claim', {}, 403)
+        with m.connect() as db:
+            db.execute('UPDATE users SET turnover_cents=? WHERE id=?', (1000000, self.uid))
+        pb = self.client.get('/api/vip').get_json()['playbonus']
+        self.assertEqual((pb['amount'], pb['unlocked']), (2, True))
+        self.assertEqual(self.post('/api/playbonus/claim', {})['amount'], 2)
+        self.post('/api/playbonus/claim', {}, 409)
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?', (self.uid,)).fetchone()['balance'], 200)
 
     def test_gift_win_image_falls_back_to_inventory(self):
         with m.connect() as db:

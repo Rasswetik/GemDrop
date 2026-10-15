@@ -72,29 +72,63 @@
       var open=i===cur,el=document.createElement('div');
       el.className='vip-tier'+(x.unlocked?' on':' locked')+(i===cur?' cur':'')+(open?' open':'');
       var lock=x.unlocked?'':'<svg class="vt-lock" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"/></svg>';
-      var tag=x.claimable?'<span class="vt-ready">Награда</span>':(x.claimed?'<span class="vt-got">Получено</span>':(i===cur?'<span class="vt-now">Текущий</span>':''));
-      el.innerHTML='<button type="button" class="vt-head"><span class="vt-gem">'+gem(i,46)+'</span><span class="vt-txt"><b>'+x.name+lock+'</b><small>'+tonIcon()+fmt(x.ton)+' TON</small></span>'+tag+'<svg class="vt-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="vt-body"><div><ul>'+x.perks.map(function(p){return '<li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>'+p+'</li>'}).join('')+'</ul>'+(x.claimable?'<div class="vt-actions"><button type="button" class="vt-claim">Забрать награду</button></div>':'')+'</div></div>';
-      if(x.claimable)el.classList.add('open');
-      var cb=el.querySelector('.vt-claim');if(cb)cb.onclick=function(e){e.stopPropagation();claim(x,cb)};
+      var tag=x.claimed?'<span class="vt-got">Получено</span>':(i===cur?'<span class="vt-now">Текущий</span>':'');
+      var rw=x.reward&&x.reward.gift?'<div class="vt-gift"><img src="'+esc(x.reward.gift.image_url)+'" alt=""><span><small>Ваш подарок</small><b>'+esc(x.reward.gift.name)+'</b></span><em>'+tonIcon()+fmt(x.reward.gift.price)+'</em></div>':'';
+      el.innerHTML='<button type="button" class="vt-head"><span class="vt-gem">'+gem(i,46)+'</span><span class="vt-txt"><b>'+x.name+lock+'</b><small>'+tonIcon()+fmt(x.ton)+' TON</small></span>'+tag+'<svg class="vt-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="vt-body"><div><ul>'+x.perks.map(function(p){return '<li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>'+p+'</li>'}).join('')+'</ul>'+rw+'</div></div>';
       el.querySelector('.vt-head').onclick=function(){el.classList.toggle('open');try{window.haptic&&haptic('light')}catch(e){}};
       list.append(el);
     });
-    paintBadges();
+    paintBadges();paintPlaybonus();
   }
-  async function claim(x,btn){
+  function esc(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function paintPlaybonus(){
+    var p=state&&state.playbonus,c=$('vipPb');if(!p||!c)return;
+    c.querySelector('.pb-val').innerHTML=tonIcon()+fmt(p.amount)+' TON';
+    var b=c.querySelector('.pb-claim');b.disabled=!(p.unlocked&&p.amount>0);
+    b.textContent=p.unlocked?'Забрать на баланс':'Откроется на '+p.tier;
+    c.classList.toggle('locked',!p.unlocked);
+  }
+  async function claimPb(btn){
     btn.disabled=true;
     try{
-      var d=await api('/api/vip/claim',{method:'POST',body:JSON.stringify({tier:x.key})});
+      var d=await api('/api/playbonus/claim',{method:'POST',body:'{}'});
       try{window.haptic&&haptic('success')}catch(e){}
       try{if(d.user)setUser(d.user)}catch(e){}
-      try{toast(d.message||'Награда получена')}catch(e){}
+      try{toast('+'+fmt(d.amount)+' TON на основной баланс')}catch(e){}
       await load(true);
-    }catch(e){btn.disabled=false;try{toast(e.message||'Не удалось получить награду')}catch(_){}}
+    }catch(e){try{toast(e.message||'Не удалось забрать PLAYBONUS')}catch(_){}paintPlaybonus()}
+  }
+  function pbInfo(){
+    var p=(state&&state.playbonus)||{percent:2,tier:'Opal'};
+    showInfo('<h3>PLAYBONUS</h3><p>С каждого проигрыша с основного баланса мы возвращаем '+p.percent+'% в PLAYBONUS.</p><p>Накопленную сумму можно забрать на основной баланс — функция открывается со статуса <b>'+esc(p.tier)+'</b>. До этого PLAYBONUS продолжает копиться.</p>');
+  }
+  function showInfo(html){
+    var o=document.createElement('div');o.className='vip-pop';
+    o.innerHTML='<div class="vip-pop-card">'+html+'<button type="button" class="vip-pop-ok">Понятно</button></div>';
+    o.onclick=function(e){if(e.target===o||e.target.classList.contains('vip-pop-ok'))o.remove()};
+    document.body.append(o);
+  }
+  var showing=false;
+  function showRewards(){
+    if(showing||!state||!state.unseen||!state.unseen.length)return;
+    showing=true;var q=state.unseen.slice();state.unseen=[];state.pending=0;paintBadges();
+    api('/api/vip/seen',{method:'POST',body:'{}'}).catch(function(){});
+    (function next(){
+      var r=q.shift();if(!r){showing=false;return}
+      var i=Math.max(0,KEYS.indexOf(r.tier));
+      var o=document.createElement('div');o.className='vip-pop vip-reward';
+      var g=r.gift?'<div class="vr-gift"><img src="'+esc(r.gift.image_url)+'" alt=""><b>'+esc(r.gift.name)+'</b><small>'+tonIcon()+fmt(r.gift.price)+' TON</small></div>':'';
+      var chips='<div class="vr-chips"><span><i>🎟</i>+'+fmt(r.tickets)+' билетов</span><span><i>💎</i>+'+fmt(r.balance)+' TON на баланс</span></div>';
+      var pb=r.playbonus_unlocked?'<div class="vr-pb">Открыт <b>PLAYBONUS</b> — кэшбэк с проигрышей теперь можно забирать на основной баланс</div>':'';
+      o.innerHTML='<div class="vip-pop-card"><div class="vr-gem">'+gem(i,84)+'</div><small class="vr-k">Новый VIP-статус</small><h3>'+esc(r.name)+'</h3>'+g+chips+pb+'<button type="button" class="vip-pop-ok">Отлично</button></div>';
+      o.onclick=function(e){if(e.target.classList.contains('vip-pop-ok')){o.remove();next()}};
+      document.body.append(o);try{window.haptic&&haptic('success')}catch(e){}
+    })();
   }
   function load(force){
     if(loading)return loading;
     if(!force&&state&&Date.now()-loadedAt<20000)return Promise.resolve(state);
-    loading=api('/api/vip').then(function(d){state=d;loadedAt=Date.now();render();return d}).catch(function(){}).then(function(r){loading=null;return r});
+    loading=api('/api/vip').then(function(d){state=d;loadedAt=Date.now();render();showRewards();return d}).catch(function(){}).then(function(r){loading=null;return r});
     return loading;
   }
   function open(){
@@ -107,13 +141,14 @@
   window.openVip=open;window.vipRefresh=load;window.vipGem=gem;
   function boot(){
     $('vipClose').onclick=close;
+    var pc=$('vipPb');if(pc){pc.querySelector('.pb-claim').onclick=function(){claimPb(this)};pc.querySelector('.pb-info').onclick=pbInfo}
     $('vipModal').addEventListener('click',function(e){if(e.target===$('vipModal'))close()});
     document.querySelectorAll('.vip-badge-btn,#vipProfileCard').forEach(function(b){b.onclick=function(e){e.stopPropagation();open()}});
     window.openLevelsModal=open;
     var ol=$('openLevels');if(ol)ol.onclick=open;
     var ln=$('levelNotice');if(ln){ln.onclick=open}
     var prev=window.setUser;
-    if(typeof prev==='function'){window.setUser=setUser=function(){var r=prev.apply(this,arguments);try{load()}catch(e){}return r}}
+    if(typeof prev==='function'){window.setUser=setUser=function(){var r=prev.apply(this,arguments);try{load(Date.now()-loadedAt>4000)}catch(e){}return r}}
     setInterval(function(){if(!document.hidden&&typeof user!=='undefined'&&user)load()},60000);
     load();
   }

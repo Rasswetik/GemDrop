@@ -444,7 +444,7 @@ def _initialize_schema():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL DEFAULT '',
             photo_url TEXT NOT NULL DEFAULT '', balance INTEGER NOT NULL DEFAULT 0,
-            bonus_balance INTEGER NOT NULL DEFAULT 0, loss_cashback_residual INTEGER NOT NULL DEFAULT 0,
+            bonus_balance INTEGER NOT NULL DEFAULT 0, loss_cashback_residual INTEGER NOT NULL DEFAULT 0, playbonus INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS rounds (
@@ -783,6 +783,7 @@ def _initialize_schema():
             ('balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('bonus_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('loss_cashback_residual', 'INTEGER NOT NULL DEFAULT 0'),
+            ('playbonus', 'INTEGER NOT NULL DEFAULT 0'),
             ('ref_balance', 'INTEGER NOT NULL DEFAULT 0'),
             ('created_at', "TEXT NOT NULL DEFAULT ''"),
             ('roll_boost', 'REAL NOT NULL DEFAULT 1'),
@@ -1839,6 +1840,7 @@ def profile():
     return dict(auth_kind=session.get('auth_kind','browser'), id=user['id'], name=user['name'], username=user['username'], photo_url=user['photo_url'],
                 balance=main_balance / 100,
                 bonus_balance=bonus_balance / 100,
+                playbonus=(0 if demo else int(user['playbonus'] or 0)) / 100,
                 playable_balance=(main_balance + bonus_balance) / 100,
                 # A main balance below the minimum game bet (0.10 TON) is not playable.
                 # Keep those cents on the main ledger, but switch games fully to bonus.
@@ -1925,7 +1927,7 @@ LOSS_CASHBACK_PERCENT = 2
 
 
 def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', reference_id='', details=''):
-    """Credit exactly 2% of a main-balance gaming loss to bonus balance.
+    """Credit exactly 2% of a main-balance gaming loss to PLAYBONUS (paid out to the main balance from the VIP window).
 
     Sub-cent cashback is carried in loss_cashback_residual so repeated small
     losses are not rounded away. Bonus-funded bets and gift/NFT losses do not
@@ -1942,7 +1944,7 @@ def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', refere
     numerator = loss_cents * LOSS_CASHBACK_PERCENT + residual
     credit = numerator // 100
     residual = numerator % 100
-    db.execute('UPDATE users SET bonus_balance=bonus_balance+?,loss_cashback_residual=? WHERE id=?',
+    db.execute('UPDATE users SET playbonus=playbonus+?,loss_cashback_residual=? WHERE id=?',
                (credit, residual, int(user_id)))
     try:
         hw_accrue_pumpkins(db, int(user_id), loss_cents)
@@ -2095,6 +2097,10 @@ def increase_turnover(db, user_id, amount, withdrawal_wager=True, xp_factor=1.0)
         db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(xp_amount,user_id))
     leaderboard.add_turnover(db, user_id, xp_amount)
     current = level_number(db, new_turnover)
+    try:
+        vip.grant_due(db, user_id, new_turnover)
+    except Exception:
+        app.logger.exception('vip grant failed')
     return current if current > previous else None
 
 
@@ -4996,7 +5002,7 @@ def log_event(db,user_id,kind,**details):
 IMPORTANT_NOTIFICATION_KINDS = (
     'deposit','ton_deposit','giveaway_started','giveaway_win','promo_issued',
     'withdrawal_request','withdrawal_approved','withdrawal_rejected','withdrawal_access',
-    'transfer_received','promo_wager_burn','daily_top_reward',
+    'transfer_received','promo_wager_burn','daily_top_reward','vip_level',
 )
 IMPORTANT_NOTIFICATION_SQL = "kind IN (" + ','.join('?' for _ in IMPORTANT_NOTIFICATION_KINDS) + ")"
 
@@ -10034,7 +10040,9 @@ PUBLIC_BALANCE_KINDS = {
     'roll_gift': 'Подарок из Roll',
     'upgrade_bet': 'Ставка Upgrade',
     'upgrade_cashback': 'Утешительный приз Upgrade',
-    'loss_cashback': 'Кэшбэк 2% за проигрыш',
+    'loss_cashback': 'Кэшбэк 2% → PLAYBONUS',
+    'playbonus_claim': 'PLAYBONUS на основной баланс',
+    'vip_bonus': 'Награда VIP-статуса',
     'gift_sale': 'Продажа подарка',
     'promo_balance': 'Промокод',
     'promo_gift': 'Подарок по промокоду',

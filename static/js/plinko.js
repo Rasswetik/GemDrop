@@ -106,6 +106,7 @@ function dropBall(result,turbo){
 }
 function landSlot(result){
  const g=st.slotEls[result.slot];if(!g)return;
+ try{window.haptic&&haptic(result.multiplier>=10?'heavy':result.multiplier>=1?'medium':'light')}catch(e){}
  g.classList.remove('land');void g.getBoundingClientRect();g.classList.add('land');
  setTimeout(()=>g.classList.remove('land'),1400);
 }

@@ -19258,7 +19258,19 @@ def admin_creator_medals(user_id):
         k = str(k)
         if k in names and k not in keys:
             keys.append(k)
+    before = set(creator_record(user_id).get('medal_keys') or [])
     record = save_creator_record(user_id, {'medal_keys': keys[:30]})
+    added = [k for k in keys[:30] if k not in before]
+    removed = [k for k in before if k not in keys[:30] and k in names]
+    cfg = CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]
+    try:
+        if added:
+            txt = '🏅 К вашему аккаунту автора привязаны медали: ' + ', '.join(names[k] for k in added) + '.\nВы можете прикреплять их к своим промокодам и Freebet в Панели автора → «Медали». Лимит: ' + str(cfg.get('weekly_medals') or 0) + ' в неделю.'
+            notify_user_async(user_id, txt)
+        elif removed:
+            notify_user_async(user_id, 'ℹ️ Медали отвязаны от вашего аккаунта автора: ' + ', '.join(names[k] for k in removed) + '.')
+    except Exception:
+        app.logger.exception('Creator medal notice failed')
     return jsonify(ok=True, **creator_medal_state(record, CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]))
 
 
@@ -19443,6 +19455,39 @@ def creator_bonus_builder_state(user_id):
     return dict(level=level, level_info=creator_level_public(level), usage=usage, gifts=gifts, **creator_medal_state(record, cfg))
 
 
+@app.get('/api/creator/medals')
+@login_required
+@creator_required
+def creator_medals_panel():
+    """The author's medal section: how many players own each linked medal, which codes carry it and how often they were used."""
+    uid = int(session['uid'])
+    record = creator_record(uid)
+    cfg = CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]
+    state = creator_medal_state(record, cfg)
+    rar = leaderboard.rarity_map()
+    codes_by = {}
+    for c in record.get('medal_codes') or []:
+        codes_by.setdefault(c.get('medal'), []).append(c)
+    with connect() as db:
+        total = int((db.execute('SELECT COUNT(*) AS n FROM users').fetchone() or {'n': 0})['n'] or 0)
+        out = []
+        for m in state['medals']:
+            k = m['key']
+            owners = int(db.execute('SELECT COUNT(DISTINCT user_id) AS n FROM user_medals WHERE medal_key=?', (k,)).fetchone()['n'] or 0)
+            shown = int(db.execute('SELECT COUNT(DISTINCT user_id) AS n FROM user_medals WHERE medal_key=? AND shown=1', (k,)).fetchone()['n'] or 0)
+            codes = []
+            for c in codes_by.get(k, [])[-30:]:
+                row = db.execute('SELECT uses_count,max_uses,active FROM promo_codes WHERE code=?', (c.get('code'),)).fetchone()
+                codes.append(dict(code=c.get('code'), kind=c.get('kind') or 'promocode', at=c.get('at'),
+                                  uses=int(row['uses_count'] or 0) if row else 0, max_uses=int(row['max_uses'] or 0) if row else 0,
+                                  active=bool(row['active']) if row and 'active' in row.keys() else True))
+            out.append(dict(key=k, name=m['name'], rarity=rar.get(k, 'common'), owners=owners, shown=shown,
+                            percent=round(owners * 100.0 / total, 2) if total else 0, codes=codes,
+                            via_codes=sum(c['uses'] for c in codes)))
+    return jsonify(ok=True, medals=out, medal_week=state['medal_week'], level=creator_level_key(record.get('creator_level')),
+                   level_info=creator_level_public(record.get('creator_level')))
+
+
 @app.get('/api/creator/bonus-builder')
 @login_required
 @creator_required
@@ -19589,7 +19634,8 @@ def creator_create_bonus():
             links = leaderboard.promo_medals()
             links[code] = dict(medal=medal_key, title='От автора')
             save_document(leaderboard.PROMO_MEDAL_DOC, dict(codes=links))
-            save_creator_record(uid, {'medal_grants': (record.get('medal_grants') or []) + [datetime.now(timezone.utc).isoformat()]})
+            save_creator_record(uid, {'medal_grants': (record.get('medal_grants') or []) + [datetime.now(timezone.utc).isoformat()],
+                                      'medal_codes': ((record.get('medal_codes') or []) + [dict(code=code, medal=medal_key, kind=kind, at=datetime.now(timezone.utc).isoformat())])[-200:]})
     except Exception as exc:
         try:
             db.connection.rollback() if DATABASE_URL else db.execute('ROLLBACK')

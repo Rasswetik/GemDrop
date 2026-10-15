@@ -264,3 +264,22 @@ class LeaderboardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CreatorMedalTests(unittest.TestCase):
+    setUp = base.RegressionTests.setUp
+    post = base.RegressionTests.post
+
+    def test_creator_medal_link_limit_and_stats(self):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post(f'/api/admin/creators/{self.uid}', {})
+            self.assertEqual(self.client.get('/api/creator/medals').get_json()['medals'], [])
+            r = self.post(f'/api/admin/creators/{self.uid}/medals', {'medals': ['goshan', 'nope']})
+            self.assertEqual([x['key'] for x in r['medals']], ['goshan'])
+            self.assertEqual(r['medal_week']['limit'], 1)
+            st = self.client.get('/api/creator/bonus-builder').get_json()
+            self.assertEqual(st['medal_week']['left'], 1)
+            self.post('/api/creator/bonus-builder', {'kind': 'promocode', 'reward_type': 'balance', 'amount': '0.01', 'balance_target': 'main', 'max_uses': '1', 'code': 'MEDALTEST1', 'medal': 'kess'}, 403)
+            panel = self.client.get('/api/creator/medals').get_json()
+            self.assertEqual(panel['medals'][0]['key'], 'goshan')
+            self.assertIn('owners', panel['medals'][0])

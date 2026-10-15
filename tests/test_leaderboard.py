@@ -20,6 +20,13 @@ class LeaderboardTests(unittest.TestCase):
         with patch.object(m, 'ADMIN_IDS', {self.uid}):
             with m.connect() as db:
                 m.increase_turnover(db, self.uid, 5000)
+            idle = self.client.get('/api/leaderboard/weekly').get_json()
+            self.assertIsNone(idle['period'])
+            self.assertEqual(idle['top'], [])
+            self.post('/api/admin/leaderboard/start', {'hours': 24})
+            self.post('/api/admin/leaderboard/start', {'hours': 24}, 409)
+            with m.connect() as db:
+                m.increase_turnover(db, self.uid, 5000)
             data = self.client.get('/api/leaderboard/weekly').get_json()
             self.assertTrue(data['enabled'])
             self.assertEqual(data['rewards'], {})
@@ -33,6 +40,7 @@ class LeaderboardTests(unittest.TestCase):
         self.reset()
         m.save_document('portal_catalog', {'gifts': [{'id': 'lb-gift', 'name': 'LB Gift', 'price_ton': 3, 'image_url': 'https://example.com/g.png', 'image_match': True}]})
         with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/leaderboard/start', {'hours': 24})
             saved = self.post('/api/admin/leaderboard/rewards/1', {'prizes': [{'_new': True, 'gift_id': 'lb-gift'}]})
             self.assertEqual(len(saved['prizes']), 1)
             with m.connect() as db:
@@ -45,6 +53,7 @@ class LeaderboardTests(unittest.TestCase):
             admin = self.client.get('/api/admin/leaderboard').get_json()
             self.assertEqual(admin['history'][0]['reason'], 'early')
             self.assertEqual(self.client.get('/api/leaderboard/weekly').get_json()['top'], [])
+            self.assertIsNone(self.client.get('/api/leaderboard/weekly').get_json()['period'])
 
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):
         gifts = [{'id': 'hb', 'name': 'Hilo Base', 'price_ton': 5, 'image_url': 'https://example.com/b.png', 'image_match': True}]

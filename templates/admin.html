@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff"><title>GemDrop — управление</title>
-<link rel="stylesheet" href="/static/css/admin.css?v=20261015">
-<script src="/static/js/admin-kit.js?v=20261015" defer></script>
-<script src="/static/js/admin-charts.js?v=20261015" defer></script>
-<script src="/static/js/admin-user-controls.js?v=20261015" defer></script>
-<script src="/static/js/admin-inspector.js?v=20261015" defer></script>
-{% for script in tool_scripts %}<script src="/static/js/tools/{{ script }}?v=20261015" defer></script>
-{% endfor %}<script src="/static/js/admin.js?v=20261015" defer></script><script>try{var t=localStorage.getItem('adminTheme');if(!t&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script><script>(function(){var r=document.documentElement;function ap(){var t=0,tg=window.Telegram&&Telegram.WebApp;try{var p=String(tg&&tg.platform||'').toLowerCase(),mob=/^(android|android_x|ios)$/.test(p);if(mob){var sa=tg.safeAreaInset||{},ca=tg.contentSafeAreaInset||{},cs=getComputedStyle(r),cv=function(n){return parseFloat(cs.getPropertyValue(n))||0};t=Number(sa.top||0)+Number(ca.top||0)||(cv('--tg-safe-area-inset-top')+cv('--tg-content-safe-area-inset-top'));if(tg.isFullscreen&&t<24)t=Math.max(t,44);if(!tg.isFullscreen)t=0}}catch(e){}r.style.setProperty('--safe-top',Math.max(0,t)+'px')}ap();addEventListener('load',ap);try{['safeAreaChanged','contentSafeAreaChanged','fullscreenChanged','viewportChanged'].forEach(function(e){Telegram.WebApp.onEvent(e,ap)});Telegram.WebApp.ready&&Telegram.WebApp.ready()}catch(e){}})()</script>
+<link rel="stylesheet" href="/static/css/admin.css?v=20261015b">
+<script src="/static/js/admin-kit.js?v=20261015b" defer></script>
+<script src="/static/js/admin-charts.js?v=20261015b" defer></script>
+<script src="/static/js/admin-user-controls.js?v=20261015b" defer></script>
+<script src="/static/js/admin-inspector.js?v=20261015b" defer></script>
+{% for script in tool_scripts %}<script src="/static/js/tools/{{ script }}?v=20261015b" defer></script>
+{% endfor %}<script src="/static/js/admin.js?v=20261015b" defer></script><script>try{var t=localStorage.getItem('adminTheme');if(!t&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
 </head>
 <body>
 <header><button id="menuToggle" aria-label="Открыть меню" aria-expanded="false">☰</button><a class="brand" href="/admin">GemDrop <span>admin</span></a>

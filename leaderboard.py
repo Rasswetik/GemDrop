@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 CONFIG_DOC = 'leaderboard_config'
 MAX_PLACES = 20
 MAX_PRIZES_PER_PLACE = 10
-LIST_SIZE = 50
-DEFAULTS = dict(enabled=True, period_hours=168, auto_repeat=True)
+LIST_SIZE = 100
+DEFAULTS = dict(enabled=True, period_hours=168, auto_repeat=False)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lb_periods (
@@ -108,14 +108,9 @@ def prize_view(prize):
 
 
 # ---------------------------------------------------------------- periods
-def active_period(db, create=True):
-    row = db.execute("SELECT * FROM lb_periods WHERE status='active' ORDER BY id DESC LIMIT 1").fetchone()
-    if row or not create:
-        return row
-    cfg = config()
-    if not cfg['enabled']:
-        return None
-    return start_period(db, cfg['period_hours'])
+def active_period(db, create=False):
+    """The running season, or None. A season never starts by itself: only an admin starts one."""
+    return db.execute("SELECT * FROM lb_periods WHERE status='active' ORDER BY id DESC LIMIT 1").fetchone()
 
 
 def start_period(db, hours, start=None):
@@ -201,7 +196,7 @@ def settle(db, period_id, reason='ended', award=True):
                 notify(uid, f'🏆 <b>Недельный топ завершён</b>\nВаши награды:\n{lines}\nПодарки уже в инвентаре.', None, 'HTML', db=db)
             except Exception:
                 _ns['app'].logger.exception('Leaderboard notification failed')
-    if cfg['enabled'] and (cfg['auto_repeat'] or reason != 'ended'):
+    if cfg['enabled'] and cfg['auto_repeat'] and reason == 'ended':
         start_period(db, cfg['period_hours'])
     return True
 
@@ -325,7 +320,7 @@ def register(app, ns):
                 marks = ','.join('?' for _ in rows)
                 for r in db.execute(f'SELECT id,name,username,photo_url FROM users WHERE id IN ({marks})', [int(x['user_id']) for x in rows]).fetchall():
                     users[int(r['id'])] = r
-            rewards = rewards_view(cfg)
+            rewards = rewards_view(cfg) if period else {}
             top = []
             for place, row in enumerate(rows, 1):
                 u = users.get(int(row['user_id']))
@@ -347,7 +342,7 @@ def register(app, ns):
     def admin_leaderboard():
         cfg = config()
         with connect() as db:
-            period = active_period(db, create=cfg['enabled'])
+            period = active_period(db)
             view = period_view(db, period)
             rows = top_rows(db, period['id'], 10) if period else []
             names = {int(r['id']): r for r in db.execute('SELECT id,name,username FROM users WHERE id IN (%s)' % (','.join('?' for _ in rows) or '0'),
@@ -413,6 +408,33 @@ def register(app, ns):
         save_config(cfg)
         return jsonify(ok=True, prizes=[prize_view(p) for p in prizes])
 
+    @app.post('/api/admin/leaderboard/start')
+    @admin
+    def admin_leaderboard_start():
+        data = request.get_json(silent=True) or {}
+        cfg = config()
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if active_period(db):
+                return error('Сезон уже идёт. Завершите его, чтобы начать новый.', 409)
+            start = now_utc()
+            if data.get('ends_at'):
+                end = parse(data['ends_at'])
+            else:
+                try:
+                    end = start + timedelta(hours=float(data.get('hours') or cfg['period_hours']))
+                except (TypeError, ValueError):
+                    return error('Проверьте длительность.')
+            if not end or end <= start:
+                return error('Окончание должно быть в будущем.')
+            if end - start > timedelta(days=90):
+                return error('Сезон не может быть длиннее 90 дней.')
+            db.execute("INSERT INTO lb_periods(starts_at,ends_at,status) VALUES(?,?,'active')", (iso(start), iso(end)))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'leaderboard_start', iso(end)))
+        _cache.update(id=0, ends=0.0, at=0.0)
+        return jsonify(ok=True)
+
     @app.post('/api/admin/leaderboard/period')
     @admin
     def admin_leaderboard_period():
@@ -454,8 +476,7 @@ def register(app, ns):
             try:
                 with connect() as db:
                     db.execute('BEGIN IMMEDIATE')
-                    if config()['enabled']:
-                        current_period(db)
+                    settle_due(db)
             except Exception:
                 app.logger.exception('Leaderboard loop failed')
             time.sleep(30)

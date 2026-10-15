@@ -8,7 +8,7 @@
   --good:#059669;--good-soft:#e6f7f0;--bad:#dc2626;--bad-soft:#fdecec;--warn:#b45309;--warn-soft:#fff4e0;--violet:#7c3aed;--violet-soft:#f1eafe;--sky:#0284c7;--sky-soft:#e3f3fb;
   --accent-line:#cddcf8;--good-line:#bfe9d6;--bad-line:#f5c0c0;--cash:#059669;--nft:#7c3aed;--draw:#2563eb;--amber:#d97706;
   --radius:12px;--radius-sm:8px;--shadow:0 1px 2px rgba(15,23,42,.05),0 4px 14px rgba(15,23,42,.05);--shadow-lg:0 20px 60px rgba(15,23,42,.22);
-  --header-h:60px;--side-w:272px;
+  --safe-top:0px;--header-h:calc(60px + var(--safe-top));--side-w:272px;
   --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
 }
 *{box-sizing:border-box}
@@ -49,7 +49,7 @@ fieldset{border:0;padding:0;margin:0;min-width:0}
 progress{width:100%;height:10px;accent-color:var(--accent);margin:10px 0}
 
 /* ---------- shell ---------- */
-header{position:sticky;top:0;z-index:30;height:var(--header-h);display:flex;align-items:center;gap:14px;padding:0 22px;background:var(--header-bg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header{position:sticky;top:0;z-index:30;box-sizing:border-box;height:var(--header-h);display:flex;align-items:center;gap:14px;padding:var(--safe-top) 22px 0;background:var(--header-bg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:var(--text);letter-spacing:-.02em;white-space:nowrap}
 .brand:hover{text-decoration:none}
 .brand:before{content:'';width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#3b82f6,#7c3aed);box-shadow:0 2px 8px rgba(59,130,246,.4)}
@@ -337,7 +337,7 @@ dialog.user-inspector[open]{display:flex;flex-direction:column}
   body.menu-open aside{transform:none}
   .shade{inset:0;z-index:45}
   main{margin-left:0;padding:20px 14px 48px}
-  header{padding:0 12px}.header-search{max-width:none}
+  header{padding:var(--safe-top) 12px 0}.header-search{max-width:none}
   #operator{display:none}
   .cols-3{grid-template-columns:1fr}
 }

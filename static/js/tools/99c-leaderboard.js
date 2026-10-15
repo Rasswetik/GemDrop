@@ -51,12 +51,14 @@
           K.btn('+24 часа', async () => { await api('/api/admin/leaderboard/period', {extend_hours: 24}); K.ok('Продлено на сутки'); await load(); }),
           K.btn('+7 дней', async () => { await api('/api/admin/leaderboard/period', {extend_hours: 168}); K.ok('Продлено на неделю'); await load(); })),
         h('div', {class: 'row'},
-          K.btn('Завершить досрочно и выдать награды', async () => { if (!await K.confirm('Завершить период сейчас и выдать награды текущим лидерам? Сразу начнётся новый период.', 'Завершить')) return; await api('/api/admin/leaderboard/finish', {award: true}); K.ok('Период завершён'); await load(); }, 'primary'),
+          K.btn('Завершить досрочно и выдать награды', async () => { if (!await K.confirm('Завершить сезон сейчас и выдать награды текущим лидерам?', 'Завершить')) return; await api('/api/admin/leaderboard/finish', {award: true}); K.ok('Период завершён'); await load(); }, 'primary'),
           K.btn('Сбросить без наград', async () => { if (!await K.confirm('Обнулить таблицу без выдачи наград?', 'Сбросить', true)) return; await api('/api/admin/leaderboard/finish', {award: false}); K.ok('Таблица сброшена'); await load(); }, 'danger'))]
-        : [K.badge('ВЫКЛ'), h('div', {class: 'muted', text: 'Лидерборд выключен: страница и кнопка скрыты у игроков.'})];
+        : (() => { const sh = K.number(cfg.period_hours, {min: 1, max: 2160}); return [K.badge('Сезон не начат'), h('div', {class: 'muted', text: 'Пока сезон не запущен, игроки видят пустую таблицу на 100 мест без призов и оборота. Оборот начнёт считаться с момента запуска.'}),
+          K.field('Длительность сезона, часов', sh, '168 часов = неделя'),
+          h('div', {class: 'row'}, K.btn('Запустить сезон', async () => { await api('/api/admin/leaderboard/start', {hours: sh.value}); K.ok('Сезон запущен'); await load(); }, 'primary'))]; })();
       box.append(K.card('Текущий период', null, ...state));
 
-      const en = K.check('Лидерборд включён (кнопка «Лидеры» в нижней панели)', cfg.enabled), rep = K.check('Автоматически начинать новый период после завершения', cfg.auto_repeat), hrs = K.number(cfg.period_hours, {min: 1, max: 2160});
+      const en = K.check('Показывать игрокам кнопку «Лидеры»', cfg.enabled), rep = K.check('После окончания сезона сразу запускать следующий (по умолчанию — нет)', cfg.auto_repeat), hrs = K.number(cfg.period_hours, {min: 1, max: 2160});
       box.append(K.card('Настройки', null, K.form([en, rep, K.field('Длительность нового периода, часов', hrs, '168 часов = неделя. Действует для следующих периодов; у текущего срок меняется выше.')], async () => {
         await api('/api/admin/leaderboard/config', {enabled: en.querySelector('input').checked, auto_repeat: rep.querySelector('input').checked, period_hours: hrs.value}); K.ok('Сохранено'); await load();
       })));

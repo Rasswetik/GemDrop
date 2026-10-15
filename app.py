@@ -18956,7 +18956,7 @@ def admin_creators():
             if not user:
                 continue
             hay = f"{user['id']} {user['name']} {user['username']}".casefold()
-            if term and term.casefold() not in hay:
+            if term and term.lstrip('@').strip().casefold() not in hay:
                 continue
             result.append(dict(
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
@@ -19974,7 +19974,7 @@ def creator_demo_inventory_remove(item_id):
 @admin_required
 def admin_users():
     term = request.args.get('q', '').strip()[:80]
-    needle = term.casefold()
+    needle = term.lstrip('@').strip().casefold()
     with connect() as db:
         rows = db.execute('''SELECT u.id,u.name,u.username,u.photo_url,u.balance,u.bonus_balance,u.ref_balance,
                                     COUNT(i.id) AS gifts,COALESCE(SUM(i.floor_price),0) AS inventory_value
@@ -21275,8 +21275,9 @@ def admin_transactions():
     params = []
     where = ["t.kind IN ('deposit','admin_balance','referral_bonus','ton_deposit','promo_balance')"]
     if term:
-        where.append('(CAST(t.user_id AS TEXT) LIKE ? OR u.username LIKE ? OR u.name LIKE ?)')
-        params.extend([f'%{term}%', f'%{term}%', f'%{term}%'])
+        bare = term.lstrip('@').strip() or term
+        where.append('(CAST(t.user_id AS TEXT) LIKE ? OR LOWER(u.username) LIKE ? OR LOWER(u.name) LIKE ?)')
+        params.extend([f'%{bare}%', f'%{bare.lower()}%', f'%{bare.lower()}%'])
     clause = ' WHERE ' + ' AND '.join(where)
     with connect() as db:
         rows = db.execute('''SELECT t.*,u.name,u.username FROM transactions t

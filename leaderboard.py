@@ -38,14 +38,20 @@ _cache = dict(id=0, ends=0.0, at=0.0)
 
 
 def mask_name(name):
-    """«Da*ya», «w**t», «Cta***лав»: enough to recognise yourself, not enough to look anyone up."""
-    text = re.sub(r'\s+', ' ', str(name or '').strip()) or 'Игрок'
+    """Two middle characters become stars: «@us**rname». Without a username the display name is used the same way."""
+    text = re.sub(r'\s+', '', str(name or '')) or 'Игрок'
     n = len(text)
-    if n <= 2:
+    if n <= 1:
+        return text + '*'
+    if n == 2:
         return text[:1] + '*'
-    k = max(1, min(3, n // 3))
-    middle = max(1, min(5, n - 2 * k))
-    return text[:k] + '*' * middle + text[-k:]
+    start = max(1, (n - 2) // 2)
+    return text[:start] + '**' + text[start + 2:]
+
+
+def public_handle(username, name):
+    handle = str(username or '').lstrip('@').strip()
+    return '@' + mask_name(handle) if handle else mask_name(name)
 
 
 def now_utc():
@@ -324,16 +330,16 @@ def register(app, ns):
             top = []
             for place, row in enumerate(rows, 1):
                 u = users.get(int(row['user_id']))
-                top.append(dict(place=place, user_id=int(row['user_id']), name=mask_name(u['name'] if u else ''),
+                top.append(dict(place=place, user_id=int(row['user_id']), name=public_handle(u['username'] if u else '', u['name'] if u else ''),
                                 photo_url=(u['photo_url'] if u else '') or '', turnover=int(row['cents']) / 100, plays=int(row['plays']),
                                 rewards=rewards.get(str(place), []), me=int(row['user_id']) == uid))
             place, cents = place_of(db, uid, period['id']) if period else (None, 0)
-            me_row = db.execute('SELECT name,photo_url FROM users WHERE id=?', (uid,)).fetchone()
+            me_row = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (uid,)).fetchone()
             plays = db.execute('SELECT plays FROM lb_turnover WHERE period_id=? AND user_id=?', (period['id'], uid)).fetchone() if period else None
             view = period_view(db, period)
         return jsonify(enabled=True, period=view, rewards=rewards, top=top,
                        me=dict(user_id=uid, place=place, turnover=cents / 100, plays=int(plays['plays']) if plays else 0,
-                               name=(me_row['name'] if me_row else '') or 'Игрок', photo_url=(me_row['photo_url'] if me_row else '') or '',
+                               name=('@'+me_row['username'] if me_row and me_row['username'] else (me_row['name'] if me_row else '')) or 'Игрок', photo_url=(me_row['photo_url'] if me_row else '') or '',
                                rewards=rewards.get(str(place), []) if place else []))
 
     # ---------------------------------------------------------------- admin

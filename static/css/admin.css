@@ -407,3 +407,16 @@ dialog.user-inspector[open]{display:flex;flex-direction:column}
 :root[data-theme=dark] input:focus,:root[data-theme=dark] select:focus,:root[data-theme=dark] textarea:focus{box-shadow:0 0 0 3px rgba(91,141,255,.25)}
 :root[data-theme=dark] img.thumb{background:var(--surface-3)}
 .theme-toggle{min-width:38px;padding:8px 10px;font-size:16px;line-height:1}
+
+/* Phones: the page scrolls only up/down; wide tables and tab strips scroll inside their own box. */
+html{overflow-x:clip;overscroll-behavior-x:none}
+body{max-width:100%;overflow-x:clip}
+@media (max-width:760px){
+  main,article,.stack,.list,.list-item,.grow,.tool-head,.card-head,.form-grid,label{min-width:0;max-width:100%}
+  h1,h2,p,small,strong,.muted,.hint,.list-item span{overflow-wrap:anywhere}
+  img,video,canvas,iframe,pre,textarea,select,input{max-width:100%}
+  .form-grid{grid-template-columns:minmax(0,1fr)!important}
+  .row{flex-wrap:wrap}
+  .table-wrap,.table-scroll,table{max-width:100%}
+  .table-wrap,.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+}

@@ -148,20 +148,24 @@
       '<path id="' + id + 't" d="M48 62m-27 0a27 27 0 1 1 54 0a27 27 0 1 1-54 0"/></defs>' +
       '<circle cx="48" cy="62" r="38" fill="url(#' + id + 'r)"/><circle cx="48" cy="62" r="35" fill="none" stroke="rgba(0,0,0,.35)" stroke-width=".8"/><circle cx="48" cy="62" r="34.4" fill="none" stroke="' + P[0] + '" stroke-opacity=".8" stroke-width="1.1" stroke-dasharray=".01 2.5" stroke-linecap="round"/>' +
       '<circle cx="48" cy="62" r="31.5" fill="url(#' + id + 'd)" stroke="rgba(0,0,0,.4)" stroke-width=".8"/><circle cx="48" cy="62" r="29" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width=".6"/>' +
-      '<text font-family="system-ui,sans-serif" font-size="4.6" font-weight="800" letter-spacing="1.3" fill="rgba(0,0,0,.55)"><textPath href="#' + id + 't" startOffset="0">GEMDROP · ' + esc((d.collection || '').toUpperCase()) + ' · ' + esc((GDMedals.RAR && GDMedals.RAR[d.rarity] || '').toUpperCase()) + ' ·</textPath></text>' +
+      '<text font-family="system-ui,sans-serif" font-size="4" font-weight="800" fill="rgba(0,0,0,.55)"><textPath href="#' + id + 't" startOffset="0" textLength="166" lengthAdjust="spacingAndGlyphs">GEMDROP · ' + esc((d.collection || '').toUpperCase()) + ' · ' + esc((GDMedals.RAR && GDMedals.RAR[d.rarity] || '').toUpperCase()) + ' ·</textPath></text>' +
       '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="rgba(0,0,0,.5)" transform="translate(.4 .6)">' + nm + '</text>' +
       '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="' + P[0] + '">' + nm + '</text>' +
       '<path d="M40 74h16" stroke="' + P[0] + '" stroke-opacity=".7" stroke-width=".8" stroke-linecap="round"/><text x="48" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="4" font-weight="700" fill="' + P[0] + '" fill-opacity=".85">' + (d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',')) + '% игроков</text>' +
       '<path d="M48 40l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5Z" fill="' + P[0] + '" fill-opacity=".9"/></svg>';
   }
-  function hi(h) { return '<div style="width:200%;height:200%;transform:scale(.5);transform-origin:0 0">' + h + '</div>'; }
+  function hi(h, W, H) {      // rasterise the face as a hi-res bitmap: 3D layers of live SVG get pixelated
+    if (h.indexOf('xmlns=') < 0) h = h.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+    h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
+    return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
+  }
   function spin3d(host, d) {
     var W = 240, H = Math.round(W * 110 / 96), m = GDMedals.by(d.key) || {}, P = GDMedals.PAL[d.key === 'goshan' ? 'red' : (m.pal || 'gold')] || GDMedals.PAL.gold;
     host.style.width = W + 'px'; host.style.height = H + 'px';
     var edge = '', i, D = Math.round(W * .79), z = 5;
     for (i = -z + 1; i <= z - 1; i++) edge += '<div class="mdi-e" style="width:' + D + 'px;height:' + D + 'px;left:' + Math.round((W - D) / 2) + 'px;top:' + Math.round(H * 62 / 110 - D / 2) + 'px;background:' + (i % 2 ? P[2] : P[1]) + ';transform:translateZ(' + i + 'px)"></div>';
-    var rib = '', rz; for (rz = -1; rz <= 1; rz++) rib += '<div class="mdi-f" style="backface-visibility:visible;-webkit-backface-visibility:visible;transform:translateZ(' + rz * .6 + 'px)">' + hi(GDMedals.svg(d.key, W * 2, true, {ribbonOnly: true})) + '</div>';
-    host.innerHTML = '<div class="mdi-in">' + rib + '<div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + hi(GDMedals.svg(d.key, W * 2, false, {noRibbon: true})) + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + hi(backSvg(d)) + '</div></div>';
+    var rib = '', rz; for (rz = -1; rz <= 1; rz++) rib += '<div class="mdi-f" style="backface-visibility:visible;-webkit-backface-visibility:visible;transform:translateZ(' + rz * .6 + 'px)">' + hi(GDMedals.svg(d.key, W, true, {ribbonOnly: true}), W, H) + '</div>';
+    host.innerHTML = '<div class="mdi-in">' + rib + '<div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + hi(GDMedals.svg(d.key, W, true, {noRibbon: true}), W, H) + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + hi(backSvg(d).replace('<svg ', '<svg width="1" height="1" '), W, H) + '</div></div>';
     var inn = host.firstChild, ry = -18, rx = 8, vy = 0, vx = 0, down = false, lx = 0, ly = 0, auto = !(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), t0 = 0, raf = 0;
     function put() { inn.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)'; }
     function tick(t) {

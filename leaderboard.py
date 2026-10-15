@@ -20,7 +20,7 @@ MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный
           'vip': 'VIP игрок', 'gem': 'Кристаллик', 'champ': 'Чемпион', 'pioneer': 'Первопроходец', 'insider': 'Инсайдер', 'friend': 'Верный друг',
           'guard': 'Защитник', 'collector': 'Коллекционер', 'ton': 'Миллионер TON', 'lucky': 'Счастливчик', 'fire': 'Горячая серия', 'bolt': 'Молния',
           'rocket': 'Ракета Plinko', 'gambler': 'Азартный', 'miner': 'Сапёр', 'cards': 'Мастер карт', 'night': 'Ночной игрок'}   # drawn in static/js/medals.js
-MAX_SHOWN_MEDALS = 5
+MAX_SHOWN_MEDALS = 3
 BASE_MEDALS = dict(MEDALS)
 MEDAL_DOC, MEDAL_SET_DOC, PROMO_MEDAL_DOC = 'custom_medals', 'medal_settings', 'promo_medals'
 RARITIES = {'common': 'Обычная', 'rare': 'Редкая', 'epic': 'Эпическая', 'legendary': 'Легендарная'}
@@ -303,8 +303,9 @@ def settle(db, period_id, reason='ended', award=True):
         for place, row in enumerate(top_rows(db, period_id, last), 1):
             medal = cfg['medals'].get(str(place))
             if medal:
-                db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,?,?,1,0)',
-                           (int(row['user_id']), medal, title, place, period_id))
+                n_on = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1', (int(row['user_id']),)).fetchone()['n']
+                db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,?,?,?,0)',
+                           (int(row['user_id']), medal, title, place, period_id, 1 if n_on < MAX_SHOWN_MEDALS else 0))
                 medal_notes[int(row['user_id'])] = (place, mname(medal))
             for prize in cfg['rewards'].get(str(place), []):
                 try:
@@ -461,6 +462,15 @@ def register(app, ns):
                 db.execute('ALTER TABLE user_medals ADD COLUMN claimed INTEGER NOT NULL DEFAULT 1')   # medals issued before this stay claimed
     except Exception:
         app.logger.exception('user_medals.claimed migration failed')
+    try:   # the profile now holds up to 3 medals: keep the newest three of those already shown
+        with connect() as db:
+            seen = {}
+            for r in db.execute('SELECT id,user_id FROM user_medals WHERE shown=1 ORDER BY id DESC').fetchall():
+                seen[r['user_id']] = seen.get(r['user_id'], 0) + 1
+                if seen[r['user_id']] > MAX_SHOWN_MEDALS:
+                    db.execute('UPDATE user_medals SET shown=0 WHERE id=?', (int(r['id']),))
+    except Exception:
+        app.logger.exception('user_medals trim failed')
 
     def period_view(db, period):
         if not period:
@@ -852,6 +862,29 @@ def register(app, ns):
             rows = db.execute('SELECT id,medal_key,title,place,shown,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (int(session['uid']),)).fetchall()
         return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'),
                        title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
+
+    @app.post('/api/medals/equip')
+    @login
+    def medal_equip():
+        body = request.get_json(silent=True) or {}
+        key = str(body.get('key') or '')
+        want = bool(body.get('on'))
+        uid = int(session['uid'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            rows = db.execute('SELECT id,shown FROM user_medals WHERE user_id=? AND medal_key=? ORDER BY id DESC', (uid, key)).fetchall()
+            if not rows:
+                return error('Эта медаль ещё не получена.', 404)
+            if want:
+                on = db.execute('SELECT COUNT(DISTINCT medal_key) AS n FROM user_medals WHERE user_id=? AND shown=1 AND medal_key<>?', (uid, key)).fetchone()['n']
+                if on >= MAX_SHOWN_MEDALS:
+                    return error(f'Можно надеть не больше {MAX_SHOWN_MEDALS} медалей. Снимите другую.', 409)
+                keep = int(next((r['id'] for r in rows if r['shown']), rows[0]['id']))
+                db.execute('UPDATE user_medals SET shown=0 WHERE user_id=? AND medal_key=? AND id<>?', (uid, key, keep))
+                db.execute('UPDATE user_medals SET shown=1 WHERE id=?', (keep,))
+            else:
+                db.execute('UPDATE user_medals SET shown=0 WHERE user_id=? AND medal_key=?', (uid, key))
+        return jsonify(ok=True, on=want)
 
     @app.post('/api/medals/<int:medal_id>/shown')
     @login

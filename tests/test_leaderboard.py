@@ -95,6 +95,22 @@ class LeaderboardTests(unittest.TestCase):
         self.post('/api/medals/%d/shown' % mine[0]['id'], {'shown': True})
         self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['name'], 'Король Хэллоуина')
 
+    def test_equip_up_to_three_medals_by_key(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            for k in ('vip', 'gem', 'champ', 'fire'):
+                self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': k})
+        got = self.client.get('/api/medals').get_json()
+        self.assertEqual(got['max_shown'], 3)
+        self.assertEqual(sum(1 for x in got['medals'] if x['shown']), 3)   # the fourth one is not worn automatically
+        self.post('/api/medals/equip', {'key': 'fire', 'on': True}, 409)
+        self.post('/api/medals/equip', {'key': 'nope', 'on': True}, 404)
+        self.post('/api/medals/equip', {'key': 'vip', 'on': False})
+        self.post('/api/medals/equip', {'key': 'fire', 'on': True})
+        worn = sorted(x['key'] for x in self.client.get('/api/medals').get_json()['medals'] if x['shown'])
+        self.assertEqual(worn, ['champ', 'fire', 'gem'])
+
     def test_admin_grants_and_revokes_manual_medal(self):
         with m.connect() as db:
             db.execute('DELETE FROM user_medals')

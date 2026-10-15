@@ -84,6 +84,15 @@ class VipTests(unittest.TestCase):
             card = self.client.get('/api/admin/users/%d' % self.uid).get_json()
             self.assertEqual(len(card['vip']['tiers']), 8)
 
+    def test_admin_can_clear_live_feed(self):
+        from unittest.mock import patch
+        with m.connect() as db:
+            db.execute('DELETE FROM recent_wins')
+            m.record_transaction(db, self.uid, 'plinko_win', 1234, 'plinko', 1, 'x')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.assertEqual(self.post('/api/admin/recent-wins/clear', {})['removed'], 1)
+        self.assertEqual(self.client.get('/api/recent-wins').get_json()['items'], [])
+
     def test_gift_win_image_falls_back_to_inventory(self):
         with m.connect() as db:
             db.execute('DELETE FROM recent_wins')

@@ -329,6 +329,16 @@ def register(app, ns):
             db.close()
         return jsonify(ok=True, turnover=cents / 100, state=tier_state(cents), granted=[g['name'] for g in granted])
 
+    @app.post('/api/admin/recent-wins/clear')
+    @ns['admin_required']
+    def admin_clear_recent_wins():
+        with connect() as db:
+            n = db.execute('SELECT COUNT(*) AS n FROM recent_wins').fetchone()['n']
+            db.execute('DELETE FROM recent_wins')
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], 0, 'recent_wins_clear', 'removed %s rows' % n))
+        return jsonify(ok=True, removed=int(n))
+
     @app.get('/api/recent-wins')
     @login
     def vip_recent_wins():

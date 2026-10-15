@@ -38,7 +38,9 @@
       const r = await api('/api/admin/section-settings', next); Object.assign(s, r.sections || {}); K.ok('Настройки разделов сохранены.');
     };
     for (const row of Object.values(rows)) row.input.addEventListener('change', () => { row.input.disabled = true; K.action(null, save).finally(() => row.input.disabled = false); });
-    root.append(K.head('Управление разделами', 'Включайте и скрывайте разделы нижней панели приложения. Данные режимов при выключении не удаляются. Изменения применяются сразу.', 'Интерфейс'), h('div', {class: 'stack'}, Object.values(rows)));
+    const clearBtn = h('button', {type: 'button', class: 'danger', text: 'Очистить лайв-ленту'});
+    clearBtn.onclick = () => { if (!confirm('Удалить все записи из ленты последних побед на странице игр?')) return; K.action(clearBtn, async () => { const r = await api('/api/admin/recent-wins/clear', {}); K.ok('Лента очищена: ' + r.removed + ' записей.'); }); };
+    root.append(K.head('Управление разделами', 'Включайте и скрывайте разделы нижней панели приложения. Данные режимов при выключении не удаляются. Изменения применяются сразу.', 'Интерфейс'), h('div', {class: 'stack'}, Object.values(rows)), K.card('Лайв-лента побед', 'Очищает ленту последних выигрышей в разделе игр. Новые победы появятся в ней снова.', clearBtn));
   }});
 
   /* ---------- Управление играми ---------- */

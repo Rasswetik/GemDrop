@@ -15,7 +15,10 @@ MAX_PRIZES_PER_PLACE = 10
 LIST_SIZE = 100
 DEFAULTS = dict(enabled=True, period_hours=168, auto_repeat=False)
 MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный мастер', 'hw3': 'Повелитель теней', 'hw4': 'Ведьмин избранник', 'hw5': 'Хранитель костей',
-          'c1': 'Золотая медаль', 'c2': 'Серебряная медаль', 'c3': 'Бронзовая медаль'}   # drawn in static/js/medals.js
+          'c1': 'Золотая медаль', 'c2': 'Серебряная медаль', 'c3': 'Бронзовая медаль',
+          'vip': 'VIP игрок', 'gem': 'Кристаллик', 'champ': 'Чемпион', 'pioneer': 'Первопроходец', 'insider': 'Инсайдер', 'friend': 'Верный друг',
+          'guard': 'Защитник', 'collector': 'Коллекционер', 'ton': 'Миллионер TON', 'lucky': 'Счастливчик', 'fire': 'Горячая серия', 'bolt': 'Молния',
+          'rocket': 'Ракета Plinko', 'gambler': 'Азартный', 'miner': 'Сапёр', 'cards': 'Мастер карт', 'night': 'Ночной игрок'}   # drawn in static/js/medals.js
 MAX_SHOWN_MEDALS = 5
 
 SCHEMA = """
@@ -507,6 +510,58 @@ def register(app, ns):
             cfg['medals'].pop(str(place), None)
         save_config(cfg)
         return jsonify(ok=True, medals=cfg['medals'])
+
+    @app.post('/api/admin/medals/grant')
+    @admin
+    def admin_medal_grant():
+        data = request.get_json(silent=True) or {}
+        try:
+            uid = int(data.get('user_id'))
+        except (TypeError, ValueError):
+            return error('Укажите ID игрока.')
+        medal = str(data.get('medal') or '')
+        if medal not in MEDALS:
+            return error('Выберите медаль.')
+        title = str(data.get('title') or '').strip()[:60] or 'Особая награда'
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM users WHERE id=?', (uid,)).fetchone():
+                return error('Игрок не найден.', 404)
+            shown = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1', (uid,)).fetchone()['n']
+            cur = db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown) VALUES(?,?,?,?,?,?)',
+                             (uid, medal, title, 0, 0, 1 if shown < MAX_SHOWN_MEDALS else 0))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'], uid, 'medal_grant', medal))
+            db.commit()
+            notify = _ns.get('notify_user_async')
+            if notify and data.get('notify', True):
+                try:
+                    notify(uid, '🏅 <b>Вам выдана медаль</b>\n«%s» — %s\nОна уже в профиле, раздел «Мои медали».' % (_ns['escape'](MEDALS[medal]), _ns['escape'](title)), None, 'HTML', db=db)
+                except Exception:
+                    _ns['app'].logger.exception('Medal notification failed')
+        return jsonify(ok=True, id=int(cur.lastrowid))
+
+    @app.get('/api/admin/medals/user/<int:uid>')
+    @admin
+    def admin_medals_of_user(uid):
+        with connect() as db:
+            u = db.execute('SELECT id,name,username FROM users WHERE id=?', (uid,)).fetchone()
+            if not u:
+                return error('Игрок не найден.', 404)
+            rows = db.execute('SELECT id,medal_key,title,place,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (uid,)).fetchall()
+        return jsonify(ok=True, user=dict(id=int(u['id']), name=u['name'] or '', username=u['username'] or ''),
+                       medals=[dict(id=int(r['id']), key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'), title=r['title'],
+                                    place=int(r['place']), created_at=str(r['created_at'] or '')) for r in rows])
+
+    @app.post('/api/admin/medals/<int:medal_id>/revoke')
+    @admin
+    def admin_medal_revoke(medal_id):
+        with connect() as db:
+            row = db.execute('SELECT user_id,medal_key FROM user_medals WHERE id=?', (medal_id,)).fetchone()
+            if not row:
+                return error('Медаль не найдена.', 404)
+            db.execute('DELETE FROM user_medals WHERE id=?', (medal_id,))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'], int(row['user_id']), 'medal_revoke', row['medal_key']))
+        return jsonify(ok=True)
 
     @app.get('/api/medals')
     @login

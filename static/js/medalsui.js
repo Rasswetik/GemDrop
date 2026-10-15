@@ -32,10 +32,10 @@
     var m = modal(); m.classList.remove('hidden');
     var list = $('mdlList'); list.innerHTML = '<div class="mdl-empty">Загрузка…</div>';
     api('/api/medals').then(function (d) {
-      $('mdlSub').textContent = 'Медали выдаются за призовые места в сезонах. Отметьте до ' + d.max_shown + ' — они появятся в вашем профиле.';
+      $('mdlSub').textContent = 'Медали выдаются за призовые места в сезонах и особые заслуги. Отметьте до ' + d.max_shown + ' — они появятся в вашем профиле.';
       if (!d.medals.length) { list.innerHTML = '<div class="mdl-empty">Пока нет медалей. Займите призовое место в лидерборде — и она появится здесь.</div>'; return; }
       list.innerHTML = d.medals.map(function (x) {
-        return '<div class="mdl-item"><div>' + GDMedals.svg(x.key, 56) + '</div><div><b>' + esc(x.name) + '</b><small>' + esc(x.title || 'Сезон') + ' · ' + x.place + ' место</small></div>' +
+        return '<div class="mdl-item"><div>' + GDMedals.svg(x.key, 56) + '</div><div><b>' + esc(x.name) + '</b><small>' + esc(x.title || 'Сезон') + (x.place ? ' · ' + x.place + ' место' : '') + '</small></div>' +
           '<label class="mdl-sw">В профиле<input type="checkbox" data-id="' + x.id + '"' + (x.shown ? ' checked' : '') + '></label></div>';
       }).join('');
       list.querySelectorAll('input').forEach(function (i) {
@@ -57,7 +57,7 @@
     var chip = $('ppTopChip'); if (!chip) return;
     var box = $('ppMedals');
     if (!box) { box = document.createElement('div'); box.id = 'ppMedals'; box.className = 'pp-medals'; var host = chip.parentElement; host.parentNode.insertBefore(box, host.nextSibling); }
-    box.innerHTML = ((d && d.medals) || []).map(function (m) { return '<span title="' + esc(m.name + ' · ' + m.title + ' · ' + m.place + ' место') + '">' + GDMedals.svg(m.key, 52) + '</span>'; }).join('');
+    box.innerHTML = ((d && d.medals) || []).map(function (m) { return '<span title="' + esc(m.name + ' · ' + m.title + (m.place ? ' · ' + m.place + ' место' : '')) + '">' + GDMedals.svg(m.key, 52) + '</span>'; }).join('');
   }
   var orig = window.openPublicProfile;
   if (typeof orig === 'function') {

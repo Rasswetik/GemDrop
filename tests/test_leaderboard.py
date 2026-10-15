@@ -95,6 +95,21 @@ class LeaderboardTests(unittest.TestCase):
         self.post('/api/medals/%d/shown' % mine[0]['id'], {'shown': True})
         self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['name'], 'Король Хэллоуина')
 
+    def test_admin_grants_and_revokes_manual_medal(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': 'nope'}, 400)
+            self.post('/api/admin/medals/grant', {'user_id': 99999999, 'medal': 'vip'}, 404)
+            mid = self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': 'vip', 'title': 'За верность'})['id']
+            got = self.client.get('/api/admin/medals/user/%d' % self.uid).get_json()['medals']
+            self.assertEqual((got[0]['key'], got[0]['name'], got[0]['place']), ('vip', 'VIP игрок', 0))
+            mine = self.client.get('/api/medals').get_json()['medals']
+            self.assertEqual(mine[0]['title'], 'За верность')
+            self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['key'], 'vip')
+            self.post('/api/admin/medals/%d/revoke' % mid, {})
+        self.assertEqual(self.client.get('/api/medals').get_json()['medals'], [])
+
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):
         gifts = [{'id': 'hb', 'name': 'Hilo Base', 'price_ton': 5, 'image_url': 'https://example.com/b.png', 'image_match': True}]
         m.save_document('portal_catalog', {'gifts': gifts})

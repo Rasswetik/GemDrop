@@ -47,11 +47,14 @@
 
   /* ---- profile player ---- */
   var st = document.createElement('style');
-  st.textContent = '.mpl{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;margin:12px 0 4px;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,rgba(71,176,245,.14),rgba(160,102,255,.12));border:1px solid rgba(71,176,245,.3)}' +
-    '.mpl-art{grid-row:1/3;width:52px;height:52px;display:grid;place-items:center}.mpl-art .gdm{width:52px;height:auto}' +
-    '.mpl-t{min-width:0;display:flex;flex-direction:column}.mpl-t b{font-size:14px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mpl-t small{font-size:11.5px;color:var(--muted,#96a0a8)}' +
-    '.mpl-pp{width:42px;height:42px;border-radius:50%;border:0;background:linear-gradient(110deg,#9ae9e3,#47b0f5);color:#131524;cursor:pointer;display:grid;place-items:center;padding:0}.mpl-pp svg{width:18px;height:18px;fill:#131524}' +
-    '.mpl-bar{grid-column:2/4;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted,#96a0a8)}.mpl-bar input[type=range]{flex:1;min-width:0;height:4px;accent-color:#47b0f5;cursor:pointer}' +
+  st.textContent = '.mpl-sep{display:flex;align-items:center;gap:10px;margin:16px 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted,#96a0a8)}.mpl-sep:before,.mpl-sep:after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent)}' +
+    '.mpl{position:relative;overflow:hidden;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px 14px;align-items:center;margin:0 0 6px;padding:16px;border-radius:22px;background:radial-gradient(120% 140% at 0 0,rgba(71,176,245,.22),transparent 60%),linear-gradient(160deg,rgba(33,38,60,.95),rgba(20,23,38,.95));border:1px solid rgba(255,255,255,.1);box-shadow:0 10px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.08)}' +
+    '.mpl-art{grid-row:1;width:64px;height:64px;display:grid;place-items:center;position:relative}.mpl-art:before{content:"";position:absolute;inset:-6px;border-radius:50%;background:radial-gradient(circle,rgba(71,176,245,.45),transparent 70%);opacity:.5;transition:opacity .4s}.mpl.on .mpl-art:before{opacity:1}.mpl-art .gdm{width:64px;height:auto;position:relative}' +
+    '.mpl-t{min-width:0;display:flex;flex-direction:column;gap:3px}.mpl-t b{font-size:16px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mpl-t small{font-size:12px;color:var(--muted,#96a0a8);display:flex;align-items:center}' +
+    '.mpl-pp{width:50px;height:50px;border-radius:50%;border:0;background:linear-gradient(135deg,#9ae9e3,#47b0f5);cursor:pointer;display:grid;place-items:center;padding:0;box-shadow:0 6px 18px rgba(71,176,245,.45);transition:transform .15s}.mpl-pp:active{transform:scale(.92)}.mpl-pp svg{width:20px;height:20px;fill:#0f1326}' +
+    '.mpl-bar{grid-column:1/4;display:flex;align-items:center;gap:10px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted,#96a0a8)}.mpl-bar span{min-width:30px}.mpl-bar span:last-child{text-align:right}' +
+    '.mpl-bar input[type=range]{--p:0%;flex:1;min-width:0;height:5px;border-radius:5px;-webkit-appearance:none;appearance:none;outline:0;cursor:pointer;background:linear-gradient(90deg,#9ae9e3,#47b0f5) 0/var(--p) 100% no-repeat,rgba(255,255,255,.14)}' +
+    '.mpl-bar input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}.mpl-bar input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}' +
     '.mpl-eq{display:inline-flex;gap:2px;align-items:flex-end;height:11px;margin-right:6px}.mpl-eq i{width:2.5px;background:#47b0f5;border-radius:2px;height:4px}.mpl.on .mpl-eq i{animation:mplEq .9s ease-in-out infinite}.mpl-eq i:nth-child(2){animation-delay:.2s!important}.mpl-eq i:nth-child(3){animation-delay:.4s!important}@keyframes mplEq{0%,100%{height:3px}50%{height:11px}}';
   document.head.appendChild(st);
   var P = {a: null};
@@ -67,17 +70,17 @@
     exists(key, false).then(function (has) {
       if (!has || !document.getElementById('ppMedals')) return;
       removePlayer();
-      var el = document.createElement('div'); el.id = 'ppPlayer'; el.className = 'mpl';
-      el.innerHTML = '<div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 52, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key] + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Трек медали</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
-        '<div class="mpl-bar"><span class="mpl-c">0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="mpl-d">0:00</span></div>';
+      var el = document.createElement('div'); el.id = 'ppPlayer'; el.className = 'mplw';
+      el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key] + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
+        '<div class="mpl-bar"><span class="mpl-c">0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="mpl-d">0:00</span></div></div>';
       chip.parentNode.insertBefore(el, chip.nextSibling);
       var a = new Audio(url(key, false)); a.preload = 'auto'; P.a = a;
-      var btn = el.querySelector('.mpl-pp'), rng = el.querySelector('input'), c = el.querySelector('.mpl-c'), du = el.querySelector('.mpl-d'), seeking = false;
-      function ui() { var pl = !a.paused; el.classList.toggle('on', pl); btn.innerHTML = pl ? PAUSE : PLAY; }
-      a.addEventListener('play', ui); a.addEventListener('pause', ui); a.addEventListener('ended', function () { ui(); rng.value = 0; });
+      var box = el.querySelector('.mpl'), btn = el.querySelector('.mpl-pp'), rng = el.querySelector('input'), c = el.querySelector('.mpl-c'), du = el.querySelector('.mpl-d'), seeking = false;
+      function ui() { var pl = !a.paused; box.classList.toggle('on', pl); btn.innerHTML = pl ? PAUSE : PLAY; }
+      a.addEventListener('play', ui); a.addEventListener('pause', ui); a.addEventListener('ended', function () { ui(); rng.value = 0; rng.style.setProperty('--p', '0%'); });
       a.addEventListener('loadedmetadata', function () { du.textContent = fmt(a.duration); });
-      a.addEventListener('timeupdate', function () { if (!seeking && a.duration) rng.value = a.currentTime / a.duration * 1000; c.textContent = fmt(a.currentTime); });
-      rng.addEventListener('input', function () { seeking = true; if (a.duration) { a.currentTime = rng.value / 1000 * a.duration; c.textContent = fmt(a.currentTime); } });
+      a.addEventListener('timeupdate', function () { if (!seeking && a.duration) rng.value = a.currentTime / a.duration * 1000; rng.style.setProperty('--p', rng.value / 10 + '%'); c.textContent = fmt(a.currentTime); });
+      rng.addEventListener('input', function () { seeking = true; if (a.duration) { a.currentTime = rng.value / 1000 * a.duration; rng.style.setProperty('--p', rng.value / 10 + '%'); c.textContent = fmt(a.currentTime); } });
       rng.addEventListener('change', function () { seeking = false; });
       btn.onclick = function () { if (a.paused) a.play().catch(function () {}); else a.pause(); };
       a.volume = .8; if (enabled()) a.play().catch(function () {});       // starts by itself; the browser may need a tap

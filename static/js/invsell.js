@@ -4,13 +4,11 @@
   function fmt(n){return Number(n).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2})}
   function sellable(){try{return (inventoryItems||[]).filter(function(x){return !x.promo_locked&&!x.deposit_mirror})}catch(e){return []}}
   window.paintInvTotal=function(){
-    var b=$('invSellAll'),t=$('invTotal');if(!b||!t)return;
+    var b=$('invSellAll');if(!b)return;
     var all=0,sell=0,list=[];try{list=inventoryItems||[]}catch(e){}
     list.forEach(function(x){all+=Number(x.price_ton||0)});
     var s=sellable();s.forEach(function(x){sell+=Number(x.price_ton||0)});
-    t.classList.toggle('hidden',!list.length);b.classList.toggle('hidden',!list.length);
-    t.innerHTML='<img class="is-ton" src="/static/img/ton.png" alt="">'+fmt(all);
-    t.title='Стоимость всех подарков, TON';
+    b.classList.toggle('hidden',!list.length);
     b.disabled=!s.length;b.title=s.length?'Продать '+s.length+' шт. за '+fmt(sell)+' TON':'Нечего продавать';
   };
   async function sellAll(){

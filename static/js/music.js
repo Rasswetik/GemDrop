@@ -1,7 +1,9 @@
 /* Music medals: profile player (long track), preview and PvP-win jingle (short track). */
 (function () {
   var KEYS = {kashtan: 'Миша Каштан', jealous: 'Jealous', warhol: 'Andy Warhol'};
-  var ok = {}, cur = null, mineP = null;
+  var ok = {}, cur = null, mineP = null, LS = 'gd_medal_sound';
+  function enabled() { try { return localStorage.getItem(LS) !== '0'; } catch (e) { return true; } }
+  function setEnabled(v) { try { localStorage.setItem(LS, v ? '1' : '0'); } catch (e) {} if (!v) { stop(); stopProfile(); } }
   function url(k, short) { return '/static/music/' + k + (short ? '_short' : '') + '.mp3'; }
   function exists(k, short) {
     var u = url(k, short); if (ok[u] !== undefined) return ok[u];
@@ -9,6 +11,7 @@
   }
   function stop() { if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
   function playShort(k, vol) {
+    if (!enabled()) return Promise.resolve(false);
     return exists(k, true).then(function (has) {
       if (!has) return false;
       stop(); var a = new Audio(url(k, true)); a.volume = vol == null ? .8 : vol; cur = a;
@@ -37,6 +40,7 @@
   document.head.appendChild(st);
   var P = {a: null};
   function fmt(s) { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function stopProfile() { if (P.a) { try { P.a.pause(); } catch (e) {} } }
   function removePlayer() { var o = document.getElementById('ppPlayer'); if (o) o.remove(); if (P.a) { try { P.a.pause(); } catch (e) {} P.a = null; } }
   var PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   window.GDMusicProfile = function (d) {
@@ -60,10 +64,21 @@
       rng.addEventListener('input', function () { seeking = true; if (a.duration) { a.currentTime = rng.value / 1000 * a.duration; c.textContent = fmt(a.currentTime); } });
       rng.addEventListener('change', function () { seeking = false; });
       btn.onclick = function () { if (a.paused) a.play().catch(function () {}); else a.pause(); };
-      a.volume = .8; a.play().catch(function () {});       // starts by itself; the browser may need a tap
+      a.volume = .8; if (enabled()) a.play().catch(function () {});       // starts by itself; the browser may need a tap
     });
   };
   var mo = document.getElementById('publicProfileModal');
   if (mo) new MutationObserver(function () { if (mo.classList.contains('hidden')) removePlayer(); }).observe(mo, {attributes: true, attributeFilter: ['class']});
-  window.GDMusic = {KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win};
+  function mountRow() {
+    if (document.getElementById('pfMedalSound')) return true;
+    var anchor = document.getElementById('pfHaptics'); if (!anchor) return false;
+    var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedalSound';
+    row.innerHTML = '<span class="pf-row-t"><b>Звук медалей</b><small>Музыка медалей в профилях и при победах</small></span><label class="hp-switch"><input type="checkbox" aria-label="Звук медалей"><i></i></label>';
+    var cb = row.querySelector('input'); cb.checked = enabled();
+    cb.onchange = function () { setEnabled(cb.checked); };
+    anchor.parentNode.insertBefore(row, anchor.nextSibling); return true;
+  }
+  if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
+  setTimeout(mountRow, 800); setTimeout(mountRow, 2500);
+  window.GDMusic = {enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win};
 })();

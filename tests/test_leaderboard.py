@@ -110,6 +110,30 @@ class LeaderboardTests(unittest.TestCase):
             self.post('/api/admin/medals/%d/revoke' % mid, {})
         self.assertEqual(self.client.get('/api/medals').get_json()['medals'], [])
 
+    def test_medal_editor_custom_upload_and_texts(self):
+        import base64, io
+        from PIL import Image
+        buf = io.BytesIO(); Image.new('RGB', (40, 40), (200, 30, 30)).save(buf, 'PNG')
+        img = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            cat = self.client.get('/api/medals/catalog').get_json()
+            k = [c for c in cat['custom'] if c['key'] == 'kashtan']
+            self.assertTrue(k and k[0]['name'] == 'Миша Каштан' and k[0]['manual_only'])
+            self.assertEqual(self.client.get('/api/medals/img/kashtan').status_code, 200)
+            self.post('/api/admin/leaderboard/medals', {'place': 1, 'medal': 'kashtan'}, 400)
+            self.post('/api/admin/medals/create', {'name': 'x', 'image': 'bad'}, 400)
+            key = self.post('/api/admin/medals/create', {'name': 'Новая', 'image': img})['key']
+            self.post('/api/admin/medals/rename', {'key': 'vip', 'name': 'Супер VIP'})
+            self.post('/api/admin/medals/texts', {'notify': 'Привет, {medal} / {title}', 'season': 'S {medal}'})
+            self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': key, 'title': 'T'})
+            self.assertEqual(self.client.get('/api/medals').get_json()['medals'][0]['name'], 'Новая')
+            self.post('/api/admin/medals/%s/delete' % key, {}, 409)
+            allm = self.client.get('/api/admin/medals/all').get_json()
+            self.assertEqual([x['name'] for x in allm['medals'] if x['key'] == 'vip'], ['Супер VIP'])
+            self.assertEqual(m.leaderboard.render_note('<b>{medal}</b> <u>x</u>', medal='A<'), '<b>A&lt;</b> &lt;u&gt;x&lt;/u&gt;') if hasattr(m, 'leaderboard') else None
+            self.post('/api/admin/medals/rename', {'key': 'vip', 'name': 'VIP игрок'})
+            self.post('/api/admin/medals/texts', {'notify': '', 'season': ''})
+
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):
         gifts = [{'id': 'hb', 'name': 'Hilo Base', 'price_ton': 5, 'image_url': 'https://example.com/b.png', 'image_match': True}]
         m.save_document('portal_catalog', {'gifts': gifts})

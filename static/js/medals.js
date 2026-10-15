@@ -106,7 +106,7 @@
 
   function svg(key, size, still) {
     css();
-    var m = BY[key] || LIST[0], p = PAL[m.pal], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : 110, h = Math.round(w * vh / 96), sh = m.shape || 'round', i, beads = '', a;
+    var m = BY[key] || BY.c1, p = PAL[m.pal || 'gold'], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : 110, h = Math.round(w * vh / 96), sh = m.shape || 'round', i, beads = '', a;
     for (i = 0; i < 28; i++) { a = i * Math.PI * 2 / 28; beads += '<circle cx="' + (48 + 35.4 * Math.cos(a)).toFixed(1) + '" cy="' + (62 + 35.4 * Math.sin(a)).toFixed(1) + '" r=".9" fill="' + p[0] + '" opacity=".75"/>'; }
     if (sh !== 'round') beads = '';
     return '<svg class="gdm" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' +
@@ -123,13 +123,28 @@
       '<path d="' + shape(sh, 38) + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".7" stroke-width="1"/>' + beads +
       '<path d="' + shape(sh, 32.5) + '" fill="url(#' + id + 'q)" stroke="rgba(0,0,0,.35)" stroke-width="1"/>' +
       '<path d="' + shape(sh, 29.5) + '" fill="url(#' + id + 'd)"/>' +
-      '<path d="' + shape(sh, 29.5) + '" fill="' + p[6] + '"/>' +
+      (m.img ? '' : '<path d="' + shape(sh, 29.5) + '" fill="' + p[6] + '"/>') +
       '<path d="' + shape(sh, 29.5) + '" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1"/>' +
-      '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + EMB[m.emb] + '</g></g>' +
+      (m.img ? '<image href="' + m.img + '" x="18.5" y="31.5" width="59" height="59" preserveAspectRatio="xMidYMid slice" clip-path="url(#' + id + 'c)"/>' :
+        '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + EMB[m.emb] + '</g></g>') +
       '<g clip-path="url(#' + id + 'c)"><rect class="gm-shine" x="10" y="26" width="24" height="72" fill="url(#' + id + 's)" transform="skewX(-18)"/><path d="M20 50 A30 30 0 0 1 56 33" stroke="#fff" stroke-opacity=".38" stroke-width="3" fill="none" stroke-linecap="round"/></g>' +
       '<circle class="gm-sp" cx="17" cy="34" r="2.400" fill="#fff"/><circle class="gm-sp b" cx="80" cy="46" r="2" fill="#fff"/><circle class="gm-sp c" cx="74" cy="98" r="2.200" fill="#fff"/>' +
       (m.place ? '<g><rect x="35" y="95" width="26" height="16" rx="8" fill="rgba(20,10,40,.85)" stroke="' + p[3] + '" stroke-width="1.200"/><text x="48" y="107" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.500" font-weight="900" fill="' + p[0] + '">' + m.place + '</text></g>' : '') +
       '</svg>';
   }
-  window.GDMedals = {LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }};
+  var BASE = {};
+  LIST.forEach(function (m) { BASE[m.key] = m.name; });
+  var api = {LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null};
+  api.load = function () {
+    api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
+      for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].custom) LIST.splice(i, 1);
+      LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; });
+      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, manual_only: c.manual_only}); });
+      BY = {}; LIST.forEach(function (m) { BY[m.key] = m; });
+      return d;
+    }).catch(function () {});
+    return api.ready;
+  };
+  window.GDMedals = api;
+  api.load();
 })();

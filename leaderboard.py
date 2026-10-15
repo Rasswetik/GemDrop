@@ -4,6 +4,7 @@ Turnover is fed from app.increase_turnover (the single place every game goes thr
 board needs no per-game queries. A period is settled lazily (first request or game after it ends),
 by a background loop, or early by an admin. Prizes land in the winner's inventory.
 """
+import os
 import json
 import re
 import time
@@ -20,6 +21,58 @@ MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный
           'guard': 'Защитник', 'collector': 'Коллекционер', 'ton': 'Миллионер TON', 'lucky': 'Счастливчик', 'fire': 'Горячая серия', 'bolt': 'Молния',
           'rocket': 'Ракета Plinko', 'gambler': 'Азартный', 'miner': 'Сапёр', 'cards': 'Мастер карт', 'night': 'Ночной игрок'}   # drawn in static/js/medals.js
 MAX_SHOWN_MEDALS = 5
+BASE_MEDALS = dict(MEDALS)
+MEDAL_DOC, MEDAL_SET_DOC = 'custom_medals', 'medal_settings'
+DEFAULT_NOTIFY = '🏅 <b>Вам выдана медаль</b>\n«{medal}» — {title}\nОна уже в профиле, раздел «Мои медали».'
+DEFAULT_SEASON_NOTE = '🏅 Медаль «{medal}» — в профиле, раздел «Мои медали».'
+
+
+def custom_medals():
+    doc = dict(_ns['read_document'](MEDAL_DOC) or {})
+    items = doc.get('items')
+    if not isinstance(items, dict):
+        items = {}
+    if not doc.get('seeded'):
+        try:
+            import base64
+            path = os.path.join(_ns['app'].root_path, 'static', 'img', 'medals', 'kashtan.jpg')
+            if 'kashtan' not in items and os.path.exists(path):
+                with open(path, 'rb') as fh:
+                    items['kashtan'] = dict(name='Миша Каштан', manual_only=True, pal='gold', v=1,
+                                            image='data:image/jpeg;base64,' + base64.b64encode(fh.read()).decode())
+            _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+        except Exception:
+            _ns['app'].logger.exception('Medal seed failed')
+    return items
+
+
+def medal_settings():
+    doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+    names = doc.get('names') if isinstance(doc.get('names'), dict) else {}
+    return dict(names={str(k): str(v)[:40] for k, v in names.items() if v},
+                notify=str(doc.get('notify') or DEFAULT_NOTIFY)[:600], season=str(doc.get('season') or DEFAULT_SEASON_NOTE)[:300])
+
+
+def all_names():
+    out = dict(BASE_MEDALS)
+    for k, v in custom_medals().items():
+        out[k] = str(v.get('name') or 'Медаль')
+    out.update({k: v for k, v in medal_settings()['names'].items() if k in out})
+    return out
+
+
+def mname(key):
+    return all_names().get(key, 'Медаль')
+
+
+def render_note(template, **values):
+    esc = _ns['escape']
+    text = esc(template)
+    for tag in ('b', 'i'):
+        text = text.replace('&lt;%s&gt;' % tag, '<%s>' % tag).replace('&lt;/%s&gt;' % tag, '</%s>' % tag)
+    for k, v in values.items():
+        text = text.replace('{%s}' % k, esc(str(v)))
+    return text
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lb_periods (
@@ -107,7 +160,7 @@ def config():
             place = int(key)
         except (TypeError, ValueError):
             continue
-        if 1 <= place <= MAX_PLACES and medal in MEDALS:
+        if 1 <= place <= MAX_PLACES and medal in all_names():
             medals[str(place)] = medal
     out['medals'] = medals
     return out
@@ -227,7 +280,7 @@ def settle(db, period_id, reason='ended', award=True):
             if medal:
                 db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown) VALUES(?,?,?,?,?,1)',
                            (int(row['user_id']), medal, title, place, period_id))
-                medal_notes[int(row['user_id'])] = (place, MEDALS[medal])
+                medal_notes[int(row['user_id'])] = (place, mname(medal))
             for prize in cfg['rewards'].get(str(place), []):
                 try:
                     inv_id, v = award_prize(db, int(row['user_id']), prize)
@@ -256,7 +309,7 @@ def settle(db, period_id, reason='ended', award=True):
             lines = '\n'.join(line(*it) for it in items[:10])
             tail = ('Подарки уже в инвентаре, TON — на балансе.' if any(i[2] for i in items) else 'Подарки уже в инвентаре.') if items else ''
             if uid in medal_notes:
-                tail = (tail + '\n' if tail else '') + '🏅 Медаль «%s» — в профиле, раздел «Мои медали».' % _ns['escape'](medal_notes[uid][1])
+                tail = (tail + '\n' if tail else '') + render_note(medal_settings()['season'], medal=medal_notes[uid][1])
             if not lines:
                 lines = '<b>%d место</b>' % medal_notes[uid][0]
             try:
@@ -437,7 +490,7 @@ def register(app, ns):
             awards = [dict(period_id=int(r['period_id']), place=int(r['place']), user_id=int(r['user_id']), gift_name=r['gift_name'],
                            image_url=r['image_url'], price_ton=int(r['floor_price'] or 0) / 100, created_at=r['created_at'])
                       for r in db.execute('SELECT * FROM lb_awards ORDER BY id DESC LIMIT 30').fetchall()]
-        return jsonify(config=dict(enabled=cfg['enabled'], period_hours=cfg['period_hours'], auto_repeat=cfg['auto_repeat']), medals=cfg['medals'], medal_names=MEDALS,
+        return jsonify(config=dict(enabled=cfg['enabled'], period_hours=cfg['period_hours'], auto_repeat=cfg['auto_repeat']), medals=cfg['medals'], medal_names=all_names(),
                        rewards=rewards_view(cfg), period=view, top=top, history=history, awards=awards, max_places=MAX_PLACES)
 
     @app.post('/api/admin/leaderboard/config')
@@ -501,8 +554,8 @@ def register(app, ns):
         if not 1 <= place <= MAX_PLACES:
             return error(f'Места: от 1 до {MAX_PLACES}.')
         medal = str(data.get('medal') or '')
-        if medal and medal not in MEDALS:
-            return error('Такой медали нет.')
+        if medal and (medal not in all_names() or custom_medals().get(medal, {}).get('manual_only')):
+            return error('Такой медали нет или она только для ручной выдачи.')
         cfg = config()
         if medal:
             cfg['medals'][str(place)] = medal
@@ -510,6 +563,109 @@ def register(app, ns):
             cfg['medals'].pop(str(place), None)
         save_config(cfg)
         return jsonify(ok=True, medals=cfg['medals'])
+
+    @app.get('/api/medals/catalog')
+    def medal_catalog():
+        items = custom_medals()
+        return jsonify(ok=True, names=all_names(),
+                       custom=[dict(key=k, name=mname(k), manual_only=bool(v.get('manual_only')), pal=v.get('pal') or 'gold',
+                                    img='/api/medals/img/%s?v=%d' % (k, int(v.get('v') or 0))) for k, v in items.items()])
+
+    @app.get('/api/medals/img/<key>')
+    def medal_img(key):
+        import base64
+        from flask import Response
+        item = custom_medals().get(key)
+        if not item or not item.get('image'):
+            return error('Нет изображения.', 404)
+        head, _, b64 = str(item['image']).partition(',')
+        mime = 'image/png' if 'png' in head else 'image/webp' if 'webp' in head else 'image/jpeg'
+        resp = Response(base64.b64decode(b64), mimetype=mime)
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+
+    @app.get('/api/admin/medals/all')
+    @admin
+    def admin_medals_all():
+        cust = custom_medals()
+        st = medal_settings()
+        out = [dict(key=k, name=n, builtin=True, manual_only=False) for k, n in BASE_MEDALS.items()]
+        for o in out:
+            o['name'] = st['names'].get(o['key'], o['name'])
+        out += [dict(key=k, name=mname(k), builtin=False, manual_only=bool(v.get('manual_only'))) for k, v in cust.items()]
+        return jsonify(ok=True, medals=out, notify=st['notify'], season=st['season'],
+                       defaults=dict(notify=DEFAULT_NOTIFY, season=DEFAULT_SEASON_NOTE))
+
+    @app.post('/api/admin/medals/rename')
+    @admin
+    def admin_medal_rename():
+        data = request.get_json(silent=True) or {}
+        key, name = str(data.get('key') or ''), str(data.get('name') or '').strip()[:40]
+        if key not in all_names() or not name:
+            return error('Укажите медаль и название.')
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        names = dict(doc.get('names') or {})
+        names[key] = name
+        doc['names'] = names
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/texts')
+    @admin
+    def admin_medal_texts():
+        data = request.get_json(silent=True) or {}
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        for k in ('notify', 'season'):
+            if k in data:
+                doc[k] = str(data.get(k) or '').strip()[:600]
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/create')
+    @admin
+    def admin_medal_create():
+        import base64, io, re as _re, time as _t
+        from PIL import Image
+        data = request.get_json(silent=True) or {}
+        name = str(data.get('name') or '').strip()[:40]
+        raw = str(data.get('image') or '')
+        if not name:
+            return error('Введите название медали.')
+        m_ = _re.match(r'^data:image/(png|jpeg|jpg|webp);base64,(.+)$', raw, _re.S)
+        if not m_ or len(raw) > 3_000_000:
+            return error('Загрузите PNG, JPG или WEBP до 2 МБ.')
+        try:
+            im = Image.open(io.BytesIO(base64.b64decode(m_.group(2))))
+            im.load()
+            im = im.convert('RGBA')
+            im.thumbnail((384, 384))
+            buf = io.BytesIO()
+            im.save(buf, 'PNG', optimize=True)
+        except Exception:
+            return error('Не удалось прочитать изображение.')
+        items = custom_medals()
+        n = 1
+        while 'u%d' % n in items or 'u%d' % n in BASE_MEDALS:
+            n += 1
+        key = 'u%d' % n
+        items[key] = dict(name=name, manual_only=bool(data.get('manual_only', True)), pal='gold', v=int(_t.time()),
+                          image='data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode())
+        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+        return jsonify(ok=True, key=key)
+
+    @app.post('/api/admin/medals/<key>/delete')
+    @admin
+    def admin_medal_delete(key):
+        items = custom_medals()
+        if key not in items:
+            return error('Можно удалять только загруженные медали.', 404)
+        with connect() as db:
+            held = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE medal_key=?', (key,)).fetchone()['n']
+        if held:
+            return error('Медаль есть у игроков (%d). Сначала заберите её.' % held, 409)
+        items.pop(key)
+        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+        return jsonify(ok=True)
 
     @app.post('/api/admin/medals/grant')
     @admin
@@ -520,7 +676,7 @@ def register(app, ns):
         except (TypeError, ValueError):
             return error('Укажите ID игрока.')
         medal = str(data.get('medal') or '')
-        if medal not in MEDALS:
+        if medal not in all_names():
             return error('Выберите медаль.')
         title = str(data.get('title') or '').strip()[:60] or 'Особая награда'
         with connect() as db:
@@ -535,7 +691,7 @@ def register(app, ns):
             notify = _ns.get('notify_user_async')
             if notify and data.get('notify', True):
                 try:
-                    notify(uid, '🏅 <b>Вам выдана медаль</b>\n«%s» — %s\nОна уже в профиле, раздел «Мои медали».' % (_ns['escape'](MEDALS[medal]), _ns['escape'](title)), None, 'HTML', db=db)
+                    notify(uid, render_note(medal_settings()['notify'], medal=mname(medal), title=title), None, 'HTML', db=db)
                 except Exception:
                     _ns['app'].logger.exception('Medal notification failed')
         return jsonify(ok=True, id=int(cur.lastrowid))
@@ -549,7 +705,7 @@ def register(app, ns):
                 return error('Игрок не найден.', 404)
             rows = db.execute('SELECT id,medal_key,title,place,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (uid,)).fetchall()
         return jsonify(ok=True, user=dict(id=int(u['id']), name=u['name'] or '', username=u['username'] or ''),
-                       medals=[dict(id=int(r['id']), key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'), title=r['title'],
+                       medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), title=r['title'],
                                     place=int(r['place']), created_at=str(r['created_at'] or '')) for r in rows])
 
     @app.post('/api/admin/medals/<int:medal_id>/revoke')
@@ -568,7 +724,7 @@ def register(app, ns):
     def my_medals():
         with connect() as db:
             rows = db.execute('SELECT id,medal_key,title,place,shown,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (int(session['uid']),)).fetchall()
-        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'),
+        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']),
                        title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
 
     @app.post('/api/medals/<int:medal_id>/shown')
@@ -688,4 +844,4 @@ def shown_medals(db, user_id):
     """Medals the player chose to show on the public profile (newest first)."""
     rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY id DESC LIMIT ?',
                       (int(user_id), MAX_SHOWN_MEDALS)).fetchall()
-    return [dict(key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'), title=r['title'], place=int(r['place'])) for r in rows]
+    return [dict(key=r['medal_key'], name=mname(r['medal_key']), title=r['title'], place=int(r['place'])) for r in rows]

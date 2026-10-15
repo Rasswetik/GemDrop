@@ -95,6 +95,17 @@ class LeaderboardTests(unittest.TestCase):
         self.post('/api/medals/%d/shown' % mine[0]['id'], {'shown': True})
         self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['name'], 'Король Хэллоуина')
 
+    def test_medal_info_shows_status_collection_and_share(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': 'hw1'})
+        info = self.client.get('/api/medals/info/hw1').get_json()
+        self.assertEqual((info['collection'], info['status'], info['owners'], info['mine']), ('Хэллоуин', 'Событийная', 1, True))
+        self.assertGreater(info['percent'], 0)
+        self.assertEqual(self.client.get('/api/medals/info/goshan').get_json()['status'], 'Уникальная')
+        self.assertEqual(self.client.get('/api/medals/info/nope').status_code, 404)
+
     def test_equip_up_to_three_medals_by_key(self):
         with m.connect() as db:
             db.execute('DELETE FROM user_medals')

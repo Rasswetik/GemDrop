@@ -82,6 +82,7 @@
     s.textContent = '.gdm{display:inline-block;vertical-align:middle;overflow:visible}' +
       '.gdm .gm-glow{animation:gmGlow 3.2s ease-in-out infinite;transform-origin:48px 62px}' +
       '.gdm .gm-br{animation:gmBr 3.6s ease-in-out infinite;transform-origin:48px 70px}@keyframes gmBr{0%,100%{transform:scale(1)}50%{transform:scale(1.045) translateY(-.8px)}}' +
+      '.gdm .gm-shine2{animation:gmShine2 4.2s ease-in-out infinite}.gdm .gm-shine2.b{animation-delay:.12s}@keyframes gmShine2{0%,45%{transform:skewX(-18deg) translateX(-30px)}85%,100%{transform:skewX(-18deg) translateX(110px)}}.gdm .gm-gl circle{opacity:0;animation:gmGl 3s ease-in-out infinite}@keyframes gmGl{0%,100%{opacity:0;transform:scale(.3)}50%{opacity:1;transform:scale(1.8)}}.gdm .gm-gl circle{transform-box:fill-box;transform-origin:center}' +
       '.gdm .gm-yt{animation:gmYt 2.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes gmYt{0%,100%{transform:translate(48px,104px) scale(1)}50%{transform:translate(48px,104px) scale(1.1)}}.gdm .gm-ytr{animation:gmYr 14s linear infinite;transform-origin:48px 62px}@keyframes gmYr{to{transform:rotate(360deg)}}' +
       '.gdm .gm-emb{animation:gmBob 3.4s ease-in-out infinite;transform-origin:0 0}' +
       '.gdm .gm-shine{animation:gmShine 4.2s cubic-bezier(.45,0,.3,1) infinite}' +
@@ -188,7 +189,11 @@
       '<path d="M67 4L60 4L45 40L49 46Z" fill="#000" opacity=".12"/>' +
       '<path d="M36 5.5L48 31L60 5.5L56 4L48 20L40 4Z" fill="#000" opacity=".16"/></g>';
 
-    if (AUTHOR3[m.key]) { p = ['#ffe3e3', '#ff2b2b', '#9c0000', '#ff7a7a', '#2c2c33', '#101015'].concat(p.slice(6)); rarBack = ''; rarRim = AUTHOR3[m.key] ? '<path d="' + shape('round', 35.6) + '" fill="none" stroke="#fff" stroke-width="1.4" stroke-dasharray="5 4" opacity=".85" class="' + (st ? '' : 'gm-ytr') + '"/>' : ''; rarTop = ''; glowOp = .35; }
+    if (AUTHOR3[m.key]) { p = ['#ffe3e3', '#ff2b2b', '#9c0000', '#ff7a7a', '#2c2c33', '#101015'].concat(p.slice(6)); rarBack = ''; rarRim = AUTHOR3[m.key] ? '<path d="' + shape('round', 35.6) + '" fill="none" stroke="#fff" stroke-width="1.4" stroke-dasharray="5 4" opacity=".85" class="' + (st ? '' : 'gm-ytr') + '"/>' : ''; glowOp = .35;
+      rarTop = '<defs><linearGradient id="' + id + 'y" gradientUnits="userSpaceOnUse" x1="-30" y1="20" x2="30" y2="104">' + (st ? '' : '<animateTransform attributeName="gradientTransform" type="translate" values="-70 0;120 0;-70 0" dur="4.2s" repeatCount="indefinite"/>') + '<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".95"/><stop offset=".58" stop-color="#ffd6d6" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>' +
+        '<path d="' + shape('round', 37.2) + '" fill="none" stroke="url(#' + id + 'y)" stroke-width="4.2"/>' +
+        '<g clip-path="url(#' + id + 'c)"><rect class="gm-shine2" x="6" y="20" width="4.5" height="84" fill="#fff" opacity=".7" transform="skewX(-18)"/><rect class="gm-shine2 b" x="14" y="20" width="1.6" height="84" fill="#fff" opacity=".8" transform="skewX(-18)"/></g>' +
+        '<g class="' + (st ? '' : 'gm-gl') + '" fill="#fff"><circle cx="20" cy="40" r="1.1"/><circle cx="77" cy="82" r="1.1" style="animation-delay:.9s"/><circle cx="66" cy="30" r=".9" style="animation-delay:1.7s"/><circle cx="28" cy="92" r=".9" style="animation-delay:2.4s"/></g>'; }
     var shapeO = shape(sh, 38), disc = ring(sh, 29.5);
     var beadRing = sh === 'seal' ? shape('round', 34.4) : shape(sh, 35.2);
     var gem = (rar === 'rare') ? '' : '<path d="' + beadRing + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".8" stroke-width="1.15" stroke-linecap="round" stroke-dasharray=".01 2.5"/>';

@@ -924,6 +924,35 @@ def register(app, ns):
             db.execute('UPDATE user_medals SET claimed=1 WHERE id=? AND user_id=?', (medal_id, int(session['uid'])))
         return jsonify(ok=True)
 
+    @app.get('/api/medals/info/<key>')
+    def medal_info(key):
+        names = all_names()
+        if key not in names:
+            return error('Такой медали нет.', 404)
+        cm = custom_medals().get(key) or {}
+        ev = event_map().get(key, '')
+        placed = sorted(int(p) for p, k in config()['medals'].items() if k == key)
+        promo = any(v.get('medal') == key if isinstance(v, dict) else v == key for v in promo_medals().values())
+        with connect() as db:
+            total = max(1, int(db.execute('SELECT COUNT(*) AS n FROM users').fetchone()['n']))
+            owners = int(db.execute('SELECT COUNT(DISTINCT user_id) AS n FROM user_medals WHERE medal_key=?', (key,)).fetchone()['n'])
+            mine = False
+            if session.get('uid'):
+                mine = bool(db.execute('SELECT 1 FROM user_medals WHERE user_id=? AND medal_key=?', (int(session['uid']), key)).fetchone())
+        if cm.get('manual_only'):
+            status, how = 'Уникальная', 'Её нельзя получить в событиях или играх. Её выдаёт только администрация.'
+        elif placed:
+            status, how = 'Сезонная', 'Награда за %s место в сезоне лидерборда.' % ', '.join(str(x) for x in placed)
+        elif ev:
+            status, how = 'Событийная', 'Выдаётся за участие в событии «%s».' % ev
+        elif promo:
+            status, how = 'Особая', 'Выдаётся по промокоду или в акциях.'
+        else:
+            status, how = 'Обычная', 'Награда за достижения и активность на сайте.'
+        pct = owners * 100.0 / total
+        return jsonify(ok=True, key=key, name=names[key], rarity=rarity_map().get(key, 'common'), collection=ev or ('Коллекция медалей'),
+                       status=status, how=how, owners=owners, percent=round(pct, 2) if pct >= 0.01 or not owners else 0.01, mine=mine)
+
     @app.get('/api/medals')
     @login
     def my_medals():

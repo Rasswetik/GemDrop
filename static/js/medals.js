@@ -81,6 +81,7 @@
     var s = document.createElement('style'); s.id = 'gdMedalCss';
     s.textContent = '.gdm{display:inline-block;vertical-align:middle;overflow:visible}' +
       '.gdm .gm-glow{animation:gmGlow 3.2s ease-in-out infinite;transform-origin:48px 62px}' +
+      '.gdm .gm-br{animation:gmBr 3.6s ease-in-out infinite;transform-origin:48px 70px}@keyframes gmBr{0%,100%{transform:scale(1)}50%{transform:scale(1.045) translateY(-.8px)}}' +
       '.gdm .gm-emb{animation:gmBob 3.4s ease-in-out infinite;transform-origin:0 0}' +
       '.gdm .gm-shine{animation:gmShine 4.2s cubic-bezier(.45,0,.3,1) infinite}' +
       '.gdm .gm-sp{opacity:0;animation:gmTw 2.6s ease-in-out infinite;transform-origin:center;transform-box:fill-box}' +
@@ -132,13 +133,14 @@
     var p1 = pt(a1 * Math.PI / 180, R), p2 = pt(a2 * Math.PI / 180, R);
     return 'M48 62L' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + 'A' + R + ' ' + R + ' 0 0 1 ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1) + 'Z';
   }
+  var AUTHOR3 = {goshan: 1};
   function star(x, y, s, cls, extra) {
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
 
   function svg(key, size, still) {
     css();
-    var m = BY[key] || BY.c1, p = PAL[m.pal || 'gold'], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : 110, h = Math.round(w * vh / 96), sh = m.shape || 'round', i, a;
+    var m = BY[key] || BY.c1, p = PAL[m.pal || 'gold'], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : AUTHOR3[m.key] ? 120 : 110, h = Math.round(w * vh / 96), sh = m.shape || 'round', i, a;
     var rar = m.rarity || 'common', st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
     var top = sh === 'hex' ? 22.5 : (sh === 'seal' ? 23.4 : 24);
     var glowCol = rar === 'rare' ? '#4d97ff' : rar === 'epic' ? '#a066ff' : p[1];
@@ -185,14 +187,16 @@
       '<path d="M67 4L60 4L45 40L49 46Z" fill="#000" opacity=".12"/>' +
       '<path d="M36 5.5L48 31L60 5.5L56 4L48 20L40 4Z" fill="#000" opacity=".16"/></g>';
 
+    if (AUTHOR3[m.key]) { rarBack = ''; rarRim = ''; glowOp = .3; }
     var shapeO = shape(sh, 38), disc = ring(sh, 29.5);
     var beadRing = sh === 'seal' ? shape('round', 34.4) : shape(sh, 35.2);
     var gem = (rar === 'rare') ? '' : '<path d="' + beadRing + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".8" stroke-width="1.15" stroke-linecap="round" stroke-dasharray=".01 2.5"/>';
     var reed = sh === 'seal' ? '' : '<path d="' + shape(sh, 37) + '" fill="none" stroke="' + p[2] + '" stroke-opacity=".32" stroke-width="2" stroke-dasharray=".5 1.1"/>';
 
-    var emb = m.img ? '<image href="' + m.img + '" x="18.5" y="31.5" width="59" height="59" preserveAspectRatio="xMidYMid slice" clip-path="url(#' + id + 'c)"/>' :
+    var emb = m.img ? '<g class="gm-br"><image href="' + m.img + '" x="18.5" y="31.5" width="59" height="59" preserveAspectRatio="xMidYMid slice" clip-path="url(#' + id + 'c)"/></g>' :
       '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + (EMB[m.emb] || '').split('__ID__').join(id + 'e') + '</g></g>';
 
+    var tri = AUTHOR3[m.key] ? ['translate(48 105.5) scale(1.9)', 'translate(20 98) scale(1.15)', 'translate(76 98) scale(1.15)'].map(function (t) { return '<g transform="' + t + '"><path d="M0-3.6.9-1.1 3.4-1 1.5.6 2.1 3.1 0 1.7-2.1 3.1-1.5.6-3.4-1-.9-1.1Z" fill="url(#' + id + 'r)" stroke="#3d2506" stroke-width=".35" stroke-linejoin="round"/></g>'; }).join('') : '';
     var sp = st ? '' : star(17, 34, 1, 'gm-sp') + star(80, 46, .85, 'gm-sp b') + star(75, 96, .95, 'gm-sp c');
     var badge = m.place ? '<g><rect x="34.5" y="95" width="27" height="16.5" rx="8.2" fill="url(#' + id + 'b)" stroke="url(#' + id + 'r)" stroke-width="1.3"/><rect x="36" y="96.5" width="24" height="6" rx="3" fill="#fff" opacity=".1"/><text x="48" y="107.2" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.5" font-weight="900" fill="' + p[0] + '">' + m.place + '</text></g>' : '';
 
@@ -237,7 +241,7 @@
       '<g clip-path="url(#' + id + 'c)"><ellipse cx="40" cy="42" rx="27" ry="14" transform="rotate(-18 40 42)" fill="url(#' + id + 'l)" opacity=".5"/></g>' +
       '<g clip-path="url(#' + id + 'o)"><rect class="gm-shine" x="10" y="20" width="22" height="84" fill="url(#' + id + 's)" transform="skewX(-18)"' + (st ? ' style="transform:translateX(-70px)"' : '') + '/>' +
       '<path d="M17 56A33 33 0 0 1 44 29" stroke="#fff" stroke-opacity=".5" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
-      rarTop + sp + badge + '</svg>';
+      rarTop + sp + tri + badge + '</svg>';
   }
   function f1(n) { return (+n).toFixed(1); }
   var BASE = {};

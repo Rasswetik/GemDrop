@@ -14886,15 +14886,26 @@ def crash_user_view(row):
                 prize=prize)
 
 
+_crash_min_prize_cache = {'at': 0.0, 'value': 0}
+
+
 def crash_min_prize_cents():
-    """Cheapest catalog gift that Mines/Crash may hand out as a prize (0 = no catalog)."""
+    """Cheapest catalog gift that Mines/Crash may hand out as a prize (0 = no catalog).
+
+    The value only changes when the catalog changes, but /api/crash/state is polled several times a second by every
+    player: rebuilding the catalog signature on each poll made the server (and the multiplier) stutter."""
+    now = time.monotonic()
+    if now - _crash_min_prize_cache['at'] < 20:
+        return _crash_min_prize_cache['value']
     try:
         gifts = read_catalog()['gifts']
+        index = mines_model_pool(gifts)
+        prices = [pool[0] for pool in (index['prices'], index['base_prices']) if pool]
+        value = min(prices) if prices else 0
     except (OSError, ValueError, KeyError):
-        return 0
-    index = mines_model_pool(gifts)
-    prices = [pool[0] for pool in (index['prices'], index['base_prices']) if pool]
-    return min(prices) if prices else 0
+        value = 0
+    _crash_min_prize_cache.update(at=now, value=value)
+    return value
 
 
 def crash_prize_preview(amount_cents, gifts=None, seed=None, db=None):

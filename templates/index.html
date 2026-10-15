@@ -6772,17 +6772,17 @@ function arenaExtendFlash(sec){let b=$('arenaExtend'),t=$('arenaTimer');if(b){b.
 
 /* ===== Crash ===== */
 var CR={st:null,off:0,pollT:0,tick:0,raf:0,active:false,polling:false,busy:false,phase:'',lossShown:0,gift:null,prize:null,prizeAt:0,prizeBusy:false,winShown:0,sel:null,round:0,autoRound:0};
-const crSrv=()=>CR.serverAt!=null?CR.serverAt+performance.now()-CR.localAt:Date.now()+CR.off;
+const crSrv=()=>CR.clock!=null?performance.now()+CR.clock:Date.now()+CR.off;
 function crAcceptState(d){
   let prev=CR.st,same=prev&&prev.round?.id===d.round?.id&&!!prev.demo===!!d.demo;
   if(prev&&!!prev.demo===!!d.demo&&Number(d.now)<Number(prev.now))return false;
   if(same&&(Number(d.now)<Number(prev.now)||(Number(d.now)===Number(prev.now)&&((prev.phase==='crashed'&&d.phase!=='crashed')||(prev.my_bet?.state==='won'&&d.my_bet?.state==='active')))))return false;
-  let local=performance.now(),from=same?crMultCont():1;
-  let sample=Math.max(100,Number(d.multiplier_x100)||Math.floor(Number(d.multiplier||1)*100));
-  let to=d.phase==='crashed'?Math.max(1,Number(d.round.crash)||sample/100):sample/100;
-  if(same&&d.phase!=='crashed')to=Math.max(to,CR.display?.to||1);
-  CR.display={from:Math.min(from,to),to,at:local,ms:d.phase==='crashed'?0:Math.min(250,Math.max(100,same?Number(d.now)-Number(prev.now):150))};
-  CR.serverAt=Number(d.now);CR.localAt=local;return true
+  /* Clock sync: the sample with the lowest network delay is the one whose (server - local) offset is largest */
+  let local=performance.now(),sample=Number(d.now)-local;
+  if(!CR.offs||(prev&&!!prev.demo!==!!d.demo))CR.offs=[];
+  CR.offs.push(sample);if(CR.offs.length>8)CR.offs.shift();
+  CR.clock=Math.max(...CR.offs);
+  return true
 }
 function crMultNow(){return Math.max(1,Math.floor((crMultCont()+1e-10)*100)/100)}
 function crPhase(){let s=CR.st;if(!s)return'wait';if(s.phase==='crashed')return'crashed';return crSrv()<s.round.launch_at?'betting':'flying'}
@@ -6790,12 +6790,19 @@ const CR_PAD=[35,177],CR_P0=[34,182],CR_P1=[120,172],CR_P2=[266,50],CR_PM=1.2;
 function crBez(t){let u=1-t;return[u*u*CR_P0[0]+2*u*t*CR_P1[0]+t*t*CR_P2[0],u*u*CR_P0[1]+2*u*t*CR_P1[1]+t*t*CR_P2[1]]}
 function crTan(t){let u=1-t,dx=2*u*(CR_P1[0]-CR_P0[0])+2*t*(CR_P2[0]-CR_P1[0]),dy=2*u*(CR_P1[1]-CR_P0[1])+2*t*(CR_P2[1]-CR_P1[1]);return Math.atan2(dy,dx)*180/Math.PI}
 function crProgress(m){return Math.min(1,Math.pow(Math.log(Math.max(1,m))/Math.log(16),.78))}
+const crLead=()=>Math.max(500,Math.min(1200,350+2*(CR.rtt||80)));
 function crMultCont(){
-  let s=CR.st,d=CR.display;if(!s)return 1;
+  let s=CR.st;if(!s)return 1;
   if(s.phase==='crashed')return Math.max(1,Number(s.round.crash)||1);
-  if(!d)return Math.max(1,Number(s.multiplier_x100||100)/100);
-  let k=d.ms?Math.max(0,Math.min(1,(performance.now()-d.at)/d.ms)):1;
-  return Math.min(d.to,Math.max(1,d.from+(d.to-d.from)*k))
+  /* Run on the synced server clock, but never further ahead of the last confirmed sample than one poll cycle:
+     a stalled connection freezes the number instead of letting a crashed round show a higher x. */
+  let ahead=Math.min(crSrv(),Number(s.now)+crLead());
+  let t=ahead-Number(s.round.launch_at);
+  if(!(t>0)){CR.mRound=s.round.id;CR.mMax=1;return 1}
+  let m=Math.min(10000,Math.exp((Number(s.growth)||0.08)*t/1000));
+  if(CR.mRound!==s.round.id){CR.mRound=s.round.id;CR.mMax=1}
+  if(m<CR.mMax)m=CR.mMax;else CR.mMax=m;
+  return m
 }
 function crPath(p){let n=Math.max(2,Math.round(p*30)),pts=[];for(let i=0;i<=n;i++)pts.push(crBez(p*i/n));let line='M'+pts.map(q=>q[0].toFixed(1)+' '+q[1].toFixed(1)).join('L');return[line,line+'L'+pts[pts.length-1][0].toFixed(1)+' 220L'+pts[0][0].toFixed(1)+' 220Z']}
 function crPlace(p,pad){let r=$('crRocket'),tr=$('crTrail'),ar=$('crArea');if(!r)return;if(pad){r.setAttribute('transform','translate('+CR_PAD[0]+' '+CR_PAD[1]+') rotate(-90)');tr.setAttribute('d','');ar.setAttribute('d','');CRFX.rx=CR_PAD[0];CRFX.ry=CR_PAD[1];CRFX.ra=-90;return}let pt=crBez(p),k=Math.min(1,p/.1),k2=k*k*(3-2*k),ang=-90+(crTan(p)+90)*k2,x=CR_PAD[0]+(pt[0]-CR_PAD[0])*k2,y=CR_PAD[1]+(pt[1]-CR_PAD[1])*k2;r.setAttribute('transform','translate('+x.toFixed(1)+' '+y.toFixed(1)+') rotate('+ang.toFixed(1)+')');let d=crPath(p);tr.setAttribute('d',d[0]);ar.setAttribute('d',d[1]);CRFX.rx=x;CRFX.ry=y;CRFX.ra=ang}
@@ -6897,9 +6904,10 @@ function crFxStep(m,dt){
   crFxInit();if(CRFX.fresh)CRFX.pass=(CRFX.pass||0)+1;
   const r=Math.log(Math.max(1,m))/Math.LN10,v=18+46*Math.min(r,2.2),zone=(250+r*80)%360;
   CRFX.ox+=CR_DIR[0]*v*dt;CRFX.oy+=CR_DIR[1]*v*dt;
-  for(let i=0;i<3;i++){let w=CR_PT[i];document.getElementById('crPt'+i).setAttribute('patternTransform','translate('+(((CRFX.ox*CR_PK[i])%w+w)%w).toFixed(1)+' '+(((CRFX.oy*CR_PK[i])%w+w)%w).toFixed(1)+')')}
-  document.getElementById('crPtW').setAttribute('patternTransform','translate('+(((CRFX.ox*3.2)%160+160)%160).toFixed(1)+' '+(((CRFX.oy*3.2)%220+220)%220).toFixed(1)+')');
-  document.getElementById('crTint').setAttribute('fill','hsl('+zone.toFixed(0)+',60%,30%)');
+  let ce=CRFX.ce||(CRFX.ce={pt:[0,1,2].map(i=>document.getElementById('crPt'+i)),w:document.getElementById('crPtW'),tint:document.getElementById('crTint')});
+  for(let i=0;i<3;i++){let w=CR_PT[i];ce.pt[i].setAttribute('patternTransform','translate('+(((CRFX.ox*CR_PK[i])%w+w)%w).toFixed(1)+' '+(((CRFX.oy*CR_PK[i])%w+w)%w).toFixed(1)+')')}
+  ce.w.setAttribute('patternTransform','translate('+(((CRFX.ox*3.2)%160+160)%160).toFixed(1)+' '+(((CRFX.oy*3.2)%220+220)%220).toFixed(1)+')');
+  {let hue=Math.round(zone/3)*3;if(CRFX.hue!==hue){CRFX.hue=hue;ce.tint.setAttribute('fill','hsl('+hue+',60%,30%)')}}
   for(let s of CRFX.slots){
     if(CRFX.fresh)crFxSpawn(s,true,zone);
     s.x+=CR_DIR[0]*v*s.z*dt;s.y+=CR_DIR[1]*v*s.z*dt;s.rot+=s.spin*dt;
@@ -6929,9 +6937,10 @@ function crLaunchFx(){crFxInit();if(crMultCont()>1.8)return;CRFX.t0=performance.
   for(const el of [CRFX.ring,CRFX.flash]){el.classList.remove('go');void el.getBoundingClientRect();el.classList.add('go')}
   const R=Math.random;for(let n=0;n<46;n++){const p=CRFX.pt.find(o=>o.life<=0);if(!p)break;p.x=CR_PAD[0]+(R()-.5)*34;p.y=CR_PAD[1]+8+R()*8;p.vx=(R()-.5)*110;p.vy=-R()*16;p.max=p.life=1.3+R()*.9;p.r0=3+R()*3.5;p.hot=false}}
 function crBoomAt(p){let pt=crBez(p);$('crBoom').setAttribute('transform','translate('+pt[0].toFixed(1)+' '+pt[1].toFixed(1)+')')}
-function crFrame(){CR.raf=0;if(!CR.active||CR.phase!=='flying')return;let mc=crMultCont(),now=performance.now(),dt=Math.min(.05,Math.max(0,(now-(CRFX.t||now))/1000));CRFX.t=now;crPlace(crProgress(mc));crSky(mc);crFxStep(mc,dt);crPartStep(dt);
+function crFrame(){CR.raf=0;if(!CR.active||CR.phase!=='flying')return;let mc=crMultCont(),now=performance.now(),dt=Math.min(.05,Math.max(0,(now-(CRFX.t||now))/1000));CRFX.t=now;crPaintMult(mc);crPlace(crProgress(mc));CR.fn=(CR.fn||0)+1;if(!(CR.fn&1)||CRFX.skyM==null){CRFX.skyM=mc;crSky(mc)}crFxStep(mc,dt);crPartStep(dt);
   if(CRFX.txt!=='f'){CRFX.txt='f';$('crSub').textContent='Ракета летит'}
   CR.raf=requestAnimationFrame(crFrame)}
+function crPaintMult(m){let v=Math.floor(m*100+1e-6)/100,t=v.toFixed(2)+'x';if(CR.txtM!==t){CR.txtM=t;$('crMult').textContent=t;let tier=v>=10?'hi':v>=2?'mid':'lo',st=$('crStage');if(st.dataset.tier!==tier)st.dataset.tier=tier}}
 function crStopFrame(){if(CR.raf)cancelAnimationFrame(CR.raf);CR.raf=0}
 function crChipClass(x){return x>=10?'hi':x>=2?'mid':'lo'}
 function crPaintHistory(list){let box=$('crHistory');list=list||[];let sig=list.join(',');if(box._sig===sig)return;let prev=box._list||[],fresh=0;if(prev.length&&list.length){for(let k=0;k<=list.length;k++){let a=list.slice(k,k+prev.length),ok=a.length>0&&a.every((v,n)=>v===prev[n]);if(ok){fresh=k;break}fresh=-1}}else fresh=prev.length?-1:list.length;if(prev.length&&fresh<0)fresh=list.length;box._sig=sig;box._list=list.slice();box.replaceChildren(...list.map((x,k)=>{let c=document.createElement('span');c.className='cr-h '+crChipClass(x)+(k<fresh&&prev.length?'':' noanim');c.textContent=x.toFixed(2)+'x';return c}))}
@@ -6939,8 +6948,8 @@ function crGiftIco(g){let i=new Image;i.className='cr-gift-ico';i.alt=g?.name||'
 function crBuildRow(p){let r=document.createElement('div');r.className='cr-row '+p.state;r.style.cursor='pointer';r.onclick=()=>openPublicProfile(p.user_id);let a=document.createElement('span');a.className='cr-ava';publicAvatar(a,p);let n=document.createElement('span');n.className='cr-name';n.textContent=p.name||'Игрок';let b=document.createElement('span');b.className='cr-bet';if((p.bet_type==='gift'||p.bet_type==='promo_gift')&&p.bet_gift){b.classList.add('is-gift');if(p.promo)b.classList.add('is-promo');b.append(crGiftIco(p.bet_gift),document.createTextNode(money(p.bet)))}else b.textContent=money(p.bet)+' TON';let st=document.createElement('span');st.className='cr-res';if(p.state==='won'){if(p.promo)st.textContent='x'+p.cashout.toFixed(2)+' · отыгрыш';else if(p.prize){st.classList.add('has-gift');st.append(document.createTextNode('x'+p.cashout.toFixed(2)),crGiftIco(p.prize))}else st.textContent='x'+p.cashout.toFixed(2)+' · +'+money(p.payout)}else st.textContent=p.state==='lost'?'Проигрыш':'В игре';r.append(a,n,b,st);return r}
 function crRowSig(p){return[p.state,p.bet,p.bet_type,p.bet_gift?.name,p.bet_gift?.image_url,p.promo,p.cashout,p.payout,p.prize?.name,p.prize?.image_url,p.name,p.photo_url].join('|')}
 function crPaintPlayers(list,phase){let box=$('crPlayers');list=list||[];$('crPlayersCount').textContent=String(list.length);CR.rows=CR.rows||new Map();if(!list.length){if(!box.querySelector('.cr-empty')){let e=document.createElement('div');e.className='cr-empty';e.textContent='Пока нет ставок';box.replaceChildren(e)}CR.rows.clear();return}box.querySelector('.cr-empty')?.remove();let seen=new Set(),ordered=[];for(let p of list){let key=String(p.user_id),sig=crRowSig(p),row=CR.rows.get(key);if(!row||!row.isConnected){row=crBuildRow(p);row._sig=sig;CR.rows.set(key,row)}else if(row._sig!==sig){let fresh=crBuildRow(p);row.className=fresh.className+' noanim';row.replaceChildren(...fresh.childNodes);row._sig=sig}seen.add(key);ordered.push(row)}for(let [key,row] of [...CR.rows]){if(!seen.has(key)){row.remove();CR.rows.delete(key)}}let cur=[...box.children];if(cur.length!==ordered.length||ordered.some((r,k)=>r!==cur[k])){ordered.forEach((r,k)=>{if(box.children[k]!==r)box.insertBefore(r,box.children[k]||null)})}}
-function crOnPhase(ph){let st=CR.st,stage=$('crStage');stage.dataset.phase=ph;$('crCount').classList.toggle('hidden',ph!=='betting');crStopFrame();crFxReset();if(ph==='betting'){CRFX.fresh=1;stage.classList.remove('launching');crPlace(0,true);crSky(1);$('crSub').textContent='Делайте ставки';$('crMult').textContent='1.00x'}else if(ph==='flying'){CRFX.t=performance.now();CRFX.txt='';stage.classList.add('launching');crLaunchFx();clearTimeout(CRFX.lt);CRFX.lt=setTimeout(()=>stage.classList.remove('launching'),2800);$('crSub').textContent='Ракета летит';CR.raf=requestAnimationFrame(crFrame)}else if(ph==='crashed'){stage.classList.remove('launching');let c=Number(st?.round?.crash||1),p=crProgress(c);crPlace(p);crSky(c);crBoomAt(p);$('crSub').textContent='Взрыв!';if(c)$('crMult').textContent=c.toFixed(2)+'x'}}
-function crRender(){let s=CR.st;if(!s)return;let ph=crPhase();if(CR.phase!==ph){CR.phase=ph;crOnPhase(ph)}if(ph==='betting'){let left=Math.max(0,s.round.launch_at-crSrv());$('crCountNum').textContent=String(Math.max(1,Math.ceil(left/1000)));$('crRing').style.strokeDashoffset=String(100-Math.min(100,left/s.betting_ms*100))}else if(ph==='flying'){let m=crMultNow();$('crMult').textContent=m.toFixed(2)+'x';$('crStage').dataset.tier=m>=10?'hi':m>=2?'mid':'lo';let mb=s.my_bet,auto=Number(mb?.auto||0),rid=Number(s.round?.id||0);if(mb&&mb.state==='active'&&auto>=1.01&&m+1e-9>=auto&&!CR.busy&&CR.autoRound!==rid){crAutoCashout(rid,crPotential())}}crPaintAction(ph)}
+function crOnPhase(ph){let st=CR.st,stage=$('crStage');stage.dataset.phase=ph;$('crCount').classList.toggle('hidden',ph!=='betting');crStopFrame();crFxReset();if(ph==='betting'){CRFX.fresh=1;CRFX.skyM=null;CR.txtM='';CR.mMax=1;stage.classList.remove('launching');crPlace(0,true);crSky(1);$('crSub').textContent='Делайте ставки';$('crMult').textContent='1.00x'}else if(ph==='flying'){CRFX.t=performance.now();CRFX.txt='';CR.txtM='';CRFX.skyM=null;stage.classList.add('launching');crLaunchFx();clearTimeout(CRFX.lt);CRFX.lt=setTimeout(()=>stage.classList.remove('launching'),2800);$('crSub').textContent='Ракета летит';CR.raf=requestAnimationFrame(crFrame)}else if(ph==='crashed'){stage.classList.remove('launching');let c=Number(st?.round?.crash||1),p=crProgress(c);crPlace(p);crSky(c);crBoomAt(p);$('crSub').textContent='Взрыв!';CR.txtM='';if(c)$('crMult').textContent=c.toFixed(2)+'x'}}
+function crRender(){let s=CR.st;if(!s)return;let ph=crPhase();if(CR.phase!==ph){CR.phase=ph;crOnPhase(ph)}if(ph==='betting'){let left=Math.max(0,s.round.launch_at-crSrv());$('crCountNum').textContent=String(Math.max(1,Math.ceil(left/1000)));$('crRing').style.strokeDashoffset=String(100-Math.min(100,left/s.betting_ms*100))}else if(ph==='flying'){let m=crMultNow();if(!CR.raf&&CR.active)crPaintMult(m);let mb=s.my_bet,auto=Number(mb?.auto||0),rid=Number(s.round?.id||0);if(mb&&mb.state==='active'&&auto>=1.01&&m+1e-9>=auto&&!CR.busy&&CR.autoRound!==rid){crAutoCashout(rid,crPotential())}}crPaintAction(ph)}
 function crPotential(){let mb=CR.st?.my_bet;return mb?Math.floor(mb.bet*crMultNow()*100)/100:0}
 function crPromoToast(g,mult,bet){let add=Math.floor(Number(bet)*Number(mult)*100)/100,after=Number(g?.wager_progress_after),tail=Number.isFinite(after)&&after>0&&g?.wager_target?` · ${money(after)} / ${money(g.wager_target)} TON`:'';toast('Отыгрыш +'+money(add)+' TON'+tail+(g?.wager_target&&after>=g.wager_target?' · разблокируйте подарок в профиле':''))}
 async function crPrizeRefresh(pot,force=false){if(CR.prizeBusy||(!force&&Date.now()-CR.prizeAt<800))return CR.prize;CR.prizeBusy=true;CR.prizeAt=Date.now();let round=CR.round;try{let d=await api('/api/crash/prize?amount='+pot.toFixed(2),{timeoutMs:force?1800:4000});if(round===CR.round)CR.prize=d.prize||null}catch(e){}finally{CR.prizeBusy=false}return CR.prize}
@@ -6954,7 +6963,7 @@ function crPaintAuto(ph){let s=CR.st,mb=s?.my_bet,inp=$('crAuto'),hint=$('crAuto
 /* Same window as the Mines win */
 function crShowWin(d){let gift=d.prize,isGift=!!gift,bonus=!!d.bonus_origin;setRewardBalanceIcon(bonus);$('rewardGift').classList.toggle('hidden',!isGift);$('rewardGiftName').classList.toggle('hidden',!isGift);$('rewardTon').classList.toggle('hidden',isGift);if(isGift){let img=$('rewardImage');applyGiftImage(img,gift);$('rewardGiftName').textContent=gift.name||'Подарок'}else $('rewardAmount').textContent='+'+money(d.payout);let rem=Number(d.remainder||0),extra=$('rewardExtra');extra.classList.toggle('hidden',!isGift||!rem);extra.textContent=isGift&&rem?`+${money(rem)} TON добавлено на ${bonus?'бонусный':'основной'} баланс`:'';$('rewardModal').classList.remove('hidden')}
 function crApply(d){if(!crAcceptState(d))return;let prev=CR.st?.my_bet,prevRound=CR.st?.round?.id;CR.st=d;fairnessRefresh();if(prevRound!==d.round.id){CR.round=d.round.id;CR.prize=null;CR.prizeAt=0;CR.autoRound=0}refreshGameBalanceSourceUI();crPaintHistory(d.history);crPaintPlayers(d.bets,d.phase);let mb=d.my_bet;if(prev&&prev.state==='active'&&mb&&mb.state==='won'&&prevRound===d.round.id&&!CR.busy&&CR.winShown!==d.round.id){CR.winShown=d.round.id;if(mb.promo){crPromoToast(mb.bet_gift,mb.cashout,mb.bet);loadInventory()}else{crShowWin({payout:mb.payout,prize:mb.prize,remainder:mb.remainder||0,bonus_origin:mb.bonus_origin});api('/api/me').then(x=>setUser(x.user)).catch(()=>{})}}if(prev&&prev.state==='active'&&mb&&mb.state==='lost'&&prevRound===d.round.id&&CR.lossShown!==d.round.id){CR.lossShown=d.round.id;if(mb.promo){let g=mb.bet_gift||{},left=g.wager_burn_on_loss===false?g.wager_attempts_remaining:Math.max(0,Number(g.wager_attempts_remaining||1)-1);toast(left>0?'Ракета взорвалась — потеряна жизнь, осталось '+left:'Ракета взорвалась — подарок сгорел');loadInventory()}api('/api/me').then(x=>setUser(x.user)).catch(()=>{})}CR.phase='';crRender()}
-async function crPoll(){if(!CR.active||CR.polling)return;if(document.hidden){crSchedule(2000);return}CR.polling=true;try{let d=await api('/api/crash/state',{timeoutMs:5000});crApply(d);if(d.available===false&&!user?.admin){toast('Игра временно недоступна');show('gamesPage');return}}catch(e){$('crNote').textContent=e.message}finally{CR.polling=false;crSchedule()}}
+async function crPoll(){if(!CR.active||CR.polling)return;if(document.hidden){crSchedule(2000);return}CR.polling=true;try{let t0=performance.now(),d=await api('/api/crash/state',{timeoutMs:5000});CR.rtt=CR.rtt?CR.rtt*.7+(performance.now()-t0)*.3:performance.now()-t0;crApply(d);if(d.available===false&&!user?.admin){toast('Игра временно недоступна');show('gamesPage');return}}catch(e){$('crNote').textContent=e.message}finally{CR.polling=false;crSchedule()}}
 function crSchedule(force){clearTimeout(CR.pollT);if(!CR.active)return;let ph=crPhase(),d=force||(ph==='flying'?250:ph==='crashed'?Math.min(1000,Math.max(250,(CR.st.round.crash_at||0)+CR.st.boom_ms-crSrv()+60)):1000);CR.pollT=setTimeout(crPoll,d)}
 function crEnter(){if(CR.active)return;CR.active=true;CR.phase='';CR.tick=setInterval(crRender,70);crPaintBetMode();crPoll()}
 function crLeave(){if(!CR||!CR.active)return;CR.active=false;clearTimeout(CR.pollT);clearInterval(CR.tick);crStopFrame();CR.phase=''}

@@ -25,13 +25,13 @@ def _perks(tickets, bonus, extra=()):
 
 
 VIP_TIERS = [
-    dict(key='iron', name='Кварц', ton=500, perks=_perks('500', 'Бонусный NFT Gift за достижение уровня')),
-    dict(key='bronze', name='Янтарь', ton=2500, perks=_perks('1 500', 'Бонус 5 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='silver', name='Опал', ton=10000, perks=_perks('5 000', 'Бонус 15 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='gold', name='Цитрин', ton=30000, perks=_perks('15 000', 'Бонус 40 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='platinum', name='Аквамарин', ton=100000, perks=_perks('50 000', 'Бонус 120 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер'])),
-    dict(key='diamond', name='Аметист', ton=300000, perks=_perks('150 000', 'Бонус 400 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
-    dict(key='obsidian', name='Оникс', ton=1000000, perks=_perks('500 000', 'Бонус 1500 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
+    dict(key='iron', name='Quartz', ton=500, perks=_perks('500', 'Бонусный NFT Gift за достижение уровня')),
+    dict(key='bronze', name='Amber', ton=2500, perks=_perks('1 500', 'Бонус 5 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
+    dict(key='silver', name='Opal', ton=10000, perks=_perks('5 000', 'Бонус 15 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
+    dict(key='gold', name='Citrine', ton=30000, perks=_perks('15 000', 'Бонус 40 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
+    dict(key='platinum', name='Aquamarine', ton=100000, perks=_perks('50 000', 'Бонус 120 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер'])),
+    dict(key='diamond', name='Amethyst', ton=300000, perks=_perks('150 000', 'Бонус 400 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
+    dict(key='obsidian', name='Onyx', ton=1000000, perks=_perks('500 000', 'Бонус 1500 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
 ]
 
 SCHEMA = """

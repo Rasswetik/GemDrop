@@ -10,9 +10,9 @@ class VipTests(unittest.TestCase):
 
     def test_tier_state(self):
         s = vip.tier_state(0)
-        self.assertEqual((s['index'], s['reached'], s['next']['name']), (0, False, 'Кварц'))
+        self.assertEqual((s['index'], s['reached'], s['next']['name']), (0, False, 'Quartz'))
         s = vip.tier_state(173341)
-        self.assertEqual((s['index'], s['reached'], s['next']['name']), (0, True, 'Янтарь'))
+        self.assertEqual((s['index'], s['reached'], s['next']['name']), (0, True, 'Amber'))
         self.assertAlmostEqual(s['next']['left'], 766.59, places=2)
         s = vip.tier_state(100000000 * 100)
         self.assertEqual(s['index'], 6)

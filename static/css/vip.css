@@ -145,3 +145,13 @@ body.vip-open{overflow:hidden}
 #vipProfileCard .vpc-bar{background:rgba(8,12,30,.7)}
 #vipProfileCard .vpc-bar i{background:linear-gradient(90deg,#3d8cff,#6cc8ff)}
 #vipProfileCard .vpc-val{color:#8fa3c9}#vipProfileCard>svg{stroke:#7d95c4}
+/* inventory total + sell all */
+.inv-sell{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 14px;padding:12px 14px;border-radius:18px;border:1px solid rgba(110,150,255,.2);background:linear-gradient(135deg,rgba(61,140,255,.14),rgba(120,90,255,.08)),#131830}
+.inv-sell.hidden{display:none}
+.is-sum{display:grid;gap:2px;min-width:0}.is-sum small{font-size:11.5px;color:#8fa3c9}
+.is-sum b{display:flex;align-items:center;gap:6px;font-size:20px;color:#fff}.is-ton{width:18px;height:18px}
+#invSellAll{flex:none;height:42px;padding:0 16px;border:0;border-radius:13px;background:linear-gradient(110deg,#6cc8ff,#3db3fa);color:#05182a;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap}
+#invSellAll:disabled{background:rgba(255,255,255,.08);color:#8b93a4;cursor:default}
+.inv-sell{flex-direction:column;align-items:stretch;gap:12px}
+.is-sum b{white-space:nowrap;font-size:24px}.is-sum small{white-space:nowrap}
+#invSellAll{width:100%}

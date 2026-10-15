@@ -113,6 +113,20 @@ class VipTests(unittest.TestCase):
             self.assertEqual(m.apply_emoji('[[ton]]', False), 'D')
             self.post('/api/admin/emoji-settings', {})
 
+    def test_sell_all_inventory(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM inventory WHERE user_id=?', (self.uid,))
+            db.execute('UPDATE users SET balance=0 WHERE id=?', (self.uid,))
+            for n, p, lock in (('A', 300, 0), ('B', 200, 0), ('C', 900, 1)):
+                db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,promo_locked) VALUES(?,?,?,?,?,'t',?)",
+                           (self.uid, 'g' + n, n, '', p, lock))
+        r = self.post('/api/inventory/sell-all', {})
+        self.assertEqual((r['sold'], r['sold_for']), (2, 5.0))
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT balance FROM users WHERE id=?', (self.uid,)).fetchone()['balance'], 500)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM inventory WHERE user_id=?', (self.uid,)).fetchone()[0], 1)
+        self.post('/api/inventory/sell-all', {}, 409)
+
     def test_gift_win_image_falls_back_to_inventory(self):
         with m.connect() as db:
             db.execute('DELETE FROM recent_wins')

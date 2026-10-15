@@ -10458,6 +10458,51 @@ def sell_inventory(item_id):
         db.close()
 
 
+@app.post('/api/inventory/sell-all')
+@login_required
+def sell_all_inventory():
+    """Sell every sellable gift at once (promo-locked and deposit-mirror gifts stay). Same split rules as a single sale."""
+    uid = session['uid']
+    if creator_demo_active(uid):
+        return error('В демо-режиме массовая продажа недоступна.', 409)
+    db = connect()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        purge_expired_inventory(db, uid)
+        refresh_bonus_gift_unlocks(db, uid)
+        rows = db.execute('SELECT * FROM inventory WHERE user_id=? AND promo_locked=0 AND deposit_mirror=0', (uid,)).fetchall()
+        if not rows:
+            db.rollback()
+            return error('Нет подарков, которые можно продать.', 409)
+        main_total = bonus_total = 0
+        sold = 0
+        for item in rows:
+            amount = max(0, int(item['floor_price']))
+            if not db.execute('DELETE FROM inventory WHERE id=? AND user_id=?', (item['id'], uid)).rowcount:
+                continue
+            sold += 1
+            if amount:
+                if inventory_is_bonus(item):
+                    if inventory_bonus_locked(item):
+                        credit_game_balance(db, uid, amount, True)
+                        bonus_total += amount
+                    else:
+                        main_credit = amount // 2
+                        db.execute('UPDATE users SET balance=balance+?, bonus_balance=bonus_balance+? WHERE id=?',
+                                   (main_credit, amount - main_credit, uid))
+                        main_total += main_credit
+                        bonus_total += amount - main_credit
+                else:
+                    credit_game_balance(db, uid, amount, False)
+                    main_total += amount
+            record_transaction(db, uid, 'gift_sale', amount, 'inventory', item['id'], str(item['gift_name'] or 'Подарок') + ' · массовая продажа')
+        db.commit()
+    finally:
+        db.close()
+    return jsonify(ok=True, sold=sold, sold_for=(main_total + bonus_total) / 100,
+                   sale_split=dict(main=main_total / 100, bonus=bonus_total / 100), user=profile())
+
+
 def replacement_candidates(old_cents):
     """Подарки и модели с ценой от 80% до 100% прежней цены подарка."""
     low = int(old_cents * REPLACE_MIN_SHARE)

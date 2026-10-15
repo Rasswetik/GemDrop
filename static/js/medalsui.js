@@ -43,7 +43,7 @@
   var RARS = ['common', 'rare', 'epic', 'legendary'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
   st.textContent += '.mdi{position:fixed;inset:0;z-index:2700;display:grid;place-items:center;padding:20px;background:rgba(5,4,12,.7);overscroll-behavior:contain}.mdi-c{position:relative;width:min(100%,380px);max-height:calc(100dvh - 40px);overflow:auto;display:grid;justify-items:center;gap:8px;padding:26px 18px 18px;border-radius:24px;text-align:center;background:var(--card,#14162a);border:1px solid var(--gd-line,#22253d);color:var(--text,#f4f5f7)}.mdi-c h3{margin:0;font-size:23px}.mdi-x{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer;padding:0}' +
     '.mdi-g{width:100%;display:grid;gap:0;margin-top:8px;border-radius:16px;overflow:hidden;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.04);text-align:left}.mdi-g div{display:flex;justify-content:space-between;gap:14px;padding:11px 14px;font-size:13.5px}.mdi-g div+div{border-top:1px solid var(--gd-line,#22253d)}.mdi-g span{color:var(--muted,#96a0a8);flex:none}.mdi-g b{font-weight:700;text-align:right}' +
-    '.mdi-how{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.pp-medals span,.mdl-c .gdm{cursor:pointer}';
+    '.mdi-3d{position:relative;margin:4px 0 2px;perspective:900px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}.mdi-3d:active{cursor:grabbing}.mdi-in{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform}.mdi-f{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}.mdi-f svg{display:block;width:100%;height:100%}.mdi-e{position:absolute;border-radius:50%;pointer-events:none}.mdi-hint{font-size:11.5px;color:var(--muted,#96a0a8);margin:0}.mdi-how{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.pp-medals span,.mdl-c .gdm{cursor:pointer}';
   var state = {q: '', f: 'all', own: {}, max: 3, shown: {}, cols: [], events: {}, main: ''};
   function modal() {
     var m = $('mdlModal');
@@ -119,6 +119,7 @@
       m.addEventListener('click', function (e) {
         var f = e.target.closest('[data-f]'); if (f) { state.f = f.dataset.f; paint(); return; }
         var sl = e.target.closest('[data-main]');
+        if (sl && e.target.closest('.gdm')) { info(sl.dataset.main); return; }
         if (sl) { api('/api/medals/main', {key: sl.dataset.main}).then(function () { state.main = sl.dataset.main; paint(); if (window.GDMedalsMainChanged) GDMedalsMainChanged(state.main); }).catch(function (er) { if (window.toast) toast(er.message); }); return; }
         var cl = e.target.closest('.mdl-claim');
         if (cl) { cl.disabled = true; api('/api/medals/collection/claim', {scope: cl.dataset.scope}).then(function () { if (window.toast) toast('Награда получена'); return load(); }).then(paint).then(function () { try { if (typeof api === 'function' && typeof setUser === 'function') fetch('/api/me', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) { if (d && d.user) setUser(d.user); }); } catch (x) {} }).catch(function (er) { cl.disabled = false; if (window.toast) toast(er.message); }); return; }
@@ -138,15 +139,49 @@
     row.querySelector('button').onclick = open; row.onclick = function (e) { if (e.target.closest('button')) return; open(); };
     anchor.parentNode.insertBefore(row, anchor); return true;
   }
+
+  function backSvg(d) {
+    var m = GDMedals.by(d.key) || {}, P = GDMedals.PAL[m.key === 'goshan' ? 'red' : (m.pal || 'gold')] || GDMedals.PAL.gold, id = 'mb' + Math.random().toString(36).slice(2, 7);
+    var nm = esc(d.name), fs = nm.length > 14 ? 6.2 : nm.length > 9 ? 7.6 : 9;
+    return '<svg viewBox="0 0 96 110" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="' + id + 'r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + P[0] + '"/><stop offset=".35" stop-color="' + P[1] + '"/><stop offset=".7" stop-color="' + P[2] + '"/><stop offset="1" stop-color="' + P[1] + '"/></linearGradient>' +
+      '<radialGradient id="' + id + 'd" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="' + P[3] + '"/><stop offset=".6" stop-color="' + P[1] + '"/><stop offset="1" stop-color="' + P[2] + '"/></radialGradient>' +
+      '<path id="' + id + 't" d="M48 62m-27 0a27 27 0 1 1 54 0a27 27 0 1 1-54 0"/></defs>' +
+      '<circle cx="48" cy="62" r="38" fill="url(#' + id + 'r)"/><circle cx="48" cy="62" r="35" fill="none" stroke="rgba(0,0,0,.35)" stroke-width=".8"/><circle cx="48" cy="62" r="34.4" fill="none" stroke="' + P[0] + '" stroke-opacity=".8" stroke-width="1.1" stroke-dasharray=".01 2.5" stroke-linecap="round"/>' +
+      '<circle cx="48" cy="62" r="31.5" fill="url(#' + id + 'd)" stroke="rgba(0,0,0,.4)" stroke-width=".8"/><circle cx="48" cy="62" r="29" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width=".6"/>' +
+      '<text font-family="system-ui,sans-serif" font-size="4.6" font-weight="800" letter-spacing="1.3" fill="rgba(0,0,0,.55)"><textPath href="#' + id + 't" startOffset="0">GEMDROP · ' + esc((d.collection || '').toUpperCase()) + ' · ' + esc((GDMedals.RAR && GDMedals.RAR[d.rarity] || '').toUpperCase()) + ' ·</textPath></text>' +
+      '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="rgba(0,0,0,.5)" transform="translate(.4 .6)">' + nm + '</text>' +
+      '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="' + P[0] + '">' + nm + '</text>' +
+      '<path d="M40 74h16" stroke="' + P[0] + '" stroke-opacity=".7" stroke-width=".8" stroke-linecap="round"/><text x="48" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="4" font-weight="700" fill="' + P[0] + '" fill-opacity=".85">' + (d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',')) + '% игроков</text>' +
+      '<path d="M48 40l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5Z" fill="' + P[0] + '" fill-opacity=".9"/></svg>';
+  }
+  function spin3d(host, d) {
+    var W = 210, H = Math.round(W * 110 / 96), m = GDMedals.by(d.key) || {}, P = GDMedals.PAL[d.key === 'goshan' ? 'red' : (m.pal || 'gold')] || GDMedals.PAL.gold;
+    host.style.width = W + 'px'; host.style.height = H + 'px';
+    var edge = '', i, D = Math.round(W * .79), z = 5;
+    for (i = -z + 1; i <= z - 1; i++) edge += '<div class="mdi-e" style="width:' + D + 'px;height:' + D + 'px;left:' + Math.round((W - D) / 2) + 'px;top:' + Math.round(H * 62 / 110 - D / 2) + 'px;background:' + (i % 2 ? P[2] : P[1]) + ';transform:translateZ(' + i + 'px)"></div>';
+    host.innerHTML = '<div class="mdi-in"><div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + GDMedals.svg(d.key, W) + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + backSvg(d) + '</div></div>';
+    var inn = host.firstChild, ry = -18, rx = 8, vy = 0, vx = 0, down = false, lx = 0, ly = 0, auto = !(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), t0 = 0, raf = 0;
+    function put() { inn.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)'; }
+    function tick(t) {
+      if (!host.isConnected) return;
+      if (!down) { if (Math.abs(vy) > .02 || Math.abs(vx) > .02) { ry += vy; rx = Math.max(-55, Math.min(55, rx + vx)); vy *= .94; vx *= .9; } else if (auto) ry += .35; if (!down && Math.abs(vx) < .02) rx += (8 - rx) * .04; }
+      put(); raf = requestAnimationFrame(tick);
+    }
+    host.addEventListener('pointerdown', function (e) { down = true; auto = false; lx = e.clientX; ly = e.clientY; vy = vx = 0; try { host.setPointerCapture(e.pointerId); } catch (x) {} });
+    host.addEventListener('pointermove', function (e) { if (!down) return; vy = (e.clientX - lx) * .55; vx = -(e.clientY - ly) * .35; ry += vy; rx = Math.max(-55, Math.min(55, rx + vx)); lx = e.clientX; ly = e.clientY; });
+    function up() { down = false; } host.addEventListener('pointerup', up); host.addEventListener('pointercancel', up);
+    host.addEventListener('dblclick', function () { vy = 14; });
+    put(); raf = requestAnimationFrame(tick);
+  }
   function info(key) {
     api('/api/medals/info/' + encodeURIComponent(key)).then(function (d) {
       var el = document.createElement('div'); el.className = 'mdi'; el.setAttribute('role', 'dialog'); document.documentElement.classList.add('mdl-ns');
       var pc = d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',');
-      el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div>' + GDMedals.svg(d.key, 190) + '</div><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
+      el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-3d"></div><p class="mdi-hint">Потяните, чтобы покрутить · двойной клик — перевернуть</p><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
         '<div class="mdi-g"><div><span>Статус</span><b>' + esc(d.status) + '</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у игроков</span><b>' + pc + '%</b></div><div><span>Владельцев</span><b>' + d.owners + '</b></div>' + (d.mine ? '<div><span>У вас</span><b style="color:#2fd163">Есть</b></div>' : '') + '</div><p class="mdi-how">' + esc(d.how) + '</p></div>';
       function close() { el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
       el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('mdi-x')) close(); });
-      document.body.appendChild(el);
+      document.body.appendChild(el); spin3d(el.querySelector('.mdi-3d'), d);
     }).catch(function (e) { if (window.toast) toast(e.message); });
   }
   window.GDMedalInfo = info;

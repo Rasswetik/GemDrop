@@ -157,3 +157,10 @@ body.vip-open{overflow:hidden}
 @media(max-width:380px){.inv-right{gap:8px}#invSellAll{padding:0 11px}.inv-cnt{gap:6px;font-size:14px}}
 /* Mines: breathing room between the multiplier ladder and the grid */
 html body #minesPage .ladder{margin-bottom:20px!important;padding-bottom:10px!important}
+/* public profile: top-place chip is plain text; per-game stat tiles always span the full width */
+html body #publicProfileModal #ppTopChip{white-space:nowrap}
+html body #publicProfileModal #ppTopChip svg{display:none!important}
+html body #publicProfileModal .pp-stage{display:block!important}
+html body #publicProfileModal .pp-stage-body{width:100%}
+html body #publicProfileModal .pp-grid{width:100%;grid-template-columns:1fr 1fr!important}
+html body #publicProfileModal .pp-grid>div{min-width:0}

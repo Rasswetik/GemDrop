@@ -14403,7 +14403,7 @@ def arena_recent_rounds(db, limit=6):
         pool=max(0,int(row['total_pool'] or 0)); stake=max(0,int(row['winner_stake'] or 0))
         ton_pool=max(0,min(pool,int(row['ton_pool'] or 0)))
         payout=max(0,pool-arena_fee_cents(ton_pool))
-        items.append(dict(id=int(row['id']),winner_user_id=int(row['winner_user_id'] or 0),
+        items.append(dict(id=int(row['id']),winner_user_id=int(row['winner_user_id'] or 0),user_id=int(row['winner_user_id'] or 0),
                           name=row['name'] or 'Игрок',username=row['username'] or '',photo_url=row['photo_url'] or '',
                           pool=pool/100,payout=payout/100,multiplier=(payout/stake if stake else 0),
                           settled_at=int(row['settled_at'] or 0)))

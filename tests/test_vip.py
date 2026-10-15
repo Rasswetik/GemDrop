@@ -22,6 +22,7 @@ class VipTests(unittest.TestCase):
         data = self.client.get('/api/vip').get_json()
         self.assertEqual(len(data['tiers']), 7)
         with m.connect() as db:
+            db.execute('DELETE FROM recent_wins')
             m.record_transaction(db, self.uid, 'plinko_win', 1234, 'plinko', 1, 'x')
             m.record_transaction(db, self.uid, 'plinko_win', 10, 'plinko', 2, 'x')
             m.record_transaction(db, self.uid, 'hilo_gift_win', 0, 'hilo', 3, 'Cool Gift')

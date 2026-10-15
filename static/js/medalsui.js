@@ -19,6 +19,8 @@
     '.mgt-k{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#c9a3ff}.mgt-card h3{margin:0;font-size:24px;line-height:1.15}.mgt-card p{margin:0;color:#9aa6b6;font-size:14px}' +
     '.mgt-btn{width:100%;min-height:54px;margin-top:8px;border:0;border-radius:18px;background:linear-gradient(180deg,#b27dff,#7a3fe0);color:#fff;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(122,63,224,.4),inset 0 1px rgba(255,255,255,.3)}.mgt-btn:active{transform:scale(.98)}' +
     '@keyframes mgtIn{from{opacity:0}to{opacity:1}}@keyframes mgtPop{from{opacity:0;transform:translateY(24px) scale(.9)}to{opacity:1;transform:none}}';
+  st.textContent += '.rar{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}.rar-common{color:#9aa6b6}.rar-rare{color:#5aa8ff}.rar-epic{color:#c18bff}.rar-legendary{background:linear-gradient(90deg,#ff6ad5,#ffd36a,#6aff9e,#6ac8ff,#b06aff);-webkit-background-clip:text;background-clip:text;color:transparent}';
+  var rarTag = function (r) { r = r || 'common'; return '<span class="rar rar-' + r + '">' + esc((GDMedals.RAR || {})[r] || '') + '</span>'; };
   document.head.appendChild(st);
 
   function api(url, body) {
@@ -40,7 +42,7 @@
       $('mdlSub').textContent = 'Медали выдаются за призовые места в сезонах и особые заслуги. Отметьте до ' + d.max_shown + ' — они появятся в вашем профиле.';
       if (!d.medals.length) { list.innerHTML = '<div class="mdl-empty">Пока нет медалей. Займите призовое место в лидерборде — и она появится здесь.</div>'; return; }
       list.innerHTML = d.medals.map(function (x) {
-        return '<div class="mdl-item"><div>' + GDMedals.svg(x.key, 56) + '</div><div><b>' + esc(x.name) + '</b><small>' + esc(x.title || 'Сезон') + (x.place ? ' · ' + x.place + ' место' : '') + '</small></div>' +
+        return '<div class="mdl-item"><div>' + GDMedals.svg(x.key, 56) + '</div><div><b>' + esc(x.name) + '</b>' + rarTag(x.rarity) + '<small>' + esc(x.title || 'Сезон') + (x.place ? ' · ' + x.place + ' место' : '') + '</small></div>' +
           '<label class="mdl-sw">В профиле<input type="checkbox" data-id="' + x.id + '"' + (x.shown ? ' checked' : '') + '></label></div>';
       }).join('');
       list.querySelectorAll('input').forEach(function (i) {
@@ -79,7 +81,7 @@
       var m = d.medals && d.medals[0]; if (!m || showing) return;
       showing = true;
       var el = document.createElement('div'); el.className = 'mgt-modal'; el.setAttribute('role', 'dialog');
-      el.innerHTML = '<div class="mgt-card"><span class="mgt-k">Вам выдана медаль</span><div>' + GDMedals.svg(m.key, 170) + '</div><h3>' + esc(m.name) + '</h3><p>' + esc(m.title || 'Особая награда') + (m.place ? ' · ' + m.place + ' место' : '') + '</p><button type="button" class="mgt-btn">Получить</button></div>';
+      el.innerHTML = '<div class="mgt-card"><span class="mgt-k">Вам выдана медаль</span><div>' + GDMedals.svg(m.key, 170) + '</div><h3>' + esc(m.name) + '</h3>' + rarTag(m.rarity) + '<p>' + esc(m.title || 'Особая награда') + (m.place ? ' · ' + m.place + ' место' : '') + '</p><button type="button" class="mgt-btn">Получить</button></div>';
       el.querySelector('button').onclick = function () {
         var b = this; b.disabled = true;
         api('/api/medals/' + m.id + '/claim', {}).catch(function () {}).then(function () { el.remove(); showing = false; setTimeout(pending, 300); });

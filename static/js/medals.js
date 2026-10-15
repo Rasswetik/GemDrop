@@ -15,6 +15,7 @@
     pink: ['#ffe3ef', '#ff7aaa', '#9a2457', '#ffb3d1', '#a066ff', '#4a208f', 'rgba(80,0,40,.28)'],
     orange: ['#ffe8cc', '#ff9a2e', '#9a4a00', '#ffc58a', '#2a7be0', '#16479a', 'rgba(80,30,0,.30)'],
     night: ['#d8dcff', '#6a6fe0', '#25286e', '#aab0ff', '#ffc933', '#b87a08', 'rgba(8,8,50,.38)'],
+    black: ['#aeb3cc', '#2b2e3b', '#06070c', '#d4d9f2', '#9aa0c0', '#3a3d50', 'rgba(0,0,0,.04)'],
     obsidian: ['#e2e6f5', '#6b7396', '#161a30', '#9aa3cf', '#a066ff', '#4a208f', 'rgba(0,0,10,.18)']
   };
   var EMB = {
@@ -81,7 +82,7 @@
       '.gdm .gm-sp{animation:gmTw 2.2s ease-in-out infinite;transform-origin:center;transform-box:fill-box}' +
       '.gdm .gm-sp.b{animation-delay:.7s}.gdm .gm-sp.c{animation-delay:1.4s}' +
       '.gdm .gm-rb{animation:gmSway 4s ease-in-out infinite;transform-origin:48px 14px}' +
-      '@keyframes gmGlow{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.75;transform:scale(1.08)}}' +
+      '.gdm .gm-hue{animation:gmHue 7s linear infinite}@keyframes gmHue{to{filter:hue-rotate(360deg)}}@keyframes gmGlow{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.75;transform:scale(1.08)}}' +
       '@keyframes gmBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.8px)}}' +
       '@keyframes gmShine{0%,55%{transform:translateX(-70px)}100%{transform:translateX(70px)}}' +
       '@keyframes gmTw{0%,100%{opacity:0;transform:scale(.3)}50%{opacity:1;transform:scale(1)}}' +
@@ -109,17 +110,25 @@
     var m = BY[key] || BY.c1, p = PAL[m.pal || 'gold'], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : 110, h = Math.round(w * vh / 96), sh = m.shape || 'round', i, beads = '', a;
     for (i = 0; i < 28; i++) { a = i * Math.PI * 2 / 28; beads += '<circle cx="' + (48 + 35.4 * Math.cos(a)).toFixed(1) + '" cy="' + (62 + 35.4 * Math.sin(a)).toFixed(1) + '" r=".9" fill="' + p[0] + '" opacity=".75"/>'; }
     if (sh !== 'round') beads = '';
+    var rar = m.rarity || 'common', rr = '', rs = '';
+    if (rar === 'rare') rr = '<path d="' + shape(sh, 40.5) + '" fill="none" stroke="#5aa8ff" stroke-width="1.6" opacity=".7"><animate attributeName="opacity" values=".35;.85;.35" dur="3s" repeatCount="indefinite"/></path>';
+    if (rar === 'epic') rr = '<path d="' + shape(sh, 40.8) + '" fill="none" stroke="#c18bff" stroke-width="2" opacity=".8"><animate attributeName="opacity" values=".4;1;.4" dur="2.4s" repeatCount="indefinite"/></path>';
+    if (rar === 'legendary') {
+      rr = '<path class="gm-hue" d="' + shape(sh, 41) + '" fill="none" stroke="url(#' + id + 'v)" stroke-width="3.2" opacity=".95"/><path d="' + shape(sh, 35.2) + '" fill="none" stroke="url(#' + id + 'v)" stroke-width="4.2" opacity=".78" style="mix-blend-mode:screen"/>';
+      rs = '<g clip-path="url(#' + id + 'c)"><rect x="0" y="20" width="96" height="84" fill="url(#' + id + 'v)" opacity=".24" style="mix-blend-mode:screen"/></g>';
+    }
     return '<svg class="gdm" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' +
       '<defs><linearGradient id="' + id + 'r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + p[0] + '"/><stop offset=".45" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[2] + '"/></linearGradient>' +
       '<linearGradient id="' + id + 'q" x1="1" y1="1" x2="0" y2="0"><stop offset="0" stop-color="' + p[0] + '"/><stop offset=".5" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[2] + '"/></linearGradient>' +
       '<radialGradient id="' + id + 'd" cx=".38" cy=".28" r=".95"><stop offset="0" stop-color="' + p[3] + '"/><stop offset=".55" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[2] + '"/></radialGradient>' +
       '<linearGradient id="' + id + 's" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
       '<linearGradient id="' + id + 'a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + p[4] + '"/><stop offset="1" stop-color="' + p[5] + '"/></linearGradient>' +
+      '<linearGradient id="' + id + 'v" x1="0" y1="0" x2="1" y2="1" spreadMethod="repeat"><stop offset="0" stop-color="#ff6ad5"/><stop offset=".2" stop-color="#ffd36a"/><stop offset=".4" stop-color="#6aff9e"/><stop offset=".6" stop-color="#6ac8ff"/><stop offset=".8" stop-color="#b06aff"/><stop offset="1" stop-color="#ff6ad5"/><animateTransform attributeName="gradientTransform" type="translate" values="0 0;1 1" dur="3.4s" repeatCount="indefinite"/></linearGradient>' +
       '<clipPath id="' + id + 'c"><path d="' + shape(sh, 29.5) + '"/></clipPath></defs>' +
       '<circle class="gm-glow" cx="48" cy="62" r="42" fill="' + p[1] + '" opacity=".4"/>' +
       '<g class="gm-rb"><path d="M29 4 L49 46 L39 50 L19 11Z" fill="url(#' + id + 'a)"/><path d="M67 4 L47 46 L57 50 L77 11Z" fill="url(#' + id + 'a)"/><path d="M29 4 L36 4 L51 40 L47 46Z" fill="#fff" opacity=".16"/><path d="M67 4 L60 4 L45 40 L49 46Z" fill="#000" opacity=".14"/></g>' +
       '<path d="' + shape(sh, 38) + '" fill="rgba(0,0,0,.35)" transform="translate(0 2)"/>' +
-      '<path d="' + shape(sh, 38) + '" fill="url(#' + id + 'r)"/>' +
+      rr + '<path d="' + shape(sh, 38) + '" fill="url(#' + id + 'r)"/>' +
       '<path d="' + shape(sh, 38) + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".7" stroke-width="1"/>' + beads +
       '<path d="' + shape(sh, 32.5) + '" fill="url(#' + id + 'q)" stroke="rgba(0,0,0,.35)" stroke-width="1"/>' +
       '<path d="' + shape(sh, 29.5) + '" fill="url(#' + id + 'd)"/>' +
@@ -127,7 +136,7 @@
       '<path d="' + shape(sh, 29.5) + '" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1"/>' +
       (m.img ? '<image href="' + m.img + '" x="18.5" y="31.5" width="59" height="59" preserveAspectRatio="xMidYMid slice" clip-path="url(#' + id + 'c)"/>' :
         '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + EMB[m.emb] + '</g></g>') +
-      '<g clip-path="url(#' + id + 'c)"><rect class="gm-shine" x="10" y="26" width="24" height="72" fill="url(#' + id + 's)" transform="skewX(-18)"/><path d="M20 50 A30 30 0 0 1 56 33" stroke="#fff" stroke-opacity=".38" stroke-width="3" fill="none" stroke-linecap="round"/></g>' +
+      rs + '<g clip-path="url(#' + id + 'c)"><rect class="gm-shine" x="10" y="26" width="24" height="72" fill="url(#' + id + 's)" transform="skewX(-18)"/><path d="M20 50 A30 30 0 0 1 56 33" stroke="#fff" stroke-opacity=".38" stroke-width="3" fill="none" stroke-linecap="round"/></g>' +
       '<circle class="gm-sp" cx="17" cy="34" r="2.400" fill="#fff"/><circle class="gm-sp b" cx="80" cy="46" r="2" fill="#fff"/><circle class="gm-sp c" cx="74" cy="98" r="2.200" fill="#fff"/>' +
       (m.place ? '<g><rect x="35" y="95" width="26" height="16" rx="8" fill="rgba(20,10,40,.85)" stroke="' + p[3] + '" stroke-width="1.200"/><text x="48" y="107" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.500" font-weight="900" fill="' + p[0] + '">' + m.place + '</text></g>' : '') +
       '</svg>';
@@ -136,10 +145,11 @@
   LIST.forEach(function (m) { BASE[m.key] = m.name; });
   var api = {LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null};
   api.load = function () {
+    api.RAR = {common: 'Обычная', rare: 'Редкая', epic: 'Эпическая', legendary: 'Легендарная'};
     api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
       for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].custom) LIST.splice(i, 1);
-      LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; m.hidden = (d.hidden || []).indexOf(m.key) >= 0; });
-      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, manual_only: c.manual_only, hidden: (d.hidden || []).indexOf(c.key) >= 0}); });
+      LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; m.hidden = (d.hidden || []).indexOf(m.key) >= 0; m.rarity = (d.rarity || {})[m.key] || 'common'; });
+      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, rarity: (d.rarity || {})[c.key] || 'common', manual_only: c.manual_only, hidden: (d.hidden || []).indexOf(c.key) >= 0}); });
       BY = {}; LIST.forEach(function (m) { BY[m.key] = m; });
       return d;
     }).catch(function () {});

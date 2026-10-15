@@ -22,7 +22,10 @@ MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный
           'rocket': 'Ракета Plinko', 'gambler': 'Азартный', 'miner': 'Сапёр', 'cards': 'Мастер карт', 'night': 'Ночной игрок'}   # drawn in static/js/medals.js
 MAX_SHOWN_MEDALS = 5
 BASE_MEDALS = dict(MEDALS)
-MEDAL_DOC, MEDAL_SET_DOC = 'custom_medals', 'medal_settings'
+MEDAL_DOC, MEDAL_SET_DOC, PROMO_MEDAL_DOC = 'custom_medals', 'medal_settings', 'promo_medals'
+RARITIES = {'common': 'Обычная', 'rare': 'Редкая', 'epic': 'Эпическая', 'legendary': 'Легендарная'}
+DEFAULT_RARITY = {'hw1': 'epic', 'hw2': 'rare', 'hw3': 'rare', 'hw4': 'rare', 'hw5': 'rare', 'vip': 'epic', 'gem': 'epic', 'champ': 'epic'}
+SEED_MEDALS = [('kashtan', 'Миша Каштан', 'kashtan.jpg', 'gold'), ('jealous', 'Jealous', 'jealous.jpg', 'black')]
 DEFAULT_NOTIFY = '🏅 <b>Вам выдана медаль</b>\n«{medal}» — {title}\nОна уже в профиле, раздел «Мои медали».'
 DEFAULT_SEASON_NOTE = '🏅 Медаль «{medal}» — в профиле, раздел «Мои медали».'
 
@@ -32,25 +35,38 @@ def custom_medals():
     items = doc.get('items')
     if not isinstance(items, dict):
         items = {}
-    if not doc.get('seeded'):
+    done = list(doc.get('seeded_keys') or ([] if not doc.get('seeded') else ['kashtan']))
+    todo = [d for d in SEED_MEDALS if d[0] not in done]
+    if todo:
         try:
             import base64
-            path = os.path.join(_ns['app'].root_path, 'static', 'img', 'medals', 'kashtan.jpg')
-            if 'kashtan' not in items and os.path.exists(path):
-                with open(path, 'rb') as fh:
-                    items['kashtan'] = dict(name='Миша Каштан', manual_only=True, pal='gold', v=1,
-                                            image='data:image/jpeg;base64,' + base64.b64encode(fh.read()).decode())
-            _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+            for key, name, fname, pal in todo:
+                path = os.path.join(_ns['app'].root_path, 'static', 'img', 'medals', fname)
+                if key not in items and os.path.exists(path):
+                    with open(path, 'rb') as fh:
+                        items[key] = dict(name=name, manual_only=True, pal=pal, rarity='legendary', v=1,
+                                          image='data:image/jpeg;base64,' + base64.b64encode(fh.read()).decode())
+                done.append(key)
+            _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True, seeded_keys=done))
         except Exception:
             _ns['app'].logger.exception('Medal seed failed')
     return items
+
+
+PAL_KEYS = ('gold', 'silver', 'bronze', 'violet', 'teal', 'cyan', 'blue', 'green', 'red', 'pink', 'orange', 'night', 'obsidian', 'black')
+
+
+def promo_medals():
+    doc = dict(_ns['read_document'](PROMO_MEDAL_DOC) or {})
+    return dict(doc.get('codes') or {}) if isinstance(doc.get('codes'), dict) else {}
 
 
 def medal_settings():
     doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
     names = doc.get('names') if isinstance(doc.get('names'), dict) else {}
     hidden = doc.get('hidden') if isinstance(doc.get('hidden'), list) else []
-    return dict(names={str(k): str(v)[:40] for k, v in names.items() if v}, hidden=[str(x) for x in hidden],
+    rar = doc.get('rarity') if isinstance(doc.get('rarity'), dict) else {}
+    return dict(names={str(k): str(v)[:40] for k, v in names.items() if v}, hidden=[str(x) for x in hidden], rarity={str(k): v for k, v in rar.items() if v in RARITIES},
                 notify=str(doc.get('notify') or DEFAULT_NOTIFY)[:600], season=str(doc.get('season') or DEFAULT_SEASON_NOTE)[:300])
 
 
@@ -59,6 +75,14 @@ def all_names():
     for k, v in custom_medals().items():
         out[k] = str(v.get('name') or 'Медаль')
     out.update({k: v for k, v in medal_settings()['names'].items() if k in out})
+    return out
+
+
+def rarity_map():
+    out = {k: DEFAULT_RARITY.get(k, 'common') for k in BASE_MEDALS}
+    for k, v in custom_medals().items():
+        out[k] = v.get('rarity') if v.get('rarity') in RARITIES else 'common'
+    out.update({k: v for k, v in medal_settings()['rarity'].items() if k in out})
     return out
 
 
@@ -576,7 +600,7 @@ def register(app, ns):
     @app.get('/api/medals/catalog')
     def medal_catalog():
         items = custom_medals()
-        return jsonify(ok=True, names=all_names(), hidden=medal_settings()['hidden'],
+        return jsonify(ok=True, names=all_names(), hidden=medal_settings()['hidden'], rarity=rarity_map(), rarities=RARITIES,
                        custom=[dict(key=k, name=mname(k), hidden=k in medal_settings()['hidden'], manual_only=bool(v.get('manual_only')), pal=v.get('pal') or 'gold',
                                     img='/api/medals/img/%s?v=%d' % (k, int(v.get('v') or 0))) for k, v in items.items()])
 
@@ -598,13 +622,17 @@ def register(app, ns):
     def admin_medals_all():
         cust = custom_medals()
         st = medal_settings()
+        rar = rarity_map()
         out = [dict(key=k, name=n, builtin=True, manual_only=False) for k, n in BASE_MEDALS.items()]
         for o in out:
             o['name'] = st['names'].get(o['key'], o['name'])
         out += [dict(key=k, name=mname(k), builtin=False, manual_only=bool(v.get('manual_only'))) for k, v in cust.items()]
         for o in out:
             o['hidden'] = o['key'] in st['hidden']
-        return jsonify(ok=True, medals=out, notify=st['notify'], season=st['season'],
+            o['rarity'] = rar.get(o['key'], 'common')
+            o['pal'] = (cust.get(o['key']) or {}).get('pal', '')
+        return jsonify(ok=True, medals=out, notify=st['notify'], season=st['season'], rarities=RARITIES,
+                       codes=[dict(code=c, medal=v.get('medal'), title=v.get('title', '')) for c, v in promo_medals().items()],
                        defaults=dict(notify=DEFAULT_NOTIFY, season=DEFAULT_SEASON_NOTE))
 
     @app.post('/api/admin/medals/rename')
@@ -635,6 +663,64 @@ def register(app, ns):
         doc['hidden'] = hidden
         _ns['save_document'](MEDAL_SET_DOC, doc)
         return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/rarity')
+    @admin
+    def admin_medal_rarity():
+        data = request.get_json(silent=True) or {}
+        key, rar = str(data.get('key') or ''), str(data.get('rarity') or '')
+        if key not in all_names() or rar not in RARITIES:
+            return error('Укажите медаль и редкость.')
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        r = dict(doc.get('rarity') or {})
+        r[key] = rar
+        doc['rarity'] = r
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        items = custom_medals()
+        if key in items and data.get('pal') in PAL_KEYS:
+            items[key]['pal'] = data['pal']
+            _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True, seeded_keys=list((_ns['read_document'](MEDAL_DOC) or {}).get('seeded_keys') or [])))
+        return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/codes')
+    @admin
+    def admin_medal_codes():
+        data = request.get_json(silent=True) or {}
+        code = str(data.get('code') or '').strip().upper()
+        if not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
+            return error('Промокод: 3–32 символа, латиница и цифры.')
+        codes = promo_medals()
+        if data.get('remove'):
+            codes.pop(code, None)
+        else:
+            medal = str(data.get('medal') or '')
+            if medal not in all_names():
+                return error('Выберите медаль.')
+            codes[code] = dict(medal=medal, title=str(data.get('title') or '').strip()[:60])
+        _ns['save_document'](PROMO_MEDAL_DOC, dict(codes=codes))
+        return jsonify(ok=True)
+
+    @app.after_request
+    def grant_promo_medal(resp):
+        try:
+            if request.method == 'POST' and request.path == '/api/promocodes/redeem' and resp.status_code == 200 and session.get('uid'):
+                code = str((request.get_json(silent=True) or {}).get('code') or '').strip().upper()
+                hit = promo_medals().get(code)
+                if hit and hit.get('medal') in all_names():
+                    title = hit.get('title') or ('Промокод ' + code)
+                    uid = int(session['uid'])
+                    with connect() as db:
+                        have = db.execute('SELECT 1 FROM user_medals WHERE user_id=? AND medal_key=? AND title=?', (uid, hit['medal'], title)).fetchone()
+                        if not have:
+                            n = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1', (uid,)).fetchone()['n']
+                            db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,0,0,?,0)',
+                                       (uid, hit['medal'], title, 1 if n < MAX_SHOWN_MEDALS else 0))
+                            notify = _ns.get('notify_user_async')
+                            if notify:
+                                notify(uid, render_note(medal_settings()['notify'], medal=mname(hit['medal']), title=title), None, 'HTML', db=db)
+        except Exception:
+            app.logger.exception('Promo medal grant failed')
+        return resp
 
     @app.post('/api/admin/medals/texts')
     @admin
@@ -674,9 +760,9 @@ def register(app, ns):
         while 'u%d' % n in items or 'u%d' % n in BASE_MEDALS:
             n += 1
         key = 'u%d' % n
-        items[key] = dict(name=name, manual_only=bool(data.get('manual_only', True)), pal='gold', v=int(_t.time()),
+        items[key] = dict(name=name, manual_only=bool(data.get('manual_only', True)), pal=data.get('pal') if data.get('pal') in PAL_KEYS else 'gold', rarity=data.get('rarity') if data.get('rarity') in RARITIES else 'common', v=int(_t.time()),
                           image='data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode())
-        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True, seeded_keys=list((_ns['read_document'](MEDAL_DOC) or {}).get('seeded_keys') or [])))
         return jsonify(ok=True, key=key)
 
     @app.post('/api/admin/medals/<key>/delete')
@@ -690,7 +776,7 @@ def register(app, ns):
         if held:
             return error('Медаль есть у игроков (%d). Сначала заберите её.' % held, 409)
         items.pop(key)
-        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True))
+        _ns['save_document'](MEDAL_DOC, dict(items=items, seeded=True, seeded_keys=list((_ns['read_document'](MEDAL_DOC) or {}).get('seeded_keys') or [])))
         return jsonify(ok=True)
 
     @app.post('/api/admin/medals/grant')
@@ -750,7 +836,7 @@ def register(app, ns):
     def medals_pending():
         with connect() as db:
             rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND claimed=0 ORDER BY id LIMIT 20', (int(session['uid']),)).fetchall()
-        return jsonify(ok=True, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), title=r['title'], place=int(r['place'])) for r in rows])
+        return jsonify(ok=True, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'), title=r['title'], place=int(r['place'])) for r in rows])
 
     @app.post('/api/medals/<int:medal_id>/claim')
     @login
@@ -764,7 +850,7 @@ def register(app, ns):
     def my_medals():
         with connect() as db:
             rows = db.execute('SELECT id,medal_key,title,place,shown,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (int(session['uid']),)).fetchall()
-        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']),
+        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'),
                        title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
 
     @app.post('/api/medals/<int:medal_id>/shown')
@@ -884,4 +970,4 @@ def shown_medals(db, user_id):
     """Medals the player chose to show on the public profile (newest first)."""
     rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY id DESC LIMIT ?',
                       (int(user_id), MAX_SHOWN_MEDALS)).fetchall()
-    return [dict(key=r['medal_key'], name=mname(r['medal_key']), title=r['title'], place=int(r['place'])) for r in rows]
+    return [dict(key=r['medal_key'], name=mname(r['medal_key']), rarity=rarity_map().get(r['medal_key'], 'common'), title=r['title'], place=int(r['place'])) for r in rows]

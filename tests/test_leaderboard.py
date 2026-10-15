@@ -136,6 +136,23 @@ class LeaderboardTests(unittest.TestCase):
             self.assertEqual([x['name'] for x in allm['medals'] if x['key'] == 'vip'], ['Супер VIP'])
             self.assertEqual(m.leaderboard.render_note('<b>{medal}</b> <u>x</u>', medal='A<'), '<b>A&lt;</b> &lt;u&gt;x&lt;/u&gt;') if hasattr(m, 'leaderboard') else None
             self.post('/api/admin/medals/rename', {'key': 'vip', 'name': 'VIP игрок'})
+            cat = self.client.get('/api/medals/catalog').get_json()
+            self.assertEqual((cat['rarity']['kashtan'], cat['rarity']['jealous'], cat['rarity']['c1']), ('legendary', 'legendary', 'common'))
+            self.assertTrue([c for c in cat['custom'] if c['key'] == 'jealous' and c['pal'] == 'black'])
+            self.post('/api/admin/medals/rarity', {'key': 'c1', 'rarity': 'epic'})
+            self.assertEqual(self.client.get('/api/medals/catalog').get_json()['rarity']['c1'], 'epic')
+            self.post('/api/admin/medals/rarity', {'key': 'c1', 'rarity': 'common'})
+            self.post('/api/admin/medals/codes', {'code': 'MEDALTEST', 'medal': 'gem', 'title': 'Промо'})
+            with m.connect() as db:
+                db.execute("DELETE FROM user_medals WHERE user_id=? AND title='Промо'", (self.uid,))
+            with m.connect() as db:
+                db.execute("DELETE FROM promo_codes WHERE code='MEDALTEST'")
+                db.execute("INSERT INTO promo_codes(code,reward_type,amount,max_uses,created_by) VALUES('MEDALTEST','balance',100,5,?)", (self.uid,))
+            r = self.client.post('/api/promocodes/redeem', json={'code': 'MEDALTEST'})
+            self.assertEqual(r.status_code, 200, r.get_json())
+            pend = [x for x in self.client.get('/api/medals/pending').get_json()['medals'] if x['title'] == 'Промо']
+            self.assertEqual(pend[0]['key'], 'gem')
+            self.client.post('/api/admin/medals/codes', json={'code': 'MEDALTEST', 'remove': True})
             self.post('/api/admin/medals/hide', {'key': 'gem', 'hidden': True})
             self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': 'gem'}, 400)
             self.post('/api/admin/leaderboard/medals', {'place': 1, 'medal': 'gem'}, 400)

@@ -6,29 +6,29 @@
 html.gd-banned body>*:not(#loader){display:none!important}
 html.gd-banned #loader,html.gd-banned #loader.hidden{display:grid!important}
 html.gd-maint body>*:not(#maintScreen){display:none!important}
-#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:max(20px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));color:#f5f7fb;font:500 15px/1.5 'Montserrat',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;overflow:auto;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:radial-gradient(90% 60% at 50% 0%,rgba(255,170,30,.14),transparent 62%),radial-gradient(70% 50% at 50% 100%,rgba(71,140,255,.12),transparent 65%),#07080d}
+#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:max(20px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));color:#f5f7fb;font:500 15px/1.5 'Montserrat',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;overflow:auto;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:radial-gradient(90% 60% at 50% 0%,rgba(71,176,245,.16),transparent 62%),radial-gradient(70% 50% at 50% 100%,rgba(124,92,255,.10),transparent 65%),#090b1a}
 #maintScreen:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);pointer-events:none}
 #maintScreen .mt-card{position:relative;width:min(100%,440px);display:grid;gap:18px;justify-items:center;text-align:center;animation:mtIn .55s cubic-bezier(.2,.9,.25,1) both}
 @keyframes mtIn{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
-#maintScreen .mt-badge{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;border:1px solid rgba(255,184,31,.35);background:rgba(255,184,31,.1);color:#ffc94d;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
-#maintScreen .mt-badge i{width:7px;height:7px;border-radius:50%;background:#ffb81f;box-shadow:0 0 0 0 rgba(255,184,31,.6);animation:mtPulse 1.8s ease-out infinite}
-@keyframes mtPulse{70%{box-shadow:0 0 0 9px rgba(255,184,31,0)}100%{box-shadow:0 0 0 0 rgba(255,184,31,0)}}
-#maintScreen .mt-icon{position:relative;width:112px;height:112px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 50% 35%,#1a1c28,#0d0e15);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.08)}
-#maintScreen .mt-icon:before{content:"";position:absolute;inset:-9px;border-radius:50%;border:2px dashed rgba(255,184,31,.28);animation:mtSpin 24s linear infinite reverse}
+#maintScreen .mt-badge{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;border:1px solid rgba(71,176,245,.35);background:rgba(71,176,245,.1);color:#7cc8fa;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+#maintScreen .mt-badge i{width:7px;height:7px;border-radius:50%;background:#47b0f5;box-shadow:0 0 0 0 rgba(71,176,245,.6);animation:mtPulse 1.8s ease-out infinite}
+@keyframes mtPulse{70%{box-shadow:0 0 0 9px rgba(71,176,245,0)}100%{box-shadow:0 0 0 0 rgba(71,176,245,0)}}
+#maintScreen .mt-icon{position:relative;width:112px;height:112px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 50% 35%,#171a33,#0d0f22);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.08)}
+#maintScreen .mt-icon:before{content:"";position:absolute;inset:-9px;border-radius:50%;border:2px dashed rgba(71,176,245,.3);animation:mtSpin 24s linear infinite reverse}
 #maintScreen .mt-icon svg{width:50px;height:50px;fill:none;stroke:url(#mtGrad);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;animation:mtSpin 9s linear infinite;shape-rendering:geometricPrecision}
 @keyframes mtSpin{to{transform:rotate(360deg)}}
 #maintScreen h1{margin:2px 0 0;font-size:clamp(26px,8vw,34px);line-height:1.12;font-weight:800;letter-spacing:-.025em}
 #maintScreen .mt-msg{margin:0;max-width:34ch;color:#aab3c2;font-size:15px;line-height:1.6;white-space:pre-line}
-#maintScreen .mt-eta{width:100%;box-sizing:border-box;display:grid;gap:6px;justify-items:center;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.1);border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));box-shadow:inset 0 1px rgba(255,255,255,.06)}
+#maintScreen .mt-eta{width:100%;box-sizing:border-box;display:grid;gap:6px;justify-items:center;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.07);border-radius:22px;background:#10132a;box-shadow:inset 0 1px rgba(255,255,255,.06)}
 #maintScreen .mt-eta.hidden{display:none}
 #maintScreen .mt-eta-k{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8d98aa}
 #maintScreen .mt-clock{order:2;font-size:clamp(38px,12vw,48px);line-height:1.05;font-weight:800;letter-spacing:.02em;color:#fff;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-#maintScreen .mt-clock.done{font-size:16px;line-height:1.4;letter-spacing:0;color:#7cf6cd;font-weight:700}
-#maintScreen .mt-eta-v{order:3;font-size:13px;font-weight:600;color:#ffc94d}
+#maintScreen .mt-clock.done{font-size:16px;line-height:1.4;letter-spacing:0;color:#7cc8fa;font-weight:700}
+#maintScreen .mt-eta-v{order:3;font-size:13px;font-weight:600;color:#7cc8fa}
 #maintScreen .mt-bar{order:4;position:relative;width:100%;height:4px;margin-top:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
-#maintScreen .mt-bar:after{content:"";position:absolute;top:0;bottom:0;width:38%;border-radius:4px;background:linear-gradient(90deg,transparent,#ffb81f,transparent);animation:mtBar 1.9s ease-in-out infinite}
+#maintScreen .mt-bar:after{content:"";position:absolute;top:0;bottom:0;width:38%;border-radius:4px;background:linear-gradient(90deg,transparent,#47b0f5,transparent);animation:mtBar 1.9s ease-in-out infinite}
 @keyframes mtBar{from{left:-40%}to{left:102%}}
-#maintScreen .mt-retry{width:100%;min-height:56px;border:0;border-radius:18px;background:linear-gradient(180deg,#ffc21a,#ff9500);color:#1a1100;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 12px 30px rgba(255,150,0,.28),inset 0 1px rgba(255,255,255,.45);transition:transform .12s,filter .2s;-webkit-tap-highlight-color:transparent}
+#maintScreen .mt-retry{width:100%;min-height:56px;border:0;border-radius:18px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.3);transition:transform .12s,filter .2s;-webkit-tap-highlight-color:transparent}
 #maintScreen .mt-retry:hover{filter:brightness(1.06)}
 #maintScreen .mt-retry:active{transform:scale(.98)}
 #maintScreen .mt-retry:disabled{opacity:.6}
@@ -53,7 +53,7 @@ html.gd-maint body>*:not(#maintScreen){display:none!important}
       let el=document.getElementById('maintScreen');
       if(!el){
         el=document.createElement('div');el.id='maintScreen';el.setAttribute('role','alert');
-        el.innerHTML='<div class="mt-card"><span class="mt-badge"><i></i>Обновление</span><div class="mt-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="mtGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd34d"/><stop offset="1" stop-color="#ff8a00"/></linearGradient></defs><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div><h1>Технические работы</h1><p class="mt-msg"></p><div class="mt-eta hidden"><span class="mt-eta-k">Осталось примерно</span><b class="mt-eta-v"></b><span class="mt-clock"></span><div class="mt-bar" aria-hidden="true"></div></div><button class="mt-retry" type="button">Попробовать снова</button><p class="mt-foot">Мы уже работаем над этим. Спасибо, что остаётесь с нами.</p></div>';
+        el.innerHTML='<div class="mt-card"><span class="mt-badge"><i></i>Обновление</span><div class="mt-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="mtGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cc8fa"/><stop offset="1" stop-color="#2a7be0"/></linearGradient></defs><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div><h1>Технические работы</h1><p class="mt-msg"></p><div class="mt-eta hidden"><span class="mt-eta-k">Осталось примерно</span><b class="mt-eta-v"></b><span class="mt-clock"></span><div class="mt-bar" aria-hidden="true"></div></div><button class="mt-retry" type="button">Попробовать снова</button><p class="mt-foot">Мы уже работаем над этим. Спасибо, что остаётесь с нами.</p></div>';
         document.body.appendChild(el);
         el.querySelector('.mt-retry').onclick=function(){this.disabled=true;this.textContent='Загружаем…';location.reload()}}
       el.querySelector('.mt-msg').textContent=d.message||d.error||'На сайте проводятся технические работы.';
@@ -4651,7 +4651,8 @@ html.perf-lite .gc-art-road *{animation:none!important}
 <div class="admin-group"><h2>Система</h2><div class="admin-actions"><button id="openPortal">Portal Market <span>→</span></button><button id="openGamesAdmin">Управление играми <span>→</span></button><button id="openSectionSettings">Управление разделами <span>→</span></button><button id="openTransferSettings">Управление переводами <span>→</span></button><button id="openLoaderSettings">Экран загрузки <span>→</span></button><button id="openPostAdmin">Публикации <span>→</span></button><button id="openExternalChannels">Сторонние каналы <span>→</span></button><button id="openBroadcastAdmin">Рассылка <span>→</span></button><button id="openGiftEmojiAdmin">Эмодзи: подарки и тыква <span>→</span></button><button id="openAntifraud">Мульти-аккаунты и баны <span>→</span></button><button id="openMaintenance">Технические работы <span>→</span></button><button id="openBotSettings">Настройки бота <span>→</span></button><button id="openNoticeTemplates">Тексты уведомлений <span>→</span></button></div></div>
 </div></section>
 <section id="xhuntAdminPage" class="hidden"><button id="xhuntAdminBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">СОБЫТИЕ</span><h1>X-Hunt</h1><p>Охота за множителем: лучший X за время или первый, кто достигнет цели</p></div><div id="xhAdminBody" class="stack"></div></section>
-<section id="wheelPage" class="hidden"><div class="wl-card"><div class="wl-top"><button id="wlInfoBtn" class="wl-pill" type="button">Что можно получить?</button><button id="wlMineBtn" class="wl-pill" type="button">Мои призы</button></div><div id="wlReel" class="wl-reel" aria-live="polite"><div id="wlTrack" class="wl-track"></div><div class="wl-fade wl-fade-top"></div><div class="wl-fade wl-fade-bottom"></div></div></div><div class="wl-code"><div class="wl-hint"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" stroke="none"/><path d="M12 11v6" stroke="#161616" stroke-width="2.4" stroke-linecap="round" fill="none"/><circle cx="12" cy="7.4" r="1.4" fill="#161616" stroke="none"/></svg><b>Чтобы крутить — активируйте промокод</b></div><input id="wlCode" class="wl-input" type="text" placeholder="Код" maxlength="32" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><div id="wlSearch" class="wl-search hidden">Ищите коды в <a id="wlChannel" href="#" target="_blank" rel="noopener"></a></div><div id="wlError" class="wl-error hidden" role="alert"></div></div><button id="wlSpin" class="wl-spin" type="button" disabled>Крутить</button></section><section id="leadersPage" class="hidden"><div class="lb-wrap"><h1 class="lb-title">Призы за попадание в топ</h1><p class="lb-sub" id="lbSub"></p><div id="lbPrizes" class="lb-prizes hidden"></div><div class="lb-head"><span>Пользователь</span><span>Оборот</span></div><div id="lbList" class="lb-list"></div><div id="lbMe" class="lb-me hidden"></div></div></section>
+<section id="wheelPage" class="hidden"><div class="wl-card"><div class="wl-top"><button id="wlInfoBtn" class="wl-pill" type="button">Что можно получить?</button><button id="wlMineBtn" class="wl-pill" type="button">Мои призы</button></div><div id="wlReel" class="wl-reel" aria-live="polite"><div id="wlTrack" class="wl-track"></div><div class="wl-fade wl-fade-top"></div><div class="wl-fade wl-fade-bottom"></div></div></div><div class="wl-code"><div class="wl-hint"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" stroke="none"/><path d="M12 11v6" stroke="#161616" stroke-width="2.4" stroke-linecap="round" fill="none"/><circle cx="12" cy="7.4" r="1.4" fill="#161616" stroke="none"/></svg><b>Чтобы крутить — активируйте промокод</b></div><input id="wlCode" class="wl-input" type="text" placeholder="Код" maxlength="32" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><div id="wlSearch" class="wl-search hidden">Ищите коды в <a id="wlChannel" href="#" target="_blank" rel="noopener"></a></div><div id="wlError" class="wl-error hidden" role="alert"></div></div><button id="wlSpin" class="wl-spin" type="button" disabled>Крутить</button></section><section id="leadersPage" class="hidden"><div class="lb-wrap"><button id="lbPill" class="lb-pill" type="button"><span class="lb-pill-q"><i>?</i>Как попасть в лидерборд</span><b id="lbClock">—</b></button><h1 class="lb-title">Лидерборд</h1><p class="lb-sub" id="lbSub">Играйте в любые игры — призы получают лучшие по обороту за сезон</p><div id="lbPodium" class="lb-podium"></div><div class="lb-head"><span>Пользователь</span><span>Оборот</span></div><div id="lbList" class="lb-list"></div><div id="lbMe" class="lb-me hidden"></div></div></section>
+<div id="lbIntro" class="modal lb-intro hidden" role="dialog" aria-modal="true"><div class="modal-card lbi-card"><button id="lbIntroClose" class="lbi-close" type="button" aria-label="Закрыть">×</button><div id="lbiCards" class="lbi-cards"></div><span class="lbi-badge"><b id="lbiSeason">Сезон</b><em>Игры</em></span><h2>Новый сезон призов</h2><ol class="lbi-steps"><li><i>1</i><div><b>Играйте и делайте ставки</b><span>Чем больше оборот во всех играх, тем выше вы в рейтинге.</span></div></li><li><i>2</i><div><b>Забирайте награду</b><span>Призы получают игроки на призовых местах — подарки придут в инвентарь.</span></div></li></ol><button id="lbiGo" class="lbi-go" type="button">Перейти в игры<small id="lbiLeft"></small></button></div></div>
 <section id="wheelAdminPage" class="hidden"><button id="wlaBack" class="back" type="button">← Админ-панель</button><div class="page-heading"><span class="eyebrow">НАГРАДЫ</span><h1>Колесо призов</h1><p>Призы, шансы и коды для прокрутки колеса</p></div>
 <div class="panel stack"><h2>Доступ</h2><label class="toggle-row"><span>Открыть колесо всем игрокам</span><input id="wlaPublic" type="checkbox"></label><label class="caption" for="wlaChannel">Канал с кодами (без @, необязательно)</label><input id="wlaChannel" class="text-input" type="text" placeholder="case_app" maxlength="40" autocomplete="off"><button id="wlaSaveSettings" class="secondary" type="button">Сохранить</button><small class="muted">Пока переключатель выключен, колесо видят только администраторы.</small></div>
 <div class="panel stack"><h2>Коды для прокрутки</h2><div class="wla-grid3"><input id="wlaCode" class="text-input" type="text" placeholder="Код (пусто — случайный)" maxlength="32" autocomplete="off"><input id="wlaCodeUses" class="text-input" type="number" min="0" step="1" value="1" inputmode="numeric" title="Лимит активаций, 0 — без лимита"><input id="wlaCodeDays" class="text-input" type="number" min="0" step="1" value="0" inputmode="numeric" title="Срок в днях, 0 — без срока"></div><small class="muted">Слева направо: код · лимит активаций (0 — без лимита) · срок в днях (0 — без срока).</small><button id="wlaCreateCode" class="primary" type="button">Создать код</button><div id="wlaCodes" class="wla-codes"></div></div>
@@ -18536,73 +18537,119 @@ setTimeout(()=>scan(document),1500);
 })();
 </script>
 <style id="leaders-v1">
-#leadersPage .lb-wrap{max-width:560px;margin:0 auto;padding:14px 14px 150px}
-.lb-title{margin:6px 0 6px;font-size:26px;line-height:1.15;font-weight:800;letter-spacing:-.01em;text-align:center}
-.lb-sub{margin:0 0 16px;text-align:center;color:#8d99a8;font-size:13px;line-height:1.4}
-.lb-sub b{color:#e8edf5;font-weight:600}
-.lb-prizes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 18px}
-.lb-prize{position:relative;display:grid;gap:8px;justify-items:center;padding:14px 10px 12px;border-radius:20px;border:1px solid #232a3b;background:linear-gradient(170deg,#161b28,#0f121b);overflow:hidden;min-width:0}
-.lb-prize.wide{grid-column:1/-1;grid-template-columns:auto minmax(0,1fr);justify-items:start;align-items:center;gap:14px;padding:12px 16px}
-.lb-prize:before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0,var(--pc,#f5b942) 0,transparent 62%);opacity:.14;pointer-events:none}
-.lb-prize.p1{--pc:#f5c451}.lb-prize.p2{--pc:#aab6c8}.lb-prize.p3{--pc:#d08a5a}
-.lb-prize-place{position:relative;font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--pc);text-transform:uppercase}
-.lb-prize-art.multi .lb-gift{width:58px;height:58px}
-.lb-prize-art{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:100%}
+#leadersPage .lb-wrap{max-width:560px;margin:0 auto;padding:10px 14px 150px}
+.lb-pill{display:grid;gap:2px;justify-items:center;margin:4px auto 16px;padding:10px 20px;border-radius:22px;border:1px solid rgba(255,255,255,.08);background:rgba(16,19,42,.85);color:#f1f4ff;cursor:pointer;font:inherit;backdrop-filter:blur(8px)}
+.lb-pill-q{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#c9d2ea}
+.lb-pill-q i{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:#47b0f5;color:#08122a;font-size:11px;font-style:normal;font-weight:800}
+.lb-pill b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.lb-title{margin:6px 0 6px;font-size:30px;line-height:1.1;font-weight:700;letter-spacing:-.02em;text-align:center}
+.lb-sub{margin:0 auto 6px;max-width:34ch;text-align:center;color:#8d99a8;font-size:13px;line-height:1.45}
+.lb-podium{display:grid;grid-template-columns:1fr 1.18fr 1fr;align-items:end;gap:8px;margin:22px 0 22px}
+.lb-pc{--pc:#aab6c8;display:grid;justify-items:center;gap:6px;min-width:0;cursor:pointer}
+.lb-pc.p1{--pc:#f5c451;order:2}.lb-pc.p2{--pc:#aab6c8;order:1}.lb-pc.p3{--pc:#d08a5a;order:3}
+.lb-pc.free{cursor:default}
+.lb-pc-who{display:flex;align-items:center;gap:6px;max-width:100%;font-size:12px;font-weight:700;color:#e8edf8}
+.lb-pc-who i{flex:none;display:inline-grid;place-items:center;width:17px;height:17px;border-radius:50%;background:var(--pc);color:#10132a;font-size:10px;font-style:normal;font-weight:800}
+.lb-pc-who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-pc-av{position:relative;width:70px;height:70px;border-radius:50%;display:grid;place-items:center;overflow:hidden;border:3px solid var(--pc);background:#1b2133;color:#e8edf5;font-weight:800;font-size:24px;box-shadow:0 0 24px color-mix(in srgb,var(--pc) 35%,transparent)}
+.lb-pc.p1 .lb-pc-av{width:96px;height:96px;font-size:32px}
+.lb-pc-av img{width:100%;height:100%;object-fit:cover}
+.lb-pc-av svg{width:48%;height:48%;fill:none;stroke:#3d4659;stroke-width:1.8}
+.lb-ped{position:relative;width:100%;display:grid;gap:4px;justify-items:center;align-content:center;padding:10px 6px;border-radius:18px 18px 8px 8px;border:1px solid color-mix(in srgb,var(--pc) 28%,#1d2332);background:linear-gradient(180deg,color-mix(in srgb,var(--pc) 20%,#151a2e),#0f1224 85%);overflow:hidden}
+.lb-pc.p1 .lb-ped{min-height:150px}.lb-pc.p2 .lb-ped{min-height:124px}.lb-pc.p3 .lb-ped{min-height:110px}
+.lb-ped:before{content:attr(data-n);position:absolute;right:8px;top:-6px;font-size:64px;font-weight:900;line-height:1;color:var(--pc);opacity:.1}
+.lb-ped .lb-gift{width:58px;height:58px;background:rgba(255,255,255,.04)}
+.lb-pc.p1 .lb-ped .lb-gift{width:70px;height:70px}
+.lb-ped-amt{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#c9d2ea;white-space:nowrap}
+.lb-ped-amt img{width:12px;height:12px}
+.lb-ped-more{position:absolute;left:6px;top:6px;padding:1px 6px;border-radius:99px;background:rgba(0,0,0,.35);font-size:10px;font-weight:700;color:#e8edf8}
 .lb-gift{position:relative;width:76px;height:76px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,.04);overflow:hidden;flex:none}
 .lb-gift img{width:100%;height:100%;object-fit:contain;display:block}
 .lb-gift.crop img{object-fit:cover;transform:scale(1.18)}
 .lb-gift .ga-layer{position:absolute;inset:0;z-index:2}
 .lb-gift.ga-on>img{opacity:0}
 .lb-gift .ga-layer svg{width:100%;height:100%}
-.lb-prize.wide .lb-gift{width:64px;height:64px}
-.lb-prize-info{position:relative;display:grid;gap:2px;text-align:center;min-width:0}
-.lb-prize.wide .lb-prize-info{text-align:left}
-.lb-prize-info b{font-size:12px;font-weight:700;color:#e8edf5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lb-prize-info small{font-size:11px;color:#8d99a8}
 .lb-head{display:flex;justify-content:space-between;padding:0 14px 8px;color:#8d99a8;font-size:12px;font-weight:600}
 .lb-list{display:grid;gap:6px}
-.lb-row{display:grid;grid-template-columns:34px 38px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 12px;border-radius:16px;border:1px solid #1d2332;background:#11151f;cursor:pointer;transition:transform .15s,border-color .2s}
+.lb-row{display:grid;grid-template-columns:30px 40px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 12px;border-radius:18px;border:1px solid #1d2332;background:#11151f;cursor:pointer;transition:transform .15s,border-color .2s}
 .lb-row:hover{border-color:#34405a}.lb-row:active{transform:scale(.99)}
-.lb-row.podium{background:linear-gradient(90deg,color-mix(in srgb,var(--pc) 16%,#11151f),#11151f 70%);border-color:color-mix(in srgb,var(--pc) 36%,#1d2332)}
-.lb-row.t1{--pc:#f5c451}.lb-row.t2{--pc:#aab6c8}.lb-row.t3{--pc:#d08a5a}
 .lb-rank{font-size:14px;font-weight:800;color:#8d99a8;text-align:center}
-.lb-row.podium .lb-rank{color:var(--pc)}
-.lb-ava{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:#232a3b;color:#e8edf5;font-weight:700;font-size:15px}
+.lb-ava{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:#232a3b;color:#e8edf5;font-weight:700;font-size:15px}
 .lb-ava img{width:100%;height:100%;object-fit:cover}
-.lb-name{min-width:0;font-size:14px;font-weight:600;color:#f2f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lb-name small{display:block;font-size:11px;font-weight:500;color:#7f8ca3}
-.lb-end{display:flex;align-items:center;gap:8px}
-.lb-end .lb-gift{width:34px;height:34px;border-radius:10px}
-.lb-more{font-size:11px;font-weight:700;color:#8d99a8;margin-left:-2px}
-.lb-amt{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:99px;background:#1b2231;font-size:13px;font-weight:700;color:#e8edf5;white-space:nowrap}
-.lb-amt img{width:14px;height:14px}
+.lb-name{min-width:0;font-size:14px;font-weight:700;color:#f2f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-name small{display:flex;align-items:center;gap:4px;margin-top:1px;font-size:12px;font-weight:600;color:#7f8ca3}
+.lb-name small img{width:11px;height:11px}
+.lb-end{display:flex;align-items:center;gap:6px}
+.lb-end .lb-gift{width:36px;height:36px;border-radius:10px}
+.lb-more{font-size:11px;font-weight:700;color:#8d99a8}
 .lb-ava.ghost{background:#171c28;color:#3d4659}.lb-ava.ghost svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8}
-.lb-row.lbfree{background:#0f131c;cursor:default}.lb-row.lbfree .lb-name{color:#4d576c;font-weight:500}.lb-row.lbfree:hover{border-color:#1d2332}.lb-row.lbfree.podium .lb-name{color:#667089}
+.lb-row.lbfree{background:#0f131c;cursor:default}.lb-row.lbfree .lb-name{color:#4d576c;font-weight:500}.lb-row.lbfree:hover{border-color:#1d2332}
 .lb-empty{padding:34px 10px;text-align:center;color:#7f8ca3;font-size:14px}
 .lb-me{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 86px);margin-top:12px;z-index:3}
 .lb-me .lb-row{background:linear-gradient(90deg,#2a7be0,#1f5fb8);border-color:#4b93ec;cursor:default;box-shadow:0 10px 26px rgba(30,95,185,.35)}
 .lb-me .lb-rank,.lb-me .lb-name,.lb-me .lb-name small{color:#fff}
-.lb-me .lb-amt{background:rgba(255,255,255,.18);color:#fff}
 .lb-me .lb-ava{background:rgba(255,255,255,.2)}
-@media(max-width:380px){.lb-gift{width:64px;height:64px}.lb-row{grid-template-columns:28px 34px minmax(0,1fr) auto;gap:8px;padding:8px 10px}}
+/* first visit sheet */
+.lb-intro{align-items:flex-end!important;padding:0!important}
+.lbi-card{position:relative;width:min(100%,520px);max-height:92dvh;overflow:auto;padding:22px 16px calc(16px + env(safe-area-inset-bottom,0px))!important;border-radius:26px 26px 0 0!important;background:linear-gradient(180deg,#141838,#0b0d1f 60%)!important;border:1px solid rgba(255,255,255,.07)!important;display:grid;gap:12px}
+.lbi-close{position:absolute;right:12px;top:10px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#e8edf8;font-size:20px;cursor:pointer}
+.lbi-cards{display:flex;gap:10px;overflow-x:auto;padding:26px 2px 6px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.lbi-cards::-webkit-scrollbar{display:none}
+.lbi-c{flex:0 0 106px;scroll-snap-align:start;display:grid;gap:6px;min-width:0}
+.lbi-c>b{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#e8edf8}
+.lbi-c>b i{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#47b0f5;color:#08122a;font-size:10px;font-style:normal;font-weight:800}
+.lbi-c.p1>b i{background:#f5c451}.lbi-c.p2>b i{background:#aab6c8}.lbi-c.p3>b i{background:#d08a5a}
+.lbi-c .lb-gift{width:106px;height:106px;border-radius:18px;background:rgba(255,255,255,.06)}
+.lbi-c span{font-size:12px;font-weight:600;color:#e8edf8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbi-c small{font-size:11px;color:#7f8ca3}
+.lbi-badge{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:5px 10px;border-radius:99px;background:rgba(71,176,245,.14);border:1px solid rgba(71,176,245,.25)}
+.lbi-badge b{font-size:12px;font-weight:700;color:#e8edf8}.lbi-badge em{font-style:normal;font-size:12px;color:#7cc8fa}
+.lbi-card h2{margin:0;font-size:28px;line-height:1.1;font-weight:700;letter-spacing:-.02em}
+.lbi-steps{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.lbi-steps li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;align-items:start}
+.lbi-steps li>i{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f1f4ff;color:#0b0d1f;font-size:12px;font-style:normal;font-weight:800;margin-top:2px}
+.lbi-steps b{display:block;font-size:16px;font-weight:600;color:#f1f4ff}
+.lbi-steps span{display:block;font-size:13px;line-height:1.4;color:#8d99a8}
+.lbi-go{display:grid;gap:2px;justify-items:center;margin-top:6px;padding:12px;border:0;border-radius:22px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font:inherit;font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(31,143,224,.32)}
+.lbi-go small{font-size:12px;font-weight:600;color:rgba(255,255,255,.8);font-variant-numeric:tabular-nums}
+@media(max-width:380px){.lb-pc-av{width:58px;height:58px}.lb-pc.p1 .lb-pc-av{width:80px;height:80px}.lb-row{grid-template-columns:26px 36px minmax(0,1fr) auto;gap:8px;padding:8px 10px}.lb-ava{width:36px;height:36px}}
 </style>
 <script id="leaders-v1-js">
-var LBD={timer:0,data:null,busy:false};
+var LBD={timer:0,tick:0,data:null,busy:false,end:0};
 function lbEsc(v){return String(v==null?'':v).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function lbGift(prize,cls){let box=document.createElement('span');box.className='lb-gift'+(cls?' '+cls:'')+(prize.source_type==='fragment'?' crop':'');box.title=prize.name||'';let img=new Image;img.src=prize.image_url||TON;img.alt=prize.name||'';img.loading='lazy';img.onerror=()=>{img.src=TON};box.append(img);try{if(typeof gaHover==='function')gaHover(box,prize)}catch(e){}return box}
-function lbAvatar(u){let a=document.createElement('span');a.className='lb-ava';a.textContent=String(u.name||'G').replace(/^@/,'').charAt(0).toUpperCase()||'G';if(u.photo_url){let img=new Image;img.src=u.photo_url;img.alt='';img.onerror=()=>img.remove();img.onload=()=>{a.textContent='';a.append(img)}}return a}
+function lbAvatar(u,cls){let a=document.createElement('span');a.className=cls||'lb-ava';a.textContent=String(u.name||'G').replace(/^@/,'').charAt(0).toUpperCase()||'G';if(u.photo_url){let img=new Image;img.src=u.photo_url;img.alt='';img.onerror=()=>img.remove();img.onload=()=>{a.textContent='';a.append(img)}}return a}
+const LB_GHOST='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="4"/><path d="M4.5 21c.6-4 3.4-6 7.5-6s6.9 2 7.5 6"/></svg>';
+function lbGhost(cls){let a=document.createElement('span');a.className=cls;a.innerHTML=LB_GHOST;return a}
+function lbPlural(n,a,b,c){n=Math.abs(n)%100;let d=n%10;return n>10&&n<20?c:d===1?a:d>=2&&d<=4?b:c}
+function lbLeft(){if(!LBD.end)return'';let s=Math.max(0,Math.floor((LBD.end-Date.now())/1000)),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),x=s%60,p=n=>String(n).padStart(2,'0');return(d?d+' '+lbPlural(d,'день','дня','дней')+' и ':'')+p(h)+':'+p(m)+':'+p(x)}
+function lbTick(){let t=lbLeft();if($('lbClock'))$('lbClock').textContent=LBD.end?'Осталось '+t:'Сезон не начат';if($('lbiLeft')&&LBD.end)$('lbiLeft').textContent='Осталось '+t}
 function lbAmount(v){let s=document.createElement('span');s.className='lb-amt';s.innerHTML='<img src="'+TON+'" alt="">'+lbEsc(money(v));return s}
-function lbEmptyAva(){let a=document.createElement('span');a.className='lb-ava ghost';a.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="4"/><path d="M4.5 21c.6-4 3.4-6 7.5-6s6.9 2 7.5 6"/></svg>';return a}
-function lbRow(r,mine){let row=document.createElement('div');row.className='lb-row'+(r.empty?' lbfree':'')+(r.place&&r.place<=3&&!mine?' podium t'+r.place:'');let rank=document.createElement('span');rank.className='lb-rank';rank.textContent=r.place?'#'+r.place:'—';let name=document.createElement('div');name.className='lb-name';name.textContent=r.empty?'Свободное место':(mine?(r.name||'Вы')+' (вы)':r.name);if(mine&&!r.place){let sm=document.createElement('small');sm.textContent='Пока нет оборота';name.append(sm)}let end=document.createElement('div');end.className='lb-end';if(r.place>3&&r.rewards&&r.rewards.length){end.append(lbGift(r.rewards[0]));if(r.rewards.length>1){let more=document.createElement('span');more.className='lb-more';more.textContent='+'+(r.rewards.length-1);more.title=r.rewards.slice(1).map(p=>p.name).join(', ');end.append(more)}}if(!r.empty)end.append(lbAmount(r.turnover));row.append(rank,r.empty?lbEmptyAva():lbAvatar(r),name,end);if(!mine&&r.user_id&&!r.empty)row.onclick=()=>openPublicProfile(r.user_id);return row}
-function lbPanels(rewards){let box=$('lbPrizes');box.replaceChildren();let places=[1,2,3].filter(p=>rewards[p]&&rewards[p].length);box.classList.toggle('hidden',!places.length);places.forEach((p,i)=>{let items=rewards[p],wide=p===3||(places.length===1)||(places.length===2&&false);let card=document.createElement('div');card.className='lb-prize p'+p+(wide?' wide':'');let art=document.createElement('div');art.className='lb-prize-art'+(items.length>1?' multi':'');items.slice(0,4).forEach(g=>art.append(lbGift(g)));let info=document.createElement('div');info.className='lb-prize-info';let place=document.createElement('span');place.className='lb-prize-place';place.textContent=p+' место';let nm=document.createElement('b');nm.textContent=items.map(g=>g.name).join(' + ');let total=items.reduce((a,g)=>a+Number(g.price_ton||0),0);let sm=document.createElement('small');sm.textContent='≈ '+money(total)+' TON';info.append(nm,sm);if(wide){let left=document.createElement('div');left.append(art);let right=document.createElement('div');right.className='lb-prize-info';right.append(place,nm,sm);card.append(left,right)}else card.append(place,art,info);box.append(card)})}
-function lbRender(d){LBD.data=d;if(!d||!d.enabled){$('lbList').innerHTML='<div class="lb-empty">Лидерборд временно недоступен</div>';$('lbMe').classList.add('hidden');$('lbPrizes').classList.add('hidden');$('lbSub').textContent='';return}
- let live=!!d.period,rewards=d.rewards||{};lbPanels(rewards);let sub=$('lbSub');let end=live&&d.period.ends_at?new Date(String(d.period.ends_at).replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(d.period.ends_at)?'':'Z')):null;
- if(end&&!isNaN(end)){end=new Date(end.getTime()+10800000);let pad=n=>String(n).padStart(2,'0');let mon=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'][end.getUTCMonth()];sub.innerHTML='Итоги подведём <b>'+end.getUTCDate()+' '+mon+' в '+pad(end.getUTCHours())+':'+pad(end.getUTCMinutes())+' (МСК)</b>'}else sub.textContent=live?'':'Сезон ещё не начался';
- let list=$('lbList');list.replaceChildren();let frag=document.createDocumentFragment();for(let i=1;i<=100;i++){let r=(d.top||[]).find(x=>x.place===i);frag.append(lbRow(r||{place:i,empty:true,rewards:rewards[i]||[]},false))}list.append(frag);
+function lbRow(r,mine){let row=document.createElement('div');row.className='lb-row'+(r.empty?' lbfree':'');let rank=document.createElement('span');rank.className='lb-rank';rank.textContent=r.place?r.place:'—';let name=document.createElement('div');name.className='lb-name';let nm=document.createElement('span');nm.textContent=r.empty?'Свободное место':(mine?(r.name||'Вы')+' (вы)':r.name);name.append(nm);
+ if(!r.empty){let sm=document.createElement('small');sm.innerHTML='<img src="'+TON+'" alt="">'+lbEsc(money(r.turnover));name.append(sm)}
+ let end=document.createElement('div');end.className='lb-end';if(r.rewards&&r.rewards.length){end.append(lbGift(r.rewards[0]));if(r.rewards.length>1){let more=document.createElement('span');more.className='lb-more';more.textContent='+'+(r.rewards.length-1);more.title=r.rewards.slice(1).map(p=>p.name).join(', ');end.append(more)}}
+ row.append(rank,r.empty?lbGhost('lb-ava ghost'):lbAvatar(r),name,end);if(!mine&&r.user_id&&!r.empty)row.onclick=()=>openPublicProfile(r.user_id);return row}
+function lbPodium(top,rewards,live){let box=$('lbPodium');box.replaceChildren();[1,2,3].forEach(p=>{let r=(top||[]).find(x=>x.place===p),items=rewards[p]||[],free=!r;let col=document.createElement('div');col.className='lb-pc p'+p+(free?' free':'');
+  let who=document.createElement('div');who.className='lb-pc-who';let n=document.createElement('i');n.textContent=p;let nm=document.createElement('span');nm.textContent=free?'Свободно':r.name;who.append(n,nm);
+  let av=free?lbGhost('lb-pc-av'):lbAvatar(r,'lb-pc-av');
+  let ped=document.createElement('div');ped.className='lb-ped';ped.dataset.n=p;
+  if(items.length){ped.append(lbGift(items[0]));if(items.length>1){let m=document.createElement('span');m.className='lb-ped-more';m.textContent='+'+(items.length-1);m.title=items.slice(1).map(g=>g.name).join(', ');ped.append(m)}}
+  if(!free){let a=document.createElement('span');a.className='lb-ped-amt';a.innerHTML='<img src="'+TON+'" alt="">'+lbEsc(money(r.turnover));ped.append(a)}
+  col.append(av,who,ped);if(!free)col.onclick=()=>openPublicProfile(r.user_id);box.append(col)})}
+function lbIntroCards(rewards){let box=$('lbiCards');box.replaceChildren();Object.keys(rewards).map(Number).sort((a,b)=>a-b).forEach(p=>{let items=rewards[p];if(!items||!items.length)return;let g=items[0],c=document.createElement('div');c.className='lbi-c p'+Math.min(p,4);let h=document.createElement('b');h.innerHTML='<i>'+p+'</i>Место';let nm=document.createElement('span');nm.textContent=items.map(x=>x.name).join(' + ');let pr=document.createElement('small');pr.textContent='◆ '+money(items.reduce((a,x)=>a+Number(x.price_ton||0),0));c.append(h,lbGift(g),nm,pr);box.append(c)});box.classList.toggle('hidden',!box.childElementCount)}
+function lbIntroKey(pid){let u='x';try{u=(user&&user.id)||'x'}catch(e){}return'gd_lb_intro_v2_'+u+'_'+pid}
+function lbIntroOpen(){let d=LBD.data;if(!d||!d.period)return;$('lbiSeason').textContent='Сезон '+d.period.id;lbIntroCards(d.rewards||{});$('lbIntro').classList.remove('hidden');$('lbIntro').querySelector('.lbi-card').scrollTop=0;lbTick()}
+function lbIntroMaybe(){let d=LBD.data;if(!d||!d.enabled||!d.period)return;let k=lbIntroKey(d.period.id);try{if(localStorage.getItem(k))return;localStorage.setItem(k,'1')}catch(e){return}if(document.querySelector('.modal:not(.hidden)'))return;lbIntroOpen()}
+function lbRender(d){LBD.data=d;if(!d||!d.enabled){$('lbList').innerHTML='<div class="lb-empty">Лидерборд временно недоступен</div>';$('lbMe').classList.add('hidden');$('lbPodium').replaceChildren();LBD.end=0;lbTick();return}
+ let live=!!d.period,rewards=d.rewards||{};let e=live&&d.period.ends_at?new Date(String(d.period.ends_at).replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(d.period.ends_at)?'':'Z')):null;LBD.end=e&&!isNaN(e)?e.getTime():0;lbTick();
+ $('lbSub').textContent=live?'Играйте в любые игры — призы получают лучшие по обороту за сезон':'Сезон ещё не начался. Следите за анонсами!';
+ lbPodium(d.top||[],rewards,live);
+ let list=$('lbList');list.replaceChildren();let frag=document.createDocumentFragment();for(let i=4;i<=100;i++){let r=(d.top||[]).find(x=>x.place===i);frag.append(lbRow(r?Object.assign({},r,{rewards:rewards[i]||[]}):{place:i,empty:true,rewards:rewards[i]||[]},false))}list.append(frag);
  let me=$('lbMe');me.replaceChildren();me.classList.toggle('hidden',!live);if(live)me.append(lbRow(Object.assign({},d.me),true))}
-async function lbLoad(){if(LBD.busy)return;LBD.busy=true;try{lbRender(await api('/api/leaderboard/weekly'))}catch(e){if(!LBD.data)$('lbList').innerHTML='<div class="lb-empty">'+lbEsc(e.message||'Не удалось загрузить')+'</div>'}finally{LBD.busy=false}}
-function lbEnter(){lbLoad();clearInterval(LBD.timer);LBD.timer=setInterval(()=>{if(!document.hidden)lbLoad()},20000)}
-function lbLeave(){clearInterval(LBD.timer);LBD.timer=0}
+async function lbLoad(){if(LBD.busy)return;LBD.busy=true;try{lbRender(await api('/api/leaderboard/weekly'));lbIntroMaybe()}catch(e){if(!LBD.data)$('lbList').innerHTML='<div class="lb-empty">'+lbEsc(e.message||'Не удалось загрузить')+'</div>'}finally{LBD.busy=false}}
+function lbEnter(){lbLoad();clearInterval(LBD.timer);clearInterval(LBD.tick);LBD.timer=setInterval(()=>{if(!document.hidden)lbLoad()},20000);LBD.tick=setInterval(lbTick,1000)}
+function lbLeave(){clearInterval(LBD.timer);clearInterval(LBD.tick);LBD.timer=LBD.tick=0;let m=$('lbIntro');if(m)m.classList.add('hidden')}
+document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#lbPill'))lbIntroOpen();else if(e.target.id==='lbIntro'||e.target.closest&&e.target.closest('#lbIntroClose'))$('lbIntro').classList.add('hidden');else if(e.target.closest&&e.target.closest('#lbiGo')){$('lbIntro').classList.add('hidden');show('gamesPage')}});
 </script>
 <script id="gift-anim-v1">
 /* Анимации подарков: Lottie/TGS по наведению, в окне подарка и в центре апгрейда. Без анимации остаётся обычная картинка. */

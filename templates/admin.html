@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff"><title>GemDrop — управление</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script><script>(function(){var r=document.documentElement;function ap(){var t=0,tg=window.Telegram&&Telegram.WebApp;try{var p=String(tg&&tg.platform||'').toLowerCase(),mob=/^(android|android_x|ios)$/.test(p);if(mob){var sa=tg.safeAreaInset||{},ca=tg.contentSafeAreaInset||{},cs=getComputedStyle(r),cv=function(n){return parseFloat(cs.getPropertyValue(n))||0};t=Number(sa.top||0)+Number(ca.top||0)||(cv('--tg-safe-area-inset-top')+cv('--tg-content-safe-area-inset-top'));if(tg.isFullscreen&&t<24)t=Math.max(t,44);if(!tg.isFullscreen)t=0}}catch(e){}r.style.setProperty('--safe-top',Math.max(0,t)+'px')}ap();addEventListener('load',ap);try{['safeAreaChanged','contentSafeAreaChanged','fullscreenChanged','viewportChanged'].forEach(function(e){Telegram.WebApp.onEvent(e,ap)});Telegram.WebApp.ready&&Telegram.WebApp.ready()}catch(e){}})()</script>
-<link rel="stylesheet" href="/static/css/admin.css?v=20261015c">
-<script src="/static/js/admin-kit.js?v=20261015c" defer></script>
-<script src="/static/js/admin-charts.js?v=20261015c" defer></script>
-<script src="/static/js/admin-user-controls.js?v=20261015c" defer></script>
-<script src="/static/js/admin-inspector.js?v=20261015c" defer></script>
-{% for script in tool_scripts %}<script src="/static/js/tools/{{ script }}?v=20261015c" defer></script>
-{% endfor %}<script src="/static/js/admin.js?v=20261015c" defer></script><script>try{var t=localStorage.getItem('adminTheme');if(!t&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+<link rel="stylesheet" href="/static/css/admin.css?v=20261015d">
+<script src="/static/js/admin-kit.js?v=20261015d" defer></script>
+<script src="/static/js/admin-charts.js?v=20261015d" defer></script>
+<script src="/static/js/admin-user-controls.js?v=20261015d" defer></script>
+<script src="/static/js/admin-inspector.js?v=20261015d" defer></script>
+{% for script in tool_scripts %}<script src="/static/js/tools/{{ script }}?v=20261015d" defer></script>
+{% endfor %}<script src="/static/js/admin.js?v=20261015d" defer></script><script>try{var t=localStorage.getItem('adminTheme');if(!t&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
 </head>
 <body>
 <header><button id="menuToggle" aria-label="Открыть меню" aria-expanded="false">☰</button><a class="brand" href="/admin">GemDrop <span>admin</span></a>
@@ -16,7 +16,7 @@
 <button id="menuShade" class="shade" aria-label="Закрыть меню" hidden></button>
 <aside id="sidebar"><div class="sidebar-head"><strong>Управление</strong><button id="menuClose" aria-label="Закрыть меню">×</button></div>
 <nav id="navigation" aria-label="Разделы панели"></nav>
-<div class="sidebar-bottom"><a href="/">← Вернуться в приложение</a><button id="logout">Выйти из аккаунта</button></div></aside>
+<div class="sidebar-bottom"><a href="/">← Вернуться в приложение</a><button id="adminEntryToggle" type="button" title="Кнопка «Админ-панель» на странице профиля в приложении">Скрыть админ-панель в профиле</button><button id="logout">Выйти из аккаунта</button></div></aside>
 <main id="main" tabindex="-1">
 
 <section id="dashboard" data-view>
@@ -76,4 +76,7 @@
 <dialog id="procurementDialog"><div class="heading"><h2>Закупка NFT без Partner token</h2><button data-close aria-label="Закрыть закупку">×</button></div><div id="procurementDetails"></div><ol id="procurementSteps"></ol><div class="filters"><a id="portalOpen" class="button primary" target="_blank" rel="noopener">Открыть Portal</a><button id="copyTraits">Скопировать коллекцию и модель</button><button id="retryDelivery">Повторить доставку</button></div><p class="muted">Заявка остаётся ожидающей до подтверждения передачи. Повторная доставка не списывает комиссию ещё раз.</p></dialog>
 <div id="message" role="status" hidden></div>
 <script>(function(){var b=document.getElementById('themeToggle');if(!b)return;function paint(){b.textContent=document.documentElement.dataset.theme==='dark'?'☀':'☾'}paint();b.onclick=function(){var d=document.documentElement.dataset.theme==='dark';if(d)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme='dark';try{localStorage.setItem('adminTheme',d?'light':'dark')}catch(e){}paint()}})();</script>
+<script>(function(){var b=document.getElementById('adminEntryToggle');if(!b)return;var vis=true;function paint(){b.textContent=vis?'Скрыть админ-панель в профиле':'Показать админ-панель в профиле'}
+fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){vis=!(d&&d.user&&d.user.admin_button_visible===false);paint()}).catch(function(){});
+b.onclick=function(){b.disabled=true;fetch('/api/admin/display',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({visible:!vis})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){vis=!vis;paint();if(window.AdminKit)AdminKit.ok(vis?'Кнопка админ-панели снова видна в профиле':'Кнопка скрыта. Админка открывается по ссылке /admin или пополнением на 777')}}).finally(function(){b.disabled=false})}})()</script>
 </body></html>

@@ -157,6 +157,26 @@ def hydrate(db, records, ns):
     return items
 
 
+def period_breakdown(db, ns, stamp):
+    """Per-game totals and the number of distinct players for the same ordinary-game scope as period_insights."""
+    ledger=game_ledger(ns)
+    rows=db.execute(f'''SELECT game,COALESCE(SUM(stake),0) AS stake,COALESCE(SUM(payout),0) AS payout,
+                         COUNT(*) AS count,COUNT(DISTINCT user_id) AS players
+                         FROM ({ledger}) games WHERE eligible=1 AND REPLACE(SUBSTR(date,1,19),'T',' ')>=? GROUP BY game''',(stamp,)).fetchall()
+    unique=db.execute(f'''SELECT COUNT(DISTINCT user_id) AS players FROM ({ledger}) games
+                          WHERE eligible=1 AND REPLACE(SUBSTR(date,1,19),'T',' ')>=?''',(stamp,)).fetchone()
+    merged={}
+    for r in rows:
+        item=merged.setdefault(r['game'],dict(game=r['game'],label=GAME_LABELS.get(r['game'],r['game']),stake=0,payout=0,count=0,players=0))
+        item['stake']+=int(r['stake'] or 0);item['payout']+=int(r['payout'] or 0);item['count']+=int(r['count'] or 0);item['players']=max(item['players'],int(r['players'] or 0))
+    games=[]
+    for item in sorted(merged.values(),key=lambda x:x['stake'],reverse=True):
+        stake=item['stake'];payout=item['payout']
+        games.append(dict(game=item['game'],label=item['label'],stake=stake/100,payout=payout/100,ggr=(stake-payout)/100,
+                          rtp=round(payout*100/stake,2) if stake>0 else None,count=item['count'],players=item['players']))
+    return games,int(unique['players'] or 0)
+
+
 def period_insights(db, ns, stamp):
     day="SUBSTR(REPLACE(date,'T',' '),1,10)"
     ledger=game_ledger(ns)

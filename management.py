@@ -231,10 +231,14 @@ def register(app, ns):
             out['webhook_url'] = base+'/api/cryptobot/webhook/'+secret
         return out
 
+    def tool_scripts():
+        folder = Path(ns['BASE'])/'static'/'js'/'tools'
+        return sorted(p.name for p in folder.glob('*.js')) if folder.is_dir() else []
+
     @app.get('/admin')
     @admin
     def operator_console():
-        response = Response(render_template('admin.html'), mimetype='text/html')
+        response = Response(render_template('admin.html', tool_scripts=tool_scripts()), mimetype='text/html')
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return response
@@ -277,6 +281,9 @@ def register(app, ns):
             grants = db.execute('''SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS count FROM deposits
                     WHERE admin_id<>0 AND REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?''', (stamp,)).fetchone()
             gaming,registrations=operator_insights.period_insights(db,ns,stamp)
+            games_breakdown,unique_players=operator_insights.period_breakdown(db,ns,stamp)
+            unique_depositors=int(db.execute(f'''SELECT COUNT(DISTINCT user_id) AS count FROM {ledger}
+                                 WHERE REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?''',(stamp,)).fetchone()['count'] or 0)
             funded=db.execute(f'''SELECT SUBSTR(REPLACE(created_at,'T',' '),1,10) AS day,COUNT(DISTINCT user_id) AS count
                                  FROM {ledger} WHERE REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?
                                  GROUP BY SUBSTR(REPLACE(created_at,'T',' '),1,10)''',(stamp,)).fetchall()
@@ -293,7 +300,7 @@ def register(app, ns):
                                depositors=depositors.get(day,0),stake=int(game.get('stake') or 0)/100,
                                payout=int(game.get('payout') or 0)/100,game_count=int(game.get('count') or 0),
                                active_players=int(game.get('players') or 0)))
-        return jsonify(days=days, timezone='UTC', series=series,
+        return jsonify(days=days, timezone='UTC', series=series, games=games_breakdown,
                        methods=[dict(method=r['method'], total=int(r['total'] or 0)/100,count=int(r['count'])) for r in split],
                        totals=dict(deposits=sum(r['deposits'] for r in series),withdrawals=sum(r['withdrawals'] for r in series),
                                    deposit_count=sum(r['deposit_count'] for r in series),withdrawal_count=sum(r['withdrawal_count'] for r in series),
@@ -301,7 +308,8 @@ def register(app, ns):
                                    pending_count=int(pending['count']),pending_value=int(pending['total'])/100,
                                    admin_grants=int(grants['total'])/100,stake=sum(r['stake'] for r in series),
                                    payout=sum(r['payout'] for r in series),game_count=sum(r['game_count'] for r in series),
-                                   new_users=sum(r['new_users'] for r in series)))
+                                   new_users=sum(r['new_users'] for r in series),
+                                   active_players=unique_players,depositors=unique_depositors))
 
     def page_args():
         return max(0, request.args.get('offset', 0, type=int) or 0), max(1, min(100, request.args.get('limit', 50, type=int) or 50))
@@ -320,7 +328,7 @@ def register(app, ns):
             count = db.execute('SELECT COUNT(*) AS count FROM users u WHERE '+where,tuple(params)).fetchone()['count']
             rows = db.execute(f'''WITH selected_players AS (
                    SELECT u.* FROM users u WHERE {where} ORDER BY u.id DESC LIMIT ? OFFSET ?
-                   ) SELECT u.id,u.name,u.username,u.balance,u.bonus_balance,u.banned,
+                   ) SELECT u.id,u.name,u.username,u.created_at,u.balance,u.bonus_balance,u.banned,
                    u.withdrawal_enabled,u.withdrawal_block_reason,u.withdrawal_wager_required,
                    u.withdrawal_wager_progress,u.stars_withdrawal_until,u.withdrawal_min_deposit_override,
                    COALESCE(p.total,0) AS deposits

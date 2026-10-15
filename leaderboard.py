@@ -292,9 +292,12 @@ def register(app, ns):
     error = ns['error']
     from flask import jsonify, request, session
 
-    with connect() as db:
-        for statement in [s.strip() for s in SCHEMA.split(';') if s.strip()]:
-            db.execute(statement)
+    try:
+        with connect() as db:
+            # executescript translates AUTOINCREMENT/INTEGER for PostgreSQL; a failure must never stop the app booting.
+            db.executescript(SCHEMA)
+    except Exception:
+        app.logger.exception('Leaderboard schema setup failed')
 
     def period_view(db, period):
         if not period:

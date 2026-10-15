@@ -17931,6 +17931,11 @@ def admin_create_freebet():
         db.commit()
     finally:
         db.close()
+    _mk = str(data.get('medal') or '').strip()
+    if _mk and _mk in leaderboard.all_names():
+        _links = leaderboard.promo_medals()
+        _links[code] = dict(medal=_mk, title='Freebet ' + code)
+        save_document(leaderboard.PROMO_MEDAL_DOC, dict(codes=_links))
     return jsonify(ok=True,code=code,link=freebet_link(code))
 
 
@@ -19177,7 +19182,7 @@ def admin_creators():
                 id=int(user['id']), name=user['name'], username=user['username'] or '',
                 photo_url=user['photo_url'] or '', demo_enabled=bool(record.get('demo_enabled')),
                 creator_level=creator_level_key(record.get('creator_level')),
-                creator_level_info=creator_level_public(record.get('creator_level')),
+                creator_level_info=creator_level_public(record.get('creator_level')), medal_keys=list(record.get('medal_keys') or []),
                 panel_hidden=bool(record.get('panel_hidden')),
                 youtube_title=str((record.get('youtube') or {}).get('title') or ''),
                 demo_balance=max(0, int(record.get('demo_balance_cents') or 0))/100,

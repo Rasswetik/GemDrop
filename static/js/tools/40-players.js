@@ -15,8 +15,9 @@
       const c = options ? K.select(options, value ?? options[0][0], {onchange: e => set(e.target.value)}) : type === 'number' ? K.number(value ?? '', {min: 0, step: '0.01', oninput: e => set(e.target.value)}) : K.input({value: value ?? '', oninput: e => set(e.target.value)});
       parent.append(K.field(label, c)); return c;
     };
+    const gfld = (parent, label, o) => { const g = K.giftSelect(gifts, o.gift_id || gifts[0]?.id || '', v => o.gift_id = v); if (!o.gift_id) o.gift_id = g.select.value; parent.append(K.field(label, g.node)); };
     const giftFields = (parent, o, wager) => {
-      fld(parent, 'Подарок из Portal', o.gift_id || gifts[0]?.id || '', v => o.gift_id = v, 'text', giftOpts());
+      gfld(parent, 'Подарок из Portal', o);
       if (wager) { fld(parent, 'Отыгрыш X', o.wager_multiplier || 25, v => o.wager_multiplier = v, 'number'); fld(parent, 'Сгорание подарка, дней · 0 = выключено', o.gift_expires_days || 0, v => o.gift_expires_days = v, 'number'); }
     };
     const multi = (parent, r) => {

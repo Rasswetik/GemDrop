@@ -6,9 +6,8 @@
   /* Редактор набора наград (мультипромокод) */
   function bundleEditor(gifts, state) {
     const box = h('div', {class: 'stack'});
-    const paid = gifts.filter(g => Number(g.price_ton) > 0), giftSel = (item) => {
-      const s = K.select(paid.map(g => [String(g.id), `${g.name} · ${K.money(g.price_ton)} TON`]), item.gift_id || '', {onchange: e => item.gift_id = e.target.value});
-      item.gift_id = s.value; return s;
+    const paid = gifts.filter(g => Number(g.price_ton) > 0), giftSel = item => {
+      const g = K.giftSelect(paid, item.gift_id || '', v => item.gift_id = v); if (!item.gift_id) item.gift_id = g.select.value; return g.node;
     };
     const num = (item, key, props) => K.number(item[key] ?? '', {...props, oninput: e => item[key] = e.target.value});
     function paint() {
@@ -36,7 +35,7 @@
     /* ----- создание ----- */
     const code = K.input({maxLength: 40, placeholder: 'Оставьте пустым — код создастся сам'}), type = K.select(REW, 'balance'), target = K.select([['main', 'Основной баланс'], ['bonus', 'Бонусный баланс']], 'main');
     const amount = K.number(1, {min: '.01', step: '.01'}), tickets = K.number(10, {min: 1, step: 1}), pumpkins = K.number(100, {min: 1, step: 1});
-    const gift = K.giftPicker('', {label: 'Подарок'}), wX = K.number(25, {min: 1, max: 1000}), wExp = K.check('Подарок сгорает через N дней', false), wDays = K.number(7, {min: 1, max: 3650});
+    const gift = K.giftPicker('', {label: 'Подарок', models: true}), wX = K.number(25, {min: 1, max: 1000}), wExp = K.check('Подарок сгорает через N дней', false), wDays = K.number(7, {min: 1, max: 3650});
     const pct = K.number('', {min: 0, max: 100, step: '.1'}), fixed = K.number('', {min: 0, step: '.01'}), minDep = K.number(0, {min: 0, step: '.01'});
     const bundleState = [{type: 'gift', quantity: 1}], bundle = bundleEditor(gifts, bundleState);
     const desc = K.input({placeholder: 'Для чего создан промокод (видно администраторам)'}), srcLabel = K.input({placeholder: 'Администрация'});
@@ -87,7 +86,7 @@
           K.field('Награда', K.select([['balance', 'TON'], ['tickets', 'Билеты'], ['gift', 'Подарок'], ['wager_gift', 'Отыгрыш NFT']], o.reward_type, {onchange: e => { o.reward_type = e.target.value; paintOpts(); }})));
         if (o.reward_type === 'tickets') f.append(K.field('Билеты', K.number(o.tickets, {min: 0, step: 1, oninput: e => o.tickets = e.target.value})));
         else if (o.reward_type === 'balance') f.append(K.field('TON', K.number(o.amount, {min: 0, step: '.01', oninput: e => o.amount = e.target.value})));
-        else { const s = K.select(gifts.map(g => [String(g.id), `${g.name} · ${K.money(g.price_ton || 0)} TON`]), o.gift_id || gifts[0]?.id || '', {onchange: e => o.gift_id = e.target.value}); o.gift_id = s.value; f.append(K.field('Подарок', s));
+        else { const g = K.giftSelect(gifts, o.gift_id || gifts[0]?.id || '', v => o.gift_id = v); if (!o.gift_id) o.gift_id = g.select.value; f.append(K.field('Подарок', g.node));
           if (o.reward_type === 'wager_gift') f.append(K.field('Отыгрыш X', K.number(o.wager_multiplier, {min: 1, max: 1000, oninput: e => o.wager_multiplier = e.target.value})), K.field('Сгорает через, дней', K.number(o.gift_expires_days, {min: 0, max: 3650, oninput: e => o.gift_expires_days = e.target.value}))); }
         return h('div', {class: 'list-item', style: {flexDirection: 'column', alignItems: 'stretch'}}, f, h('div', null, h('button', {type: 'button', class: 'small danger', text: 'Убрать вариант', disabled: opts.length <= 2, onclick: () => { opts.splice(i, 1); paintOpts(); }})));
       }));

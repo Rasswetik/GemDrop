@@ -162,20 +162,56 @@
   let catalogPromise = null;
   K.catalog = (force = false) => { if (force || !catalogPromise) catalogPromise = K.api('/api/catalog').then(d => d.gifts || []).catch(e => { catalogPromise = null; throw e; }); return catalogPromise; };
   /* Searchable gift <select>. Returns {node, get value(), set value(v)}; selected id is kept even if filtered out. */
-  K.giftPicker = (initial, {label = 'Подарок', onchange, allowEmpty = false} = {}) => {
+
+  /* ---------- gift model refinement: value "<id>" or "<id>@m:<model>" ---------- */
+  const MSEP = '@m:', modelCache = new Map();
+  K.baseGiftId = v => String(v == null ? '' : v).split(MSEP)[0];
+  async function fetchModels(gid, tries = 0) {
+    const hit = modelCache.get(gid); if (hit) return hit;
+    const r = await fetch('/api/gifts/models?gift_id=' + encodeURIComponent(gid), {credentials: 'same-origin'}).then(x => x.ok ? x.json() : null).catch(() => null);
+    const list = (r && r.models) || [];
+    if (r && r.loading && !list.length && tries < 6) { await new Promise(z => setTimeout(z, 2200)); return fetchModels(gid, tries + 1); }
+    modelCache.set(gid, list); return list;
+  }
+  /* Wraps a gift <select>: adds an optional model <select> below it and makes sel.value return "<id>@m:<model>". Returns the wrapper node. */
+  K.modelize = (sel, initial) => {
+    const desc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value'), st = {base: desc.get.call(sel), model: '', pending: '', loaded: null};
+    const box = K.h('select', {title: 'Модель подарка', 'aria-label': 'Модель подарка', hidden: true});
+    Object.defineProperty(sel, 'value', {configurable: true,
+      get() { const b = desc.get.call(this); if (b !== st.base) { st.base = b; st.model = ''; st.pending = ''; } return st.model ? b + MSEP + st.model : b; },
+      set(v) { v = String(v == null ? '' : v); const i = v.indexOf(MSEP), b = i >= 0 ? v.slice(0, i) : v; st.pending = i >= 0 ? v.slice(i + MSEP.length) : ''; desc.set.call(this, b); if (b !== st.base) { st.base = b; st.model = ''; } load(); }});
+    async function load() {
+      const b = desc.get.call(sel); if (!b) { box.hidden = true; return; }
+      if (st.loaded === b) { if (st.pending) { st.model = st.pending; box.value = st.pending; st.pending = ''; } return; }
+      st.loaded = b; box.hidden = true; const list = await fetchModels(b); if (st.loaded !== b) return;
+      box.replaceChildren(new Option('Базовый подарок · без модели', ''), ...list.map(m => new Option(`${m.name} · ${Number(m.price_ton).toLocaleString('ru-RU', {maximumFractionDigits: 2})} TON`, m.name)));
+      box.hidden = !list.length; box.value = st.pending || st.model || ''; if (box.value !== (st.pending || st.model || '')) box.value = ''; st.model = box.value; st.pending = '';
+    }
+    box.onchange = () => { st.model = box.value; sel.dispatchEvent(new Event('change', {bubbles: true})); };
+    sel.addEventListener('change', () => load()); sel.addEventListener('modelsync', () => load());
+    if (initial != null && initial !== '') sel.value = initial; else load();
+    return K.h('div', {class: 'stack', style: {gap: '6px'}}, sel, box);
+  };
+  /* plain gift select with model refinement. Returns {node, select} */
+  K.giftSelect = (gifts, value, onchange, props = {}) => {
+    const sel = K.select(gifts.map(g => [String(g.id), `${g.name || 'Подарок'} · ${g.price_ton == null ? '?' : K.money(g.price_ton)} TON`]), K.baseGiftId(value), {'aria-label': 'Подарок', ...props});
+    const node = K.modelize(sel, value || sel.value); if (onchange) sel.addEventListener('change', () => onchange(sel.value)); return {node, select: sel};
+  };
+  K.giftPicker = (initial, {label = 'Подарок', onchange, allowEmpty = false, models = false} = {}) => {
     let gifts = [], value = initial ?? '';
     const search = K.input({type: 'search', placeholder: 'Поиск по названию', 'aria-label': 'Поиск подарка'}), select = K.h('select', {'aria-label': label});
     const fill = () => {
-      const q = search.value.trim().toLocaleLowerCase('ru'), list = gifts.filter(g => !q || String(g.name || '').toLocaleLowerCase('ru').includes(q) || String(g.id) === String(value));
+      const base = K.baseGiftId(value), q = search.value.trim().toLocaleLowerCase('ru'), list = gifts.filter(g => !q || String(g.name || '').toLocaleLowerCase('ru').includes(q) || String(g.id) === base);
       select.replaceChildren(...(allowEmpty ? [K.h('option', {value: '', text: '— не выбрано —'})] : []), ...list.slice(0, 400).map(g => K.h('option', {value: g.id, text: `${g.name || 'Подарок'} · ${g.price_ton == null ? '?' : K.money(g.price_ton)} TON`})));
-      if ([...select.options].some(o => o.value === String(value))) select.value = String(value);
+      if ([...select.options].some(o => o.value === base)) select.value = String(value);
       else if (!allowEmpty && select.options.length) { value = select.options[0].value; select.value = value; }
+      select.dispatchEvent(new Event('modelsync'));
     };
     search.addEventListener('input', fill);
     select.addEventListener('change', () => { value = select.value; onchange && onchange(value); });
     K.catalog().then(g => { gifts = g; fill(); }).catch(e => select.replaceChildren(K.h('option', {text: 'Каталог недоступен: ' + e.message})));
-    const node = K.h('div', {class: 'stack wide', style: {gap: '8px'}}, search, select);
-    return {node, select, get value() { return select.value || value; }, set value(v) { value = v ?? ''; fill(); }, get gift() { return gifts.find(g => String(g.id) === String(select.value || value)); }};
+    const node = K.h('div', {class: 'stack wide', style: {gap: '8px'}}, search, models ? K.modelize(select) : select);
+    return {node, select, get value() { return select.value || value; }, set value(v) { value = v ?? ''; fill(); }, get gift() { return gifts.find(g => String(g.id) === K.baseGiftId(select.value || value)); }};
   };
 
   /* ---------- tools registry ---------- */

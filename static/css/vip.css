@@ -89,3 +89,10 @@ body.vip-open{overflow:hidden}
 .rw-item:active img{animation:rwSpin .8s cubic-bezier(.3,.1,.2,1)}
 @keyframes rwSpin{0%{transform:rotateY(0) scale(1)}40%{transform:rotateY(180deg) scale(1.25) translateY(-3px)}100%{transform:rotateY(360deg) scale(1)}}
 @media(prefers-reduced-motion:reduce){.rw-track.loop{animation:none}.rw-item:hover img,.rw-item:active img{animation:none}}
+
+/* v4: no header bar, floating glass close button, hidden scrollbar */
+.vip-x{position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:5;width:40px;height:40px;border:1px solid rgba(255,255,255,.14);background:rgba(30,32,40,.55);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.vip-x:active{transform:scale(.9)}
+.vip-scroll{padding-top:calc(14px + env(safe-area-inset-top));scrollbar-width:none;-ms-overflow-style:none}
+.vip-scroll::-webkit-scrollbar{display:none;width:0;height:0}
+.vip-hero{padding-top:22px}

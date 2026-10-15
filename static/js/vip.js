@@ -46,7 +46,7 @@
     if(!state)return;var st=state.state,cur=st.index,t=state.tiers[cur],nx=st.next;
     $('vipHeroGem').innerHTML=gem(cur,52);
     $('vipHeroName').textContent=t.name;
-    $('vipHeroSub').textContent=st.reached?'Текущий VIP-статус':'Достигните '+t.name;
+    $('vipHeroSub').textContent=st.reached?'Текущий VIP-статус':'Достигните уровня '+t.name;
     var target=nx?nx.ton:t.ton;
     $('vipVals').innerHTML='<b>'+fmt(st.turnover)+'</b> / '+fmt(target)+' TON';
     $('vipNext').innerHTML=nx?'До уровня <span>'+gem(cur+1,18)+nx.name+'</span>':'<span>Максимальный уровень</span>';

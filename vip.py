@@ -16,25 +16,27 @@ MIN_FEED_CENTS = 50          # smaller wins are not worth a feed row (gifts alwa
 FEED_SIZE = 16
 FEED_KEEP = 400
 
-def _perks(tickets, bonus, extra=()):
-    out = ['Разовое задание: %s билетов' % tickets]
-    out.append(bonus)
-    out += ['Эксклюзивные промокоды', 'Спонтанные раздачи подарков']
-    out += list(extra)
-    return out
+def _tier(key, name, ton, tickets, bonus_ton):
+    return dict(key=key, name=name, ton=ton, tickets=tickets, bonus_ton=bonus_ton,
+                perks=['%s билетов' % format(tickets, ',').replace(',', ' '), '%s TON на бонусный баланс' % bonus_ton])
 
 
+# Rewards are real: claimed once per tier from the VIP window (tickets + bonus balance).
 VIP_TIERS = [
-    dict(key='iron', name='Quartz', ton=500, perks=_perks('500', 'Бонусный NFT Gift за достижение уровня')),
-    dict(key='bronze', name='Amber', ton=2500, perks=_perks('1 500', 'Бонус 5 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='silver', name='Opal', ton=10000, perks=_perks('5 000', 'Бонус 15 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='gold', name='Citrine', ton=30000, perks=_perks('15 000', 'Бонус 40 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши'])),
-    dict(key='platinum', name='Aquamarine', ton=100000, perks=_perks('50 000', 'Бонус 120 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер'])),
-    dict(key='diamond', name='Amethyst', ton=300000, perks=_perks('150 000', 'Бонус 400 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
-    dict(key='obsidian', name='Onyx', ton=1000000, perks=_perks('500 000', 'Бонус 1500 TON за достижение уровня', ['Эксклюзивные VIP-розыгрыши', 'Персональный VIP-менеджер', 'Бонусы от VIP-менеджера'])),
+    _tier('iron', 'Quartz', 500, 500, 2),
+    _tier('bronze', 'Amber', 2500, 1500, 5),
+    _tier('silver', 'Opal', 10000, 5000, 15),
+    _tier('gold', 'Citrine', 30000, 15000, 40),
+    _tier('platinum', 'Aquamarine', 100000, 50000, 120),
+    _tier('diamond', 'Amethyst', 300000, 150000, 400),
+    _tier('obsidian', 'Onyx', 1000000, 500000, 1500),
 ]
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS vip_claims (
+    user_id INTEGER NOT NULL, tier_key TEXT NOT NULL, reward_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, tier_key)
+);
 CREATE TABLE IF NOT EXISTS recent_wins (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game TEXT NOT NULL DEFAULT '',
     amount INTEGER NOT NULL DEFAULT 0, prize TEXT NOT NULL DEFAULT '', image TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -45,7 +47,7 @@ _ns = {}
 _img = {'at': 0.0, 'map': {}}
 
 
-def gift_image(name):
+def gift_image(name, db=None):
     """Picture of a catalog gift by its name (cached for a minute)."""
     import time
     if time.time() - _img['at'] > 60:
@@ -55,7 +57,14 @@ def gift_image(name):
         except Exception:
             _img['map'] = {}
         _img['at'] = time.time()
-    return _img['map'].get(str(name or '').strip().lower(), '')
+    found = _img['map'].get(str(name or '').strip().lower(), '')
+    if not found and db is not None and name:
+        try:
+            row = db.execute("SELECT image_url FROM inventory WHERE gift_name=? AND image_url<>'' ORDER BY id DESC LIMIT 1", (str(name),)).fetchone()
+            found = str(row['image_url'] or '') if row else ''
+        except Exception:
+            found = ''
+    return found
 
 
 def tier_state(turnover_cents):
@@ -85,7 +94,7 @@ def log_win(db, user_id, kind, amount, details=''):
     try:
         prize = str(details or '')[:80] if gift else ''
         db.execute('INSERT INTO recent_wins(user_id,game,amount,prize,image) VALUES(?,?,?,?,?)',
-                   (int(user_id), game, max(0, amount), prize, gift_image(prize) if prize else ''))
+                   (int(user_id), game, max(0, amount), prize, gift_image(prize, db) if prize else ''))
     except Exception:
         pass
 
@@ -108,21 +117,67 @@ def register(app, ns):
     except Exception:
         app.logger.exception('VIP schema setup failed')
 
+    def user_turnover(db, uid):
+        creator = ns['creator_record'](uid)
+        if creator.get('demo_enabled'):
+            return int(creator.get('demo_turnover_cents') or 0), True
+        row = db.execute('SELECT turnover_cents FROM users WHERE id=?', (uid,)).fetchone()
+        return (int(row['turnover_cents'] or 0) if row else 0), False
+
     @app.get('/api/vip')
     @login
     def vip_state_api():
         uid = session['uid']
-        creator = ns['creator_record'](uid)
-        if creator.get('demo_enabled'):
-            cents = int(creator.get('demo_turnover_cents') or 0)
-        else:
-            with connect() as db:
-                row = db.execute('SELECT turnover_cents FROM users WHERE id=?', (uid,)).fetchone()
-            cents = int(row['turnover_cents'] or 0) if row else 0
+        with connect() as db:
+            cents, demo = user_turnover(db, uid)
+            claimed = {r['tier_key'] for r in db.execute('SELECT tier_key FROM vip_claims WHERE user_id=?', (uid,)).fetchall()}
         state = tier_state(cents)
-        tiers = [dict(key=t['key'], name=t['name'], ton=t['ton'], perks=t['perks'], unlocked=state['reached'] and i <= state['index'])
-                 for i, t in enumerate(VIP_TIERS)]
-        return jsonify(ok=True, state=state, tiers=tiers)
+        tiers = []
+        for i, t in enumerate(VIP_TIERS):
+            unlocked = state['reached'] and i <= state['index']
+            tiers.append(dict(key=t['key'], name=t['name'], ton=t['ton'], perks=t['perks'], tickets=t['tickets'], bonus_ton=t['bonus_ton'],
+                              unlocked=unlocked, claimed=t['key'] in claimed, claimable=bool(unlocked and t['key'] not in claimed and not demo)))
+        return jsonify(ok=True, state=state, tiers=tiers, pending=sum(1 for t in tiers if t['claimable']))
+
+    @app.post('/api/vip/claim')
+    @login
+    def vip_claim():
+        from flask import request
+        uid = session['uid']
+        key = str((request.get_json(silent=True) or {}).get('tier') or '')
+        tier = next((t for t in VIP_TIERS if t['key'] == key), None)
+        if not tier:
+            return ns['error']('Уровень не найден.', 404)
+        if ns['creator_demo_active'](uid):
+            return ns['error']('В демо-режиме награды недоступны.', 409)
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT turnover_cents FROM users WHERE id=?' + (' FOR UPDATE' if ns['DATABASE_URL'] else ''), (uid,)).fetchone()
+            if not row:
+                db.rollback()
+                return ns['error']('Пользователь не найден.', 404)
+            if int(row['turnover_cents'] or 0) < tier['ton'] * 100:
+                db.rollback()
+                return ns['error']('Достигните уровня, чтобы получить награду.', 403)
+            if db.execute('SELECT 1 FROM vip_claims WHERE user_id=? AND tier_key=?', (uid, key)).fetchone():
+                db.rollback()
+                return ns['error']('Награда уже получена.', 409)
+            bonus = int(tier['bonus_ton']) * 100
+            db.execute('UPDATE users SET tickets=tickets+?, bonus_balance=bonus_balance+? WHERE id=?', (tier['tickets'], bonus, uid))
+            ns['record_tickets'](db, uid, tier['tickets'], 'vip', 'vip', key, 'VIP-уровень ' + tier['name'])
+            ns['record_transaction'](db, uid, 'vip_bonus', bonus, 'vip', key, 'VIP-уровень ' + tier['name'])
+            result = dict(tier=key, name=tier['name'], tickets=tier['tickets'], bonus_ton=tier['bonus_ton'])
+            db.execute('INSERT INTO vip_claims(user_id,tier_key,reward_json) VALUES(?,?,?)', (uid, key, ns['json'].dumps(result, ensure_ascii=False)))
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('VIP claim failed')
+            return ns['error']('Не удалось получить награду. Попробуйте ещё раз.', 500)
+        finally:
+            db.close()
+        return jsonify(ok=True, reward=result, user=ns['profile'](),
+                       message='+%d билетов и +%d TON на бонусный баланс' % (tier['tickets'], tier['bonus_ton']))
 
     @app.get('/api/recent-wins')
     @login

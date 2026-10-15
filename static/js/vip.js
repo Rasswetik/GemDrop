@@ -49,7 +49,7 @@
   function tonIcon(){return '<img class="vip-ton" src="/static/img/ton.png" alt="">'}
   function paintBadges(){
     if(!state)return;var i=state.state.index,html=gem(i,26);
-    document.querySelectorAll('.vip-badge-btn').forEach(function(b){b.innerHTML=html;b.title='VIP: '+state.tiers[i].name});
+    document.querySelectorAll('.vip-badge-btn').forEach(function(b){b.innerHTML=html;b.title='VIP: '+state.tiers[i].name;b.classList.toggle('dot',(state.pending||0)>0)});
     var c=$('vipProfileCard');if(c){var st=state.state,t=state.tiers[i];
       c.querySelector('.vpc-ico').innerHTML=gem(i,44);
       c.querySelector('.vpc-name').textContent=t.name;
@@ -72,11 +72,24 @@
       var open=i===cur,el=document.createElement('div');
       el.className='vip-tier'+(x.unlocked?' on':' locked')+(i===cur?' cur':'')+(open?' open':'');
       var lock=x.unlocked?'':'<svg class="vt-lock" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"/></svg>';
-      el.innerHTML='<button type="button" class="vt-head"><span class="vt-gem">'+gem(i,46)+'</span><span class="vt-txt"><b>'+x.name+lock+'</b><small>'+tonIcon()+fmt(x.ton)+' TON</small></span>'+(i===cur?'<span class="vt-now">Текущий</span>':'')+'<svg class="vt-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="vt-body"><ul>'+x.perks.map(function(p){return '<li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>'+p+'</li>'}).join('')+'</ul></div>';
+      var tag=x.claimable?'<span class="vt-ready">Награда</span>':(x.claimed?'<span class="vt-got">Получено</span>':(i===cur?'<span class="vt-now">Текущий</span>':''));
+      el.innerHTML='<button type="button" class="vt-head"><span class="vt-gem">'+gem(i,46)+'</span><span class="vt-txt"><b>'+x.name+lock+'</b><small>'+tonIcon()+fmt(x.ton)+' TON</small></span>'+tag+'<svg class="vt-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="vt-body"><div><ul>'+x.perks.map(function(p){return '<li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>'+p+'</li>'}).join('')+'</ul>'+(x.claimable?'<div class="vt-actions"><button type="button" class="vt-claim">Забрать награду</button></div>':'')+'</div></div>';
+      if(x.claimable)el.classList.add('open');
+      var cb=el.querySelector('.vt-claim');if(cb)cb.onclick=function(e){e.stopPropagation();claim(x,cb)};
       el.querySelector('.vt-head').onclick=function(){el.classList.toggle('open');try{window.haptic&&haptic('light')}catch(e){}};
       list.append(el);
     });
     paintBadges();
+  }
+  async function claim(x,btn){
+    btn.disabled=true;
+    try{
+      var d=await api('/api/vip/claim',{method:'POST',body:JSON.stringify({tier:x.key})});
+      try{window.haptic&&haptic('success')}catch(e){}
+      try{if(d.user)setUser(d.user)}catch(e){}
+      try{toast(d.message||'Награда получена')}catch(e){}
+      await load(true);
+    }catch(e){btn.disabled=false;try{toast(e.message||'Не удалось получить награду')}catch(_){}}
   }
   function load(force){
     if(loading)return loading;

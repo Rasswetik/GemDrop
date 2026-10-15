@@ -22912,7 +22912,9 @@ def portal_get_collections(session_http, key, params):
 
 
 def portal_get_collection_filters(session_http, key, names, deadline=None):
-    """Best-effort background floors. Never let this optional request freeze Portal import."""
+    """Best-effort background floors (Black / Onyx Black). Never let this optional request freeze Portal import.
+
+    Names are requested in chunks of 40 so every collection of a page gets its background quotes, not just the first 40."""
     short_names = []
     seen_names = set()
     for name in names:
@@ -22920,11 +22922,13 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
         if short and short not in seen_names:
             seen_names.add(short)
             short_names.append(short)
-        if len(short_names) >= 40:
-            # Keep the URL short and the Portal filters endpoint responsive. The
-            # main collection page is still imported fully even if backgrounds are
-            # only discovered for part of the page.
-            break
+    result = {}
+    for start in range(0, len(short_names), 40):
+        result.update(_portal_filters_chunk(session_http, key, short_names[start:start + 40], deadline))
+    return result
+
+
+def _portal_filters_chunk(session_http, key, short_names, deadline=None):
     if not short_names:
         return {}
     if deadline is not None and time.monotonic() > deadline - 4:
@@ -22944,18 +22948,13 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
             response.raise_for_status()
             payload = response.json()
         except (requests.RequestException, ValueError):
-            # Filters are optional: if Portal does not answer, continue with the
-            # ordinary gifts and any background data embedded into collections.
             return {}
         if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
             payload = payload['data']
         floors = payload.get('collections', payload.get('floor_prices', payload.get('floorPrices', payload))) if isinstance(payload, dict) else {}
         if not isinstance(floors, dict):
             return {}
-        result = {}
-        for key_name, value in floors.items():
-            result[portal_short_name(key_name)] = value
-        return result
+        return {portal_short_name(k): v for k, v in floors.items()}
     return {}
 
 

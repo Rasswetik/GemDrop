@@ -75,13 +75,14 @@
       el.className='vip-tier'+(x.unlocked?' on':' locked')+(i===cur?' cur':'')+(open?' open':'');
       var lock=x.unlocked?'':'<svg class="vt-lock" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"/></svg>';
       var tag=x.claimed?'<span class="vt-got">Получено</span>':(i===cur?'<span class="vt-now">Текущий</span>':'');
-      var rw=x.reward&&x.reward.gift?'<div class="vt-gift"><img src="'+esc(x.reward.gift.image_url)+'" alt=""><span><small>Ваш подарок</small><b>'+esc(x.reward.gift.name)+'</b></span><em>'+tonIcon()+fmt(x.reward.gift.price)+'</em></div>':'';
+      var rw=x.reward&&x.reward.gift?'<div class="vt-gift"><span class="vg-tile '+bgc(x.reward.gift.background)+'"><img src="'+esc(x.reward.gift.image_url)+'" alt=""></span><span><small>Ваш подарок</small><b>'+esc(x.reward.gift.name)+'</b></span><em>'+tonIcon()+fmt(x.reward.gift.price)+'</em></div>':'';
       el.innerHTML='<button type="button" class="vt-head"><span class="vt-gem">'+gem(i,46)+'</span><span class="vt-txt"><b>'+x.name+lock+'</b><small>'+tonIcon()+fmt(x.ton)+' TON</small></span>'+tag+'<svg class="vt-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><div class="vt-body"><div><ul>'+x.perks.map(function(p){return '<li><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>'+p+'</li>'}).join('')+'</ul>'+rw+'</div></div>';
       el.querySelector('.vt-head').onclick=function(){el.classList.toggle('open');try{window.haptic&&haptic('light')}catch(e){}};
       list.append(el);
     });
     paintBadges();paintPlaybonus();
   }
+  function bgc(b){return b==='Black'?'bg-black':b==='Onyx Black'?'bg-onyx':''}
   function esc(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function paintPlaybonus(){
     var p=state&&state.playbonus,c=$('vipPb');if(!p||!c)return;
@@ -120,7 +121,7 @@
       var r=q.shift();if(!r){showing=false;return}
       var i=Math.max(0,KEYS.indexOf(r.tier));
       var o=document.createElement('div');o.className='vip-pop vip-reward';
-      var g=r.gift?'<div class="vr-gift"><img src="'+esc(r.gift.image_url)+'" alt=""><b>'+esc(r.gift.name)+'</b><small>'+tonIcon()+fmt(r.gift.price)+' TON</small></div>':'';
+      var g=r.gift?'<div class="vr-gift"><span class="vg-tile '+bgc(r.gift.background)+'"><img src="'+esc(r.gift.image_url)+'" alt=""></span><b>'+esc(r.gift.name)+'</b><small>'+tonIcon()+fmt(r.gift.price)+' TON</small></div>':'';
       var TK='<svg class="vr-tk" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4Z" fill="#ffd75e" stroke="#a8741a" stroke-width="1.2"/><path d="M14 7v10" stroke="#a8741a" stroke-width="1.4" stroke-dasharray="2 2"/></svg>';
       var chips='<div class="vr-chips"><span>'+TK+'+'+fmt(r.tickets)+' билетов</span>'+(r.balance?'<span>'+tonIcon()+'+'+fmt(r.balance)+' TON на баланс</span>':'')+'</div>';
       var pb=r.playbonus_unlocked?'<div class="vr-pb">Открыт <b>PLAYBONUS</b> — кэшбэк с проигрышей теперь можно забирать на основной баланс</div>':'';

@@ -126,13 +126,19 @@ def log_win(db, user_id, kind, amount, details=''):
         pass
 
 
+def _catalog_gifts():
+    """Gifts with a verified Portal price. Black / Onyx Black variants appear only when they have a real
+    Portal background quote and the site switch for these backgrounds is on (read_catalog already enforces both)."""
+    try:
+        return [g for g in _ns['read_catalog']().get('gifts', []) if float(g.get('price_ton') or 0) > 0]
+    except Exception:
+        return []
+
+
 def pick_gift(db, tier, seed):
     """A random catalog gift priced inside the tier's range (closest one when nothing fits)."""
     import random
-    try:
-        gifts = [g for g in (_ns['read_document']('portal_catalog') or {}).get('gifts', []) if float(g.get('price_ton') or 0) > 0]
-    except Exception:
-        gifts = []
+    gifts = _catalog_gifts()
     if not gifts:
         return None
     pool = [g for g in gifts if tier['gift_min'] <= float(g['price_ton']) <= tier['gift_max']]
@@ -163,9 +169,12 @@ def grant_due(db, user_id, turnover_cents):
         g = pick_gift(db, t, '') if t['gift'] else None
         if g:
             cents = int(round(float(g['price_ton']) * 100))
-            db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source) VALUES(?,?,?,?,?,'vip')",
-                       (int(user_id), str(g.get('id') or ''), str(g.get('name') or ''), str(g.get('image_url') or ''), cents))
-            reward['gift'] = dict(name=str(g.get('name') or ''), image_url=str(g.get('image_url') or ''), price=cents / 100)
+            bg = _ns['gift_black_background'](g) or ''
+            db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,fragment_backdrop,price_source) VALUES(?,?,?,?,?,'vip',?,?)",
+                       (int(user_id), str(g.get('id') or ''), str(g.get('name') or ''), str(g.get('image_url') or ''), cents, bg,
+                        'Portal · фон' if bg else 'Portal'))
+            reward['gift'] = dict(name=str(g.get('base_name') or g.get('name') or ''), image_url=str(g.get('image_url') or ''), price=cents / 100,
+                                  background=bg)
         db.execute('UPDATE users SET tickets=tickets+?, balance=balance+? WHERE id=?', (t['tickets'], t['bonus_ton'] * 100, int(user_id)))
         _ns['record_tickets'](db, int(user_id), t['tickets'], 'vip', 'vip', t['key'], 'VIP-статус ' + t['name'])
         if t['bonus_ton']:

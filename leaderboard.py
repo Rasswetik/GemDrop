@@ -278,7 +278,7 @@ def settle(db, period_id, reason='ended', award=True):
         for place, row in enumerate(top_rows(db, period_id, last), 1):
             medal = cfg['medals'].get(str(place))
             if medal:
-                db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown) VALUES(?,?,?,?,?,1)',
+                db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,?,?,1,0)',
                            (int(row['user_id']), medal, title, place, period_id))
                 medal_notes[int(row['user_id'])] = (place, mname(medal))
             for prize in cfg['rewards'].get(str(place), []):
@@ -428,6 +428,14 @@ def register(app, ns):
                 db.execute("ALTER TABLE lb_periods ADD COLUMN title TEXT NOT NULL DEFAULT ''")
     except Exception:
         pass   # column already there (PostgreSQL) or the table is not reachable right now
+    try:
+        with connect() as db:
+            if ns['DATABASE_URL']:
+                db.execute('ALTER TABLE user_medals ADD COLUMN IF NOT EXISTS claimed INTEGER NOT NULL DEFAULT 1')
+            elif 'claimed' not in {r['name'] for r in db.execute('PRAGMA table_info(user_medals)').fetchall()}:
+                db.execute('ALTER TABLE user_medals ADD COLUMN claimed INTEGER NOT NULL DEFAULT 1')   # medals issued before this stay claimed
+    except Exception:
+        app.logger.exception('user_medals.claimed migration failed')
 
     def period_view(db, period):
         if not period:
@@ -684,7 +692,7 @@ def register(app, ns):
             if not db.execute('SELECT 1 FROM users WHERE id=?', (uid,)).fetchone():
                 return error('Игрок не найден.', 404)
             shown = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1', (uid,)).fetchone()['n']
-            cur = db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown) VALUES(?,?,?,?,?,?)',
+            cur = db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,?,?,?,0)',
                              (uid, medal, title, 0, 0, 1 if shown < MAX_SHOWN_MEDALS else 0))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'], uid, 'medal_grant', medal))
             db.commit()
@@ -717,6 +725,20 @@ def register(app, ns):
                 return error('Медаль не найдена.', 404)
             db.execute('DELETE FROM user_medals WHERE id=?', (medal_id,))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)', (session['uid'], int(row['user_id']), 'medal_revoke', row['medal_key']))
+        return jsonify(ok=True)
+
+    @app.get('/api/medals/pending')
+    @login
+    def medals_pending():
+        with connect() as db:
+            rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND claimed=0 ORDER BY id LIMIT 20', (int(session['uid']),)).fetchall()
+        return jsonify(ok=True, medals=[dict(id=int(r['id']), key=r['medal_key'], name=mname(r['medal_key']), title=r['title'], place=int(r['place'])) for r in rows])
+
+    @app.post('/api/medals/<int:medal_id>/claim')
+    @login
+    def medal_claim(medal_id):
+        with connect() as db:
+            db.execute('UPDATE user_medals SET claimed=1 WHERE id=? AND user_id=?', (medal_id, int(session['uid'])))
         return jsonify(ok=True)
 
     @app.get('/api/medals')

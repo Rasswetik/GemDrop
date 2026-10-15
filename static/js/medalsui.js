@@ -14,6 +14,11 @@
     '.mdl-empty{padding:30px 10px;text-align:center;color:#8d99a8;font-size:14px}' +
     'html.hw .mdl-card{background:linear-gradient(180deg,#2a1450,#150b26);border-color:rgba(182,140,255,.25)}html.hw .mdl-item{background:#1d1033;border-color:rgba(182,140,255,.2)}' +
     '.pp-medals{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin:8px 0 2px}.pp-medals:empty{display:none}.pp-medals span{display:inline-flex;cursor:default}';
+  st.textContent += '.mgt-modal{position:fixed;inset:0;z-index:2800;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 50% 30%,rgba(60,40,120,.55),rgba(5,4,12,.88));backdrop-filter:blur(8px);animation:mgtIn .35s ease both}' +
+    '.mgt-card{width:min(100%,360px);display:grid;justify-items:center;gap:10px;text-align:center;padding:26px 20px 20px;border-radius:30px;background:linear-gradient(180deg,#1b1e2e,#12141d);border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 60px rgba(160,102,255,.25);color:#f2f4f8;animation:mgtPop .5s cubic-bezier(.2,1.1,.3,1) both}' +
+    '.mgt-k{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#c9a3ff}.mgt-card h3{margin:0;font-size:24px;line-height:1.15}.mgt-card p{margin:0;color:#9aa6b6;font-size:14px}' +
+    '.mgt-btn{width:100%;min-height:54px;margin-top:8px;border:0;border-radius:18px;background:linear-gradient(180deg,#b27dff,#7a3fe0);color:#fff;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(122,63,224,.4),inset 0 1px rgba(255,255,255,.3)}.mgt-btn:active{transform:scale(.98)}' +
+    '@keyframes mgtIn{from{opacity:0}to{opacity:1}}@keyframes mgtPop{from{opacity:0;transform:translateY(24px) scale(.9)}to{opacity:1;transform:none}}';
   document.head.appendChild(st);
 
   function api(url, body) {
@@ -67,6 +72,25 @@
       return r;
     };
   }
+  var showing = false;
+  function pending() {
+    if (showing) return;
+    api('/api/medals/pending').then(function (d) {
+      var m = d.medals && d.medals[0]; if (!m || showing) return;
+      showing = true;
+      var el = document.createElement('div'); el.className = 'mgt-modal'; el.setAttribute('role', 'dialog');
+      el.innerHTML = '<div class="mgt-card"><span class="mgt-k">Вам выдана медаль</span><div>' + GDMedals.svg(m.key, 170) + '</div><h3>' + esc(m.name) + '</h3><p>' + esc(m.title || 'Особая награда') + (m.place ? ' · ' + m.place + ' место' : '') + '</p><button type="button" class="mgt-btn">Получить</button></div>';
+      el.querySelector('button').onclick = function () {
+        var b = this; b.disabled = true;
+        api('/api/medals/' + m.id + '/claim', {}).catch(function () {}).then(function () { el.remove(); showing = false; setTimeout(pending, 300); });
+      };
+      document.body.appendChild(el);
+    }).catch(function () {});
+  }
+  var ready = window.GDMedals.ready || Promise.resolve();
+  setTimeout(function () { ready.then(pending); }, 2500);
+  setInterval(function () { if (!document.hidden) pending(); }, 45000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(pending, 800); });
   if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
   setTimeout(mountRow, 800);
 })();

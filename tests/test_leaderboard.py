@@ -107,6 +107,10 @@ class LeaderboardTests(unittest.TestCase):
             mine = self.client.get('/api/medals').get_json()['medals']
             self.assertEqual(mine[0]['title'], 'За верность')
             self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['key'], 'vip')
+            pend = self.client.get('/api/medals/pending').get_json()['medals']
+            self.assertEqual((pend[0]['id'], pend[0]['name']), (mid, 'VIP игрок'))
+            self.post('/api/medals/%d/claim' % mid, {})
+            self.assertEqual(self.client.get('/api/medals/pending').get_json()['medals'], [])
             self.post('/api/admin/medals/%d/revoke' % mid, {})
         self.assertEqual(self.client.get('/api/medals').get_json()['medals'], [])
 

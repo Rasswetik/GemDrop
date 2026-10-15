@@ -55,6 +55,28 @@
     });
   }
   function win() { myMusic().then(function (k) { if (k) winFaded(k); }); }
+
+  /* background track in highlight moments (Crash: quiet from 10x, loud on cash-out, gone on crash) */
+  var H = {a: null};
+  function hypeKill(ms) {
+    var a = H.a; H.a = null; if (!a) return;
+    ramp(a, 0, ms || 700, function () { try { a.pause(); } catch (e) {} });
+  }
+  function hypeStart() {
+    if (!enabled() || H.a) return;
+    myMusic().then(function (k) {
+      if (!k || H.a) return;
+      pick(k, false).then(function (pk) {
+        if (!pk || H.a) return;
+        stop(); stopProfile();
+        var a = new Audio(pk.url); a.loop = !!pk.cut; a.volume = 0; H.a = a;
+        a.play().then(function () { ramp(a, .1, 2200); }).catch(function () { if (H.a === a) H.a = null; });
+        a.addEventListener('timeupdate', function () { if (H.loud && !H.out && a.duration && !a.loop && a.currentTime > a.duration - 2) { H.out = true; ramp(a, 0, 1800); } });
+      });
+    });
+  }
+  function hypeWin() { var a = H.a; if (!a) return; H.loud = true; H.out = false; ramp(a, .75, 700); }
+  function hypeEnd(ms) { H.loud = false; H.out = false; hypeKill(ms); }
   window.GDMusicRefresh = function () { mineP = null; };
 
   /* ---- profile player ---- */
@@ -120,5 +142,5 @@
   }
   if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
   setTimeout(mountRow, 800); setTimeout(mountRow, 2500);
-  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win};
+  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
 })();

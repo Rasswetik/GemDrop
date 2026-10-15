@@ -9,12 +9,24 @@
     var u = url(k, short); if (ok[u] !== undefined) return ok[u];
     return ok[u] = fetch(u, {method: 'HEAD', credentials: 'same-origin'}).then(function (r) { return r.ok && /audio|octet/.test(r.headers.get('content-type') || 'audio'); }).catch(function () { return false; });
   }
+  /* pick the file for a role; falls back to the other version. cut=true when a long track must be trimmed to a short excerpt */
+  function pick(k, short) {
+    return exists(k, short).then(function (has) {
+      if (has) return {url: url(k, short), cut: false};
+      return exists(k, !short).then(function (h2) { return h2 ? {url: url(k, !short), cut: short} : null; });
+    });
+  }
+  function excerpt(a, secs) {
+    var t0 = 0, out = false;
+    a.addEventListener('loadedmetadata', function () { var d = a.duration || 0; t0 = d > secs + 4 ? Math.max(0, Math.min(d * .3, d - secs - 2)) : 0; try { a.currentTime = t0; } catch (e) {} });
+    a.addEventListener('timeupdate', function () { if (!out && a.currentTime - t0 > secs - 1.6) { out = true; ramp(a, 0, 1500, function () { try { a.pause(); } catch (e) {} }); } });
+  }
   function stop() { if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
   function playShort(k, vol) {
     if (!enabled()) return Promise.resolve(false);
-    return exists(k, true).then(function (has) {
-      if (!has) return false;
-      stop(); stopProfile(); var a = new Audio(url(k, true)); a.volume = vol == null ? .8 : vol; cur = a;
+    return pick(k, true).then(function (pk) {
+      if (!pk) return false;
+      stop(); stopProfile(); var a = new Audio(pk.url); a.volume = vol == null ? .8 : vol; cur = a; if (pk.cut) excerpt(a, 12);
       return a.play().then(function () { return true; }).catch(function () { return false; });
     });
   }
@@ -34,9 +46,9 @@
   }
   function fadeOut(ms) { var a = cur; if (!a) return; ramp(a, 0, ms || 900, function () { if (cur === a) stop(); else try { a.pause(); } catch (e) {} }); }
   function winFaded(k) {
-    exists(k, true).then(function (has) {
-      if (!has || !enabled()) return;
-      stop(); stopProfile(); var a = new Audio(url(k, true)), MAX = .32; a.volume = 0; cur = a; var out = false;
+    pick(k, true).then(function (pk) {
+      if (!pk || !enabled()) return;
+      stop(); stopProfile(); var a = new Audio(pk.url), MAX = .32; a.volume = 0; cur = a; var out = false; if (pk.cut) { out = true; excerpt(a, 11); }
       a.addEventListener('timeupdate', function () { if (!out && a.duration && a.currentTime > a.duration - 1.8) { out = true; ramp(a, 0, 1500); } });
       a.addEventListener('ended', function () { if (cur === a) cur = null; });
       a.play().then(function () { ramp(a, MAX, 1600); }).catch(function () {});
@@ -76,14 +88,14 @@
     var chip = document.getElementById('ppMedals'); if (!chip) return;
     var key = ((d && d.medals) || []).map(function (m) { return m.key; }).filter(function (k) { return KEYS[k]; })[0];
     if (!key) return;
-    exists(key, false).then(function (has) {
+    pick(key, false).then(function (pk) { var has = !!pk;
       if (!has || P.tk !== tk || !document.getElementById('ppMedals')) return;
       removePlayer();
       var el = document.createElement('div'); el.id = 'ppPlayer'; el.className = 'mplw';
       el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key].replace(/</g, '&lt;') + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
         '<div class="mpl-bar"><span class="mpl-c">0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="mpl-d">0:00</span></div></div>';
       chip.parentNode.insertBefore(el, chip.nextSibling);
-      var a = new Audio(url(key, false)); a.preload = 'auto'; P.a = a;
+      var a = new Audio(pk.url); a.preload = 'auto'; P.a = a;
       var box = el.querySelector('.mpl'), btn = el.querySelector('.mpl-pp'), rng = el.querySelector('input'), c = el.querySelector('.mpl-c'), du = el.querySelector('.mpl-d'), seeking = false;
       function ui() { var pl = !a.paused; box.classList.toggle('on', pl); btn.innerHTML = pl ? PAUSE : PLAY; }
       a.addEventListener('play', ui); a.addEventListener('pause', ui); a.addEventListener('ended', function () { ui(); rng.value = 0; rng.style.setProperty('--p', '0%'); });

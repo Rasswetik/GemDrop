@@ -269,6 +269,7 @@
   $('accessForm').onsubmit = e => { e.preventDefault(); const f = e.target.elements; action(e.submitter, () => saveUser('/withdrawal-access', {enabled: f.enabled.checked, reason: f.reason.value, min_ton_connect_deposit_override: f.minimum.value === '' ? null : f.minimum.value})); };
   $('unlockStars').onclick = () => action($('unlockStars'), () => saveUser('/stars-withdrawal-unlock', {}));
   $('balanceForm').onsubmit = e => { e.preventDefault(); const f = e.target.elements; action(e.submitter, () => saveUser('/balance', {kind: f.kind.value, mode: f.mode.value, amount: f.amount.value})); };
+  $('ticketsForm').onsubmit = e => { e.preventDefault(); const f = e.target.elements; action(e.submitter, () => saveUser('/tickets', {mode: f.mode.value, amount: f.amount.value})); };
   $('banForm').onsubmit = e => { e.preventDefault(); const f = e.target.elements; action(e.submitter, () => saveUser('/ban', {banned: f.banned.checked, reason: f.reason.value})); };
 
   /* ---------- withdrawals ---------- */

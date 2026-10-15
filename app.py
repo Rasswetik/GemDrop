@@ -2297,7 +2297,18 @@ _maint_cache = {'t': 0.0, 'v': None}
 
 
 def banned_response():
-    response = jsonify(error='Доступ ограничен.', banned=True)
+    reason = ''
+    support = 'Gemdrop_relay'
+    try:
+        uid = session.get('uid')
+        if uid:
+            with connect() as _db:
+                row = _db.execute('SELECT ban_reason FROM users WHERE id=?', (int(uid),)).fetchone()
+            reason = str((row['ban_reason'] if row else '') or '')[:300]
+        support = relayer_settings().get('relay_username') or support
+    except Exception:
+        pass
+    response = jsonify(error='Доступ ограничен.', banned=True, ban_reason=reason, support=support)
     response.status_code = 403
     return response
 
@@ -21092,6 +21103,38 @@ def admin_balance(user_id):
     return jsonify(ok=True, balance=int(row['balance'] or 0)/100,
                    bonus_balance=int(row['bonus_balance'] or 0)/100,
                    ref_balance=int(row['ref_balance'] or 0)/100)
+
+
+@app.post('/api/admin/users/<int:user_id>/tickets')
+@admin_required
+def admin_tickets(user_id):
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get('mode') or 'add').strip().lower()
+    if mode not in ('add', 'set'):
+        return error('Неизвестная операция с билетами.')
+    try:
+        amount = int(str(data.get('amount')).strip())
+    except (TypeError, ValueError):
+        return error('Введите целое число билетов.')
+    if mode == 'set' and amount < 0:
+        return error('Количество билетов не может быть отрицательным.')
+    if not -10000000 <= amount <= 10000000:
+        return error('Слишком большое число билетов.')
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT tickets FROM users WHERE id=?', (user_id,)).fetchone()
+        if not row:
+            return error('Пользователь не найден.', 404)
+        old = int(row['tickets'] or 0)
+        new = old + amount if mode == 'add' else amount
+        if new < 0:
+            return error('Баланс билетов не может стать отрицательным.')
+        db.execute('UPDATE users SET tickets=? WHERE id=?', (new, user_id))
+        record_tickets(db, user_id, new - old, 'admin_tickets', 'admin', session['uid'], f'Администратор: {old} → {new}')
+        db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                   (session['uid'], user_id, f'tickets_{mode}', f'{old}->{new}'))
+        db.commit()
+    return jsonify(ok=True, tickets=new)
 
 
 @app.post('/api/admin/users/<int:user_id>/referrals')

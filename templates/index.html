@@ -3,8 +3,20 @@
 (()=>{
   const root=document.documentElement;
   const css=`
-html.gd-banned body>*:not(#loader){display:none!important}
-html.gd-banned #loader,html.gd-banned #loader.hidden{display:grid!important}
+html.gd-banned body>*:not(#banScreen){display:none!important}
+html.gd-banned #loader,html.gd-banned #loader.hidden{display:none!important}
+#banScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:20px 18px;box-sizing:border-box;background:radial-gradient(ellipse at 50% 0,#1b2350 0,#0d1028 60%,#080a18 100%);color:#fff;font-family:inherit;overflow:auto}
+#banScreen .bn-card{width:min(100%,440px);display:grid;gap:16px;justify-items:center;text-align:center;animation:mtIn .55s cubic-bezier(.2,.9,.25,1) both}
+#banScreen .bn-badge{padding:7px 14px;border-radius:99px;border:1px solid rgba(255,107,125,.4);background:rgba(255,107,125,.1);color:#ff8a98;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+#banScreen .bn-icon{width:104px;height:104px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 50% 35%,#2a1830,#150d22);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 40px rgba(255,90,110,.18)}
+#banScreen .bn-icon svg{width:48px;height:48px;fill:none;stroke:#ff7587;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#banScreen h1{margin:0;font-size:clamp(26px,8vw,32px);font-weight:800;letter-spacing:-.025em}
+#banScreen .bn-sub{margin:0;color:#aab3c2;font-size:15px;line-height:1.55}
+#banScreen .bn-reason{width:100%;box-sizing:border-box;display:grid;gap:6px;padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:20px;background:#10132a;box-shadow:inset 0 1px rgba(255,255,255,.06);text-align:left}
+#banScreen .bn-k{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8d98aa}
+#banScreen .bn-v{font-size:16px;font-weight:650;line-height:1.45;word-break:break-word;white-space:pre-line}
+#banScreen .bn-btn{width:100%;min-height:56px;display:grid;place-items:center;border-radius:18px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font-size:16px;font-weight:800;text-decoration:none;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.3)}
+#banScreen .bn-foot{margin:0;color:#6c7586;font-size:12px}
 html.gd-maint body>*:not(#maintScreen){display:none!important}
 #maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:max(20px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));color:#f5f7fb;font:500 15px/1.5 'Montserrat',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;overflow:auto;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:radial-gradient(90% 60% at 50% 0%,rgba(71,176,245,.16),transparent 62%),radial-gradient(70% 50% at 50% 100%,rgba(124,92,255,.10),transparent 65%),#090b1a}
 #maintScreen:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);pointer-events:none}
@@ -42,11 +54,14 @@ html.gd-maint body>*:not(#maintScreen){display:none!important}
   const pad=n=>String(n).padStart(2,'0');
   const clock=ms=>{const s=Math.max(0,Math.ceil(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return(h?h+':'+pad(m):pad(m))+':'+pad(s%60)};
   const approx=ms=>{const min=Math.ceil(ms/60000);if(min<=1)return'меньше минуты';if(min<60)return min+' мин';const h=Math.floor(min/60),m=min%60;return h+' ч'+(m?' '+m+' мин':'')};
-  function banScreen(){
-    frozen=true;root.classList.add('gd-banned');
-    ready(()=>{const l=document.getElementById('loader');if(l)l.classList.remove('hidden');
-      const b=document.getElementById('loaderBar');if(b)b.style.width='72%';
-      const t=document.getElementById('loaderText');if(t)t.textContent='Загрузка…'})}
+  function banScreen(d){
+    frozen=true;root.classList.add('gd-banned');d=d||{};
+    ready(()=>{
+      let el=document.getElementById('banScreen');
+      if(!el){el=document.createElement('div');el.id='banScreen';el.setAttribute('role','alert');document.body.appendChild(el)}
+      const esc=x=>String(x||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const u=String(d.support||'Gemdrop_relay').replace(/^@/,'');
+      el.innerHTML='<div class="bn-card"><span class="bn-badge">Доступ ограничен</span><div class="bn-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></div><h1>Аккаунт заблокирован</h1><p class="bn-sub">Если вы считаете, что это ошибка, свяжитесь с поддержкой — мы разберёмся.</p><div class="bn-reason"><span class="bn-k">Причина блокировки</span><span class="bn-v">'+esc(d.ban_reason||'Нарушение правил сервиса')+'</span></div><a class="bn-btn" href="https://t.me/'+encodeURIComponent(u)+'" target="_blank" rel="noopener">Написать в поддержку @'+esc(u)+'</a><p class="bn-foot">GemDrop · поддержка отвечает в Telegram</p></div>'})}
   function maintScreen(d){
     frozen=true;root.classList.add('gd-maint');
     ready(()=>{
@@ -75,7 +90,7 @@ html.gd-maint body>*:not(#maintScreen){display:none!important}
         const url=typeof input==='string'?input:(input&&input.url)||'';
         if((res.status===403||res.status===503)&&url.indexOf('/api/')!==-1){
           const d=await res.clone().json().catch(()=>null);
-          if(d&&d.banned){banScreen();return new Promise(()=>{})}
+          if(d&&d.banned){banScreen(d);return new Promise(()=>{})}
           if(d&&d.maintenance){maintScreen(d);return new Promise(()=>{})}}
       }catch(e){}
       return res})};
@@ -19464,7 +19479,7 @@ button.xh-mode:active{transform:scale(.95)}
 (()=>{
 const NS='http://www.w3.org/2000/svg';
 const SEEN_KEY='xhSeenEvent',SEEN_RES='xhSeenResult',SEEN_WIN='xhSeenWin';
-const GAME_PAGE={mines:'minesPage',upgrade:'upgradePage',crash:'crashPage',arena:'arenaPage',hilo:'hiloPage',limbo:'limboPage',road:'roadPage'};
+const GAME_PAGE={mines:'minesPage',upgrade:'upgradePage',crash:'crashPage',arena:'arenaPage',hilo:'hiloPage',limbo:'limboPage',road:'roadPage',plinko:'plinkoPage'};
 const ICO={
  mines:'<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01" stroke-width="3"/>',
  upgrade:'<path d="M6 11l6-6 6 6M6 18l6-6 6 6"/>',
@@ -19472,8 +19487,9 @@ const ICO={
  arena:'<rect x="3" y="4" width="18" height="16" rx="5"/><circle cx="12" cy="12" r="3"/><path d="M5 8l7 4 7-4M5 16l7-4 7 4"/>',
  hilo:'<rect x="5" y="3" width="10" height="14" rx="2.5"/><path d="M9 21h8a2.5 2.5 0 0 0 2.5-2.5V8M10 8l-2 2.5L10 13"/>',
  limbo:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v3M12 12l4.2-3.2M7 20l1.4-2.4"/>',
- road:'<circle cx="12" cy="14" r="6.2"/><circle cx="7.4" cy="7.4" r="2.4"/><circle cx="16.6" cy="7.4" r="2.4"/><path d="M10 13.4h.01M14 13.4h.01M11 16.2q1 .8 2 0"/>'};
-const META={mines:['Mines','Mines','#2bd9a0'],upgrade:['Upgrade','Upgrade','#9a7bff'],crash:['Crash','Crash','#ff7a7a'],arena:['Arena','Arena','#feca58'],hilo:['Hi-Lo','Hi-Lo','#d46bff'],limbo:['Limbo','Limbo','#47b0f5'],road:['Hamster Road','Hamster','#ffa24a']};
+ road:'<circle cx="12" cy="14" r="6.2"/><circle cx="7.4" cy="7.4" r="2.4"/><circle cx="16.6" cy="7.4" r="2.4"/><path d="M10 13.4h.01M14 13.4h.01M11 16.2q1 .8 2 0"/>',
+ plinko:'<path d="M12 4h.01M9 9h.01M15 9h.01M6 14h.01M12 14h.01M18 14h.01M4 19h16" stroke-width="3"/>'};
+const META={mines:['Mines','Mines','#2bd9a0'],upgrade:['Upgrade','Upgrade','#9a7bff'],crash:['Crash','Crash','#ff7a7a'],arena:['Arena','Arena','#feca58'],hilo:['Hi-Lo','Hi-Lo','#d46bff'],limbo:['Limbo','Limbo','#47b0f5'],road:['Hamster Road','Hamster','#ffa24a'],plinko:['Plinko','Plinko','#5aa8ff']};
 const ALL_MODES=Object.keys(META).map(k=>[k,META[k][0]]);
 const state={ev:null,last:null,mine:null,at:0,open:false,busy:false,prevLead:null,popKind:null};
 const $x=id=>document.getElementById(id);
@@ -19495,7 +19511,7 @@ function prizeIcon(r){let box=el('div','xh-prize-img');if(r.image_url){let i=new
 function prizeRow(r,place){let row=el('div','xh-prize');if(place)row.append(el('span','xh-place',String(place)));row.append(prizeIcon(r));let c=el('div','xh-prize-copy');c.append(el('b','',r.title||'Приз'),el('small','',r.subtitle||''));row.append(c);return row}
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
-function modeTile(m,clickable,i){let on=m.available!==false;let t=el(clickable&&on?'button':'div','xh-mode'+(on?'':' off'));if(t.tagName==='BUTTON')t.type='button';t.style.setProperty('--c',META[m.key][2]);t.style.animationDelay=(0.18+i*0.05)+'s';t.title=m.label;let ic=el('span','xh-mode-ico');ic.append(iconSvg(m.key));t.append(ic,el('span','nm',META[m.key][1]));if(clickable&&on)t.onclick=()=>{closeModal();goGame(m.key)};return t}
+function modeTile(m,clickable,i){let on=m.available!==false;let mt=META[m.key]||[m.label||m.key,m.label||m.key,'#8aa0c0'];let t=el(clickable&&on?'button':'div','xh-mode'+(on?'':' off'));if(t.tagName==='BUTTON')t.type='button';t.style.setProperty('--c',mt[2]);t.style.animationDelay=(0.18+i*0.05)+'s';t.title=m.label;let ic=el('span','xh-mode-ico');ic.append(iconSvg(m.key));t.append(ic,el('span','nm',mt[1]));if(clickable&&on)t.onclick=()=>{closeModal();goGame(m.key)};return t}
 function modesGrid(ev,clickable){let g=el('div','xh-modes');(ev.modes||[]).forEach((m,i)=>g.append(modeTile(m,clickable,i)));return g}
 function goGame(key){let page=GAME_PAGE[key];try{if(page)show(page)}catch(e){}}
 /* ---------- strip on the games page ---------- */
@@ -19881,7 +19897,7 @@ html body #publicProfileModal .public-profile-avatar{width:76px!important;height
 html body #publicProfileModal .public-level-block{margin:12px 0 8px!important}
 </style>
 <div id="vipModal" class="vipm hidden" role="dialog" aria-modal="true" aria-label="VIP-статус"><button id="vipClose" class="vip-x" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button><div class="vip-scroll"><div class="vip-hero"><div id="vipHeroAvatar" class="vip-hero-av">G</div><div id="vipHeroNick" class="vip-hero-nick">Игрок</div><div class="vip-status"><span id="vipHeroGem"></span><div><small id="vipHeroSub">VIP-статус</small><b id="vipHeroName">Quartz</b></div></div><div class="vip-prog"><div class="vip-prog-row"><span id="vipVals"></span><span id="vipNext"></span></div><div class="vip-track"><i id="vipBar"></i></div><div class="vip-prog-foot"><span>Оборот</span><span id="vipLeft"></span></div></div></div><div id="vipPb" class="vip-pb"><div class="pb-top"><b>PLAYBONUS</b><button type="button" class="pb-info" aria-label="Что это">i</button></div><div class="pb-pct"></div><div class="pb-row"><span class="pb-val"></span><button type="button" class="pb-claim" disabled>Забрать на баланс</button></div></div><div class="vip-h"><span>Уровни</span><small>оборот в TON</small></div><div id="vipList" class="vip-list"></div></div></div>
-<link rel="stylesheet" href="/static/css/vip.css?v=21"><link rel="stylesheet" href="/static/css/hwtheme.css?v=2">
+<link rel="stylesheet" href="/static/css/vip.css?v=22"><link rel="stylesheet" href="/static/css/hwtheme.css?v=2">
 <script src="/static/js/vip.js?v=9"></script><script src="/static/js/medals.js?v=1"></script><script src="/static/js/medalsui.js?v=2"></script><script src="/static/js/invsell.js?v=3"></script>
 <script src="/static/js/haptics.js?v=1"></script>
 <script src="/static/js/wins.js?v=2"></script>

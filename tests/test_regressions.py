@@ -61,6 +61,15 @@ class RegressionTests(unittest.TestCase):
     def balance(self):
         return self.client.get('/api/me').get_json()['user']['balance']
 
+    def test_admin_can_edit_tickets(self):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post(f'/api/admin/users/{self.uid}/tickets', {'mode': 'set', 'amount': 7})
+            self.assertEqual(self.post(f'/api/admin/users/{self.uid}/tickets', {'mode': 'add', 'amount': 5})['tickets'], 12)
+            self.assertEqual(self.post(f'/api/admin/users/{self.uid}/tickets', {'mode': 'add', 'amount': -2})['tickets'], 10)
+            self.post(f'/api/admin/users/{self.uid}/tickets', {'mode': 'add', 'amount': -99}, status=400)
+        with m.connect() as db:
+            self.assertEqual(db.execute('SELECT tickets FROM users WHERE id=?', (self.uid,)).fetchone()['tickets'], 10)
+
     def test_public_assets_and_auth_guard(self):
         guest = m.app.test_client()
         for path in ('/', '/static/css/gemdrop-studio.css'):
@@ -1742,6 +1751,8 @@ class RegressionTests(unittest.TestCase):
         r = player.get('/api/me')
         self.assertEqual(r.status_code, 403)
         self.assertTrue(r.get_json()['banned'])
+        self.assertEqual(r.get_json()['ban_reason'], 'тест')
+        self.assertTrue(r.get_json()['support'])
         # the admin endpoint bans and unbans
         other = victim + 1
         with m.connect() as db:

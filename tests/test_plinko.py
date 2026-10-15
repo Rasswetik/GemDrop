@@ -15,10 +15,13 @@ class PlinkoTests(unittest.TestCase):
         for risk in m.plinko.RISKS:
             table = m.plinko.multipliers(risk, 0.95)
             self.assertEqual(table, table[::-1])
-            rtp = sum(p * x / 100 for p, x in zip(m.plinko.PROB, table))
+            rtp = sum(p * x / 100 for p, x in zip(m.plinko.PROB[risk], table))
+            self.assertEqual(len(table), m.plinko.RISK_ROWS[risk] + 1)
             self.assertLessEqual(rtp, 0.95 + 1e-9)
             self.assertGreater(rtp, 0.9)
-        self.assertEqual(sum(m.plinko.PROB), 1)
+        for r in m.plinko.RISKS:
+            self.assertAlmostEqual(sum(m.plinko.PROB[r]), 1)
+        self.assertEqual(sorted(m.plinko.RISK_ROWS.values()), [8, 12, 16])
 
     def test_path_bits_decide_slot_and_payout(self):
         m.save_document('game_modes', {'plinko': 'on'})
@@ -31,13 +34,16 @@ class PlinkoTests(unittest.TestCase):
         self.assertEqual(res['multiplier'], table[16] / 100)
         self.assertEqual(res['payout'], min(300000, 10 * table[16] / 100))
         self.assertAlmostEqual(self.balance(), before - 10 + res['payout'])
+        self.assertEqual(m.plinko.slot_of(0b1111111100000000, 8), 8)
+        self.assertEqual(m.plinko.slot_of(0b1111111100000000, 16), 8)
         self.assertEqual(self.client.get('/api/plinko/state').get_json()['history'][0]['slot'], 16)
 
     def test_centre_slot_returns_less_than_the_bet(self):
         m.save_document('game_modes', {'plinko': 'on'})
         with patch.object(m, 'fairness_draw', return_value=(0b1010101010101010, 1, 'qa')), patch.object(m, 'crash_prize_preview', return_value=None):
             res = self.post('/api/plinko/play', {'bet': '10', 'risk': 'low'})['result']
-        self.assertEqual(res['slot'], 8)
+        self.assertEqual(res['slot'], 4)
+        self.assertEqual(res['rows'], 8)
         self.assertLess(res['payout'], 10)
         self.assertFalse(res['won'])
 

@@ -29,11 +29,25 @@ VIP_TIERS = [
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recent_wins (
     id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, game TEXT NOT NULL DEFAULT '',
-    amount INTEGER NOT NULL DEFAULT 0, prize TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    amount INTEGER NOT NULL DEFAULT 0, prize TEXT NOT NULL DEFAULT '', image TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
 
 _ns = {}
+_img = {'at': 0.0, 'map': {}}
+
+
+def gift_image(name):
+    """Picture of a catalog gift by its name (cached for a minute)."""
+    import time
+    if time.time() - _img['at'] > 60:
+        try:
+            doc = _ns['read_document']('portal_catalog') or {}
+            _img['map'] = {str(g.get('name') or '').strip().lower(): str(g.get('image_url') or '') for g in (doc.get('gifts') or [])}
+        except Exception:
+            _img['map'] = {}
+        _img['at'] = time.time()
+    return _img['map'].get(str(name or '').strip().lower(), '')
 
 
 def tier_state(turnover_cents):
@@ -61,8 +75,9 @@ def log_win(db, user_id, kind, amount, details=''):
     if gift and amount <= 0 and not details:
         return
     try:
-        db.execute('INSERT INTO recent_wins(user_id,game,amount,prize) VALUES(?,?,?,?)',
-                   (int(user_id), game, max(0, amount), str(details or '')[:80] if gift else ''))
+        prize = str(details or '')[:80] if gift else ''
+        db.execute('INSERT INTO recent_wins(user_id,game,amount,prize,image) VALUES(?,?,?,?,?)',
+                   (int(user_id), game, max(0, amount), prize, gift_image(prize) if prize else ''))
     except Exception:
         pass
 
@@ -77,6 +92,11 @@ def register(app, ns):
     try:
         with connect() as db:
             db.executescript(SCHEMA)
+        try:
+            with connect() as db:
+                db.execute("ALTER TABLE recent_wins ADD COLUMN image TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass        # already there
     except Exception:
         app.logger.exception('VIP schema setup failed')
 
@@ -100,13 +120,13 @@ def register(app, ns):
     @login
     def vip_recent_wins():
         with connect() as db:
-            rows = db.execute("""SELECT w.id,w.user_id,w.game,w.amount,w.prize,w.created_at,u.name,u.username,u.photo_url
+            rows = db.execute("""SELECT w.id,w.user_id,w.game,w.amount,w.prize,w.image,w.created_at,u.name,u.username,u.photo_url
                                  FROM recent_wins w JOIN users u ON u.id=w.user_id
                                  ORDER BY w.id DESC LIMIT ?""", (FEED_SIZE,)).fetchall()
             if rows and int(rows[0]['id']) % 25 == 0:      # cheap, occasional trim of the feed table
                 db.execute('DELETE FROM recent_wins WHERE id<?', (int(rows[0]['id']) - FEED_KEEP,))
         items = [dict(id=int(r['id']), user_id=int(r['user_id']), game=r['game'], amount=int(r['amount']) / 100,
-                      prize=r['prize'], created_at=str(r['created_at'] or ''),
+                      prize=r['prize'], image=str(r['image'] or ''), created_at=str(r['created_at'] or ''),
                       name=leaderboard.public_handle(r['username'], r['name']), photo_url=str(r['photo_url'] or ''))
                  for r in rows]
         return jsonify(ok=True, items=items)

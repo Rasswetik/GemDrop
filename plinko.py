@@ -8,8 +8,8 @@ and the client animates the very same path. Payouts follow the same rules as Lim
 import time
 from math import comb
 
-ROWS = 16
-SLOTS = ROWS + 1
+ROWS = 16                      # draw size: the hardest board; easier boards use the first rows of the same draw
+RISK_ROWS = {'low': 8, 'medium': 12, 'high': 16}   # harder risk = more pins
 RANGE = 1 << ROWS
 MAX_PAYOUT_CENTS = 30000000    # 300 000 TON: effectively "max bet x top multiplier"
 FEED_SIZE = 14
@@ -17,11 +17,11 @@ RISKS = ('low', 'medium', 'high')
 # Half of the symmetric slot table (centre first, edge last). The edge multiplier is fixed
 # (16x / 110x / 1000x); the site RTP only tunes the other slots.
 SHAPES = {
-    'low': (0.5, 1.0, 1.1, 1.2, 1.4, 1.4, 2.0, 9.0, 16.0),
-    'medium': (0.3, 0.5, 1.0, 1.5, 3.0, 5.0, 10.0, 41.0, 110.0),
+    'low': (0.5, 0.9, 1.2, 1.8, 5.6),
+    'medium': (0.3, 0.6, 1.0, 1.6, 3.0, 8.0, 33.0),
     'high': (0.2, 0.2, 0.2, 2.0, 4.0, 9.0, 26.0, 130.0, 1000.0),
 }
-PROB = [comb(ROWS, k) / RANGE for k in range(SLOTS)]
+PROB = {r: [comb(n, k) / (1 << n) for k in range(n + 1)] for r, n in RISK_ROWS.items()}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS plinko_bets (
@@ -39,17 +39,25 @@ CREATE INDEX IF NOT EXISTS idx_plinko_bets_mult ON plinko_bets(multiplier_x100, 
 _ns = {}
 
 
-def slot_of(path):
-    return bin(int(path) & (RANGE - 1)).count('1')
+def rows_of(risk):
+    return RISK_ROWS.get(risk, RISK_ROWS['medium'])
+
+
+def slot_of(path, rows=ROWS):
+    """Row i uses bit (15 - i) of the draw, so a board with fewer rows reads only its top bits."""
+    return bin((int(path) & (RANGE - 1)) >> (ROWS - rows)).count('1')
 
 
 def multipliers(risk, rtp):
-    """x100 multipliers for the 17 slots, floored so the real RTP never exceeds the configured one."""
-    half = SHAPES[risk if risk in SHAPES else 'medium']
-    mid = ROWS // 2
-    table = [half[abs(k - mid)] for k in range(SLOTS)]
-    edge_p = PROB[0] + PROB[ROWS]
-    rest = sum(p * m for k, (p, m) in enumerate(zip(PROB, table)) if abs(k - mid) != mid)
+    """x100 multipliers for the slots of that risk's board, floored so the real RTP never exceeds the configured one."""
+    risk = risk if risk in SHAPES else 'medium'
+    half = SHAPES[risk]
+    rows = rows_of(risk)
+    prob = PROB[risk]
+    mid = rows // 2
+    table = [half[abs(k - mid)] for k in range(rows + 1)]
+    edge_p = prob[0] + prob[rows]
+    rest = sum(p * m for k, (p, m) in enumerate(zip(prob, table)) if abs(k - mid) != mid)
     scale = (float(rtp) - edge_p * half[mid]) / rest
     if scale <= 0.05:   # very low RTP: scale everything, the edge included
         scale = float(rtp) / (rest + edge_p * half[mid])
@@ -61,7 +69,7 @@ def result_view(row):
     row = dict(row)
     ns = _ns
     prize = ns['crash_gift_view'](row.get('prize_name'), row.get('prize_image'), row.get('prize_price', 0)) if row.get('prize_name') else None
-    return dict(id=int(row['id']), bet=int(row['bet']) / 100, risk=row['risk'], path=int(row['path']), slot=int(row['slot']),
+    return dict(id=int(row['id']), bet=int(row['bet']) / 100, risk=row['risk'], rows=rows_of(row['risk']), path=int(row['path']), slot=int(row['slot']),
                 multiplier=int(row['multiplier_x100']) / 100, payout=int(row['payout']) / 100,
                 won=int(row['payout']) >= int(row['bet']), prize=prize,
                 remainder=max(0, int(row['payout']) - int(row.get('prize_price') or 0)) / 100,
@@ -83,7 +91,7 @@ def register(app, ns):
 
     def config():
         rtp = ns['plinko_rtp']()
-        return dict(rows=ROWS, risks=list(RISKS), rtp=rtp, min_bet=ns['MIN_BET_CENTS'] / 100, max_bet=ns['MAX_BET_CENTS'] / 100,
+        return dict(rows=RISK_ROWS, risks=list(RISKS), rtp=rtp, min_bet=ns['MIN_BET_CENTS'] / 100, max_bet=ns['MAX_BET_CENTS'] / 100,
                     max_payout=MAX_PAYOUT_CENTS / 100, multipliers={r: [m / 100 for m in multipliers(r, rtp)] for r in RISKS})
 
     def feed(db, uid):
@@ -129,7 +137,7 @@ def register(app, ns):
         table = multipliers(risk, ns['plinko_rtp']())
         proof = ns['fairness_make']('plinko', uid, data.get('client_seed'))
         path, fair_cursor, _ = ns['fairness_draw'](proof, RANGE, 0)
-        slot = slot_of(path)
+        slot = slot_of(path, rows_of(risk))
         mult_x100 = table[slot]
         payout = min(MAX_PAYOUT_CENTS, bet * mult_x100 // 100)
         db = connect()

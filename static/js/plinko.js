@@ -2,7 +2,10 @@
 var PK=(function(){
 const $=id=>document.getElementById(id);
 const NS='http://www.w3.org/2000/svg';
-const ROWS=16,DX=23.5,CX=200,Y0=24,DY=19.5,SLOT_Y=Y0+ROWS*DY+5,SW=21;
+const CX=200,Y0=24,FULL=16,BOARD_W=376,BOARD_H=312,RISK_ROWS={low:8,medium:12,high:16};
+/* board geometry follows the risk: harder = more rows of pins, same overall size */
+let G=geom(16);
+function geom(rows){const DX=BOARD_W/rows,DY=BOARD_H/rows;return{rows,DX,DY,SLOT_Y:Y0+rows*DY+5,SW:DX-2.5,PR:2.3*Math.pow(FULL/rows,.45)}}
 const st={cfg:null,risk:'medium',turbo:false,busy:false,active:false,poll:0,loading:false,hist:[],wins:[],built:false,raf:0,slotEls:[],pinEls:[]};
 const reduced=()=>window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
 const lite=()=>document.documentElement.classList.contains('perf-lite');
@@ -15,8 +18,8 @@ function setBet(v){$('pkBet').value=(Math.floor(v*100+1e-6)/100).toFixed(2)}
 function clampBet(v){return Math.min(maxBet(),Math.max(minBet(),v))}
 function mults(){return st.cfg?.multipliers?.[st.risk]||[]}
 function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
-function pinX(i,r){return CX+(2*r-i)*DX/2}
-function pinY(i){return Y0+i*DY}
+function pinX(i,r,g){g=g||G;return CX+(2*r-i)*g.DX/2}
+function pinY(i,g){g=g||G;return Y0+i*g.DY}
 /* slot colour from multiplier: vivid fill + readable label */
 function slotColor(m){
  if(m>=100)return['#ff3b5c','#fff'];
@@ -33,12 +36,13 @@ function fmtMult(m){
  return m.toFixed(2).replace(/0$/,'').replace(/\.$/,'');
 }
 function build(){
- if(st.built)return;st.built=true;
- const pins=$('pkPins'),slots=$('pkSlots');
- for(let i=0;i<ROWS;i++)for(let r=0;r<=i;r++){st.pinEls[i+'_'+r]=el('circle',{cx:pinX(i,r),cy:pinY(i),r:2.3,class:'pk-pin'},pins)}
- for(let k=0;k<=ROWS;k++){
-  const x=pinX(ROWS,k),g=el('g',{class:'pk-slot','data-k':k,transform:'translate('+x+' '+SLOT_Y+')'},slots);
-  el('rect',{x:-SW/2,y:0,width:SW,height:24,rx:6,class:'pk-slot-bg'},g);
+ const rows=RISK_ROWS[st.risk]||16;
+ if(st.built===rows)return;st.built=rows;G=geom(rows);
+ const pins=$('pkPins'),slots=$('pkSlots');pins.replaceChildren();slots.replaceChildren();st.pinEls={};st.slotEls=[];
+ for(let i=0;i<rows;i++)for(let r=0;r<=i;r++){st.pinEls[i+'_'+r]=el('circle',{cx:pinX(i,r),cy:pinY(i),r:G.PR.toFixed(2),class:'pk-pin'},pins)}
+ for(let k=0;k<=rows;k++){
+  const x=pinX(rows,k),g=el('g',{class:'pk-slot','data-k':k,transform:'translate('+x+' '+G.SLOT_Y+')'},slots);
+  el('rect',{x:-G.SW/2,y:0,width:G.SW,height:24,rx:6,class:'pk-slot-bg'},g);
   const t=el('text',{x:0,y:15.5,'text-anchor':'middle',class:'pk-slot-t'},g);t.textContent='';
   st.slotEls[k]=g;
  }
@@ -54,6 +58,7 @@ function paintSlots(){
  });
 }
 function paintRisk(){
+ build();
  document.querySelectorAll('#pkRisk button').forEach(b=>{const on=b.dataset.risk===st.risk;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false')});
  paintSlots();paintHint();
 }
@@ -72,9 +77,9 @@ function dropBall(result,turbo){
  return new Promise(resolve=>{
   const proto=$('pkBall'),ball=proto.cloneNode(true);ball.removeAttribute('id');proto.parentNode.appendChild(ball);
   const fast=turbo||reduced()||lite(),stepMs=reduced()?25:turbo?70:fast?95:150;
-  const path=[];for(let i=0;i<ROWS;i++)path.push((result.path>>(ROWS-1-i))&1);
+  const g=G,ROWS=g.rows,Y0g=Y0,SLOT_Y=g.SLOT_Y;const path=[];for(let i=0;i<ROWS;i++)path.push((result.path>>(FULL-1-i))&1);
   let r=0,i=0;
-  let x0=pinX(0,0),y0=pinY(0)-8;
+  let x0=pinX(0,0,g),y0=pinY(0,g)-8;
   ball.setAttribute('opacity','1');
   ball.setAttribute('transform','translate('+x0+' '+(Y0-22)+')');
   
@@ -83,7 +88,7 @@ function dropBall(result,turbo){
   segs.push({x0:cx,y0:cy,x1:x0,y1:y0,hit:null,dur:stepMs*.8});
   let px=x0,py=y0;
   for(let n=0;n<ROWS;n++){
-   const nr=r+path[n],nx=n+1<ROWS?pinX(n+1,nr):pinX(ROWS,nr),ny=n+1<ROWS?pinY(n+1)-8:SLOT_Y+9;
+   const nr=r+path[n],nx=n+1<ROWS?pinX(n+1,nr,g):pinX(ROWS,nr,g),ny=n+1<ROWS?pinY(n+1,g)-8:SLOT_Y+9;
    segs.push({x0:px,y0:py,x1:nx,y1:ny,hit:[n,r],dur:stepMs,last:n===ROWS-1});
    r=nr;px=nx;py=ny;
   }
@@ -170,8 +175,8 @@ async function play(){
  }catch(e){settle();try{$('balance').textContent=money(gameSpendBalance()-reserved())}catch(_){}toast(e.message||'Не удалось сыграть')}
 }
 function bind(){
- if(bind.done)return;bind.done=true;build();
- document.querySelectorAll('#pkRisk button').forEach(b=>b.onclick=()=>{st.risk=b.dataset.risk;try{localStorage.setItem('pk_risk',st.risk)}catch(e){}paintRisk();try{tg?.HapticFeedback?.selectionChanged?.()}catch(e){}});
+ if(bind.done)return;bind.done=true;
+ document.querySelectorAll('#pkRisk button').forEach(b=>b.onclick=()=>{if(st.inflight&&RISK_ROWS[b.dataset.risk]!==RISK_ROWS[st.risk]){toast('Дождитесь, пока шары упадут');return}st.risk=b.dataset.risk;try{localStorage.setItem('pk_risk',st.risk)}catch(e){}paintRisk();try{tg?.HapticFeedback?.selectionChanged?.()}catch(e){}});
  $('pkBet').addEventListener('input',e=>{let v=e.target.value.replace(',','.').replace(/[^0-9.]/g,''),i=v.indexOf('.');if(i>=0)v=v.slice(0,i+1)+v.slice(i+1).replace(/\./g,'').slice(0,2);e.target.value=v});
  $('pkBet').addEventListener('blur',()=>setBet(clampBet(betValue()||minBet())));
  $('pkBet').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();e.target.blur()}});

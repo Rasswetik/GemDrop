@@ -4,18 +4,13 @@
   var seen='',timer=0;
   function $(id){return document.getElementById(id)}
   function fmt(n){return Number(n).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2}).replace(/ /g,' ')}
-  function chip(w){
-    var a=document.createElement('button');a.type='button';a.className='rw-chip';a.style.setProperty('--gc',GAME_COL[w.game]||'#6cc8ff');
-    var av=document.createElement('span');av.className='rw-av';av.textContent=(w.name||'?').replace('@','').charAt(0).toUpperCase();
-    if(w.photo_url){var im=new Image;im.alt='';im.src=w.photo_url;im.onload=function(){av.textContent='';av.append(im)}}
-    var t=document.createElement('span');t.className='rw-t';
-    var n=document.createElement('b');n.textContent=w.name;
-    var g=document.createElement('small');g.textContent=w.game;
-    t.append(n,g);
-    var s=document.createElement('span');s.className='rw-sum';
-    s.textContent=w.amount>0?'+'+fmt(w.amount)+' TON':(w.prize||'Подарок');
-    if(!(w.amount>0))s.classList.add('gift');
-    a.append(av,t,s);
+  function item(w,dup){
+    var a=document.createElement('button');a.type='button';a.className='rw-item'+(w.image?'':' ton');
+    a.title=w.name+' · '+w.game+': '+(w.amount>0?'+'+fmt(w.amount)+' TON':(w.prize||'Подарок'));
+    var im=new Image;im.alt=w.prize||'TON';im.loading='lazy';im.src=w.image||'/static/img/ton.png';
+    im.onerror=function(){im.onerror=null;im.src='/static/img/ton.png'};
+    a.append(im);
+    if(dup){a.setAttribute('aria-hidden','true');a.tabIndex=-1}
     a.onclick=function(){try{window.haptic&&haptic('light');openPublicProfile(w.user_id)}catch(e){}};
     return a;
   }
@@ -27,9 +22,9 @@
       var key=items.map(function(x){return x.id}).join(',');
       box.classList.toggle('hidden',!items.length);
       if(key===seen)return;seen=key;
-      var tr=$('rwTrack'),old=tr.scrollLeft;tr.replaceChildren();
-      items.forEach(function(w){tr.append(chip(w))});
-      tr.scrollLeft=old;
+      var tr=$('rwTrack');tr.replaceChildren();
+      items.forEach(function(w){tr.append(item(w))});
+      if(items.length>=6){items.forEach(function(w){tr.append(item(w,true))});tr.classList.add('loop');tr.style.setProperty('--rw-dur',Math.max(24,items.length*4)+'s')}else tr.classList.remove('loop');
     }catch(e){}
   }
   function boot(){

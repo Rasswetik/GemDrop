@@ -1,7 +1,7 @@
 /* Promocodes and promo polls. */
 (() => {
   const K = window.AdminKit, {h, api} = K;
-  const REW = [['balance', 'Баланс TON'], ['tickets', 'Билеты розыгрыша'], ['pumpkins', 'Тыквы (Хэллоуин)'], ['gift', 'Подарок'], ['wager_gift', 'Отыгрышный подарок'], ['deposit_bonus', 'Бонус на пополнение'], ['multi', 'Несколько наград']];
+  const REW = [['balance', 'Баланс TON'], ['tickets', 'Билеты розыгрыша'], ['pumpkins', 'Тыквы (Хэллоуин)'], ['gift', 'Подарок'], ['wager_gift', 'Отыгрышный подарок'], ['deposit_bonus', 'Бонус на пополнение'], ['multi', 'Несколько наград'], ['medal', 'Только медаль']];
 
   /* Редактор набора наград (мультипромокод) */
   function bundleEditor(gifts, state) {
@@ -37,10 +37,13 @@
     const amount = K.number(1, {min: '.01', step: '.01'}), tickets = K.number(10, {min: 1, step: 1}), pumpkins = K.number(100, {min: 1, step: 1});
     const gift = K.giftPicker('', {label: 'Подарок', models: true}), wX = K.number(25, {min: 1, max: 1000}), wExp = K.check('Подарок сгорает через N дней', false), wDays = K.number(7, {min: 1, max: 3650});
     const pct = K.number('', {min: 0, max: 100, step: '.1'}), fixed = K.number('', {min: 0, step: '.01'}), minDep = K.number(0, {min: 0, step: '.01'});
+    const grp0 = (...n) => h('div', {class: 'stack'}, n);
     const bundleState = [{type: 'gift', quantity: 1}], bundle = bundleEditor(gifts, bundleState);
     const desc = K.input({placeholder: 'Для чего создан промокод (видно администраторам)'}), srcLabel = K.input({placeholder: 'Администрация'});
     const author = K.select([['0', 'Без автора'], ...creators.map(c => [String(c.id), `${c.name || 'Автор'}${c.username ? ' · @' + c.username : ''} · ID ${c.id}`])], preset?.author ? String(preset.author) : '0');
     const assigned = K.number(0, {min: 0, step: 1, inputMode: 'numeric'}), expires = K.number(0, {min: 0, step: 1}), actDep = K.number(0, {min: 0, step: '.01'}), maxUses = K.number(1, {min: 0, step: 1});
+    const medalSel = K.select([['', 'Без медали'], ...((window.GDMedals && GDMedals.LIST) || []).filter(m => !m.hidden).map(m => [m.key, m.name])], '');
+    const gMedal = grp0(K.field('Медаль в награду', medalSel, 'Выдаётся вместе с наградой. Для типа «Только медаль» выберите её здесь.'));
     const grp = (...n) => h('div', {class: 'stack'}, n);
     const gTarget = grp(K.field('Куда начислять', target)), gAmt = grp(K.field('Сумма TON', amount)), gTick = grp(K.field('Количество билетов', tickets)), gPump = grp(K.field('Количество тыкв', pumpkins));
     const gGift = grp(K.field('Подарок', gift.node)), gWager = grp(K.field('Отыгрыш X', wX), wExp, K.field('Сгорает через, дней', wDays)), gDep = grp(h('div', {class: 'form-grid'}, K.field('Бонус, %', pct), K.field('или фиксированный, TON', fixed)), K.field('Минимальное пополнение, TON', minDep)), gMulti = grp(bundle.node);
@@ -54,7 +57,8 @@
     const paintList = d => {
       count.textContent = d.items.length;
       listBox.replaceChildren(...(d.items.length ? d.items.map(x => {
-        const reward = x.reward_type === 'multi' ? (x.purpose || 'Несколько наград') : x.reward_type === 'deposit_bonus' ? (x.bonus_percent ? '+' + x.bonus_percent + '%' : `+${K.money(x.bonus_fixed)} TON`) + ' к депозиту от ' + K.money(x.min_deposit) + ' TON' : x.reward_type === 'balance' ? K.money(x.amount) + ' TON' : x.reward_type === 'tickets' ? `${K.num(x.tickets || x.amount)} билет(ов)` : x.reward_type === 'pumpkins' ? `${K.num(x.pumpkins || x.amount)} тыкв` : x.reward_type === 'wager_gift' ? `${x.gift_name} · X${Number(x.wager_multiplier || 0)} · цель ${K.money((x.gift_price || 0) * Number(x.wager_multiplier || 0))} TON${Number(x.gift_expires_days || 0) > 0 ? ` · сгорит через ${x.gift_expires_days} дн.` : ''}` : x.gift_name;
+        const reward0 = x.reward_type === 'multi' ? (x.purpose || 'Несколько наград') : x.reward_type === 'deposit_bonus' ? (x.bonus_percent ? '+' + x.bonus_percent + '%' : `+${K.money(x.bonus_fixed)} TON`) + ' к депозиту от ' + K.money(x.min_deposit) + ' TON' : x.reward_type === 'balance' ? K.money(x.amount) + ' TON' : x.reward_type === 'tickets' ? `${K.num(x.tickets || x.amount)} билет(ов)` : x.reward_type === 'pumpkins' ? `${K.num(x.pumpkins || x.amount)} тыкв` : x.reward_type === 'wager_gift' ? `${x.gift_name} · X${Number(x.wager_multiplier || 0)} · цель ${K.money((x.gift_price || 0) * Number(x.wager_multiplier || 0))} TON${Number(x.gift_expires_days || 0) > 0 ? ` · сгорит через ${x.gift_expires_days} дн.` : ''}` : x.gift_name;
+        const reward = x.reward_type === 'medal' ? 'Медаль «' + (x.medal_name || x.medal || '?') + '»' : (x.medal ? '🏅 «' + (x.medal_name || x.medal) + '» + ' : '') + reward0;
         const key = x.key || x.code, off = !(x.active && !x.expired);
         const info = [`${x.uses_count}/${x.max_uses === 0 ? '∞' : x.max_uses} активаций`, x.assigned_user_id ? 'user ' + x.assigned_user_id : 'для всех', x.expires_at ? (x.expired ? 'истёк' : 'до ' + new Date(x.expires_at).toLocaleDateString('ru-RU')) : 'без срока', Number(x.activation_min_deposit || 0) ? 'депозит от ' + K.money(x.activation_min_deposit) + ' TON' : ''].filter(Boolean).join(' · ');
         return h('div', {class: 'list-item', style: {flexWrap: 'wrap', opacity: off ? '.55' : '1'}},
@@ -66,11 +70,11 @@
     };
     async function reload() { paintList(await api('/api/admin/promocodes')); }
 
-    const form = K.form([K.field('Код', code), K.field('Награда', type), gTarget, gAmt, gTick, gPump, gGift, gWager, gDep, gMulti, K.field('Описание', desc), K.field('Источник (подпись)', srcLabel),
+    const form = K.form([K.field('Код', code), K.field('Награда', type), gTarget, gAmt, gTick, gPump, gGift, gWager, gDep, gMulti, gMedal, K.field('Описание', desc), K.field('Источник (подпись)', srcLabel),
       K.field('Автор', author), K.field('Только для пользователя ID (0 — для всех)', assigned),
       h('div', {class: 'form-grid'}, K.field('Срок, дней (0 — без срока)', expires), K.field('Мин. подтверждённый депозит, TON', actDep, '0 = без условия'), K.field('Лимит активаций · 0 = ∞', maxUses))], async () => {
       const t = type.value;
-      const d = await api('/api/admin/promocodes', {code: code.value, reward_type: t, balance_target: target.value, amount: amount.value, tickets: tickets.value, pumpkins: pumpkins.value, gift_id: gift.value, wager_multiplier: wX.value, gift_expires_days: t === 'wager_gift' && wExp.querySelector('input').checked ? wDays.value : 0, max_uses: maxUses.value, bonus_percent: pct.value, bonus_fixed: fixed.value, min_deposit: minDep.value, activation_min_deposit: actDep.value, bundle_items: t === 'multi' ? bundle.payload() : undefined, assigned_user_id: assigned.value, author_user_id: author.value || 0, expires_in_days: expires.value, source_label: srcLabel.value, description: desc.value});
+      const d = await api('/api/admin/promocodes', {code: code.value, reward_type: t, balance_target: target.value, amount: amount.value, tickets: tickets.value, pumpkins: pumpkins.value, gift_id: gift.value, wager_multiplier: wX.value, gift_expires_days: t === 'wager_gift' && wExp.querySelector('input').checked ? wDays.value : 0, max_uses: maxUses.value, bonus_percent: pct.value, bonus_fixed: fixed.value, min_deposit: minDep.value, activation_min_deposit: actDep.value, bundle_items: t === 'multi' ? bundle.payload() : undefined, medal: medalSel.value, assigned_user_id: assigned.value, author_user_id: author.value || 0, expires_in_days: expires.value, source_label: srcLabel.value, description: desc.value});
       code.value = ''; desc.value = ''; K.ok('Создан: ' + d.code); K.copy(d.code); await reload();
     }, 'Создать промокод');
     paintList(list0);

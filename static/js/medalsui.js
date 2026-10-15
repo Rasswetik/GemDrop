@@ -144,6 +144,7 @@
       document.body.appendChild(el);
     }).catch(function () {});
   }
+  window.GDMedalsCheck = pending;
   var ready = window.GDMedals.ready || Promise.resolve();
   setTimeout(function () { ready.then(pending); }, 2500);
   setInterval(function () { if (!document.hidden) pending(); }, 45000);

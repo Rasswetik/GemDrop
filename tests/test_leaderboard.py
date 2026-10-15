@@ -111,6 +111,28 @@ class LeaderboardTests(unittest.TestCase):
         worn = sorted(x['key'] for x in self.client.get('/api/medals').get_json()['medals'] if x['shown'])
         self.assertEqual(worn, ['champ', 'fire', 'gem'])
 
+    def test_medal_as_quest_and_promo_reward(self):
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals')
+            db.execute("DELETE FROM promo_codes WHERE code='MEDALONLY'")
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/reward-tasks', dict(metric='upgrade_play', goal=1, tickets=0, medal='nope'), 400)
+            self.post('/api/admin/reward-tasks', dict(metric='upgrade_play', goal=1, tickets=0, medal='gem'))
+            task = [x for x in self.client.get('/api/admin/reward-tasks').get_json()['items'] if x.get('medal') == 'gem'][0]
+            self.assertEqual(task['tickets'], 0)
+            with m.connect() as db:
+                db.execute('INSERT OR IGNORE INTO referrals(referred_id,referrer_id) VALUES(?,?)', (self.uid + 300000, self.uid))
+                row = db.execute("INSERT INTO reward_tasks(title,category,metric,goal,tickets,action_page,created_at,medal) VALUES('QM','once','referral',1,0,'profilePage','2000-01-01','champ')")
+                tid = row.lastrowid
+            self.post(f'/api/reward-tasks/{tid}/claim')
+            self.assertEqual([x['key'] for x in self.client.get('/api/medals').get_json()['medals']], ['champ'])
+            self.post('/api/admin/promocodes', {'code': 'MEDALONLY', 'reward_type': 'medal'}, 400)
+            self.post('/api/admin/promocodes', {'code': 'MEDALONLY', 'reward_type': 'medal', 'medal': 'vip', 'max_uses': 0})
+            got = self.post('/api/promocodes/redeem', {'code': 'MEDALONLY'})
+            self.assertEqual(got['reward']['type'], 'medal')
+        keys = sorted(x['key'] for x in self.client.get('/api/medals').get_json()['medals'])
+        self.assertEqual(keys, ['champ', 'vip'])
+
     def test_admin_grants_and_revokes_manual_medal(self):
         with m.connect() as db:
             db.execute('DELETE FROM user_medals')

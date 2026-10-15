@@ -999,6 +999,25 @@ def register(app, ns):
     return loop
 
 
+def award_medal(db, user_id, medal, title='Особая награда', notify=True):
+    """Give a medal to a player from anywhere (admin, quest, promo code, season). Returns the new row id, or 0 if the key is unknown."""
+    medal = str(medal or '')
+    if not medal or medal not in all_names():
+        return 0
+    title = (str(title or '').strip()[:60]) or 'Особая награда'
+    on = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1', (int(user_id),)).fetchone()['n']
+    cur = db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown,claimed) VALUES(?,?,?,?,?,?,0)',
+                     (int(user_id), medal, title, 0, 0, 1 if on < MAX_SHOWN_MEDALS else 0))
+    if notify:
+        fn = _ns.get('notify_user_async')
+        if fn:
+            try:
+                fn(int(user_id), render_note(medal_settings()['notify'], medal=mname(medal), title=title), None, 'HTML', db=db)
+            except Exception:
+                _ns['app'].logger.exception('Medal notification failed')
+    return int(cur.lastrowid)
+
+
 def shown_medals(db, user_id):
     """Medals the player chose to show on the public profile (newest first)."""
     rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY id DESC LIMIT ?',

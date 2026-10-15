@@ -11505,6 +11505,19 @@ html.hw .gc-art>svg.hw-art{display:block!important;visibility:visible!important;
 @media(max-width:520px){#hwEventCard{min-height:236px!important}#hwEventCard .hw-tx b{font-size:24px!important}#hwEventCard .hw-cta{height:38px;padding:0 14px}}
 @media(min-width:900px){#hwEventCard{min-height:0!important;aspect-ratio:32/9.4!important}}
 html.hw-still #hwEventCard .hw-cta{animation:none}
+
+/* event button sizes (admin: Halloween Event → Вид кнопки) */
+html #hwEventCard.hw-sz-normal{grid-column:auto!important;min-height:200px!important;aspect-ratio:auto!important}
+html #hwEventCard.hw-sz-normal .hw-tx b{font-size:19px!important}
+html #hwEventCard.hw-sz-normal .hw-cta{display:none}
+html #hwEventCard.hw-sz-strip{min-height:0!important;height:68px!important;aspect-ratio:auto!important;border-radius:20px;margin-bottom:2px}
+html #hwEventCard.hw-sz-strip .hw-card-tag,html #hwEventCard.hw-sz-strip .hw-pre-chip{display:none}
+html #hwEventCard.hw-sz-strip .hw-tx{top:0;padding:0 12px 0 16px;align-items:center;flex-wrap:nowrap;background:linear-gradient(90deg,#120c1ce6 8%,#120c1c66 60%,#120c1c00)}
+html #hwEventCard.hw-sz-strip .hw-tx>div{min-width:0}
+html #hwEventCard.hw-sz-strip .hw-tx b{font-size:16px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html #hwEventCard.hw-sz-strip .hw-tx small{font-size:12px}
+html #hwEventCard.hw-sz-strip .hw-cta{padding:8px 14px;font-size:13px;flex:none}
+html #hwEventCard.hw-sz-strip .hw-card-art>svg{height:300%;top:-128%}
 /* ---------- the event page ---------- */
 #hwEventPage{padding-bottom:28px}
 #hwEventPage .hw-hero{position:relative;border-radius:26px;overflow:hidden;border:1px solid #6b39df88;box-shadow:0 16px 40px #000a,0 0 30px #6835de30;aspect-ratio:6/5;max-height:64vh;background:#140e1f;margin:6px 0 0}
@@ -16613,11 +16626,13 @@ function build(){
  const grid=$$('#gamesPage .games-grid');
  if(grid){const b=document.createElement('button');b.type='button';b.id='hwEventCard';b.setAttribute('aria-label','Halloween event');
   b.innerHTML=`<span class="hw-card-art">${bannerImg()||EVENT_SCENE()}</span><span class="hw-pre-chip hidden" id="hwPreChip">Только админы</span><span class="hw-card-tag">СОБЫТИЕ</span><div class="hw-tx"><div><b>Halloween в GemDrop</b><small id="hwCardSub" class="hw-timer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4.5l3 2M9.500 3h5"/></svg><span id="hwCd">…</span></small></div><span class="hw-cta">Играть<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></div>`;
-  b.onclick=()=>{if(st.event_open===false){if(typeof toast==='function')toast('Событие откроется через '+fmt(st.opens_at-(Date.now()+skew)));return}if(typeof show==='function')show('hwEventPage')};grid.prepend(b)}
+  b.onclick=()=>{if(st.event_open===false){if(typeof toast==='function')toast('Событие откроется через '+fmt(st.opens_at-(Date.now()+skew)));return}if(typeof show==='function')show('hwEventPage')};grid.prepend(b);applyCardStyle()}
  const pg=document.getElementById('hwEventPage');
  if(pg)mountEvent6(pg);
 }
+function applyCardStyle(){const c=document.getElementById('hwEventCard');if(!c)return;const v=['big','normal','strip'].includes(st.card_style)?st.card_style:'big';if(c.dataset.sz===v)return;c.dataset.sz=v;c.classList.remove('hw-sz-big','hw-sz-normal','hw-sz-strip');c.classList.add('hw-sz-'+v);const sv=c.querySelector('.hw-card-art>svg');if(sv)sv.setAttribute('preserveAspectRatio',v==='big'?'xMidYMid slice':'xMidYMid slice')}
 function refreshBanner(){
+ applyCardStyle();
  if(!built)return;const key=bannerOk(st.banner_url)?st.banner_url:'';
  const card=document.querySelector('#hwEventCard .hw-card-art');
  if(card&&card.dataset.bn!==key){card.dataset.bn=key;card.innerHTML=key?bannerImg():EVENT_SCENE()}

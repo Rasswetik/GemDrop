@@ -8,7 +8,7 @@
     let d = await api('/api/admin/halloween');
     const state = h('div'), banner = h('div');
     const enabled = K.switchRow('Режим Halloween', 'Включает оформление у всех игроков', !!d.enabled), adminsOnly = K.switchRow('Только для администраторов', 'Предпросмотр: событие видят только админы, остальные игроки видят обычный сайт. Выключите — и событие увидят все.', !!d.admins_only), effects = K.switchRow('Фоновые анимации', 'Летучие мыши, призраки, мерцание. Тема остаётся и без них; на слабых устройствах и в режиме энергосбережения анимации отключаются сами.', d.effects !== false);
-    const start = K.input({type: 'datetime-local', value: K.localInput(d.starts_at)}), end = K.input({type: 'datetime-local', value: K.localInput(d.ends_at)}), mode = K.select(MODES, d.mode || 'full'), opens = K.input({type: 'datetime-local', value: K.localInput(d.opens_at)});
+    const start = K.input({type: 'datetime-local', value: K.localInput(d.starts_at)}), end = K.input({type: 'datetime-local', value: K.localInput(d.ends_at)}), mode = K.select(MODES, d.mode || 'full'), opens = K.input({type: 'datetime-local', value: K.localInput(d.opens_at)}), cardStyle = K.select([['big', 'Большая карточка'], ['normal', 'Обычная карточка (как у игры)'], ['strip', 'Тонкая полоса над режимами']], d.card_style || 'big');
     const opensField = K.field('Когда откроется событие (отсчёт на кнопке)', opens);
     const sync = () => { opensField.hidden = mode.value === 'full'; }; mode.onchange = sync; sync();
     const view = x => {
@@ -23,10 +23,10 @@
       const s = start.value ? new Date(start.value).getTime() : 0, e = end.value ? new Date(end.value).getTime() : 0;
       if (s && e && e <= s) throw new Error('Конец должен быть позже начала');
       const op = opens.value ? new Date(opens.value).getTime() : 0; if (mode.value !== 'full' && enabled.input.checked && !op) throw new Error('Укажите, когда откроется событие — это отсчёт на кнопке');
-      view(await api('/api/admin/halloween', Object.assign({enabled: enabled.input.checked, admins_only: adminsOnly.input.checked, effects: effects.input.checked, starts_at: s, ends_at: e, mode: mode.value, opens_at: op}, extra || {}))); K.ok('Halloween сохранён');
+      view(await api('/api/admin/halloween', Object.assign({enabled: enabled.input.checked, admins_only: adminsOnly.input.checked, effects: effects.input.checked, starts_at: s, ends_at: e, mode: mode.value, opens_at: op, card_style: cardStyle.value}, extra || {}))); K.ok('Halloween сохранён');
     };
     const preset = (label, fn) => K.btn(label, async () => { enabled.input.checked = true; start.value = ''; end.value = K.localInput(fn()); await save(); }, 'small');
-    const form = K.form([enabled, adminsOnly, effects, h('div', {class: 'form-grid'}, K.field('Начало (пусто — сразу)', start), K.field('Конец (пусто — без ограничения)', end)), K.field('Режим запуска', mode), opensField], () => save(), 'Сохранить');
+    const form = K.form([enabled, adminsOnly, effects, h('div', {class: 'form-grid'}, K.field('Начало (пусто — сразу)', start), K.field('Конец (пусто — без ограничения)', end)), K.field('Режим запуска', mode), opensField, K.field('Вид кнопки события на главной', cardStyle)], () => save(), 'Сохранить');
     adminsOnly.input.addEventListener('change', () => { if (enabled.input.checked) K.action(null, () => save()); });
     const file = h('input', {type: 'file', accept: 'image/*'});
     const advanced = h('div');

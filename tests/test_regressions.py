@@ -1523,10 +1523,11 @@ class RegressionTests(unittest.TestCase):
     def test_halloween_effects_flag_and_public_state(self):
         now = int(time.time() * 1000)
         with patch.object(m, 'ADMIN_IDS', {self.uid}):
-            self.post('/api/admin/halloween', {'enabled': True, 'effects': False, 'starts_at': 0, 'ends_at': now + 600000})
+            self.post('/api/admin/halloween', {'enabled': True, 'effects': False, 'starts_at': 0, 'ends_at': now + 600000, 'card_style': 'strip'})
         pub = self.client.get('/api/halloween')
         data = pub.get_json()
         self.assertTrue(data['active'])
+        self.assertEqual(data['card_style'], 'strip')
         self.assertFalse(data['effects'])
         self.assertEqual(pub.headers.get('Cache-Control'), 'no-store')
         with patch.object(m, 'ADMIN_IDS', {self.uid}):

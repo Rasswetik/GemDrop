@@ -2634,7 +2634,8 @@ def halloween_state(fresh=False, for_admin=False):
     return dict(enabled=enabled, starts_at=starts, ends_at=ends, active=active, effects=effects, now=now,
                 admins_only=admins_only, banner_id=banner_id,
                 banner_url=('/api/wheel/image/' + banner_id) if banner_id else '',
-                launch_id=_ms('launch_id'), mode=mode, opens_at=opens_at, phase=phase)
+                launch_id=_ms('launch_id'), mode=mode, opens_at=opens_at, phase=phase,
+                card_style=(str(doc.get('card_style')) if str(doc.get('card_style')) in ('big', 'normal', 'strip') else 'big'))
 
 
 @app.get('/api/halloween')
@@ -2648,7 +2649,7 @@ def public_halloween():
     response = jsonify(active=theme, teaser=(phase == 'teaser'), event_open=(phase == 'full'), opens_at=s['opens_at'] if visible else 0,
                        starts_at=s['starts_at'], ends_at=s['ends_at'], effects=s['effects'], now=s['now'],
                        admins_only=bool(s['admins_only'] and admin), banner_url=s['banner_url'] if theme else '',
-                       launch_id=s['launch_id'], pet=bool(theme and hw_pet_enabled()))
+                       launch_id=s['launch_id'], card_style=s['card_style'], pet=bool(theme and hw_pet_enabled()))
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Vary'] = 'Cookie'
     return response
@@ -2705,7 +2706,8 @@ def admin_halloween_set():
         return error('Неизвестный режим.')
     if enabled and mode != 'full' and not opens:
         return error('Для режимов с серой кнопкой укажите, когда откроется событие.')
-    doc.update(mode=mode, opens_at=opens)
+    card_style = str(data.get('card_style') or prev.get('card_style') or 'big')
+    doc.update(mode=mode, opens_at=opens, card_style=card_style if card_style in ('big', 'normal', 'strip') else 'big')
     doc.update(enabled=enabled, starts_at=starts, ends_at=ends, effects=bool(data.get('effects', True)),
                admins_only=admins_only, banner_id=str(prev.get('banner_id') or ''), launch_id=launch_id,
                updated_at=datetime.now(timezone.utc).isoformat(), admin_id=session['uid'])

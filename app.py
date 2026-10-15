@@ -1291,26 +1291,26 @@ def admin_required(fn):
 
 CREATOR_LEVELS = {
     'base': dict(
-        key='base', name='Base', daily_budget_cents=100, daily_code_limit=1, main_percent=30, bonus_percent=70,
+        weekly_medals=1, key='base', name='Base', daily_budget_cents=100, daily_code_limit=1, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=100, wager_daily_limit=1, wager_min_x=40,
         wager_gift_min_cents=300, wager_gift_max_cents=400, wager_max_uses=1,
         description='Базовый уровень автора: до 1 TON в день, из них 30% на основной и 70% на бонусный баланс, или 1 отыгрышный подарок 3–4 TON с X от 40.',
     ),
     'creator': dict(
-        key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0, main_percent=30, bonus_percent=70,
+        weekly_medals=2, key='creator', name='Creator', daily_budget_cents=150, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=50, wager_daily_limit=1, wager_min_x=30,
         wager_gift_min_cents=300, wager_gift_max_cents=500, wager_max_uses=10,
         description='До 1.50 TON в день: 30% на основной и 70% на бонусный баланс; плюс 1 отыгрышный подарок стоимостью 3–5 TON.',
     ),
     'super_creator': dict(
-        key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0, main_percent=30, bonus_percent=70,
+        weekly_medals=3, key='super_creator', name='Super Creator', daily_budget_cents=500, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=50, wager_daily_limit=3, wager_min_x=20,
         wager_gift_min_cents=300, wager_gift_max_cents=1000, wager_max_uses=15,
         custom_deposit=True,
         description='До 5 TON в день: 30% на основной и 70% на бонусный баланс; до 3 отыгрышных подарков стоимостью 3–10 TON. Условие депозита задаёте сами.',
     ),
     'god': dict(
-        key='god', name='God', daily_budget_cents=1000, daily_code_limit=0, main_percent=30, bonus_percent=70,
+        weekly_medals=5, key='god', name='God', daily_budget_cents=1000, daily_code_limit=0, main_percent=30, bonus_percent=70,
         activation_min_deposit_cents=0, wager_daily_limit=10, wager_min_x=17,
         wager_gift_min_cents=300, wager_gift_max_cents=1500, wager_max_uses=20,
         custom_deposit=True,
@@ -1385,6 +1385,8 @@ def creator_record(user_id):
         youtube_pending=(dict(raw.get('youtube_pending')) if isinstance(raw.get('youtube_pending'), dict) else {}),
         twitch=dict(twitch),
         creator_limit_reset_at=raw.get('creator_limit_reset_at'),
+        medal_keys=[str(x) for x in (raw.get('medal_keys') or []) if isinstance(x, str)][:30],
+        medal_grants=[str(x) for x in (raw.get('medal_grants') or []) if isinstance(x, str)][-60:],
         creator_limit_credit=(dict(raw.get('creator_limit_credit')) if isinstance(raw.get('creator_limit_credit'), dict) else {}),
         created_at=raw.get('created_at'),
         updated_at=raw.get('updated_at'),
@@ -19239,6 +19241,22 @@ def admin_creator_level(user_id):
                    creator_level_info=creator_level_public(record['creator_level']))
 
 
+@app.post('/api/admin/creators/<int:user_id>/medals')
+@admin_required
+def admin_creator_medals(user_id):
+    data = request.get_json(silent=True) or {}
+    if not creator_record(user_id).get('active'):
+        return error('Пользователь не является активным автором.', 404)
+    names = leaderboard.all_names()
+    keys = []
+    for k in data.get('medals') or []:
+        k = str(k)
+        if k in names and k not in keys:
+            keys.append(k)
+    record = save_creator_record(user_id, {'medal_keys': keys[:30]})
+    return jsonify(ok=True, **creator_medal_state(record, CREATOR_LEVELS[creator_level_key(record.get('creator_level'))]))
+
+
 @app.post('/api/admin/creators/<int:user_id>/restore-limit')
 @admin_required
 def admin_creator_restore_limit(user_id):
@@ -19380,6 +19398,26 @@ def creator_bonus_usage(db, user_id, record=None):
                 reset_at=start_utc.isoformat())
 
 
+def creator_medal_week(record):
+    cut = datetime.now(timezone.utc) - timedelta(days=7)
+    out = []
+    for ts in record.get('medal_grants') or []:
+        try:
+            if datetime.fromisoformat(ts) >= cut:
+                out.append(ts)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def creator_medal_state(record, cfg):
+    names = leaderboard.all_names()
+    keys = [k for k in record.get('medal_keys') or [] if k in names]
+    limit = int(cfg.get('weekly_medals') or 0)
+    used = len(creator_medal_week(record))
+    return dict(medals=[dict(key=k, name=names[k]) for k in keys], medal_week=dict(limit=limit, used=used, left=max(0, limit - used)))
+
+
 def creator_bonus_builder_state(user_id):
     record = creator_record(user_id)
     level = creator_level_key(record.get('creator_level'))
@@ -19397,7 +19435,7 @@ def creator_bonus_builder_state(user_id):
                 gifts.append(dict(id=str(gift.get('id') or ''), name=str(gift.get('name') or 'Подарок'),
                                   image_url=safe_image(gift.get('image_url') or gift.get('portal_image_url')),
                                   price_ton=cents/100))
-    return dict(level=level, level_info=creator_level_public(level), usage=usage, gifts=gifts)
+    return dict(level=level, level_info=creator_level_public(level), usage=usage, gifts=gifts, **creator_medal_state(record, cfg))
 
 
 @app.get('/api/creator/bonus-builder')
@@ -19418,6 +19456,7 @@ def creator_create_bonus():
     balance_target = 'bonus' if str(data.get('balance_target') or 'bonus').strip().lower() == 'bonus' else 'main'
     if kind not in ('freebet', 'promocode'):
         return error('Выберите Freebet или промокод.')
+    medal_key = str(data.get('medal') or '').strip()
     if reward_type not in ('balance', 'wager_gift'):
         return error('Авторам доступны TON или отыгрышный подарок.')
     code = str(data.get('code') or '').strip().upper()
@@ -19432,6 +19471,11 @@ def creator_create_bonus():
     record = creator_record(uid)
     level = creator_level_key(record.get('creator_level'))
     cfg = CREATOR_LEVELS[level]
+    if medal_key:
+        if medal_key not in (record.get('medal_keys') or []) or medal_key not in leaderboard.all_names():
+            return error('Эта медаль не привязана к вашему аккаунту.', 403)
+        if len(creator_medal_week(record)) >= int(cfg.get('weekly_medals') or 0):
+            return error('Недельный лимит медалей исчерпан (%d). Он растёт с уровнем.' % int(cfg.get('weekly_medals') or 0), 409)
     activation_min_deposit = int(cfg['activation_min_deposit_cents'])
     if cfg.get('custom_deposit'):
         # Super Creator chooses the condition: empty/0 = no deposit required, or any minimum.
@@ -19536,6 +19580,11 @@ def creator_create_bonus():
                         VALUES(?,?,?,0,1,0,0,0,0,?,NULL,?,?)""",
                        (code,code,max_uses,activation_min_deposit,uid,uid))
         db.commit()
+        if medal_key:
+            links = leaderboard.promo_medals()
+            links[code] = dict(medal=medal_key, title='От автора')
+            save_document(leaderboard.PROMO_MEDAL_DOC, dict(codes=links))
+            save_creator_record(uid, {'medal_grants': (record.get('medal_grants') or []) + [datetime.now(timezone.utc).isoformat()]})
     except Exception as exc:
         try:
             db.connection.rollback() if DATABASE_URL else db.execute('ROLLBACK')

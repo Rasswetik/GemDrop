@@ -26,7 +26,23 @@
       return (main || sh[0] || {}).key || '';
     }).catch(function () { return ''; });
   }
-  function win() { myMusic().then(function (k) { if (k) playShort(k, .85); }); }
+  /* quiet jingle: fades in, fades out before the end */
+  var fade = {raf: 0};
+  function ramp(a, to, ms, done) {
+    cancelAnimationFrame(fade.raf); var from = a.volume, t0 = performance.now();
+    (function step(now) { var q = Math.min(1, (now - t0) / ms); a.volume = Math.max(0, Math.min(1, from + (to - from) * q * q * (3 - 2 * q))); if (q < 1) fade.raf = requestAnimationFrame(step); else if (done) done(); })(t0);
+  }
+  function fadeOut(ms) { var a = cur; if (!a) return; ramp(a, 0, ms || 900, function () { if (cur === a) stop(); else try { a.pause(); } catch (e) {} }); }
+  function winFaded(k) {
+    exists(k, true).then(function (has) {
+      if (!has || !enabled()) return;
+      stop(); var a = new Audio(url(k, true)), MAX = .32; a.volume = 0; cur = a; var out = false;
+      a.addEventListener('timeupdate', function () { if (!out && a.duration && a.currentTime > a.duration - 1.8) { out = true; ramp(a, 0, 1500); } });
+      a.addEventListener('ended', function () { if (cur === a) cur = null; });
+      a.play().then(function () { ramp(a, MAX, 1600); }).catch(function () {});
+    });
+  }
+  function win() { myMusic().then(function (k) { if (k) winFaded(k); }); }
   window.GDMusicRefresh = function () { mineP = null; };
 
   /* ---- profile player ---- */
@@ -80,5 +96,5 @@
   }
   if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
   setTimeout(mountRow, 800); setTimeout(mountRow, 2500);
-  window.GDMusic = {enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win};
+  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win};
 })();

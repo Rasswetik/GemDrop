@@ -50,6 +50,20 @@ VIP_TIERS = [
 ]
 
 
+# Thresholds of the first release: a player who had reached a tier under them never drops below it.
+LEGACY_TON = {'iron': 500, 'bronze': 2500, 'silver': 10000, 'gold': 30000, 'platinum': 100000, 'diamond': 300000, 'obsidian': 1000000}
+
+
+def floor_index(have, turnover_cents):
+    """Highest tier already received or reached under the original thresholds."""
+    ton = int(turnover_cents or 0) / 100
+    idx = -1
+    for i, t in enumerate(VIP_TIERS):
+        if t['key'] in have or ton >= LEGACY_TON.get(t['key'], 10 ** 12):
+            idx = i
+    return idx
+
+
 def cashback_percent(turnover_cents):
     """PLAYBONUS percent for a player with that turnover."""
     ton = int(turnover_cents or 0) / 100
@@ -94,15 +108,18 @@ def gift_image(name, db=None):
     return found
 
 
-def tier_state(turnover_cents):
+def tier_state(turnover_cents, floor=-1):
+    """floor: index of the highest tier the player already received, so re-tuning the thresholds never lowers a status."""
     ton = int(turnover_cents or 0) / 100
     idx = -1
     for i, t in enumerate(VIP_TIERS):
         if ton >= t['ton']:
             idx = i
+    idx = max(idx, floor)
     nxt = VIP_TIERS[idx + 1] if idx + 1 < len(VIP_TIERS) else None
     base = VIP_TIERS[idx]['ton'] if idx >= 0 else 0
     progress = 100.0 if not nxt else max(0.0, min(100.0, (ton - base) * 100 / (nxt['ton'] - base)))
+    progress = max(0.0, progress)
     return dict(index=max(idx, 0), reached=idx >= 0, turnover=round(ton, 2), progress=round(progress, 1),
                 next=(dict(name=nxt['name'], ton=nxt['ton'], left=round(nxt['ton'] - ton, 2)) if nxt else None))
 
@@ -152,24 +169,22 @@ def pick_gift(db, tier, seed):
 def grant_due(db, user_id, turnover_cents):
     """Gives every reached, not yet rewarded tier (inside the caller's transaction). Returns the list of new rewards."""
     ton = int(turnover_cents or 0) / 100
-    reached = [t for t in VIP_TIERS if ton >= t['ton']]
-    if not reached:
-        return []
     have = {r['tier_key'] for r in db.execute('SELECT tier_key FROM vip_claims WHERE user_id=?', (int(user_id),)).fetchall()}
-    if len(have) >= len(reached):
+    top = max(floor_index(set(), turnover_cents), max([i for i, t in enumerate(VIP_TIERS) if ton >= t['ton']], default=-1))
+    if top < 0 or len(have) >= top + 1:
         return []
     if _ns['creator_demo_active'](int(user_id)):
         return []
     out = []
     for i, t in enumerate(VIP_TIERS):
-        if t['key'] in have or ton < t['ton']:
+        if t['key'] in have or i > top:
             continue
         reward = dict(name=t['name'], tickets=t['tickets'], balance=t['bonus_ton'], gift=None,
                       playbonus_unlocked=bool(i == PLAYBONUS_TIER))
         g = pick_gift(db, t, '') if t['gift'] else None
         if g:
             cents = int(round(float(g['price_ton']) * 100))
-            bg = _ns['gift_black_background'](g) or ''
+            bg = ''
             db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,fragment_backdrop,price_source) VALUES(?,?,?,?,?,'vip',?,?)",
                        (int(user_id), str(g.get('id') or ''), str(g.get('name') or ''), str(g.get('image_url') or ''), cents, bg,
                         'Portal · фон' if bg else 'Portal'))
@@ -183,10 +198,10 @@ def grant_due(db, user_id, turnover_cents):
                    (int(user_id), t['key'], _ns['json'].dumps(reward, ensure_ascii=False)))
         lines = ['Новый VIP-статус: %s' % t['name'], '']
         if reward['gift']:
-            lines.append('🎁 Подарок: %s (%s TON)' % (reward['gift']['name'], format(reward['gift']['price'], 'g')))
-        lines.append('🎟 Билеты: %d' % t['tickets'])
+            lines.append('🎁 Подарок: %s (%s [[ton]])' % (reward['gift']['name'], format(reward['gift']['price'], 'g')))
+        lines.append('Билеты: %s [[ticket]]' % format(t['tickets'], ',').replace(',', ' '))
         if t['bonus_ton']:
-            lines.append('💎 Баланс: +%s TON' % t['bonus_ton'])
+            lines.append('Баланс: +%s [[ton]]' % t['bonus_ton'])
         if reward['playbonus_unlocked']:
             lines.append('⚡ Открыт PLAYBONUS: кэшбэк можно забирать на основной баланс')
         _ns['add_user_notification'](db, int(user_id), 'vip_level', '\n'.join(lines))
@@ -239,7 +254,7 @@ def register(app, ns):
             pb = db.execute('SELECT playbonus FROM users WHERE id=?', (uid,)).fetchone()
         got = {r['tier_key']: reward_view(r) for r in rows}
         unseen = [got[r['tier_key']] for r in rows if not int(r['seen'])]
-        state = tier_state(cents)
+        state = tier_state(cents, floor_index(set(got), cents))
         tiers = []
         for i, t in enumerate(VIP_TIERS):
             unlocked = state['reached'] and i <= state['index']
@@ -270,7 +285,9 @@ def register(app, ns):
             if not row:
                 db.rollback()
                 return ns['error']('Пользователь не найден.', 404)
-            if tier_state(int(row['turnover_cents'] or 0))['index'] < PLAYBONUS_TIER or int(row['turnover_cents'] or 0) < VIP_TIERS[PLAYBONUS_TIER]['ton'] * 100:
+            have = {r['tier_key'] for r in db.execute('SELECT tier_key FROM vip_claims WHERE user_id=?', (uid,)).fetchall()}
+            st = tier_state(int(row['turnover_cents'] or 0), floor_index(have, int(row['turnover_cents'] or 0)))
+            if not st['reached'] or st['index'] < PLAYBONUS_TIER:
                 db.rollback()
                 return ns['error']('PLAYBONUS открывается со статуса %s.' % VIP_TIERS[PLAYBONUS_TIER]['name'], 403)
             amount = int(row['playbonus'] or 0)

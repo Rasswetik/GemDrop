@@ -135,18 +135,11 @@ body.vip-open{overflow:hidden}
 .pb-pct{margin:-2px 0 8px;font-size:12px;color:#9fb0c8}
 .vr-chips span{display:inline-flex;align-items:center;gap:6px}.vr-tk{width:20px;height:20px}.vr-chips .vip-ton{width:18px;height:18px}
 
-/* gift tile: a square, cropped to its edges, with the gift PNG on top; Black / Onyx Black get their own backdrop */
+/* gift tile: a square, cropped to its edges, with the gift PNG on top */
 .vg-tile{display:block;position:relative;aspect-ratio:1;overflow:hidden;border-radius:18px;background:radial-gradient(circle at 50% 38%,#3a3d52,#1b1d2b 78%)}
-.vg-tile.bg-black{background:radial-gradient(circle at 50% 38%,#2a2c3a 0,#0c0d14 62%,#020203 100%)}
-.vg-tile.bg-onyx{background:radial-gradient(circle at 50% 36%,#5b6070 0,#2c2f3d 55%,#16181f 100%)}
 .vg-tile img{position:absolute;inset:8%;width:84%!important;height:84%!important;object-fit:contain;filter:drop-shadow(0 6px 12px rgba(0,0,0,.45))}
 .vr-gift .vg-tile{width:128px;height:128px}.vt-gift .vg-tile{width:52px;height:52px;border-radius:12px;flex:none}
 .vr-gift img{width:auto}
-/* inventory / catalog cards with Black and Onyx Black: the tile runs edge to edge of the card */
-.gift.portal-bg-black .gift-art,.gift.portal-bg-onyx-black .gift-art{margin:-9px -9px 9px;width:calc(100% + 18px);height:auto!important;aspect-ratio:1;border:0!important;border-radius:inherit;border-bottom-left-radius:0;border-bottom-right-radius:0;overflow:hidden;position:relative}
-.gift.portal-bg-black .gift-art img,.gift.portal-bg-onyx-black .gift-art img{position:absolute;inset:8%;width:84%!important;height:84%!important;object-fit:contain}
-.gift.portal-bg-black .gift-art{background:radial-gradient(circle at 50% 38%,#2a2c3a 0,#0c0d14 62%,#020203 100%)!important}
-.gift.portal-bg-onyx-black .gift-art{background:radial-gradient(circle at 50% 36%,#5b6070 0,#2c2f3d 55%,#16181f 100%)!important}
 /* profile VIP card: match the navy profile theme */
 #vipProfileCard.vpc{background:linear-gradient(135deg,rgba(61,140,255,.16),rgba(120,90,255,.10)),#131830;border:1px solid rgba(110,150,255,.22);box-shadow:inset 0 1px rgba(255,255,255,.05)}
 #vipProfileCard .vpc-bar{background:rgba(8,12,30,.7)}

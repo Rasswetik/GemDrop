@@ -29,18 +29,23 @@
       mines: K.switchRow('Мины', 'Основной режим Mines', s.mines),
       upgrade: K.switchRow('Апгрейды', 'Режим улучшения подарков', s.upgrade),
       giveaways: K.switchRow('Розыгрыши', 'Билеты, активные конкурсы и победители', s.giveaways),
-      profile: K.switchRow('Профиль', 'Инвентарь, бонусы и настройки игрока', s.profile),
-      black: K.switchRow('Black / Onyx Black', 'Показывать подарки с фонами Black и Onyx Black в каталоге и инвентаре', d.black_backgrounds_enabled)
+      profile: K.switchRow('Профиль', 'Инвентарь, бонусы и настройки игрока', s.profile)
     };
     const save = async () => {
-      const next = {mines: rows.mines.input.checked, upgrade: rows.upgrade.input.checked, giveaways: rows.giveaways.input.checked, profile: rows.profile.input.checked, black_backgrounds_enabled: rows.black.input.checked};
+      const next = {mines: rows.mines.input.checked, upgrade: rows.upgrade.input.checked, giveaways: rows.giveaways.input.checked, profile: rows.profile.input.checked};
       if (!['mines', 'upgrade', 'giveaways', 'profile'].some(k => next[k])) { K.toast('Оставьте включённым хотя бы один раздел.', 'bad'); for (const k of ['mines', 'upgrade', 'giveaways', 'profile']) rows[k].input.checked = !!s[k]; return; }
       const r = await api('/api/admin/section-settings', next); Object.assign(s, r.sections || {}); K.ok('Настройки разделов сохранены.');
     };
     for (const row of Object.values(rows)) row.input.addEventListener('change', () => { row.input.disabled = true; K.action(null, save).finally(() => row.input.disabled = false); });
+    const em = await api('/api/admin/emoji-settings').then(r => r.settings || {}).catch(() => ({}));
+    const emInputs = {};
+    const emField = (key, label, ph) => { const i = h('input', {type: 'text', class: 'text-input', placeholder: ph, value: em[key] || ''}); emInputs[key] = i; return h('label', {class: 'field'}, [h('span', {text: label}), i]); };
+    const emSave = h('button', {type: 'button', class: 'primary', text: 'Сохранить эмодзи'});
+    emSave.onclick = () => K.action(emSave, async () => { const body = {}; for (const k in emInputs) body[k] = emInputs[k].value.trim(); await api('/api/admin/emoji-settings', body); K.ok('Эмодзи сохранены.'); });
+    const emBody = h('div', {class: 'stack'}, [emField('ton_emoji', 'Эмодзи TON', '💎'), emField('ton_emoji_id', 'ID эмодзи TON (Telegram custom emoji)', '5368324170671202286'), emField('ticket_emoji', 'Эмодзи билета', '🎟'), emField('ticket_emoji_id', 'ID эмодзи билета', '5368324170671202287'), emSave]);
     const clearBtn = h('button', {type: 'button', class: 'danger', text: 'Очистить лайв-ленту'});
     clearBtn.onclick = () => { if (!confirm('Удалить все записи из ленты последних побед на странице игр?')) return; K.action(clearBtn, async () => { const r = await api('/api/admin/recent-wins/clear', {}); K.ok('Лента очищена: ' + r.removed + ' записей.'); }); };
-    root.append(K.head('Управление разделами', 'Включайте и скрывайте разделы нижней панели приложения. Данные режимов при выключении не удаляются. Изменения применяются сразу.', 'Интерфейс'), h('div', {class: 'stack'}, Object.values(rows)), K.card('Лайв-лента побед', 'Очищает ленту последних выигрышей в разделе игр. Новые победы появятся в ней снова.', clearBtn));
+    root.append(K.head('Управление разделами', 'Включайте и скрывайте разделы нижней панели приложения. Данные режимов при выключении не удаляются. Изменения применяются сразу.', 'Интерфейс'), h('div', {class: 'stack'}, Object.values(rows)), K.card('Эмодзи в уведомлениях', 'Вместо слов «TON» и «билетов» в сообщениях бота и уведомлениях подставляется этот эмодзи. Пустые поля — оставить слова.', emBody), K.card('Лайв-лента побед', 'Очищает ленту последних выигрышей в разделе игр. Новые победы появятся в ней снова.', clearBtn));
   }});
 
   /* ---------- Управление играми ---------- */

@@ -93,6 +93,26 @@ class VipTests(unittest.TestCase):
             self.assertEqual(self.post('/api/admin/recent-wins/clear', {})['removed'], 1)
         self.assertEqual(self.client.get('/api/recent-wins').get_json()['items'], [])
 
+    def test_status_never_drops_below_what_was_reached(self):
+        s = vip.tier_state(60000, vip.floor_index(set(), 60000))     # 600 TON: Jade now, but Quartz under the first thresholds
+        self.assertEqual(s['index'], 1)
+        self.assertEqual(vip.floor_index({'bronze'}, 0), 2)
+        self.assertEqual(vip.tier_state(0, 1)['progress'], 0.0)
+
+    def test_emoji_tokens_and_admin_settings(self):
+        from unittest.mock import patch
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/emoji-settings', {'ton_emoji': '', 'ticket_emoji': ''})
+            self.assertEqual(m.apply_emoji('+3 [[ton]], 5 [[ticket]]'), '+3 TON, 5 билетов')
+            self.post('/api/admin/emoji-settings', {'ton_emoji': 'D', 'ton_emoji_id': '5368324170671202286', 'ticket_emoji': 'T'}) 
+            self.post('/api/admin/emoji-settings', {'ton_emoji_id': 'abc'}, 400)
+            html = m.apply_emoji('Баланс: +3 [[ton]] и 7 TON, 500 билетов')
+            self.assertIn('<tg-emoji emoji-id="5368324170671202286">D</tg-emoji>', html)
+            self.assertNotIn(' TON', html)
+            self.assertIn('T', html.split('и 7')[1])
+            self.assertEqual(m.apply_emoji('[[ton]]', False), 'D')
+            self.post('/api/admin/emoji-settings', {})
+
     def test_gift_win_image_falls_back_to_inventory(self):
         with m.connect() as db:
             db.execute('DELETE FROM recent_wins')

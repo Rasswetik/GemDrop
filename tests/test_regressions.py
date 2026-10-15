@@ -42,36 +42,9 @@ class RegressionTests(unittest.TestCase):
             session['uid'] = self.uid
         m.save_document('gift_display_settings', {'black_backgrounds_enabled': True})
 
-    def test_black_background_switch_defaults_off_and_restores_inventory(self):
-        with m.connect() as db:
-            db.execute("DELETE FROM app_documents WHERE name='gift_display_settings'")
-            db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,floor_price,source,price_source) VALUES(?, 'qa:background:black', 'QA (Black)', 1200, 'test', 'Portal · фон')", (self.uid,))
-        gifts = [{'id':'qa','name':'QA','price_ton':4},
-                 {'id':'qa:background:black','name':'QA (Black)','background_label':'Black','price_ton':12,'price_source':'Portal · фон'}]
-        m.save_document('portal_catalog', {'gifts':gifts})
-        self.assertFalse(self.client.get('/api/ui/settings').get_json()['black_backgrounds_enabled'])
-        self.assertEqual(len(m.read_catalog()['gifts']),1)
-        self.assertEqual(len(m.read_catalog(include_hidden=True)['gifts']),2)
-        self.assertEqual(self.client.get('/api/inventory').get_json()['items'],[])
-        self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True},403)
-        with patch.object(m,'ADMIN_IDS',{self.uid}):
-            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':'true'},400)
-            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True})
-        self.assertEqual(len(self.client.get('/api/inventory').get_json()['items']),1)
-        self.assertEqual(len(m.read_catalog()['gifts']),2)
-        self.assertTrue(m.section_settings()['mines'])
-
     def test_unconfirmed_owned_black_price_is_hidden_even_when_enabled(self):
         self.assertEqual(m.visible_gifts([{'gift_id':'old:background:black','name':'Old (Black)',
                         'price_ton':4,'price_source':'Portal · коллекция'}]),[])
-
-    def test_black_override_drop_is_hidden_in_public_profile(self):
-        with m.connect() as db:
-            db.execute("UPDATE users SET max_drop_override_name='QA (Onyx Black)',max_drop_override_price=1800 WHERE id=?",(self.uid,))
-        m.save_document('gift_display_settings', {'black_backgrounds_enabled':False})
-        self.assertIsNone(self.client.get(f'/api/users/{self.uid}/profile').get_json()['max_drop'])
-        m.save_document('gift_display_settings', {'black_backgrounds_enabled':True})
-        self.assertEqual(self.client.get(f'/api/users/{self.uid}/profile').get_json()['max_drop']['price_ton'],18)
 
     def test_level_black_preview_is_hidden_while_admin_configuration_survives(self):
         reward = {'type':'gift','gift_id':'qa:background:black','gift_name':'QA (Black)','gift_price':1200}
@@ -79,25 +52,6 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(m.public_level_reward(reward,include_hidden=False),{'type':'none'})
         self.assertEqual(m.public_level_reward(reward)['gift_price_ton'],12)
         self.assertEqual(reward['gift_price'],1200)
-
-    def test_switch_hides_giveaway_prizes_and_winners_without_deleting_data(self):
-        m.save_document('portal_catalog', {'gifts':[{'id':'qa:background:black','name':'QA (Black)',
-            'background_label':'Black','price_ton':12,'price_source':'Portal · фон','image_url':'https://example.com/gift.png'}]})
-        with patch.object(m,'ADMIN_IDS',{self.uid}):
-            item = self.post('/api/admin/giveaways', {'title':'QA','duration_minutes':60,
-                             'prizes':[{'gift_id':'qa:background:black'}]})['item']
-            with m.connect() as db:
-                db.execute('INSERT INTO giveaway_entries(giveaway_id,user_id,tickets) VALUES(?,?,7)',(item['id'],self.uid))
-            self.post(f"/api/admin/giveaways/{item['id']}/finish")
-            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':False})
-            hidden = self.client.get('/api/admin/giveaways').get_json()['items'][0]
-            self.assertEqual(hidden['prizes'],[])
-            self.assertEqual(hidden['winners'],[])
-            self.assertEqual(self.client.get(f"/api/giveaways/{item['id']}").status_code,404)
-            self.post('/api/admin/section-settings', {'black_backgrounds_enabled':True})
-            restored = self.client.get(f"/api/giveaways/{item['id']}").get_json()['item']
-            self.assertEqual(len(restored['prizes']),1)
-            self.assertEqual(restored['winners'][0]['tickets'],7)
 
     def post(self, path, data=None, status=200):
         response = self.client.post(path, json=data or {})
@@ -115,17 +69,6 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(guest.get('/api/me').status_code, 401)
         self.assertEqual(self.client.get('/api/admin/users').status_code, 403)
 
-    def test_background_variants_require_current_separate_prices(self):
-        base = {'id': 'pepe', 'name': 'Plush Pepe', 'price_ton': '4.00'}
-        filters = {'data': {'floor_prices': {'backdrops': [
-            {'name': 'Black', 'floor_price': '12.34'},
-            {'name': 'Onyx Black', 'floor_price': '18.90'}]}}}
-        entries = m.portal_catalog_entries(base, {}, {}, filters)
-        self.assertEqual([g['price_ton'] for g in entries], ['4.00', '12.34', '18.90'])
-        previous = {g['id']: g for g in entries}
-        refreshed = m.portal_catalog_entries(base, {}, previous, {'backdrops': {'Black': 0}})
-        self.assertEqual([g['price_ton'] for g in refreshed], ['4.00'])
-
     def test_portal_live_filter_shape_without_backdrop_prices(self):
         from unittest.mock import Mock
         response = Mock(status_code=200)
@@ -139,14 +82,6 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('plushpepe', filters)
         base = {'id':'pepe','name':'Plush Pepe','price_ton':'4000'}
         self.assertEqual(m.portal_catalog_entries(base, {}, {}, filters['plushpepe']), [base])
-
-    def test_legacy_collection_price_variants_are_hidden(self):
-        base = {'id':'pepe','name':'Plush Pepe','price_ton':'4'}
-        bad = dict(base,id='pepe:background:black',background_label='Black',price_source='Portal · коллекция')
-        good = dict(base,id='pepe:background:onyx-black',background_label='Onyx Black',price_ton='18',price_source='Portal · фон')
-        m.save_document('portal_catalog', {'gifts':[base,bad,good]})
-        self.assertEqual(m.read_catalog()['gifts'], [base,good])
-        self.assertIsNone(m.upgrade_target(bad['id']))
 
     def test_fragment_preserves_exact_image_and_animation(self):
         from unittest.mock import Mock

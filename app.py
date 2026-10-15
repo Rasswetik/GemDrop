@@ -2210,6 +2210,7 @@ def section_settings():
 
 
 def black_backgrounds_enabled():
+    return False     # the Black / Onyx Black backdrop concept is removed
     try:
         stored = read_document('gift_display_settings')
     except (TypeError, ValueError):
@@ -5069,6 +5070,7 @@ def user_notifications():
                           (*params,before) if before else params).fetchall()
         unread = db.execute('SELECT COUNT(*) AS n FROM user_notifications WHERE user_id=? AND is_read=0 AND '+IMPORTANT_NOTIFICATION_SQL,params).fetchone()['n']
     items = [{k:r[k] for k in ('id','kind','text','created_at','is_read','giveaway_id')} for r in rows[:50]]
+    for it in items: it['text'] = apply_emoji(it['text'], False)
     return jsonify(items=items,unread=unread,has_more=len(rows)>50)
 
 
@@ -5095,10 +5097,7 @@ def read_catalog(include_hidden=False):
         raise ValueError('Invalid catalog')
     # Older imports fabricated backdrop prices from collection floors. Keep those
     # out of all catalog consumers, without changing already owned inventory.
-    gifts = [g for g in document['gifts'] if
-        not gift_black_background(g) or
-        (g.get('price_source') == 'Portal · фон' and portal_price_string(g.get('price_ton'))
-         and Decimal(portal_price_string(g.get('price_ton'))) > 0)]
+    gifts = [g for g in document['gifts'] if not gift_black_background(g)]   # Black / Onyx Black variants are cut
     return dict(document, gifts=gifts if include_hidden else visible_gifts(gifts))
 
 
@@ -12681,6 +12680,41 @@ def notice_preview(key, text=None):
     return _notice_fill(body, values, html_values)
 
 
+def emoji_settings():
+    """Emoji shown instead of the words «TON» and «билетов» in notifications (admin: symbol + Telegram custom emoji ID)."""
+    doc = read_document('emoji_settings') or {}
+    out = {}
+    for key in ('ton_emoji', 'ton_emoji_id', 'ticket_emoji', 'ticket_emoji_id'):
+        value = str(doc.get(key) or '').strip()[:16 if key.endswith('_emoji') else 30]
+        if key.endswith('_id') and not re.fullmatch(r'[0-9]{5,30}', value):
+            value = ''
+        out[key] = value
+    return out
+
+
+def _emoji_piece(kind, html):
+    cfg = emoji_settings()
+    char, eid = cfg[kind + '_emoji'], cfg[kind + '_emoji_id']
+    if not char and not eid:
+        return ''
+    char = char or ('💎' if kind == 'ton' else '🎟')
+    return f'<tg-emoji emoji-id="{eid}">{escape(char)}</tg-emoji>' if (eid and html) else (escape(char) if html else char)
+
+
+def apply_emoji(text, html=True):
+    """[[ton]] / [[ticket]] tokens always resolve (to the emoji, or to the plain word when none is set);
+    with an emoji configured, «5 TON» and «500 билетов» in bot messages are replaced by it too."""
+    text = str(text or '')
+    ton, ticket = _emoji_piece('ton', html), _emoji_piece('ticket', html)
+    text = text.replace('[[ton]]', ton or 'TON').replace('[[ticket]]', ticket or 'билетов')
+    if html:
+        if ton:
+            text = re.sub(r'(?<=\d)\s?TON\b(?!\s*Connect)', lambda m: ' ' + ton, text)
+        if ticket:
+            text = re.sub(r'(?<=\d)\s?(?:билетов|билета|билет)\b', lambda m: ' ' + ticket, text)
+    return text
+
+
 def notification_premium_html(text):
     """Only expand explicitly requested custom emoji tokens.
 
@@ -12688,7 +12722,7 @@ def notification_premium_html(text):
     can share the same fallback glyph, which previously caused a random saved
     custom emoji to appear in Freebet/giveaway notifications.
     """
-    return custom_emoji_html(str(text))
+    return apply_emoji(custom_emoji_html(str(text)), True)
 
 
 def send_user_notification(user_id, text, reply_markup=None, parse_mode=None):
@@ -16177,6 +16211,26 @@ def public_ui_settings():
                    black_backgrounds_enabled=black_backgrounds_enabled(),
                    games=effective_games(), game_modes=game_modes() if is_admin_session() else None,
                    game_layout=game_layout())
+
+
+@app.get('/api/admin/emoji-settings')
+@admin_required
+def admin_emoji_settings_get():
+    return jsonify(ok=True, settings=emoji_settings())
+
+
+@app.post('/api/admin/emoji-settings')
+@admin_required
+def admin_emoji_settings_set():
+    data = request.get_json(silent=True) or {}
+    clean = {}
+    for key in ('ton_emoji', 'ton_emoji_id', 'ticket_emoji', 'ticket_emoji_id'):
+        value = str(data.get(key) or '').strip()
+        if key.endswith('_id') and value and not re.fullmatch(r'[0-9]{5,30}', value):
+            return error('ID эмодзи — это число из 5–30 цифр.')
+        clean[key] = value[:16 if key.endswith('_emoji') else 30]
+    save_document('emoji_settings', clean)
+    return jsonify(ok=True, settings=emoji_settings())
 
 
 @app.get('/api/admin/section-settings')
@@ -22836,6 +22890,7 @@ def portal_background_variants(item, filters=None):
 
 
 def portal_catalog_entries(base_gift, portal_item, previous_by_id, filters=None):
+    return [base_gift]     # background variants (Black / Onyx Black) are no longer imported
     entries = [base_gift]
     base_id = str(base_gift['id'])
     base_name = str(base_gift['name'])
@@ -22912,9 +22967,7 @@ def portal_get_collections(session_http, key, params):
 
 
 def portal_get_collection_filters(session_http, key, names, deadline=None):
-    """Best-effort background floors (Black / Onyx Black). Never let this optional request freeze Portal import.
-
-    Names are requested in chunks of 40 so every collection of a page gets its background quotes, not just the first 40."""
+    """Best-effort background floors. Never let this optional request freeze Portal import."""
     short_names = []
     seen_names = set()
     for name in names:
@@ -22922,10 +22975,43 @@ def portal_get_collection_filters(session_http, key, names, deadline=None):
         if short and short not in seen_names:
             seen_names.add(short)
             short_names.append(short)
-    result = {}
-    for start in range(0, len(short_names), 40):
-        result.update(_portal_filters_chunk(session_http, key, short_names[start:start + 40], deadline))
-    return result
+        if len(short_names) >= 40:
+            # Keep the URL short and the Portal filters endpoint responsive. The
+            # main collection page is still imported fully even if backgrounds are
+            # only discovered for part of the page.
+            break
+    if not short_names:
+        return {}
+    if deadline is not None and time.monotonic() > deadline - 4:
+        return {}
+    params = {'short_names': ','.join(short_names)}
+    url = 'https://portal-market.com/api/collections/filters'
+    auth_candidates = [str(key or '').strip()]
+    if auth_candidates[0]:
+        auth_candidates.append('')
+    for auth_key in auth_candidates:
+        if deadline is not None and time.monotonic() > deadline - 3:
+            return {}
+        try:
+            response = session_http.get(url, params=params, headers=portal_headers(auth_key), timeout=(1.5, 2.5))
+            if response.status_code in (401, 403, 404):
+                continue
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            # Filters are optional: if Portal does not answer, continue with the
+            # ordinary gifts and any background data embedded into collections.
+            return {}
+        if isinstance(payload, dict) and isinstance(payload.get('data'), dict):
+            payload = payload['data']
+        floors = payload.get('collections', payload.get('floor_prices', payload.get('floorPrices', payload))) if isinstance(payload, dict) else {}
+        if not isinstance(floors, dict):
+            return {}
+        result = {}
+        for key_name, value in floors.items():
+            result[portal_short_name(key_name)] = value
+        return result
+    return {}
 
 
 def _portal_filters_chunk(session_http, key, short_names, deadline=None):

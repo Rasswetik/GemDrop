@@ -285,11 +285,17 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(self.balance(), 102.5)
         self.post(f'/api/inventory/{item}/sell', status=404)
 
+    def test_transfers_open_for_everyone_with_stepped_fees(self):
+        status = self.client.get('/api/transfers/status').get_json()
+        self.assertTrue(status['unlocked'])   # no level reward needed any more
+        with m.connect() as db:
+            fees = {r['level']: float(r['fee_percent']) for r in db.execute('SELECT level,fee_percent FROM transfer_rates ORDER BY level').fetchall()}
+        self.assertEqual([fees.get(i) for i in (1, 2, 3, 4, 5, 6, 7)], [10, 5, 3, 2, 1, 0.5, 0])
+
     def test_transfer_is_idempotent(self):
         recipient = self.uid + 100000
         with m.connect() as db:
             db.execute('INSERT INTO users(id,name,username,balance) VALUES(?,?,?,0)', (recipient, 'Receiver', f'receiver{self.uid}'))
-            db.execute('INSERT INTO level_claims(user_id,level,reward_json) VALUES(?,1,?)', (self.uid, json.dumps({'type':'transfer_unlock'})))
         payload = {'request_id':f'test-transfer-{self.uid}', 'username':f'receiver{self.uid}', 'amount':'10.00'}
         first = self.post('/api/transfers/send', payload)
         balance = self.balance()

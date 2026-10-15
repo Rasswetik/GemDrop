@@ -143,7 +143,7 @@
   }
   var BASE = {};
   LIST.forEach(function (m) { BASE[m.key] = m.name; });
-  var api = {LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null};
+  var api = {EMB: EMB, LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null};
   api.load = function () {
     api.RAR = {common: 'Обычная', rare: 'Редкая', epic: 'Эпическая', legendary: 'Легендарная'};
     api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {

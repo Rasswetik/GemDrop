@@ -1085,9 +1085,15 @@ def _initialize_schema():
             existing_levels = db.execute('SELECT level FROM levels ORDER BY level').fetchall()
         # Transfer settings follow the actual level list. Do not recreate deleted levels on restart.
         for row in existing_levels:
-            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',
+            db.execute('INSERT OR IGNORE INTO transfer_rates(level,fee_percent,enabled) VALUES(?,0,1)',
                        (int(row['level']),))
         db.execute('DELETE FROM transfer_rates WHERE level NOT IN (SELECT level FROM levels)')
+        if not db.execute("SELECT 1 FROM app_documents WHERE name='transfer_fee_v2'").fetchone():
+            # one-time: fees step down with the level (10, 5, 3, 2, 1, 0.5, then 0); the admin edits them afterwards
+            for row in existing_levels:
+                lv = int(row['level'])
+                db.execute('UPDATE transfer_rates SET fee_percent=?,enabled=1 WHERE level=?', ((10, 5, 3, 2, 1, 0.5)[lv - 1] if lv <= 6 else 0, lv))
+            db.execute("INSERT INTO app_documents(name,payload) VALUES('transfer_fee_v2','{\"done\":true}')")
         management.initialize_schema(db)
 
 
@@ -6193,7 +6199,7 @@ def admin_add_level():
                 step=max(100,int(rows[-1]['required_turnover']) or 100)
             threshold=int(rows[-1]['required_turnover'])+step
         db.execute('INSERT INTO levels(level,required_turnover,reward_json) VALUES(?,?,?)',(level,threshold,'{}'))
-        db.execute('INSERT INTO transfer_rates(level,fee_percent,enabled) VALUES(?,5,1)',(level,))
+        db.execute('INSERT INTO transfer_rates(level,fee_percent,enabled) VALUES(?,0,1)',(level,))
         db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                    (session['uid'],session['uid'],'level_add',str(level)))
         db.commit()
@@ -6548,7 +6554,7 @@ def level_plan_apply(reset_users=False, admin_id=None, source='manual'):
     try:
         db.execute('BEGIN IMMEDIATE')
         last = db.execute('SELECT fee_percent,enabled FROM transfer_rates ORDER BY level DESC LIMIT 1').fetchone()
-        fee, enabled = (last['fee_percent'], last['enabled']) if last else (5, 1)
+        fee, enabled = (last['fee_percent'], last['enabled']) if last else (0, 1)
         if reset_users:
             db.execute('DELETE FROM level_claims')
         db.execute('DELETE FROM levels')
@@ -7939,15 +7945,14 @@ def upgrade_spin():
 
 
 def transfer_access(db,user_id):
-    rows=db.execute('SELECT reward_json FROM level_claims WHERE user_id=?',(user_id,)).fetchall()
-    return any(json.loads(r['reward_json']).get('type')=='transfer_unlock' for r in rows)
+    return True   # transfers are open at every level now; only the per-level fee differs (and the admin can switch a level off)
 
 
 def transfer_rate(db,user_id):
     row=db.execute('SELECT turnover_cents FROM users WHERE id=?',(user_id,)).fetchone()
     level=level_number(db,int(row['turnover_cents'] or 0))
     rate=db.execute('SELECT fee_percent,enabled FROM transfer_rates WHERE level=?',(level,)).fetchone()
-    return level,float(rate['fee_percent']) if rate else 5.0,bool(rate['enabled']) if rate else True
+    return level,float(rate['fee_percent']) if rate else 0.0,bool(rate['enabled']) if rate else True
 
 
 @app.get('/api/transfers/status')

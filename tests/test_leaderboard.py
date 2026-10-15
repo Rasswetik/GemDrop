@@ -104,6 +104,8 @@ class LeaderboardTests(unittest.TestCase):
         self.assertEqual((info['collection'], info['status'], info['owners'], info['mine']), ('Хэллоуин', 'Событийная', 1, True))
         self.assertGreater(info['percent'], 0)
         self.assertEqual(self.client.get('/api/medals/info/goshan').get_json()['status'], 'Уникальная')
+        hid = self.client.get('/api/medals/info/hw2?hide=1').get_json()
+        self.assertEqual((hid['hidden'], hid['collection'], 'name' in hid, 'percent' in hid), (True, 'Хэллоуин', False, False))
         self.assertEqual(self.client.get('/api/medals/info/nope').status_code, 404)
 
     def test_equip_up_to_three_medals_by_key(self):

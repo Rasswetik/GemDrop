@@ -43,7 +43,7 @@
   var RARS = ['common', 'rare', 'epic', 'legendary'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
   st.textContent += '.mdi{position:fixed;inset:0;z-index:2700;display:grid;place-items:center;padding:20px;background:rgba(5,4,12,.7);overscroll-behavior:contain}.mdi-c{position:relative;width:min(100%,380px);max-height:calc(100dvh - 40px);overflow:auto;display:grid;justify-items:center;gap:8px;padding:26px 18px 18px;border-radius:24px;text-align:center;background:var(--card,#14162a);border:1px solid var(--gd-line,#22253d);color:var(--text,#f4f5f7)}.mdi-c h3{margin:0;font-size:23px}.mdi-x{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer;padding:0}' +
     '.mdi-g{width:100%;display:grid;gap:0;margin-top:8px;border-radius:16px;overflow:hidden;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.04);text-align:left}.mdi-g div{display:flex;justify-content:space-between;gap:14px;padding:11px 14px;font-size:13.5px}.mdi-g div+div{border-top:1px solid var(--gd-line,#22253d)}.mdi-g span{color:var(--muted,#96a0a8);flex:none}.mdi-g b{font-weight:700;text-align:right}' +
-    '.mdi-3d{position:relative;margin:4px 0 2px;perspective:900px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}.mdi-3d:active{cursor:grabbing}.mdi-in{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform}.mdi-f{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}.mdi-f svg{display:block;width:100%;height:100%}.mdi-e{position:absolute;border-radius:50%;pointer-events:none}.mdi-hint{font-size:11.5px;color:var(--muted,#96a0a8);margin:0}.mdi-how{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.pp-medals span,.mdl-c .gdm{cursor:pointer}';
+    '.mdi-3d{position:relative;margin:4px 0 2px;perspective:900px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}.mdi-3d:active{cursor:grabbing}.mdi-in{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform}.mdi-f{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}.mdi-f svg{display:block;width:100%;height:100%}.mdi-e{position:absolute;border-radius:50%;pointer-events:none}.mdi-q{position:relative;display:grid;place-items:center;margin:4px 0}.mdi-q .gdm{filter:grayscale(1) brightness(.2) contrast(1.2) blur(1.5px);opacity:.6}.mdi-q .gdm *{animation:none!important}.mdi-q span{position:absolute;font-size:64px;font-weight:900;color:rgba(255,255,255,.72);text-shadow:0 3px 14px rgba(0,0,0,.8)}.mdi-hint{font-size:11.5px;color:var(--muted,#96a0a8);margin:0}.mdi-how{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.pp-medals span,.mdl-c .gdm,.mdl-c .mdl-lock{cursor:pointer}';
   var state = {q: '', f: 'all', own: {}, max: 3, shown: {}, cols: [], events: {}, main: ''};
   function modal() {
     var m = $('mdlModal');
@@ -173,8 +173,15 @@
     host.addEventListener('dblclick', function () { vy = 14; });
     put(); raf = requestAnimationFrame(tick);
   }
-  function info(key) {
-    api('/api/medals/info/' + encodeURIComponent(key)).then(function (d) {
+  function info(key, locked) {
+    api('/api/medals/info/' + encodeURIComponent(key) + (locked ? '?hide=1' : '')).then(function (d) {
+      if (d.hidden) {
+        var lk = document.createElement('div'); lk.className = 'mdi'; lk.setAttribute('role', 'dialog'); document.documentElement.classList.add('mdl-ns');
+        lk.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-q">' + GDMedals.svg(key, 190, true) + '<span>?</span></div><h3>???</h3><span class="rar" style="color:#8d99a8">???</span>' +
+          '<div class="mdi-g"><div><span>Статус</span><b>???</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у игроков</span><b>???</b></div><div><span>Владельцев</span><b>???</b></div></div><p class="mdi-how">Вы ещё не нашли эту медаль. Получите её, чтобы узнать подробности.</p></div>';
+        lk.addEventListener('click', function (e) { if (e.target === lk || e.target.classList.contains('mdi-x')) { lk.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); } });
+        document.body.appendChild(lk); return;
+      }
       var el = document.createElement('div'); el.className = 'mdi'; el.setAttribute('role', 'dialog'); document.documentElement.classList.add('mdl-ns');
       var pc = d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',');
       el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-3d"></div><p class="mdi-hint">Потяните, чтобы покрутить · двойной клик — перевернуть</p><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
@@ -187,7 +194,7 @@
   window.GDMedalInfo = info;
   document.addEventListener('click', function (e) {
     var sp = e.target.closest('.pp-medals span[data-k]'); if (sp) { info(sp.dataset.k); return; }
-    var g = e.target.closest('.mdl-c:not(.lk) .gdm'); if (g) { var c = g.closest('.mdl-c'); info(c.dataset.k); }
+    var g = e.target.closest('.mdl-c .gdm, .mdl-c .mdl-lock'); if (g) { var c = g.closest('.mdl-c'); info(c.dataset.k, c.classList.contains('lk')); }
   });
   function paintPublic(d) {
     var chip = $('ppTopChip'); if (!chip) return;

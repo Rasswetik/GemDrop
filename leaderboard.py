@@ -950,6 +950,8 @@ def register(app, ns):
         else:
             status, how = 'Обычная', 'Награда за достижения и активность на сайте.'
         pct = owners * 100.0 / total
+        if request.args.get('hide') and not mine:        # unfound medal: only the collection is revealed
+            return jsonify(ok=True, key=key, hidden=True, collection=ev or 'Коллекция медалей')
         return jsonify(ok=True, key=key, name=names[key], rarity=rarity_map().get(key, 'common'), collection=ev or ('Коллекция медалей'),
                        status=status, how=how, owners=owners, percent=round(pct, 2) if pct >= 0.01 or not owners else 0.01, mine=mine)
 

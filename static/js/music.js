@@ -1,6 +1,6 @@
 /* Music medals: profile player (long track), preview and PvP-win jingle (short track). */
 (function () {
-  var KEYS = {kashtan: 'Миша Каштан', jealous: 'Jealous', warhol: 'Andy Warhol'};
+  var KEYS = {}, READY = fetch('/api/music/list', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) { (d.tracks || []).forEach(function (t) { KEYS[t.key] = t.name; ok[url(t.key, false)] = Promise.resolve(!!t.long); ok[url(t.key, true)] = Promise.resolve(!!t.short); }); }).catch(function () {});
   var ok = {}, cur = null, mineP = null, LS = 'gd_medal_sound';
   function enabled() { try { return localStorage.getItem(LS) !== '0'; } catch (e) { return true; } }
   function setEnabled(v) { try { localStorage.setItem(LS, v ? '1' : '0'); } catch (e) {} if (!v) { stop(); stopProfile(); } }
@@ -14,7 +14,7 @@
     if (!enabled()) return Promise.resolve(false);
     return exists(k, true).then(function (has) {
       if (!has) return false;
-      stop(); var a = new Audio(url(k, true)); a.volume = vol == null ? .8 : vol; cur = a;
+      stop(); stopProfile(); var a = new Audio(url(k, true)); a.volume = vol == null ? .8 : vol; cur = a;
       return a.play().then(function () { return true; }).catch(function () { return false; });
     });
   }
@@ -36,7 +36,7 @@
   function winFaded(k) {
     exists(k, true).then(function (has) {
       if (!has || !enabled()) return;
-      stop(); var a = new Audio(url(k, true)), MAX = .32; a.volume = 0; cur = a; var out = false;
+      stop(); stopProfile(); var a = new Audio(url(k, true)), MAX = .32; a.volume = 0; cur = a; var out = false;
       a.addEventListener('timeupdate', function () { if (!out && a.duration && a.currentTime > a.duration - 1.8) { out = true; ramp(a, 0, 1500); } });
       a.addEventListener('ended', function () { if (cur === a) cur = null; });
       a.play().then(function () { ramp(a, MAX, 1600); }).catch(function () {});
@@ -63,15 +63,18 @@
   function removePlayer() { var o = document.getElementById('ppPlayer'); if (o) o.remove(); if (P.a) { try { P.a.pause(); } catch (e) {} P.a = null; } }
   var PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   window.GDMusicProfile = function (d) {
-    removePlayer(); stop();
+    removePlayer(); stop(); var tk = P.tk = (P.tk || 0) + 1; READY.then(function () { if (P.tk === tk) buildProfile(d, tk); });
+  };
+  function buildProfile(d, tk) {
+    removePlayer();
     var chip = document.getElementById('ppMedals'); if (!chip) return;
     var key = ((d && d.medals) || []).map(function (m) { return m.key; }).filter(function (k) { return KEYS[k]; })[0];
     if (!key) return;
     exists(key, false).then(function (has) {
-      if (!has || !document.getElementById('ppMedals')) return;
+      if (!has || P.tk !== tk || !document.getElementById('ppMedals')) return;
       removePlayer();
       var el = document.createElement('div'); el.id = 'ppPlayer'; el.className = 'mplw';
-      el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key] + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
+      el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key].replace(/</g, '&lt;') + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
         '<div class="mpl-bar"><span class="mpl-c">0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="mpl-d">0:00</span></div></div>';
       chip.parentNode.insertBefore(el, chip.nextSibling);
       var a = new Audio(url(key, false)); a.preload = 'auto'; P.a = a;
@@ -82,10 +85,10 @@
       a.addEventListener('timeupdate', function () { if (!seeking && a.duration) rng.value = a.currentTime / a.duration * 1000; rng.style.setProperty('--p', rng.value / 10 + '%'); c.textContent = fmt(a.currentTime); });
       rng.addEventListener('input', function () { seeking = true; if (a.duration) { a.currentTime = rng.value / 1000 * a.duration; rng.style.setProperty('--p', rng.value / 10 + '%'); c.textContent = fmt(a.currentTime); } });
       rng.addEventListener('change', function () { seeking = false; });
-      btn.onclick = function () { if (a.paused) a.play().catch(function () {}); else a.pause(); };
-      a.volume = .8; if (enabled()) a.play().catch(function () {});       // starts by itself; the browser may need a tap
+      btn.onclick = function () { if (a.paused) { stop(); a.play().catch(function () {}); } else a.pause(); };
+      a.volume = .8; if (enabled()) { stop(); a.play().catch(function () {}); }       // starts by itself; the browser may need a tap
     });
-  };
+  }
   var mo = document.getElementById('publicProfileModal');
   if (mo) new MutationObserver(function () { if (mo.classList.contains('hidden')) removePlayer(); }).observe(mo, {attributes: true, attributeFilter: ['class']});
   function mountRow() {

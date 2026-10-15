@@ -677,6 +677,23 @@ def register(app, ns):
         save_config(cfg)
         return jsonify(ok=True, medals=cfg['medals'])
 
+    @app.get('/api/music/list')
+    def music_list():
+        import os
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'music')
+        keys = {}
+        try:
+            for f in os.listdir(d):
+                if f.lower().endswith('.mp3'):
+                    base = f[:-4]
+                    short = base.endswith('_short')
+                    k = base[:-6] if short else base
+                    keys.setdefault(k, {'long': False, 'short': False})['short' if short else 'long'] = True
+        except OSError:
+            pass
+        names = all_names()
+        return jsonify(ok=True, tracks=[dict(key=k, name=names[k], long=v['long'], short=v['short']) for k, v in keys.items() if k in names])
+
     @app.get('/api/medals/catalog')
     def medal_catalog():
         items = custom_medals()

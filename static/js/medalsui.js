@@ -154,6 +154,16 @@
       '<path d="M40 74h16" stroke="' + P[0] + '" stroke-opacity=".7" stroke-width=".8" stroke-linecap="round"/><text x="48" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="4" font-weight="700" fill="' + P[0] + '" fill-opacity=".85">' + (d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',')) + '% игроков</text>' +
       '<path d="M48 40l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5Z" fill="' + P[0] + '" fill-opacity=".9"/></svg>';
   }
+  var imgCache = {};
+  function inl(u) {
+    if (imgCache[u]) return imgCache[u];
+    return imgCache[u] = fetch(u, {credentials: 'same-origin'}).then(function (r) { return r.blob(); }).then(function (b) { return new Promise(function (ok) { var fr = new FileReader(); fr.onload = function () { ok(fr.result); }; fr.readAsDataURL(b); }); }).catch(function () { return u; });
+  }
+  function inlineAll(h) {      // SVG used as <img> cannot load outside files, so embed them
+    var urls = [], m, re = /href="(?!data:|#)([^"]+)"/g;
+    while ((m = re.exec(h))) if (urls.indexOf(m[1]) < 0) urls.push(m[1]);
+    return Promise.all(urls.map(inl)).then(function (r) { urls.forEach(function (u, i) { h = h.split('href="' + u + '"').join('href="' + r[i] + '"'); }); return h; });
+  }
   function hi(h, W, H) {      // rasterise the face as a hi-res bitmap: 3D layers of live SVG get pixelated
     if (h.indexOf('xmlns=') < 0) h = h.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
@@ -164,8 +174,12 @@
     host.style.width = W + 'px'; host.style.height = H + 'px';
     var edge = '', i, D = Math.round(W * .79), z = 5;
     for (i = -z + 1; i <= z - 1; i++) edge += '<div class="mdi-e" style="width:' + D + 'px;height:' + D + 'px;left:' + Math.round((W - D) / 2) + 'px;top:' + Math.round(H * 62 / 110 - D / 2) + 'px;background:' + (i % 2 ? P[2] : P[1]) + ';transform:translateZ(' + i + 'px)"></div>';
-    var rib = '', rz; for (rz = -1; rz <= 1; rz++) rib += '<div class="mdi-f" style="backface-visibility:visible;-webkit-backface-visibility:visible;transform:translateZ(' + rz * .6 + 'px)">' + hi(GDMedals.svg(d.key, W, true, {ribbonOnly: true}), W, H) + '</div>';
-    host.innerHTML = '<div class="mdi-in">' + rib + '<div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + hi(GDMedals.svg(d.key, W, true, {noRibbon: true}), W, H) + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + hi(backSvg(d).replace('<svg ', '<svg width="1" height="1" '), W, H) + '</div></div>';
+    var rib = '', rz; for (rz = -1; rz <= 1; rz++) rib += '<div class="mdi-f" style="backface-visibility:visible;-webkit-backface-visibility:visible;transform:translateZ(' + rz * .6 + 'px)">' + '<i data-s="r"></i>' + '</div>';
+    host.innerHTML = '<div class="mdi-in">' + rib + '<div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + '<i data-s="f"></i>' + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + '<i data-s="b"></i>' + '</div></div>';
+    var parts = {r: GDMedals.svg(d.key, W, true, {ribbonOnly: true}), f: GDMedals.svg(d.key, W, true, {noRibbon: true}), b: backSvg(d).replace('<svg ', '<svg width="1" height="1" ')};
+    Array.prototype.forEach.call(host.querySelectorAll('i[data-s]'), function (el) {
+      inlineAll(parts[el.dataset.s]).then(function (h) { if (el.parentNode) el.outerHTML = hi(h, W, H); });
+    });
     var inn = host.firstChild, ry = -18, rx = 8, vy = 0, vx = 0, down = false, lx = 0, ly = 0, auto = !(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), t0 = 0, raf = 0;
     function put() { inn.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)'; }
     function tick(t) {

@@ -23,7 +23,8 @@ MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный
 MAX_SHOWN_MEDALS = 3
 BASE_MEDALS = dict(MEDALS)
 DEFAULT_EVENTS = {k: 'Хэллоуин' for k in ('hw1', 'hw2', 'hw3', 'hw4', 'hw5')}
-DEFAULT_EVENTS.update({k: 'Коллекция авторов' for k in ('kashtan', 'jealous', 'goshan', 'kess')})   # event collections: medals tied to a seasonal event
+DEFAULT_EVENTS.update({k: 'Коллекция авторов' for k in ('goshan', 'kess')})
+DEFAULT_EVENTS.update({k: 'Музыка' for k in ('kashtan', 'jealous')})   # event collections: medals tied to a seasonal event
 MEDAL_DOC, MEDAL_SET_DOC, PROMO_MEDAL_DOC = 'custom_medals', 'medal_settings', 'promo_medals'
 RARITIES = {'common': 'Обычная', 'rare': 'Редкая', 'epic': 'Эпическая', 'legendary': 'Легендарная'}
 DEFAULT_RARITY = {'hw1': 'epic', 'hw2': 'rare', 'hw3': 'rare', 'hw4': 'rare', 'hw5': 'rare', 'vip': 'epic', 'gem': 'epic', 'champ': 'epic'}

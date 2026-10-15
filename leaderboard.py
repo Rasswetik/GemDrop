@@ -75,7 +75,8 @@ def medal_settings():
             continue
         try:
             clean[str(scope)[:40]] = dict(percent=max(1, min(100, int(c.get('percent') or 100))), tickets=max(0, int(c.get('tickets') or 0)),
-                                          ton=max(0.0, min(1000000.0, float(c.get('ton') or 0))), medal=str(c.get('medal') or ''))
+                                          ton=max(0.0, min(1000000.0, float(c.get('ton') or 0))), medal=str(c.get('medal') or ''),
+                                          gift=c.get('gift') if isinstance(c.get('gift'), dict) and c['gift'].get('name') else None)
         except (TypeError, ValueError):
             continue
     return dict(names={str(k): str(v)[:40] for k, v in names.items() if v}, hidden=[str(x) for x in hidden], rarity={str(k): v for k, v in rar.items() if v in RARITIES},
@@ -130,11 +131,11 @@ def collections_state(db, uid):
     out = []
     for scope, keys in collection_scopes().items():
         c = cfg.get(scope)
-        has_reward = bool(c and (c['tickets'] or c['ton'] or c['medal']))
+        has_reward = bool(c and (c['tickets'] or c['ton'] or c['medal'] or c.get('gift')))
         got = sum(1 for k in keys if k in own)
         pct = c['percent'] if c else 100
         out.append(dict(scope=scope, label='Все медали' if scope == '*' else scope, total=len(keys), owned=got, percent=pct,
-                        need=-(-len(keys) * pct // 100), reward=(dict(tickets=c['tickets'], ton=c['ton'], medal=c['medal'], medal_name=mname(c['medal']) if c['medal'] else '') if has_reward else None),
+                        need=-(-len(keys) * pct // 100), reward=(dict(tickets=c['tickets'], ton=c['ton'], medal=c['medal'], medal_name=mname(c['medal']) if c['medal'] else '', gift=prize_view(c['gift']) if c.get('gift') else None) if has_reward else None),
                         claimed=scope in done, ready=bool(has_reward and keys and got * 100 >= pct * len(keys) and scope not in done)))
     return out
 
@@ -708,7 +709,7 @@ def register(app, ns):
             o['pal'] = (cust.get(o['key']) or {}).get('pal', '')
             o['event'] = event_map().get(o['key'], '')
         cs = medal_settings()['collections']
-        return jsonify(ok=True, medals=out, scopes=[dict(scope=sc, label='Все медали' if sc == '*' else sc, total=len(ks), cfg=cs.get(sc) or dict(percent=100, tickets=0, ton=0, medal='')) for sc, ks in collection_scopes().items()], notify=st['notify'], season=st['season'], rarities=RARITIES,
+        return jsonify(ok=True, medals=out, scopes=[dict(scope=sc, label='Все медали' if sc == '*' else sc, total=len(ks), cfg=dict(cs.get(sc) or dict(percent=100, tickets=0, ton=0, medal=''), gift=prize_view(cs[sc]['gift']) if cs.get(sc) and cs[sc].get('gift') else None)) for sc, ks in collection_scopes().items()], notify=st['notify'], season=st['season'], rarities=RARITIES,
                        codes=[dict(code=c, medal=v.get('medal'), title=v.get('title', '')) for c, v in promo_medals().items()],
                        defaults=dict(notify=DEFAULT_NOTIFY, season=DEFAULT_SEASON_NOTE))
 
@@ -1007,6 +1008,7 @@ def register(app, ns):
                 return error('Соберите больше медалей: нужно %d из %d.' % (state['need'], state['total']), 409)
             db.execute('INSERT INTO medal_collection_claims(user_id,scope) VALUES(?,?)', (uid, scope))
             rw = state['reward']
+            state_gift = (medal_settings()['collections'].get(scope) or {}).get('gift')
             label = 'Коллекция «%s»' % state['label']
             if rw['tickets']:
                 db.execute('UPDATE users SET tickets=tickets+? WHERE id=?', (rw['tickets'], uid))
@@ -1017,6 +1019,10 @@ def register(app, ns):
                 _ns['record_transaction'](db, uid, 'medal_collection', cents, 'medals', scope, label)
             if rw['medal']:
                 award_medal(db, uid, rw['medal'], label)
+            if state_gift:
+                inv_id, _v = award_prize(db, uid, state_gift)
+                if inv_id:
+                    db.execute("UPDATE inventory SET source_label=? WHERE id=?", (label, inv_id))
             db.commit()
         return jsonify(ok=True, reward=rw)
 
@@ -1054,10 +1060,18 @@ def register(app, ns):
             return error('Такой медали нет.')
         doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
         cols = dict(doc.get('collections') or {})
-        if not (tickets or ton or medal) and percent == 100:
+        gid = str(data.get('gift') or '')
+        old = (cols.get(scope) or {}).get('gift')
+        gift = old if gid == 'keep' else None
+        if gid and gid != 'keep':
+            try:
+                gift = normalise_prize(dict(source_type='catalog', gift_id=gid))
+            except (ValueError, OSError) as exc:
+                return error(str(exc))
+        if not (tickets or ton or medal or gift) and percent == 100:
             cols.pop(scope, None)
         else:
-            cols[scope] = dict(percent=percent, tickets=tickets, ton=round(ton, 2), medal=medal)
+            cols[scope] = dict(percent=percent, tickets=tickets, ton=round(ton, 2), medal=medal, gift=gift)
         doc['collections'] = cols
         _ns['save_document'](MEDAL_SET_DOC, doc)
         return jsonify(ok=True)

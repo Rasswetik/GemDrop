@@ -32,14 +32,14 @@
     '.mdl-meta{margin:0 4px 12px;font-size:13px;color:var(--muted,#96a0a8)}.mdl-meta b{color:var(--text,#f4f5f7);font-weight:700}' +
     '.mdl-body{overflow:auto;flex:1;margin:0 -16px;padding:0 16px 4px;overscroll-behavior:contain}' +
     '.mdl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.mdl-slot{display:grid;justify-items:center;align-content:center;gap:3px;min-height:104px;padding:8px 4px;border-radius:16px;border:1px dashed rgba(255,255,255,.14);background:rgba(255,255,255,.02);font-size:11px;color:var(--muted,#96a0a8);text-align:center}.mdl-slot.on{border:1px solid rgba(71,176,245,.45);background:rgba(71,176,245,.07);color:var(--text,#f4f5f7)}.mdl-slot em{font-style:normal;font-size:20px;opacity:.5}.mdl-slot span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-    '.mdl-search{width:100%;box-sizing:border-box;margin:0 0 8px}' +
+    '.mdl-star img,.mdl-slot em.mn img{width:13px;height:13px;object-fit:contain;vertical-align:-2px;margin-right:3px}.mdl-star img{margin:0}.mdl-modal{overscroll-behavior:contain}html.mdl-ns,html.mdl-ns body{overflow:hidden!important}.mdl-sec{margin:18px 0 0;padding:12px 10px 10px;border-radius:18px;background:linear-gradient(180deg,rgba(255,180,84,.09),rgba(255,180,84,.02));border:1px solid rgba(255,180,84,.28)}.mdl-sec .mdl-h{margin:0 2px 10px}.mdl-sec .mdl-h .rar{color:#ffb454;font-size:13px}' +
     '.mdl-filt{display:flex;gap:6px;margin-bottom:4px}.mdl-filt button{flex:1;height:34px;padding:0 8px;border-radius:12px;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.045);color:var(--muted,#96a0a8);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.mdl-filt button.on{background:linear-gradient(110deg,#9ae9e3,#47b0f5);border-color:transparent;color:#131524}' +
     '.mdl-h{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}.mdl-h small{font-weight:600;color:var(--muted,#96a0a8);text-transform:none;letter-spacing:0}' +
     '.mdl-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mdl-c{position:relative;display:grid;justify-items:center;align-content:start;gap:3px;padding:10px 6px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid var(--gd-line,#22253d);text-align:center;min-width:0}.mdl-c.on{border-color:rgba(71,176,245,.55)}' +
     '.mdl-c b{font-size:12.5px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.mdl-c small{font-size:10.5px;color:var(--muted,#96a0a8);line-height:1.2}' +
     '.mdl-eq{margin-top:5px;width:100%;height:30px;border-radius:10px;border:1px solid rgba(242,245,249,.3);background:linear-gradient(110deg,#9ae9e3,#47b0f5);color:#131524;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.mdl-eq.off{background:rgba(255,255,255,.06);border-color:var(--gd-line,#22253d);color:var(--text,#f4f5f7);font-weight:700}.mdl-eq:active{transform:scale(.97)}' +
     '.mdl-lock{position:relative;display:grid;place-items:center}.mdl-lock .gdm{filter:grayscale(1) brightness(.22) contrast(1.2);opacity:.55}.mdl-lock .gdm *{animation:none!important}.mdl-lock span{position:absolute;inset:0;display:grid;place-items:center;font-size:24px;font-weight:900;color:rgba(255,255,255,.7);text-shadow:0 2px 8px rgba(0,0,0,.7)}.mdl-c.lk{background:rgba(255,255,255,.02)}.mdl-c.lk b{color:var(--muted,#96a0a8)}' +
-    '.mdl-rw{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;margin:0 0 10px;padding:11px 12px;border-radius:16px;background:rgba(71,176,245,.07);border:1px solid rgba(71,176,245,.28)}.mdl-rw b{font-size:13px}.mdl-rw small{grid-column:1;font-size:11.5px;color:var(--muted,#96a0a8);line-height:1.3}.mdl-rw .mdl-eq{grid-column:2;grid-row:1/3;width:auto;min-width:96px;margin:0;padding:0 12px}.mdl-rw .mdl-eq:disabled{opacity:.55}.mdl-star{position:absolute;top:5px;left:6px;font-size:13px;color:#ffd34d;text-shadow:0 1px 4px rgba(0,0,0,.7)}.mdl-slot.on{cursor:pointer}.mdl-slot em.mn{opacity:1;color:#ffd34d;font-size:11px;font-weight:800;margin-top:1px}.mdl-slot{position:relative}.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#9ae9e3;font-style:normal}';
+    '.mdl-rw{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;margin:0 0 10px;padding:11px 12px;border-radius:16px;background:rgba(71,176,245,.07);border:1px solid rgba(71,176,245,.28)}.mdl-rw b{font-size:13px}.mdl-rwp{grid-column:1;font-size:12.5px;color:#9ae9e3;font-weight:700}.mdl-rw small{grid-column:1;font-size:11.5px;color:var(--muted,#96a0a8);line-height:1.3}.mdl-rw .mdl-eq{grid-column:2;grid-row:1/4;width:auto;min-width:96px;margin:0;padding:0 12px}.mdl-rw .mdl-eq:disabled{opacity:.55}.mdl-star{position:absolute;top:5px;left:6px;font-size:13px;color:#ffd34d;text-shadow:0 1px 4px rgba(0,0,0,.7)}.mdl-slot.on{cursor:pointer}.mdl-slot em.mn{opacity:1;color:#ffd34d;font-size:11px;font-weight:800;margin-top:1px}.mdl-slot{position:relative}.mdl-cnt{position:absolute;top:6px;right:8px;font-size:10.5px;font-weight:800;color:#9ae9e3;font-style:normal}';
   var RARS = ['common', 'rare', 'epic', 'legendary'], RPL = {common: 'Обычные', rare: 'Редкие', epic: 'Эпические', legendary: 'Легендарные'};
   var state = {q: '', f: 'all', own: {}, max: 3, shown: {}, cols: [], events: {}, main: ''};
   function modal() {
@@ -48,9 +48,8 @@
     m = document.createElement('div'); m.id = 'mdlModal'; m.className = 'modal mdl-modal hidden'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
     m.innerHTML = '<div class="modal-card mdl-card"><button type="button" class="modal-x" aria-label="Закрыть">×</button><h2>Коллекция медалей</h2><p class="mdl-meta" id="mdlMeta"></p><div class="mdl-body">' +
       '<div class="mdl-slots" id="mdlSlots"></div>' +
-      '<input class="text-input mdl-search" id="mdlQ" type="search" placeholder="Поиск медали" autocomplete="off"><div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div></div>';
-    m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('modal-x')) m.classList.add('hidden'); });
-    m.querySelector('#mdlQ').addEventListener('input', function () { state.q = this.value.trim().toLowerCase(); paint(); });
+      '<div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div></div>';
+    m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('modal-x')) { m.classList.add('hidden'); document.documentElement.classList.remove('mdl-ns'); } });
     document.body.appendChild(m); return m;
   }
   function collection() {
@@ -60,7 +59,7 @@
     var o = state.own[m.key], r = m.rarity || 'common';
     if (!o) return '<div class="mdl-c lk" data-k="' + m.key + '"><div class="mdl-lock">' + GDMedals.svg(m.key, 62, true) + '<span>?</span></div><b>???</b><small>Не найдена</small></div>';
     var on = !!state.shown[m.key];
-    return '<div class="mdl-c' + (on ? ' on' : '') + '" data-k="' + m.key + '">' + (on && state.main === m.key ? '<i class="mdl-star">★</i>' : '') + (o.n > 1 ? '<i class="mdl-cnt">×' + o.n + '</i>' : '') + GDMedals.svg(m.key, 62) + '<b>' + esc(m.name) + '</b>' + rarTag(r) +
+    return '<div class="mdl-c' + (on ? ' on' : '') + '" data-k="' + m.key + '">' + (on && state.main === m.key ? '<i class="mdl-star"><img src="/static/img/star.png" alt=""></i>' : '') + (o.n > 1 ? '<i class="mdl-cnt">×' + o.n + '</i>' : '') + GDMedals.svg(m.key, 62) + '<b>' + esc(m.name) + '</b>' + rarTag(r) +
       '<button type="button" class="mdl-eq' + (on ? ' off' : '') + '" data-k="' + m.key + '">' + (on ? 'Снять' : 'Надеть') + '</button></div>';
   }
   function paint() {
@@ -68,7 +67,7 @@
     $('mdlMeta').innerHTML = 'Собрано <b>' + got + ' из ' + all.length + '</b> · надето <b>' + shownN + ' из ' + state.max + '</b>';
     var slots = '', keys = Object.keys(state.shown), i, mk = state.shown[state.main] ? state.main : keys[keys.length - 1];
     keys.sort(function (a, b) { return (a === mk ? -1 : 0) - (b === mk ? -1 : 0); });
-    for (i = 0; i < state.max; i++) slots += keys[i] ? '<div class="mdl-slot on" data-main="' + keys[i] + '">' + GDMedals.svg(keys[i], 52) + '<span>' + esc(GDMedals.name(keys[i])) + '</span>' + (keys[i] === mk ? '<em class="mn">★ у ника</em>' : '<em class="mn" style="color:#8d99a8">сделать главной</em>') + '</div>' : '<div class="mdl-slot"><em>＋</em><span>Свободно</span></div>';
+    for (i = 0; i < state.max; i++) slots += keys[i] ? '<div class="mdl-slot on" data-main="' + keys[i] + '">' + GDMedals.svg(keys[i], 52) + '<span>' + esc(GDMedals.name(keys[i])) + '</span>' + (keys[i] === mk ? '<em class="mn"><img src="/static/img/star.png" alt="">у ника</em>' : '<em class="mn" style="color:#8d99a8">сделать главной</em>') + '</div>' : '<div class="mdl-slot"><em>＋</em><span>Свободно</span></div>';
     $('mdlSlots').innerHTML = slots;
     $('mdlF').innerHTML = [['all', 'Все'], ['own', 'Мои'], ['lock', 'Не найденные']].map(function (f) { return '<button type="button" data-f="' + f[0] + '" class="' + (state.f === f[0] ? 'on' : '') + '">' + f[1] + '</button>'; }).join('');
     var q = state.q, html = '', evOf = state.events;
@@ -82,12 +81,12 @@
     function reward(c) {
       if (!c || !c.reward) return '';
       var r = c.reward, parts = [];
-      if (r.tickets) parts.push(r.tickets + ' билетов'); if (r.ton) parts.push(r.ton + ' TON'); if (r.medal) parts.push('медаль «' + esc(r.medal_name) + '»');
+      if (r.tickets) parts.push(r.tickets + ' билетов'); if (r.ton) parts.push(r.ton + ' TON'); if (r.medal) parts.push('медаль «' + esc(r.medal_name) + '»'); if (r.gift) parts.push(esc(r.gift.name));
       var btn = c.claimed ? '<button type="button" class="mdl-eq off" disabled>Получено</button>' : '<button type="button" class="mdl-eq mdl-claim" data-scope="' + esc(c.scope) + '"' + (c.ready ? '' : ' disabled') + '>' + (c.ready ? 'Забрать' : c.owned + ' / ' + c.need) + '</button>';
-      return '<div class="mdl-rw"><b>Награда: ' + parts.join(' + ') + '</b><small>Соберите ' + c.percent + '% коллекции (' + c.need + ' из ' + c.total + '). У вас ' + c.owned + '.</small>' + btn + '</div>';
+      return '<div class="mdl-rw"><b>' + (c.claimed ? 'Награда получена' : 'Награда за коллекцию') + '</b><span class="mdl-rwp">' + parts.join(' + ') + '</span><small>' + (c.claimed ? 'Спасибо, что собрали коллекцию!' : c.ready ? 'Условие выполнено — заберите награду.' : 'Нужно ' + c.need + ' из ' + c.total + (c.percent < 100 ? ' (' + c.percent + '%)' : '') + ' · у вас ' + c.owned) + '</small>' + btn + '</div>';
     }
     var colOf = {}; state.cols.forEach(function (c) { colOf[c.scope] = c; });
-    if (colOf['*'] && colOf['*'].reward && state.f === 'all' && !q) html += reward(colOf['*']);
+    if (colOf['*'] && colOf['*'].reward && state.f === 'all') html += reward(colOf['*']);
     RARS.forEach(function (r) {
       var items = all.filter(function (m) { return !evOf[m.key] && (m.rarity || 'common') === r && pass(m); });
       if (!items.length) return;
@@ -99,7 +98,7 @@
       var items = evs[ev].filter(pass).sort(function (a, b) { return RARS.indexOf(a.rarity || 'common') - RARS.indexOf(b.rarity || 'common'); });
       if (!items.length) return;
       var have = items.filter(function (m) { return state.own[m.key]; }).length;
-      html += '<div class="mdl-h"><span class="rar" style="color:#ffb454">Коллекция · ' + esc(ev) + '</span><small>' + have + ' / ' + evs[ev].length + '</small></div>' + (state.f === 'all' && !q ? reward(colOf[ev]) : '') + '<div class="mdl-grid">' + items.map(medalCard).join('') + '</div>';
+      html += '<div class="mdl-sec"><div class="mdl-h"><span class="rar">Коллекция · ' + esc(ev) + '</span><small>' + have + ' / ' + evs[ev].length + '</small></div>' + (state.f === 'all' ? reward(colOf[ev]) : '') + '<div class="mdl-grid">' + items.map(medalCard).join('') + '</div></div>';
     });
     $('mdlList').innerHTML = html || '<div class="mdl-empty">' + (q ? 'Среди найденных медалей ничего не нашлось.' : 'Здесь пока пусто.') + '</div>';
   }
@@ -110,7 +109,7 @@
     });
   }
   function open() {
-    var m = modal(); m.classList.remove('hidden');
+    var m = modal(); m.classList.remove('hidden'); document.documentElement.classList.add('mdl-ns');
     var list = $('mdlList'); list.innerHTML = '<div class="mdl-empty">Загрузка…</div>';
     if (!m.dataset.bound) {
       m.dataset.bound = '1';

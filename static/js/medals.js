@@ -135,7 +135,7 @@
     var p1 = pt(a1 * Math.PI / 180, R), p2 = pt(a2 * Math.PI / 180, R);
     return 'M48 62L' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + 'A' + R + ' ' + R + ' 0 0 1 ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1) + 'Z';
   }
-  var AUTHOR3 = {goshan: 1};
+  var AUTHOR3 = {goshan: 1}, SHAPE_OVR = {nickolay: 'hex'};
   function star(x, y, s, cls, extra) {
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
@@ -261,7 +261,7 @@
     api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
       for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].custom) LIST.splice(i, 1);
       LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; m.hidden = (d.hidden || []).indexOf(m.key) >= 0; m.rarity = (d.rarity || {})[m.key] || 'common'; });
-      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, rarity: (d.rarity || {})[c.key] || 'common', manual_only: c.manual_only, hidden: (d.hidden || []).indexOf(c.key) >= 0}); });
+      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: SHAPE_OVR[c.key] || 'seal', custom: true, rarity: (d.rarity || {})[c.key] || 'common', manual_only: c.manual_only, hidden: (d.hidden || []).indexOf(c.key) >= 0}); });
       BY = {}; LIST.forEach(function (m) { BY[m.key] = m; });
       return d;
     }).catch(function () {});

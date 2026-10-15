@@ -106,6 +106,7 @@
     $('mdlList').innerHTML = html || '<div class="mdl-empty">' + (q ? 'Среди найденных медалей ничего не нашлось.' : 'Здесь пока пусто.') + '</div>';
   }
   function load() {
+    if (window.GDMusicRefresh) GDMusicRefresh();
     return Promise.all([api('/api/medals'), GDMedals.ready]).then(function (r) {
       var d = r[0]; state.max = d.max_shown || 3; state.own = {}; state.shown = {}; state.cols = d.collections || []; state.events = d.events || {}; state.main = d.main || '';
       d.medals.forEach(function (x) { var o = state.own[x.key] || (state.own[x.key] = {n: 0}); o.n++; if (x.shown) state.shown[x.key] = 1; });
@@ -206,9 +207,10 @@
       var pc = d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',');
       el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-3d"></div><p class="mdi-hint">Потяните, чтобы покрутить · двойной клик — перевернуть</p><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
         '<div class="mdi-g"><div><span>Статус</span><b>' + esc(d.status) + '</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у игроков</span><b>' + pc + '%</b></div>' + (d.mine ? '<div><span>У вас</span><b style="color:#2fd163">Есть</b></div>' : '') + '</div><p class="mdi-how">' + esc(d.how) + '</p></div>';
-      function close() { el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
+      function close() { if (el._mus && window.GDMusic) GDMusic.stop(); el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
       el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('mdi-x')) close(); });
       document.body.appendChild(el); spin3d(el.querySelector('.mdi-3d'), d);
+      if (window.GDMusic && GDMusic.KEYS[d.key]) { GDMusic.playShort(d.key); el._mus = 1; }
     }).catch(function (e) { if (window.toast) toast(e.message); });
   }
   window.GDMedalInfo = info;
@@ -220,6 +222,7 @@
     var chip = $('ppTopChip'); if (!chip) return;
     var box = $('ppMedals');
     if (!box) { box = document.createElement('div'); box.id = 'ppMedals'; box.className = 'pp-medals'; var host = chip.parentElement; host.parentNode.insertBefore(box, host.nextSibling); }
+    if (window.GDMusicProfile) setTimeout(function () { GDMusicProfile(d); }, 0);
     box.innerHTML = ((d && d.medals) || []).map(function (m) { return '<span data-k="' + esc(m.key) + '" title="' + esc(m.name + ' · ' + m.title + (m.place ? ' · ' + m.place + ' место' : '')) + '">' + GDMedals.svg(m.key, 52) + '</span>'; }).join('');
   }
   var orig = window.openPublicProfile;

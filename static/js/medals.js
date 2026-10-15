@@ -83,6 +83,7 @@
       '.gdm .gm-glow{animation:gmGlow 3.2s ease-in-out infinite;transform-origin:48px 62px}' +
       '.gdm .gm-br{animation:gmBr 3.6s ease-in-out infinite;transform-origin:48px 70px}@keyframes gmBr{0%,100%{transform:scale(1)}50%{transform:scale(1.045) translateY(-.8px)}}' +
       '.gdm .gm-shine2{animation:gmShine2 4.2s ease-in-out infinite}.gdm .gm-shine2.b{animation-delay:.12s}@keyframes gmShine2{0%,45%{transform:skewX(-18deg) translateX(-30px)}85%,100%{transform:skewX(-18deg) translateX(110px)}}.gdm .gm-gl circle{opacity:0;animation:gmGl 3s ease-in-out infinite}@keyframes gmGl{0%,100%{opacity:0;transform:scale(.3)}50%{opacity:1;transform:scale(1.8)}}.gdm .gm-gl circle{transform-box:fill-box;transform-origin:center}' +
+      '.gdm .gm-steam{animation:gmSteam 2.8s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 100%;opacity:0}@keyframes gmSteam{0%{opacity:0;transform:translateY(3px) scaleY(.7)}35%{opacity:.8}100%{opacity:0;transform:translateY(-7px) scaleY(1.15)}}' +
       '.gdm .gm-yt{animation:gmYt 2.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}@keyframes gmYt{0%,100%{transform:translate(48px,104px) scale(1)}50%{transform:translate(48px,104px) scale(1.1)}}.gdm .gm-ytr{animation:gmYr 14s linear infinite;transform-origin:48px 62px}@keyframes gmYr{to{transform:rotate(360deg)}}' +
       '.gdm .gm-emb{animation:gmBob 3.4s ease-in-out infinite;transform-origin:0 0}' +
       '.gdm .gm-shine{animation:gmShine 4.2s cubic-bezier(.45,0,.3,1) infinite}' +
@@ -114,6 +115,10 @@
       for (i = 0; i < 6; i++) { a = (-90 + i * 60) * Math.PI / 180; d += (i ? 'L' : 'M') + (cx + r * 1.04 * Math.cos(a)).toFixed(1) + ' ' + (cy + r * 1.04 * Math.sin(a)).toFixed(1); }
       return d + 'Z';
     }
+    if (kind === 'octa') {
+      for (i = 0; i < 8; i++) { a = (-90 + 22.5 + i * 45) * Math.PI / 180; d += (i ? 'L' : 'M') + (cx + r * 1.03 * Math.cos(a)).toFixed(1) + ' ' + (cy + r * 1.03 * Math.sin(a)).toFixed(1); }
+      return d + 'Z';
+    }
     if (kind === 'seal') {
       n = 32;
       for (i = 0; i < n; i++) { a = (-90 + i * 360 / n) * Math.PI / 180; rr = i % 2 ? r - 2.4 : r + .6; d += (i ? 'L' : 'M') + (cx + rr * Math.cos(a)).toFixed(1) + ' ' + (cy + rr * Math.sin(a)).toFixed(1); }
@@ -135,7 +140,7 @@
     var p1 = pt(a1 * Math.PI / 180, R), p2 = pt(a2 * Math.PI / 180, R);
     return 'M48 62L' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + 'A' + R + ' ' + R + ' 0 0 1 ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1) + 'Z';
   }
-  var AUTHOR3 = {goshan: 1}, SHAPE_OVR = {nickolay: 'hex'};
+  var AUTHOR3 = {goshan: 1}, SHAPE_OVR = {nickolay: 'hex', kuzmatagin: 'octa'};
   function star(x, y, s, cls, extra) {
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
@@ -205,6 +210,7 @@
       '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + (EMB[m.emb] || '').split('__ID__').join(id + 'e') + '</g></g>';
 
     var tri = AUTHOR3[m.key] ? '<g class="' + (st ? '' : 'gm-yt') + '" transform="translate(48 104)"><rect x="-13" y="-8" width="26" height="16" rx="5.5" fill="#ff1a1a" stroke="#fff" stroke-width="1.2"/><rect x="-11.5" y="-7" width="23" height="6" rx="3" fill="#fff" opacity=".22"/><path d="M-3-4.2 5.2 0-3 4.2Z" fill="#fff"/></g>' : '';
+    if (m.key === 'kuzmatagin') emb += '<g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="1.6" opacity=".5">' + [0, 1, 2].map(function (k) { return '<path class="' + (st ? '' : 'gm-steam') + '" style="animation-delay:' + (k * .9) + 's" d="M' + (31 + k * 4.2) + ' 84c-2.2-3 2.2-5 0-8s2.2-5 0-8"/>'; }).join('') + '</g>';
     var sp = (st || AUTHOR3[m.key]) ? '' : star(17, 34, 1, 'gm-sp') + star(80, 46, .85, 'gm-sp b') + star(75, 96, .95, 'gm-sp c');
     var badge = m.place ? '<g><rect x="34.5" y="95" width="27" height="16.5" rx="8.2" fill="url(#' + id + 'b)" stroke="url(#' + id + 'r)" stroke-width="1.3"/><rect x="36" y="96.5" width="24" height="6" rx="3" fill="#fff" opacity=".1"/><text x="48" y="107.2" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.5" font-weight="900" fill="' + p[0] + '">' + m.place + '</text></g>' : '';
 

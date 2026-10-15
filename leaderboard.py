@@ -49,7 +49,8 @@ def custom_medals():
 def medal_settings():
     doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
     names = doc.get('names') if isinstance(doc.get('names'), dict) else {}
-    return dict(names={str(k): str(v)[:40] for k, v in names.items() if v},
+    hidden = doc.get('hidden') if isinstance(doc.get('hidden'), list) else []
+    return dict(names={str(k): str(v)[:40] for k, v in names.items() if v}, hidden=[str(x) for x in hidden],
                 notify=str(doc.get('notify') or DEFAULT_NOTIFY)[:600], season=str(doc.get('season') or DEFAULT_SEASON_NOTE)[:300])
 
 
@@ -562,7 +563,7 @@ def register(app, ns):
         if not 1 <= place <= MAX_PLACES:
             return error(f'Места: от 1 до {MAX_PLACES}.')
         medal = str(data.get('medal') or '')
-        if medal and (medal not in all_names() or custom_medals().get(medal, {}).get('manual_only')):
+        if medal and (medal not in all_names() or medal in medal_settings()['hidden'] or custom_medals().get(medal, {}).get('manual_only')):
             return error('Такой медали нет или она только для ручной выдачи.')
         cfg = config()
         if medal:
@@ -575,8 +576,8 @@ def register(app, ns):
     @app.get('/api/medals/catalog')
     def medal_catalog():
         items = custom_medals()
-        return jsonify(ok=True, names=all_names(),
-                       custom=[dict(key=k, name=mname(k), manual_only=bool(v.get('manual_only')), pal=v.get('pal') or 'gold',
+        return jsonify(ok=True, names=all_names(), hidden=medal_settings()['hidden'],
+                       custom=[dict(key=k, name=mname(k), hidden=k in medal_settings()['hidden'], manual_only=bool(v.get('manual_only')), pal=v.get('pal') or 'gold',
                                     img='/api/medals/img/%s?v=%d' % (k, int(v.get('v') or 0))) for k, v in items.items()])
 
     @app.get('/api/medals/img/<key>')
@@ -601,6 +602,8 @@ def register(app, ns):
         for o in out:
             o['name'] = st['names'].get(o['key'], o['name'])
         out += [dict(key=k, name=mname(k), builtin=False, manual_only=bool(v.get('manual_only'))) for k, v in cust.items()]
+        for o in out:
+            o['hidden'] = o['key'] in st['hidden']
         return jsonify(ok=True, medals=out, notify=st['notify'], season=st['season'],
                        defaults=dict(notify=DEFAULT_NOTIFY, season=DEFAULT_SEASON_NOTE))
 
@@ -615,6 +618,21 @@ def register(app, ns):
         names = dict(doc.get('names') or {})
         names[key] = name
         doc['names'] = names
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        return jsonify(ok=True)
+
+    @app.post('/api/admin/medals/hide')
+    @admin
+    def admin_medal_hide():
+        data = request.get_json(silent=True) or {}
+        key = str(data.get('key') or '')
+        if key not in all_names():
+            return error('Медали нет.')
+        doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+        hidden = [x for x in (doc.get('hidden') or []) if x != key]
+        if data.get('hidden', True):
+            hidden.append(key)
+        doc['hidden'] = hidden
         _ns['save_document'](MEDAL_SET_DOC, doc)
         return jsonify(ok=True)
 
@@ -684,8 +702,8 @@ def register(app, ns):
         except (TypeError, ValueError):
             return error('Укажите ID игрока.')
         medal = str(data.get('medal') or '')
-        if medal not in all_names():
-            return error('Выберите медаль.')
+        if medal not in all_names() or medal in medal_settings()['hidden']:
+            return error('Выберите медаль (скрытые выдавать нельзя).')
         title = str(data.get('title') or '').strip()[:60] or 'Особая награда'
         with connect() as db:
             db.execute('BEGIN IMMEDIATE')

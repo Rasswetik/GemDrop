@@ -31,9 +31,9 @@
       const back = h('div', {style: {position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(6,4,14,.72)', display: 'grid', placeItems: 'center', padding: '16px'}});
       const close = () => back.remove();
       const grid = h('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: '12px'}});
-      [...new Set(window.GDMedals.LIST.filter(m => !place || !m.manual_only).map(m => m.set))].forEach(set => {
+      [...new Set(window.GDMedals.LIST.filter(m => !place || (!m.manual_only && !m.hidden)).map(m => m.set))].forEach(set => {
         grid.append(h('div', {style: {gridColumn: '1/-1', fontWeight: 800, marginTop: '6px'}, text: set}));
-        window.GDMedals.LIST.filter(m => m.set === set && (!place || !m.manual_only)).forEach(m => {
+        window.GDMedals.LIST.filter(m => m.set === set && (!place || (!m.manual_only && !m.hidden))).forEach(m => {
           const tile = h('button', {type: 'button', style: {display: 'grid', justifyItems: 'center', gap: '6px', padding: '12px 8px', borderRadius: '16px', border: m.key === current ? '2px solid #a066ff' : '1px solid rgba(255,255,255,.12)', background: '#1b1e27', color: '#fff', cursor: 'pointer'}, onclick: async () => { try { await pick(m.key); close(); } catch (e) { K.err ? K.err(e) : alert(e.message); } }});
           const art = h('div'); art.innerHTML = window.GDMedals.svg(m.key, 84); tile.append(art, h('b', {text: m.name, style: {fontSize: '12px', textAlign: 'center'}}), h('small', {text: m.place ? 'как за ' + m.place + ' место' : 'особая', style: {color: '#8d99a8'}}));
           grid.append(tile);
@@ -101,60 +101,9 @@
       box.append(K.card('Награды за места', 'За одно место можно задать несколько наград. Места 1–3 получают отдельные панели, с 4-го награда показывается рядом с ником. Выдаются при завершении периода в инвентарь победителей.', h('div', {class: 'list'}, editors),
         places < d.max_places ? h('div', {class: 'row'}, K.btn('Добавить ещё место', async () => { places++; paint(d); })) : null));
 
-      box.append(grantCard());
-      box.append(medalsCard());
-      box.append(K.card('Топ сейчас', null, h('div', {class: 'list'}, d.top.length ? d.top.map(r => h('div', {class: 'list-item'}, K.badge('#' + r.place), h('div', {class: 'grow'}, h('strong', {text: r.name || 'Игрок'}), h('small', {text: (r.username ? '@' + r.username + ' · ' : '') + 'ID ' + r.user_id})), h('strong', {text: K.money(r.turnover) + ' TON'}))) : [K.empty('Пока никто не играл в этом периоде.')])));
+            box.append(K.card('Топ сейчас', null, h('div', {class: 'list'}, d.top.length ? d.top.map(r => h('div', {class: 'list-item'}, K.badge('#' + r.place), h('div', {class: 'grow'}, h('strong', {text: r.name || 'Игрок'}), h('small', {text: (r.username ? '@' + r.username + ' · ' : '') + 'ID ' + r.user_id})), h('strong', {text: K.money(r.turnover) + ' TON'}))) : [K.empty('Пока никто не играл в этом периоде.')])));
       box.append(K.card('Прошлые периоды', null, h('div', {class: 'list'}, d.history.length ? d.history.map(x => h('div', {class: 'list-item'}, h('strong', {text: x.title || ('#' + x.id)}), h('small', {text: `${when(x.starts_at)} → ${when(x.finished_at || x.ends_at)} · ${reasons[x.reason] || x.reason || ''}`}))) : [K.empty('Пока нет завершённых периодов.')])));
       box.append(K.card('Выданные награды', null, h('div', {class: 'list'}, d.awards.length ? d.awards.map(a => h('div', {class: 'list-item'}, K.badge(a.place + ' место'), h('div', {class: 'grow'}, h('strong', {text: a.gift_name}), h('small', {text: `ID ${a.user_id} · период #${a.period_id} · ${K.money(a.price_ton)} TON`})))) : [K.empty('Награды ещё не выдавались.')])));
-    }
-    function grantCard() {
-      const uid = h('input', {type: 'number', placeholder: 'ID игрока', inputMode: 'numeric', style: {width: '100%'}}), ttl = h('input', {type: 'text', maxLength: 60, placeholder: 'Подпись (например: За верность проекту)', style: {width: '100%'}});
-      let pick = '';
-      const prev = h('div', {style: {width: '64px'}}), pname = h('strong', {text: 'Медаль не выбрана'});
-      const list = h('div', {class: 'list'});
-      const choose = K.btn('Выбрать медаль', () => chooseMedal(0, pick, async v => { pick = v; prev.innerHTML = window.GDMedals.svg(v, 60); pname.textContent = window.GDMedals.name(v); }));
-      async function show() {
-        list.replaceChildren(); const id = parseInt(uid.value, 10); if (!id) return;
-        try {
-          const d = await api('/api/admin/medals/user/' + id, undefined, 'GET');
-          list.append(h('small', {class: 'muted', text: 'Медали игрока ' + (d.user.name || '') + (d.user.username ? ' @' + d.user.username : '') + ':'}));
-          if (!d.medals.length) list.append(h('small', {class: 'muted', text: 'Пока нет медалей.'}));
-          d.medals.forEach(m => { const art = h('div', {style: {width: '44px'}}); art.innerHTML = window.GDMedals.svg(m.key, 40); list.append(h('div', {class: 'list-item'}, art, h('div', {class: 'grow'}, h('strong', {text: m.name}), h('small', {text: m.title + (m.place ? ' · ' + m.place + ' место' : '')})), K.btn('Забрать', async () => { await api('/api/admin/medals/' + m.id + '/revoke', {}); K.ok('Медаль забрана'); await show(); }, 'danger'))); });
-        } catch (e) { list.append(h('small', {class: 'bad', text: e.message})); }
-      }
-      uid.addEventListener('change', show);
-      return K.card('Выдача медалей', 'Выдайте любую медаль игроку вручную. Он получит уведомление, медаль появится в «Мои медали» и в профиле.', K.form([K.field('ID игрока', uid), K.field('Подпись', ttl), h('div', {class: 'row', style: {alignItems: 'center', gap: '12px'}}, prev, h('div', {class: 'grow'}, pname), choose)], async () => {
-        if (!pick) throw new Error('Выберите медаль.');
-        await api('/api/admin/medals/grant', {user_id: uid.value, medal: pick, title: ttl.value}); K.ok('Медаль выдана'); await show();
-      }, 'Выдать медаль'), list);
-    }
-    const medalBox = h('div', {class: 'stack'});
-    function medalsCard() {
-      paintMedals(); return K.card('Все медали и тексты', 'Переименуйте любую медаль, загрузите свою (PNG/JPG, лучше квадрат) и настройте уведомления.', medalBox);
-    }
-    async function paintMedals() {
-      const d = await api('/api/admin/medals/all', undefined, 'GET'); await window.GDMedals.load();
-      medalBox.replaceChildren();
-      const list = h('div', {class: 'list'});
-      d.medals.forEach(m => {
-        const art = h('div', {style: {width: '48px'}}); art.innerHTML = window.GDMedals.svg(m.key, 44);
-        const nm = h('input', {type: 'text', value: m.name, maxLength: 40, style: {width: '100%'}});
-        list.append(h('div', {class: 'list-item'}, art, h('div', {class: 'grow'}, nm, h('small', {class: 'muted', text: m.builtin ? 'Встроенная' : (m.manual_only ? 'Загруженная · только ручная выдача' : 'Загруженная')})),
-          K.btn('Сохранить', async () => { await api('/api/admin/medals/rename', {key: m.key, name: nm.value}); K.ok('Название сохранено'); await paintMedals(); }),
-          m.builtin ? null : K.btn('Удалить', async () => { await api('/api/admin/medals/' + m.key + '/delete', {}); K.ok('Медаль удалена'); await paintMedals(); }, 'danger')));
-      });
-      const nn = h('input', {type: 'text', maxLength: 40, placeholder: 'Название новой медали', style: {width: '100%'}}), fi = h('input', {type: 'file', accept: 'image/png,image/jpeg,image/webp'}), mo = K.check('Только ручная выдача (не показывать в наградах сезона)', true);
-      const create = K.form([K.field('Название', nn), K.field('Картинка', fi), mo], async () => {
-        const f = fi.files[0]; if (!f) throw new Error('Выберите картинку.');
-        const image = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
-        await api('/api/admin/medals/create', {name: nn.value, image, manual_only: mo.querySelector('input').checked}); K.ok('Медаль создана'); nn.value = ''; fi.value = ''; await paintMedals();
-      }, 'Создать медаль');
-      const n1 = h('textarea', {rows: 3, style: {width: '100%'}}), n2 = h('textarea', {rows: 2, style: {width: '100%'}});
-      n1.value = d.notify; n2.value = d.season;
-      const texts = K.form([K.field('Уведомление при ручной выдаче', n1, 'Подстановки: {medal} — название медали, {title} — подпись. Разрешены теги <b> и <i>.'), K.field('Строка про медаль в уведомлении об итогах сезона', n2, 'Подстановка: {medal}.')], async () => {
-        await api('/api/admin/medals/texts', {notify: n1.value, season: n2.value}); K.ok('Тексты сохранены');
-      }, 'Сохранить тексты');
-      medalBox.append(list, h('h4', {text: 'Новая медаль'}), create, h('h4', {text: 'Тексты уведомлений'}), texts);
     }
     async function load() { paint(await api('/api/admin/leaderboard', undefined, 'GET')); }
     root.append(K.head('Лидерборд', 'Недельный топ по обороту: период, награды за места и досрочное завершение.', 'Игроки'), box);

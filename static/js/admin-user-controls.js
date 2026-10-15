@@ -6,7 +6,23 @@ window.AdminUserControls = {
     const modelCache=new Map(),pickers=[],bundle=[];
     function node(tag,text,cls){return el(tag,text,cls);}
     function selectControl(tab){document.querySelectorAll('[data-control-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.controlTab===tab)));document.querySelectorAll('[data-control-panel]').forEach(p=>p.hidden=p.dataset.controlPanel!==tab);}
-    document.querySelectorAll('[data-control-tab]').forEach(b=>b.onclick=()=>selectControl(b.dataset.controlTab));
+    async function paintUserMedals(){
+      const uid=state.userId,sel=$('umSelect'),list=$('umList');if(!uid||!sel)return;
+      try{
+        const [all,mine]=await Promise.all([api('/api/admin/medals/all',undefined,'GET'),api('/api/admin/medals/user/'+uid,undefined,'GET')]);
+        sel.replaceChildren();for(const m of all.medals.filter(x=>!x.hidden))sel.add(new Option(m.name,m.key));
+        list.replaceChildren();
+        if(!mine.medals.length)list.append(node('p','У игрока пока нет медалей.','muted'));
+        for(const m of mine.medals){
+          const row=node('div',null,'control-row'),art=node('div'),info=node('div');art.style.width='46px';if(window.GDMedals)art.innerHTML=window.GDMedals.svg(m.key,42);
+          info.append(node('strong',m.name),node('small',m.title+(m.place?' · '+m.place+' место':''),'muted'));
+          const b=node('button','Забрать');b.type='button';b.onclick=()=>action(b,async()=>{await api('/api/admin/medals/'+m.id+'/revoke',{});await paintUserMedals();});
+          row.style.cssText='display:flex;align-items:center;gap:10px;margin:6px 0';row.append(art,info,b);list.append(row);
+        }
+      }catch(e){msg(e.message);}
+    }
+    bindForm('userMedalForm',async f=>{const uid=ready();await api('/api/admin/medals/grant',{user_id:uid,medal:f.elements.medal.value,title:f.elements.title.value});f.elements.title.value='';await paintUserMedals();});
+    document.querySelectorAll('[data-control-tab]').forEach(b=>b.onclick=()=>{selectControl(b.dataset.controlTab);if(b.dataset.controlTab==='medals')paintUserMedals();});
     function ready(){if(state.userLoadedId!==state.userId || !state.userId)throw new Error('Дождитесь загрузки пользователя.');return state.userId;}
     function bindForm(id,fn){$(id).onsubmit=e=>{e.preventDefault();action(e.submitter,()=>fn(e.target));};}
     function controlButton(label,fn){const b=node('button',label);b.type='button';b.onclick=()=>action(b,fn);return b;}
@@ -70,7 +86,7 @@ window.AdminUserControls = {
     bindForm('personalPromoForm',async f=>{const kind=f.elements.reward_type.value,data=Object.fromEntries(new FormData(f));if(['gift','wager_gift'].includes(kind))data.gift_id=promoPicker.value();if(kind==='multi')data.bundle_items=bundle.map(b=>b.value());const d=await saveUser('/promocodes/new',data);if(d?.code){f.elements.code.value='';msg('Выдан промокод '+d.code);}});
     bindForm('copyPromoForm',async f=>{const d=await saveUser('/promocodes',{template_code:f.elements.template_code.value});if(d?.code)msg('Выдан промокод '+d.code);});
     async function load(){const uid=ready(),current=++revision;const [d,ban,promos]=await Promise.all([api('/api/admin/users/'+uid),api('/api/admin/users/'+uid+'/ban'),api('/api/admin/promocodes')]);if(uid!==state.userId || current!==revision)return;render(d,ban);const select=$('copyPromoForm').elements.template_code,previous=select.value;select.replaceChildren(new Option('Выберите шаблон',''),...promos.items.filter(p=>p.active&&!p.expired&&!p.assigned_user_id).map(p=>new Option(p.code+' · '+(p.description || p.reward_type),p.code)));if([...select.options].some(o=>o.value===previous))select.value=previous;await Promise.all(pickers.map(p=>p.load()));}
-    function reset(){++revision;depositKey=null;resetNft();for(const picker of [...pickers])picker.reset();for(const item of bundle){pickers.splice(pickers.indexOf(item.picker),1);item.card.remove();}bundle.length=0;for(const id of ['manualDepositForm','catalogGiftForm','exactNftForm','bindReferralForm','setReferrerForm','personalPromoForm','balanceForm','ticketsForm','copyPromoForm'])$(id).reset();promoVisibility();selectControl('finance');}
+    function reset(){++revision;depositKey=null;resetNft();for(const picker of [...pickers])picker.reset();for(const item of bundle){pickers.splice(pickers.indexOf(item.picker),1);item.card.remove();}bundle.length=0;for(const id of ['manualDepositForm','catalogGiftForm','exactNftForm','bindReferralForm','setReferrerForm','personalPromoForm','balanceForm','ticketsForm','copyPromoForm','userMedalForm'])$(id).reset();promoVisibility();selectControl('finance');}
     return {load,reset,selectControl,removeInventory(item){return controlButton('Удалить из инвентаря',async()=>{ready();if(confirm('Удалить '+item.name+' из инвентаря?'))await saveUser('/inventory/'+item.id,undefined,'DELETE');});}};
   }
 };

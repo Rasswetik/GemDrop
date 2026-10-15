@@ -136,6 +136,11 @@ class LeaderboardTests(unittest.TestCase):
             self.assertEqual([x['name'] for x in allm['medals'] if x['key'] == 'vip'], ['Супер VIP'])
             self.assertEqual(m.leaderboard.render_note('<b>{medal}</b> <u>x</u>', medal='A<'), '<b>A&lt;</b> &lt;u&gt;x&lt;/u&gt;') if hasattr(m, 'leaderboard') else None
             self.post('/api/admin/medals/rename', {'key': 'vip', 'name': 'VIP игрок'})
+            self.post('/api/admin/medals/hide', {'key': 'gem', 'hidden': True})
+            self.post('/api/admin/medals/grant', {'user_id': self.uid, 'medal': 'gem'}, 400)
+            self.post('/api/admin/leaderboard/medals', {'place': 1, 'medal': 'gem'}, 400)
+            self.assertTrue([x for x in self.client.get('/api/admin/medals/all').get_json()['medals'] if x['key'] == 'gem'][0]['hidden'])
+            self.post('/api/admin/medals/hide', {'key': 'gem', 'hidden': False})
             self.post('/api/admin/medals/texts', {'notify': '', 'season': ''})
 
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):

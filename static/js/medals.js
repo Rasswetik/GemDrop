@@ -138,8 +138,8 @@
   api.load = function () {
     api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
       for (var i = LIST.length - 1; i >= 0; i--) if (LIST[i].custom) LIST.splice(i, 1);
-      LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; });
-      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, manual_only: c.manual_only}); });
+      LIST.forEach(function (m) { if (BASE[m.key] && d.names && d.names[m.key]) m.name = d.names[m.key]; m.hidden = (d.hidden || []).indexOf(m.key) >= 0; });
+      (d.custom || []).forEach(function (c) { LIST.push({key: c.key, name: c.name, pal: c.pal || 'gold', img: c.img, set: 'Свои медали', shape: 'seal', custom: true, manual_only: c.manual_only, hidden: (d.hidden || []).indexOf(c.key) >= 0}); });
       BY = {}; LIST.forEach(function (m) { BY[m.key] = m; });
       return d;
     }).catch(function () {});

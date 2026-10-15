@@ -28,6 +28,7 @@ import notice_defs
 import management
 import leaderboard
 import plinko
+import vip
 from flask import Flask, Response, jsonify, request, session, send_file, g, has_request_context
 
 
@@ -159,7 +160,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages', 'limbo_bets', 'plinko_bets', 'road_games', 'hw_lots', 'hw_purchases', 'hw_boss_rounds',
+            'creator_chat_messages', 'limbo_bets', 'plinko_bets', 'recent_wins', 'road_games', 'hw_lots', 'hw_purchases', 'hw_boss_rounds',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -4918,6 +4919,7 @@ def record_transaction(db, user_id, kind, amount=0, reference_type='', reference
                   VALUES(?,?,?,?,?,?,?)''',
                (user_id, str(kind)[:60], int(amount or 0), balance_after,
                 str(reference_type)[:60], str(reference_id)[:120], str(details)[:500]))
+    vip.log_win(db, user_id, kind, amount, details)
     labels = {'gift_sale':'Подарок продан', 'admin_balance':'Баланс изменён',
               'deposit':'Пополнение', 'ton_deposit':'Пополнение TON', 'stars_deposit':'Пополнение Stars', 'referral_bonus':'Реферальный бонус',
               'deposit_promo_bonus':'Бонус пополнения', 'withdrawal_request':'Заявка на вывод',
@@ -25256,6 +25258,7 @@ management.register(app, globals())
 management.operator_insights.register(app, globals(), management)
 PLINKO_REGISTERED = plinko.register(app, globals())
 LEADERBOARD_LOOP = leaderboard.register(app, globals())
+VIP_REGISTERED = vip.register(app, globals())
 
 run_startup_repair(migrate_rtp_cut_v1)
 

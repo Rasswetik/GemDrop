@@ -1,7 +1,7 @@
 /* Shared Telegram helpers: button editor, premium emoji library, insertion at cursor. */
 (() => {
   const K = window.AdminKit, {h, api} = K;
-  const TARGETS = [['', 'Главная / текущий GemDrop'], ['section:games', 'Игры'], ['section:mines', 'Мины'], ['section:upgrade', 'Апгрейды'], ['section:crash', 'Crash'], ['section:arena', 'Арена'], ['section:hilo', 'Hi-Lo'], ['section:limbo', 'Limbo'], ['section:road', 'Hamster Road'], ['section:giveaways', 'Розыгрыши'], ['section:profile', 'Профиль'], ['section:levels', 'Уровни'], ['section:bonuses', 'Бонусы'], ['section:deposit', 'Пополнение'], ['section:creator', 'Панель автора']];
+  const TARGETS = [['', 'Главная / текущий GemDrop'], ['section:games', 'Игры'], ['section:mines', 'Мины'], ['section:upgrade', 'Апгрейды'], ['section:crash', 'Crash'], ['section:arena', 'Арена'], ['section:hilo', 'Hi-Lo'], ['section:limbo', 'Limbo'], ['section:road', 'Hamster Road'], ['section:plinko', 'Plinko'], ['section:giveaways', 'Розыгрыши'], ['section:profile', 'Профиль'], ['section:levels', 'Уровни'], ['section:bonuses', 'Бонусы'], ['section:deposit', 'Пополнение'], ['section:creator', 'Панель автора']];
   const TYPE_LABEL = {web_app: 'Открыть GemDrop / Mini App', url: 'Ссылка / браузер', copy: 'Скопировать текст', callback: 'Callback'};
   const STYLES = [['', 'Обычная'], ['primary', 'Синяя'], ['success', 'Зелёная'], ['danger', 'Красная']];
   K.emojiThumb = id => '/api/admin/emoji-thumb/' + id;

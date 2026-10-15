@@ -42,7 +42,7 @@
   }});
 
   /* ---------- Управление играми ---------- */
-  const GAMES = [['mines', 'Мины'], ['upgrade', 'Апгрейды'], ['crash', 'Crash'], ['arena', 'Арена'], ['hilo', 'Hi-Lo'], ['limbo', 'Limbo'], ['road', 'Hamster Road']];
+  const GAMES = [['mines', 'Мины'], ['upgrade', 'Апгрейды'], ['crash', 'Crash'], ['arena', 'Арена'], ['hilo', 'Hi-Lo'], ['limbo', 'Limbo'], ['road', 'Hamster Road'], ['plinko', 'Plinko']];
   const BADGES = [['', 'Без значка'], ['new', 'NEW'], ['hot', 'HOT'], ['top', 'TOP'], ['beta', 'BETA'], ['soon', 'СКОРО']];
   const MODES = [['on', 'Включена'], ['admin', 'Только админам'], ['off', 'Выключена']];
   K.register({id: 'gamesAdminPage', title: 'Управление играми', async render(root) {

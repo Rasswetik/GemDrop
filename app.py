@@ -27,6 +27,7 @@ import requests
 import notice_defs
 import management
 import leaderboard
+import plinko
 from flask import Flask, Response, jsonify, request, session, send_file, g, has_request_context
 
 
@@ -158,7 +159,7 @@ class PostgreSQL:
             'portal_withdrawal_logs', 'ticket_ledger', 'reward_tasks', 'giveaways',
             'giveaway_prizes', 'giveaway_winners', 'user_events', 'user_notifications',
             'notification_outbox', 'broadcasts', 'broadcast_items',
-            'creator_chat_messages', 'limbo_bets', 'road_games', 'hw_lots', 'hw_purchases', 'hw_boss_rounds',
+            'creator_chat_messages', 'limbo_bets', 'plinko_bets', 'road_games', 'hw_lots', 'hw_purchases', 'hw_boss_rounds',
         )
         table_match = re.match(r'INSERT INTO ([A-Za-z0-9_]+)\b', sql, re.I)
         returning = bool(
@@ -2730,7 +2731,7 @@ def admin_halloween_banner():
 # Halloween v6: event page buttons, «тыквы» balance and the pumpkin market.
 # ---------------------------------------------------------------------------
 HW_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo', 'pumpkins', 'tickets', 'wager_gift')
-HW_TARGETS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'market', 'wheel', 'bonus', 'profile', 'giveaways', 'games')
+HW_TARGETS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'plinko', 'market', 'wheel', 'bonus', 'profile', 'giveaways', 'games')
 HW_ICON_META = {
     'pumpkin': ('Основное', 'Тыква'),
     'ghost': ('Основное', 'Призрак'),
@@ -4843,6 +4844,7 @@ def enforce_available_modes():
                 'hilo' if path.startswith('/api/hilo/') else
                 'crash' if path.startswith('/api/crash/') else
                 'limbo' if path.startswith('/api/limbo/') else
+                'plinko' if path.startswith('/api/plinko/') else
                 'road' if path.startswith('/api/road/') else
                 'upgrade' if path.startswith('/api/upgrade/') else
                 'mines' if path.startswith('/api/game/') else None)
@@ -5747,7 +5749,7 @@ def parse_amount(value):
 
 
 
-FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll', 'limbo', 'road'}
+FAIRNESS_GAMES = {'mines', 'upgrade', 'crash', 'hilo', 'hilo_room', 'arena', 'roll', 'limbo', 'road', 'plinko'}
 FAIRNESS_ALGORITHM = 'HMAC-SHA256/rejection-v1'
 
 
@@ -11314,7 +11316,7 @@ def validate_greeting(text):
 
 MINIAPP_DESTINATIONS = {
     'home': 'Главная', 'games': 'Игры', 'mines': 'Мины', 'upgrade': 'Апгрейды',
-    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road', 'giveaways': 'Розыгрыши',
+    'crash': 'Crash', 'arena': 'Арена', 'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road', 'plinko': 'Plinko', 'giveaways': 'Розыгрыши',
     'profile': 'Профиль', 'levels': 'Уровни', 'bonuses': 'Бонусы',
     'creator': 'Панель автора', 'deposit': 'Пополнение',
 }
@@ -13275,14 +13277,14 @@ def loader_catalog():
 
 
 # ======================= Game switches (on / off / admins only) =======================
-GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road')
-GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off', 'limbo': 'admin', 'road': 'admin'}
+GAME_KEYS = ('mines', 'upgrade', 'crash', 'arena', 'hilo', 'limbo', 'road', 'plinko')
+GAME_MODE_DEFAULTS = {'mines': 'on', 'upgrade': 'on', 'crash': 'off', 'arena': 'off', 'hilo': 'off', 'limbo': 'admin', 'road': 'admin', 'plinko': 'admin'}
 
 
 GAME_BADGES = ('new', 'hot', 'top', 'beta', 'soon')
-GAME_LAYOUT_DEFAULT_ORDER = ('road', 'limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
+GAME_LAYOUT_DEFAULT_ORDER = ('plinko', 'road', 'limbo', 'hilo', 'arena', 'mines', 'upgrade', 'crash')
 GAME_LAYOUT_DEFAULT_WIDE = {'arena': True}
-GAME_LAYOUT_DEFAULT_BADGES = {'road': 'new', 'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
+GAME_LAYOUT_DEFAULT_BADGES = {'plinko': 'new', 'road': 'new', 'limbo': 'new', 'hilo': 'new', 'arena': 'new'}
 
 
 def game_layout():
@@ -21344,6 +21346,10 @@ def _actual_rtp_window(db, hours):
                       FROM limbo_bets WHERE REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?""", (since,)).fetchone()
     add('Limbo', row['bet_sum'], row['payout_sum'], row['n'])
 
+    row = db.execute("""SELECT COALESCE(SUM(bet),0) bet_sum,COALESCE(SUM(payout),0) payout_sum,COUNT(*) n
+                      FROM plinko_bets WHERE REPLACE(SUBSTR(created_at,1,19),'T',' ')>=?""", (since,)).fetchone()
+    add('Plinko', row['bet_sum'], row['payout_sum'], row['n'])
+
     total_bet = sum(int(round(x['bet']*100)) for x in games)
     total_payout = sum(int(round(x['payout']*100)) for x in games)
     return dict(hours=int(hours), games=games,
@@ -24406,7 +24412,7 @@ def portal_auto_loop():
 # ("target" mode). The standings are derived from the game tables, so no game code has to
 # report anything; the event is finalised lazily and by a background loop.
 XHUNT_MODE_LABELS = {'mines': 'Mines', 'upgrade': 'Upgrade', 'crash': 'Crash', 'arena': 'Arena',
-                     'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road'}
+                     'hilo': 'Hi-Lo', 'limbo': 'Limbo', 'road': 'Hamster Road', 'plinko': 'Plinko'}
 XHUNT_MAX_PLACES = 3
 XHUNT_REWARD_TYPES = ('none', 'ton', 'bonus', 'catalog', 'fragment', 'promo')
 XHUNT_PROMO_KINDS = ('balance', 'bonus', 'deposit_bonus')
@@ -24590,6 +24596,10 @@ def xhunt_rows(db, cfg, start_db, end_db):
         for r in db.execute("""SELECT id,user_id,bet,multiplier_x100,created_at FROM limbo_bets
                                WHERE won=1 AND bet>=? AND created_at>=? AND created_at<=?""", (min_bet, start_db, end_db)).fetchall():
             push('limbo', r['id'], r['user_id'], r['bet'], int(r['multiplier_x100'] or 0) / 100, r['created_at'])
+    if 'plinko' in modes:
+        for r in db.execute("""SELECT id,user_id,bet,multiplier_x100,created_at FROM plinko_bets
+                               WHERE payout>bet AND bet>=? AND created_at>=? AND created_at<=?""", (min_bet, start_db, end_db)).fetchall():
+            push('plinko', r['id'], r['user_id'], r['bet'], int(r['multiplier_x100'] or 0) / 100, r['created_at'])
     if 'road' in modes:
         for r in db.execute("""SELECT id,user_id,bet,mult_x100,COALESCE(finished_at,created_at) AS at FROM road_games
                                WHERE state IN ('cashed','won') AND bet>=? AND COALESCE(finished_at,created_at)>=?
@@ -25202,6 +25212,7 @@ def migrate_rtp_cut_v1():
 _relayer_auto_withdraw_one_async = management.serialized_withdrawal(_relayer_auto_withdraw_one_async, globals())
 management.register(app, globals())
 management.operator_insights.register(app, globals(), management)
+PLINKO_REGISTERED = plinko.register(app, globals())
 LEADERBOARD_LOOP = leaderboard.register(app, globals())
 
 run_startup_repair(migrate_rtp_cut_v1)

@@ -1,7 +1,7 @@
 /* X-Hunt: multiplier hunting event. */
 (() => {
   const K = window.AdminKit, {h, api} = K;
-  const MODES = [['mines', 'Mines'], ['upgrade', 'Upgrade'], ['crash', 'Crash'], ['arena', 'Arena'], ['hilo', 'Hi-Lo'], ['limbo', 'Limbo'], ['road', 'Hamster Road']];
+  const MODES = [['mines', 'Mines'], ['upgrade', 'Upgrade'], ['crash', 'Crash'], ['arena', 'Arena'], ['hilo', 'Hi-Lo'], ['limbo', 'Limbo'], ['road', 'Hamster Road'], ['plinko', 'Plinko']];
   const TYPES = [['none', '— нет —'], ['ton', 'TON на основной баланс'], ['bonus', 'TON на бонусный баланс'], ['catalog', 'Подарок из Portal'], ['fragment', 'Подарок Telegram (NFT, ссылка)'], ['promo', 'Личный промокод']];
   const fx = n => { n = Number(n || 0); return n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1).replace(/\.0$/, '') : n.toFixed(2).replace(/\.?0+$/, ''); };
   const clock = s => { if (s == null) return '∞'; const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), c = s % 60, p = v => String(v).padStart(2, '0'); return (d ? d + 'д ' : '') + (d || hh ? p(hh) + ':' : '') + p(m) + ':' + p(c); };

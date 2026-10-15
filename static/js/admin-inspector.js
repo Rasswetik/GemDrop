@@ -2,7 +2,7 @@ window.AdminInspector = {
   create(ctx) {
     const {api,el,table,pager,paymentRows,userCell,msg,time,money,metric,state,paintState,action,saveUser} = ctx;
     const $=id=>document.getElementById(id);
-    const labels={mines:'Mines',crash:'Crash',upgrade:'Upgrade',arena:'Arena',hilo:'Hi-Lo',limbo:'Limbo',road:'Hamster Road',payments:'Пополнения',sales:'Продажи',withdrawals:'Выводы',referrals:'Рефералы',admin:'Администратор',events:'События'};
+    const labels={mines:'Mines',crash:'Crash',upgrade:'Upgrade',arena:'Arena',hilo:'Hi-Lo',limbo:'Limbo',road:'Hamster Road',plinko:'Plinko',payments:'Пополнения',sales:'Продажи',withdrawals:'Выводы',referrals:'Рефералы',admin:'Администратор',events:'События'};
     let generation=0,tabRequest=0;
     const tabs=[...document.querySelectorAll('[data-user-tab]')];
     const controls=window.AdminUserControls.create({api,el,state,money,time,msg,action,saveUser,userCell,selectUserTab:selectTab,reloadUser:load});

@@ -10,7 +10,7 @@
       for (const ch of [...el.childNodes]) {
         if (ch.nodeType === 3) continue;
         if (ch.nodeType !== 1) { ch.remove(); continue; }
-        if (ch.tagName === 'IMG' && ch.dataset.em && /^\d+$/.test(ch.dataset.em)) { const im = document.createElement('img'); im.className = 'nt-em'; im.src = K.emojiThumb(ch.dataset.em); im.alt = ch.alt; im.style.cssText = 'width:1.2em;height:1.2em;vertical-align:-.2em'; im.onerror = () => im.replaceWith(document.createTextNode(im.alt)); ch.replaceWith(im); continue; }
+        if (ch.tagName === 'IMG' && ch.dataset.em && /^\d+$/.test(ch.dataset.em)) { const im = document.createElement('img'); im.className = 'nt-em'; im.alt = ch.alt; im.style.cssText = 'width:1.2em;height:1.2em;vertical-align:-.2em'; im.onerror = () => im.replaceWith(document.createTextNode(im.alt)); K.emojiLoad(im, ch.dataset.em); ch.replaceWith(im); continue; }
         if (!ALLOWED.has(ch.tagName)) { ch.replaceWith(document.createTextNode(ch.textContent)); continue; }
         for (const a of [...ch.attributes]) { if (!(ch.tagName === 'A' && a.name === 'href' && /^(https?:|tg:)/i.test(a.value))) ch.removeAttribute(a.name); }
         if (ch.tagName === 'A') { ch.target = '_blank'; ch.rel = 'noopener'; }
@@ -30,6 +30,7 @@
     /* при открытии окна сами подтягиваем premium emoji из Telegram, чтобы в выборе были картинки */
     const autoImport = async () => {
       if (!lib.starter_total || lib.starter_loaded >= lib.starter_total) return;
+      try { if (sessionStorage.getItem('emojiStarterTried')) return; sessionStorage.setItem('emojiStarterTried', '1'); } catch (e) { /* ignore */ }
       info.textContent = 'Импортируем premium emoji из Telegram…';
       try { await api('/api/admin/emojis/starter', {}); await loadLib(true); } catch (e) { /* без токена бота импорт недоступен */ }
       paintInfo();
@@ -48,7 +49,7 @@
       chips.append(h('button', {type: 'button', class: 'small', text: '✨ premium emoji', onclick: async () => {
         if (picker.childElementCount) { picker.replaceChildren(); return; }
         const l = await loadLib(), q = K.input({type: 'search', placeholder: 'Поиск emoji'}), body = h('div');
-        const cell = (id, glyph, label) => h('button', {type: 'button', title: label || glyph, dataset: {l: String(label || '').toLowerCase()}, onclick: () => ins(K.tg.token(id, glyph))}, h('img', {src: K.emojiThumb(id), alt: glyph || '⭐', loading: 'lazy', style: {width: '30px', height: '30px', objectFit: 'contain'}, onerror(e) { e.target.replaceWith(h('span', {text: glyph || '⭐', style: {fontSize: '22px'}})); }}));
+        const cell = (id, glyph, label) => h('button', {type: 'button', title: label || glyph, dataset: {l: String(label || '').toLowerCase()}, onclick: () => ins(K.tg.token(id, glyph))}, K.emojiLoad(h('img', {alt: glyph || '⭐', style: {width: '30px', height: '30px', objectFit: 'contain'}, onerror(e) { e.target.replaceWith(h('span', {text: glyph || '⭐', style: {fontSize: '22px'}})); }}), id));
         const draw = () => { const s = q.value.trim().toLowerCase(); body.replaceChildren(); for (const [title, cells] of [['Подарки', l.gifts.map(x => cell(x.id, x.emoji, x.label))], ['Библиотека', l.items.map(x => cell(x.id, x.emoji, x.label || x.emoji))]]) { const f = cells.filter(c => !s || c.dataset.l.includes(s)); if (f.length) body.append(h('div', {class: 'group-title', text: title}), h('div', {class: 'catalog-grid'}, f)); } if (!body.children.length) body.append(K.empty(l.items.length || l.gifts.length ? 'Ничего не найдено' : 'Библиотека пуста. Нажмите «+ Стартовый набор emoji» вверху страницы или привяжите emoji к подаркам.')); };
         q.oninput = draw; draw(); picker.replaceChildren(q, body);
       }}));

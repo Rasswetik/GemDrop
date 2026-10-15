@@ -5,6 +5,20 @@
   const TYPE_LABEL = {web_app: 'Открыть GemDrop / Mini App', url: 'Ссылка / браузер', copy: 'Скопировать текст', callback: 'Callback'};
   const STYLES = [['', 'Обычная'], ['primary', 'Синяя'], ['success', 'Зелёная'], ['danger', 'Красная']];
   K.emojiThumb = id => '/api/admin/emoji-thumb/' + id;
+  /* Картинки эмодзи грузим по очереди (не больше 3 одновременно) и с повтором: сервер берёт их из Telegram по одной. */
+  const emojiQueue = [], thumbOk = new Set(); let emojiBusy = 0;
+  const emojiPump = () => {
+    while (emojiBusy < 3 && emojiQueue.length) {
+      const job = emojiQueue.shift(); if (!job.img.isConnected && job.tries === 0 && job.lazy) { job.lazy = false; emojiQueue.push(job); if (emojiQueue.every(j => !j.img.isConnected)) break; continue; }
+      emojiBusy++; const done = ok => { emojiBusy--; if (!ok && job.tries++ < 2) setTimeout(() => { emojiQueue.push(job); emojiPump(); }, 1500 * job.tries); else if (!ok) job.fail(); emojiPump(); };
+      const probe = new Image(); probe.onload = () => { thumbOk.add(job.id); job.img.src = probe.src; done(true); }; probe.onerror = () => done(false); probe.src = K.emojiThumb(job.id);
+    }
+  };
+  K.emojiLoad = (img, id) => {
+    const fail = img.onerror; img.onerror = null;
+    if (thumbOk.has(id)) { img.onerror = fail; img.src = K.emojiThumb(id); return img; }
+    emojiQueue.push({img, id, tries: 0, lazy: false, fail: () => fail && fail.call(img, {target: img})}); emojiPump(); return img;
+  };
 
   K.tg = {
     token: (id, glyph) => `[emoji:${id}:${glyph || '⭐'}]`,
@@ -24,7 +38,7 @@
       const g = h('div', {class: 'catalog-grid'});
       if (!items.length) g.append(K.empty('Пришлите premium emoji боту командой /emoji или добавьте по ID.'));
       for (const it of items) g.append(h('button', {type: 'button', title: 'Вставить в текст', onclick: () => { K.tg.insert(ta, K.tg.token(it.id, it.emoji)); onInsert && onInsert(); }},
-        h('span', {text: it.emoji || '◌', style: {fontSize: '22px'}}), h('img', {src: K.emojiThumb(it.id), alt: '', loading: 'lazy', style: {width: '28px', height: '28px'}, onerror(e) { e.target.remove(); }}), h('span', {text: '…' + String(it.id).slice(-6)})));
+        h('span', {text: it.emoji || '◌', style: {fontSize: '22px'}}), K.emojiLoad(h('img', {alt: '', style: {width: '28px', height: '28px'}, onerror(e) { e.target.remove(); }}), it.id), h('span', {text: '…' + String(it.id).slice(-6)})));
       return g;
     },
     emojiSelect(items, value, onchange) {

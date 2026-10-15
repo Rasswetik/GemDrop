@@ -11765,6 +11765,7 @@ def admin_notice_template_test():
 
 # ---------------- admin: premium emoji library ----------------
 _EMOJI_THUMBS = {}
+_EMOJI_THUMB_SLOTS = __import__('threading').BoundedSemaphore(2)  # one gunicorn worker has only a few threads; never let thumbnails take them all
 
 
 @app.get('/api/admin/emoji-library')
@@ -11838,6 +11839,10 @@ def admin_emoji_thumb(emoji_id):
         return ('', 404)
     cached = _EMOJI_THUMBS.get(emoji_id)
     if cached is None:
+        if not _EMOJI_THUMB_SLOTS.acquire(blocking=False):
+            response = app.response_class('', status=503)
+            response.headers['Retry-After'] = '2'
+            return response
         try:
             stickers = telegram_api('getCustomEmojiStickers', {'custom_emoji_ids': [emoji_id]}) or []
             sticker = stickers[0] if stickers else {}
@@ -11853,6 +11858,8 @@ def admin_emoji_thumb(emoji_id):
             cached = (blob.content[:400000], blob.headers.get('Content-Type') or 'image/webp')
         except (RuntimeError, requests.RequestException, KeyError, TypeError):
             return ('', 404)
+        finally:
+            _EMOJI_THUMB_SLOTS.release()
         if len(_EMOJI_THUMBS) > 600:
             _EMOJI_THUMBS.clear()
         _EMOJI_THUMBS[emoji_id] = cached
@@ -14918,6 +14925,23 @@ def crash_prize_preview(amount_cents, gifts=None, seed=None, db=None):
     return dict(prize, price_ton=price / 100, price_cents=price)
 
 
+def hilo_prize_preview(amount_cents, seed=None, db=None):
+    """Hi-Lo pays only exact gift models (never a plain collection gift), picked at random near the win amount."""
+    index = mines_model_pool(None, db)
+    amount = int(amount_cents)
+    pos = _mines_bisect_right(index['prices'], amount) - 1
+    if pos < 0:
+        return None
+    low = _mines_bisect_right(index['prices'], int(amount * 0.6))
+    low = max(low, pos - 15)
+    digest = hashlib.sha256(f'hilo-model-v1|{seed or amount}'.encode('utf-8')).digest()
+    pick = low + int.from_bytes(digest[:8], 'big') % (pos - low + 1)
+    price, gid, model, name = index['rows'][pick]
+    image = gift_model_image(name, model)
+    return dict(id=gid, base_name=name, name=f'{name} · {model}'[:180], model=model, image_url=image,
+                model_png_url=image, image_match=True, price_ton=price / 100, price_cents=price)
+
+
 def crash_state_payload(db, uid, now):
     row = crash_latest(db)
     phase = crash_phase(row, now)
@@ -15301,7 +15325,7 @@ def hilo_settle_cashout(db, uid, game, want_gift):
     bonus_origin = bool(int(game['bonus_used'] or 0))
     # The win always arrives as a Telegram gift, the rest goes to the balance.
     # Only if it is below the cheapest gift does it stay in TON.
-    prize_info = crash_prize_preview(payout, seed=f'hilo:{uid}:{game["id"]}', db=db)
+    prize_info = hilo_prize_preview(payout, seed=f'hilo:{uid}:{game["id"]}', db=db)
     if prize_info:
         remainder = max(0, payout - prize_info['price_cents'])
         moved = db.execute("""UPDATE hilo_games SET state='cashed',payout=?,prize_name=?,prize_image=?,prize_price=?,
@@ -15432,7 +15456,7 @@ def hilo_tier_gifts():
     out, last = [], 0
     for rank, target in enumerate(HILO_TIER_TARGETS, 1):
         choices = []
-        for kind, prices in (('model',index['prices']),('base',index['base_prices'])):
+        for kind, prices in (('model',index['prices']),):
             low = _mines_bisect_right(prices,last)
             pos = max(low, _mines_bisect_right(prices,target*100)-1)
             if pos < len(prices):
@@ -15538,7 +15562,7 @@ def hilo_room_settle(db, n, phase):
         prize = None
         if won and not push and total > 0:
             try:
-                prize = crash_prize_preview(total, seed=f'hilo-room:{r["user_id"]}:{r["round_no"]}', db=db)
+                prize = hilo_prize_preview(total, seed=f'hilo-room:{r["user_id"]}:{r["round_no"]}', db=db)
             except Exception:
                 prize = None
         keep_stake = gift_bet and (push or not prize)

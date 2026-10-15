@@ -3,7 +3,7 @@
   const K = window.AdminKit, {h, api} = K;
   K.register({id: 'giftEmojiAdminPage', title: 'Эмодзи подарков', async render(root) {
     const pk = await api('/api/admin/pumpkin-emoji'), pkId = K.input({value: pk.emoji_id || '', inputMode: 'numeric', placeholder: 'Telegram custom emoji ID тыквы'}), pkState = h('small', {class: 'muted'}), pkThumb = h('div', {style: {width: '48px', height: '48px', display: 'grid', placeItems: 'center', fontSize: '26px'}});
-    const paintPk = d => { pkState.textContent = d.emoji_id ? `Сейчас: ${d.emoji || ''} · ${d.emoji_id}` : 'ID не задан — используется обычная 🎃'; pkThumb.replaceChildren(); if (d.emoji_id) pkThumb.append(h('img', {alt: '', src: K.emojiThumb(encodeURIComponent(d.emoji_id)), style: {width: '100%', height: '100%', objectFit: 'contain'}, onerror() { pkThumb.textContent = d.emoji || '🎃'; }})); else pkThumb.textContent = '🎃'; };
+    const paintPk = d => { pkState.textContent = d.emoji_id ? `Сейчас: ${d.emoji || ''} · ${d.emoji_id}` : 'ID не задан — используется обычная 🎃'; pkThumb.replaceChildren(); if (d.emoji_id) pkThumb.append(K.emojiLoad(h('img', {alt: '', style: {width: '100%', height: '100%', objectFit: 'contain'}, onerror() { pkThumb.textContent = d.emoji || '🎃'; }}), encodeURIComponent(d.emoji_id))); else pkThumb.textContent = '🎃'; };
     paintPk(pk);
     const pkForm = K.form([h('div', {class: 'row'}, pkThumb, h('div', {class: 'grow'}, K.field('ID премиум-эмодзи тыквы', pkId)))], async () => { await api('/api/admin/pumpkin-emoji', {emoji_id: pkId.value.trim()}); K.ok(pkId.value.trim() ? 'Эмодзи тыквы сохранён' : 'Эмодзи тыквы очищен'); paintPk(await api('/api/admin/pumpkin-emoji')); });
 
@@ -17,7 +17,7 @@
       for (const x of shown) {
         const input = K.input({inputMode: 'numeric', placeholder: 'Telegram custom emoji ID', value: x.emoji_id || '', 'aria-label': 'Emoji ID для ' + (x.name || 'подарка')}), sm = h('small');
         const thumb = h('div', {style: {width: '36px', height: '36px', display: 'grid', placeItems: 'center', fontSize: '22px'}});
-        const paintThumb = () => { thumb.replaceChildren(); if (x.emoji_id) thumb.append(h('img', {alt: x.emoji || '', loading: 'lazy', src: K.emojiThumb(encodeURIComponent(x.emoji_id)), style: {width: '100%', height: '100%', objectFit: 'contain'}, onerror() { thumb.textContent = x.emoji || ''; }})); };
+        const paintThumb = () => { thumb.replaceChildren(); if (x.emoji_id) thumb.append(K.emojiLoad(h('img', {alt: x.emoji || '', style: {width: '100%', height: '100%', objectFit: 'contain'}, onerror() { thumb.textContent = x.emoji || ''; }}), encodeURIComponent(x.emoji_id))); };
         const upd = () => { paintThumb(); sm.textContent = (x.emoji ? 'Сейчас: ' + x.emoji + ' · ' : '') + (x.emoji_id || 'ID не задан'); }; upd();
         list.append(h('div', {class: 'list-item', style: {flexWrap: 'wrap'}}, K.gift(x, 44), h('div', {class: 'grow'}, h('strong', {text: x.name || 'Подарок'}), sm), thumb, input,
           K.btn('Сохранить', async () => { const r = await api('/api/admin/gift-emojis', {gift_id: x.gift_id, emoji_id: input.value.trim()}); x.emoji_id = r.item.emoji_id || ''; x.emoji = r.item.emoji || ''; upd(); paint0(); K.ok(x.emoji_id ? 'Эмодзи привязан' : 'Привязка очищена'); }, 'small')));

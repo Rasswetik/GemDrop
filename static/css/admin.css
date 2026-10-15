@@ -1,7 +1,7 @@
 /* GemDrop admin — light theme. One stylesheet for the shell, every tool and the user inspector. */
 :root{
   color-scheme:light;
-  --bg:#f4f6fa;--surface:#fff;--surface-2:#f8fafc;--surface-3:#eef2f7;
+  --header-bg:rgba(255,255,255,.92);--bg:#f4f6fa;--surface:#fff;--surface-2:#f8fafc;--surface-3:#eef2f7;
   --line:#e2e8f0;--line-strong:#cbd5e1;
   --text:#0f172a;--text-2:#334155;--muted:#64748b;--faint:#94a3b8;
   --accent:#2563eb;--accent-2:#1d4ed8;--accent-soft:#e8f0fe;
@@ -49,7 +49,7 @@ fieldset{border:0;padding:0;margin:0;min-width:0}
 progress{width:100%;height:10px;accent-color:var(--accent);margin:10px 0}
 
 /* ---------- shell ---------- */
-header{position:sticky;top:0;z-index:30;height:var(--header-h);display:flex;align-items:center;gap:14px;padding:0 22px;background:rgba(255,255,255,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header{position:sticky;top:0;z-index:30;height:var(--header-h);display:flex;align-items:center;gap:14px;padding:0 22px;background:var(--header-bg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:var(--text);letter-spacing:-.02em;white-space:nowrap}
 .brand:hover{text-decoration:none}
 .brand:before{content:'';width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#3b82f6,#7c3aed);box-shadow:0 2px 8px rgba(59,130,246,.4)}
@@ -392,7 +392,7 @@ dialog.user-inspector[open]{display:flex;flex-direction:column}
 
 /* ---------- dark theme: manual (data-theme) or system preference ---------- */
 :root[data-theme=dark]{
-  color-scheme:dark;
+  color-scheme:dark;--header-bg:rgba(11,17,32,.9);
   --bg:#0b1120;--surface:#111a2e;--surface-2:#0f1729;--surface-3:#1a2540;
   --line:#22304d;--line-strong:#34466b;
   --text:#e6ecf8;--text-2:#c1cce2;--muted:#8d9bb8;--faint:#6b7a99;

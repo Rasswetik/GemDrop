@@ -18765,30 +18765,7 @@ body.studio #giveawayPage .rewards-main-tabs button{display:flex!important;align
 body.studio #giveawayPage .rewards-main-tabs button.active{background:linear-gradient(180deg,#3db3fa,#1f8fe0)!important;border-color:transparent!important;box-shadow:none!important;color:#fff!important}
 body.studio #giveawayPage .rewards-main-tabs span{margin:0!important}
 </style>
-<style id="mines-v3">
-/* ===== Mines redesign: flat tiles, no outer panels, site palette ===== */
-body #minesPage .identity,body #minesPage .mine-badge{display:none!important}
-body[data-page="minesPage"] #minesPage .mines-play,body[data-page="minesPage"] #minesPage .mines-settings{background:none!important;border:0!important;box-shadow:none!important;padding:0!important;border-radius:0!important;margin:0!important;width:100%!important;max-width:none!important}
-body[data-page="minesPage"] #minesPage .mines-layout{display:flex!important;flex-direction:column;gap:14px;max-width:480px;margin:0 auto}
-body[data-page="minesPage"] #minesPage .ladder{display:flex;gap:8px;margin:0!important;padding:6px 8px!important;border-radius:18px;background:#0d1024;border:1px solid rgba(255,255,255,.05);scroll-padding:0 8px}
-body[data-page="minesPage"] #minesPage .level{flex:none;min-width:58px!important;width:58px!important;height:54px!important;border-radius:13px!important;background:#171b36!important;border:1px solid rgba(255,255,255,.05)!important;color:#8d99a8!important;box-shadow:none!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;scroll-snap-align:start}
-body[data-page="minesPage"] #minesPage .level img{width:24px!important;height:24px!important}
-body[data-page="minesPage"] #minesPage .level b{font-size:11px!important;font-weight:800!important;color:inherit}
-body[data-page="minesPage"] #minesPage .level.passed{opacity:.55}
-body[data-page="minesPage"] #minesPage .level.current{background:linear-gradient(160deg,#6cc8ff,#3db3fa 55%,#1f8fe0)!important;color:#05182a!important;border-color:transparent!important;box-shadow:0 6px 18px rgba(61,179,250,.38)!important}
-body[data-page="minesPage"] #minesPage .board{gap:9px!important;padding:0!important;border:0!important;margin:0!important}
-body[data-page="minesPage"] #minesPage .cell{border-radius:17px!important;border:0!important;background:#10132a!important;box-shadow:inset 0 -3px 0 rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04)!important}
-body[data-page="minesPage"] #minesPage .cell:not(:disabled):hover{background:#161b3a!important}
-body[data-page="minesPage"] #minesPage .cell.open{background:radial-gradient(circle at 50% 40%,#1d5a93,#10213f 75%)!important;box-shadow:inset 0 0 0 1.5px rgba(71,176,245,.7),0 6px 16px rgba(31,143,224,.22)!important}
-body[data-page="minesPage"] #minesPage .cell.mine{background:radial-gradient(circle at 50% 40%,#6a2f46,#221626 75%)!important;box-shadow:inset 0 0 0 1.5px rgba(255,111,138,.6)!important}
-body[data-page="minesPage"] #minesPage .control-labels{display:grid;grid-template-columns:1fr 1fr;margin:0 4px 6px}
-body[data-page="minesPage"] #minesPage .control-labels label,body[data-page="minesPage"] #minesPage .control-labels span{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#7e87a8}
-body[data-page="minesPage"] #minesPage .field{background:#10132a!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:16px!important;box-shadow:none!important}
-body[data-page="minesPage"] #minesPage .quick{display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 12px}
-body[data-page="minesPage"] #minesPage .quick button{height:42px;border-radius:13px!important;background:#10132a!important;border:1px solid rgba(255,255,255,.06)!important;color:#aab5c4!important;font-size:12.5px;font-weight:800;letter-spacing:.04em}
-body[data-page="minesPage"] #minesPage .quick button:last-child{background:rgba(71,176,245,.14)!important;border-color:rgba(71,176,245,.5)!important;color:#7fcaff!important}
-body[data-page="minesPage"] #minesPage #start,body[data-page="minesPage"] #minesPage .mines-settings .primary{height:58px;border-radius:18px!important;font-size:16px;font-weight:900;background:linear-gradient(110deg,#6cc8ff,#3db3fa 50%,#1f8fe0)!important;color:#fff!important;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.4)!important}
-</style>
+
 
 </body></html>
 <style id="twitch-tokenless-final">
@@ -19655,4 +19632,29 @@ html.hw body.studio #minesPage #quickBets button[data-bet="max"]{background:rgba
 #publicProfileModal .pp-tabs{display:flex!important;grid-template-columns:none!important;overflow-x:auto!important;overflow-y:hidden!important;gap:8px!important;padding:2px 2px 6px;scroll-snap-type:x proximity;scrollbar-width:none;-webkit-overflow-scrolling:touch;mask-image:linear-gradient(90deg,#000 88%,transparent);-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent)}
 #publicProfileModal .pp-tabs::-webkit-scrollbar{display:none}
 #publicProfileModal .pp-tabs button,#publicProfileModal .pp-tabs button:nth-child(5){grid-column:auto!important;flex:none;min-width:74px;scroll-snap-align:start;padding:9px 8px 8px!important}
+</style>
+<style id="mines-redesign-v4">
+/* ===== Mines redesign: flat tiles, no outer panels, site palette ===== */
+html body[data-page="minesPage"][data-page] #minesPage .identity,html body[data-page="minesPage"][data-page] #minesPage .mine-badge{display:none!important}
+html body[data-page="minesPage"][data-page] #minesPage .mines-layout{display:flex!important;flex-direction:column;gap:14px;max-width:480px;margin:0 auto}
+html body[data-page="minesPage"][data-page] #minesPage .mines-play,html body[data-page="minesPage"][data-page] #minesPage .mines-settings{background:none!important;border:0!important;box-shadow:none!important;padding:0!important;border-radius:0!important;margin:0!important;width:100%!important;max-width:none!important}
+html body[data-page="minesPage"][data-page] #minesPage .ladder{display:flex;gap:8px;margin:0!important;padding:6px 8px!important;border-radius:18px;background:#0d1024;border:1px solid rgba(255,255,255,.05)}
+html body[data-page="minesPage"][data-page] #minesPage .level{flex:none;min-width:58px!important;width:58px!important;height:54px!important;border-radius:13px!important;background:#171b36!important;border:1px solid rgba(255,255,255,.05)!important;color:#8d99a8!important;box-shadow:none!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+html body[data-page="minesPage"][data-page] #minesPage .level img{width:24px!important;height:24px!important}
+html body[data-page="minesPage"][data-page] #minesPage .level b{font-size:11px!important;font-weight:800!important;color:inherit}
+html body[data-page="minesPage"][data-page] #minesPage .level.passed{opacity:.55}
+html body[data-page="minesPage"][data-page] #minesPage .level.current{background:linear-gradient(160deg,#6cc8ff,#3db3fa 55%,#1f8fe0)!important;color:#05182a!important;border-color:transparent!important;box-shadow:0 6px 18px rgba(61,179,250,.38)!important}
+html body[data-page="minesPage"][data-page] #minesPage .board{gap:9px!important;padding:0!important;border:0!important;margin:0!important;background:none!important}
+html body[data-page="minesPage"][data-page] #minesPage .board .cell{background:none!important;border:0!important;box-shadow:none!important;border-radius:17px!important}
+html body[data-page="minesPage"][data-page] #minesPage .board .cell .face{border-radius:17px!important}
+html body[data-page="minesPage"][data-page] #minesPage .board .cell .face.front{background:#10132a!important;box-shadow:inset 0 -3px 0 rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05)!important;border:0!important}
+html body[data-page="minesPage"][data-page] #minesPage .board .cell .face.front::after,html body[data-page="minesPage"][data-page] #minesPage .board .cell .face.front::before{display:none!important}
+html body[data-page="minesPage"][data-page] #minesPage .board .cell:not(:disabled):hover .face.front{background:#171c3d!important}
+html body[data-page="minesPage"][data-page] #minesPage .control-labels{display:grid;grid-template-columns:1fr 1fr;margin:0 4px 6px}
+html body[data-page="minesPage"][data-page] #minesPage .control-labels label,html body[data-page="minesPage"][data-page] #minesPage .control-labels span{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#7e87a8}
+html body[data-page="minesPage"][data-page] #minesPage .field{background:#10132a!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:16px!important;box-shadow:none!important}
+html body[data-page="minesPage"][data-page] #minesPage .quick{display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 12px}
+html body[data-page="minesPage"][data-page] #minesPage .quick button{height:42px;border-radius:13px!important;background:#10132a!important;border:1px solid rgba(255,255,255,.06)!important;color:#aab5c4!important;font-size:12.5px;font-weight:800}
+html body[data-page="minesPage"][data-page] #minesPage .quick button:last-child{background:rgba(71,176,245,.14)!important;border-color:rgba(71,176,245,.5)!important;color:#7fcaff!important}
+html body[data-page="minesPage"][data-page] #minesPage #start,html body[data-page="minesPage"][data-page] #minesPage .mines-settings .primary{height:58px;border-radius:18px!important;font-size:16px;font-weight:900;background:linear-gradient(110deg,#6cc8ff,#3db3fa 50%,#1f8fe0)!important;color:#fff!important;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.4)!important}
 </style>

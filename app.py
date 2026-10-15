@@ -26,6 +26,7 @@ import requests
 
 import notice_defs
 import management
+import leaderboard
 from flask import Flask, Response, jsonify, request, session, send_file, g, has_request_context
 
 
@@ -1854,7 +1855,7 @@ def profile():
                 demo_balance=(creator['demo_balance_cents']/100 if (user_demo or creator.get('active')) else 0),
                 balance_kind=('demo' if user_demo else 'creator_demo' if demo else 'real'),
                 admin=user['id'] in ADMIN_IDS,
-                wheel_enabled=wheel_available_for(user['id']),
+                wheel_enabled=False, leaders_enabled=leaderboard.enabled(),
                 admin_button_visible=(read_document(f'admin_display_{user["id"]}') or {}).get('visible', True))
 
 
@@ -2085,6 +2086,7 @@ def increase_turnover(db, user_id, amount, withdrawal_wager=True, xp_factor=1.0)
                       WHERE id=?""", (xp_amount, amount, amount, user_id))
     else:
         db.execute('UPDATE users SET turnover_cents=turnover_cents+? WHERE id=?',(xp_amount,user_id))
+    leaderboard.add_turnover(db, user_id, xp_amount)
     current = level_number(db, new_turnover)
     return current if current > previous else None
 
@@ -10193,6 +10195,7 @@ def public_user_profile(user_id):
                 road_drop = dict(price_cents=value, name=row['prize_name'] or 'Выигрыш Hamster Road',
                                  image_url=row['prize_image'] or '', source='Hamster Road')
 
+        lb_place, lb_cents = leaderboard.place_of(db, user_id)
         override_drop = None
         override_price = int(user_row['max_drop_override_price'] or 0)
         override_name = str(user_row['max_drop_override_name'] or '').strip()
@@ -10215,6 +10218,7 @@ def public_user_profile(user_id):
                               crash_count=crash_count, crash_wins=crash_wins, max_crash_x=round(max_crash_x, 4),
                               limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4),
                               road_count=road_count, road_wins=road_wins, max_road_x=round(max_road_x, 4)),
+                   leaderboard=dict(place=lb_place, turnover=lb_cents/100),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),
                               arena=(arena_drop['price_cents']/100 if arena_drop else None),
@@ -14926,20 +14930,20 @@ def crash_prize_preview(amount_cents, gifts=None, seed=None, db=None):
 
 
 def hilo_prize_preview(amount_cents, seed=None, db=None):
-    """Hi-Lo pays only exact gift models (never a plain collection gift), picked at random near the win amount."""
+    """Hi-Lo shows and pays only the base collection gift; the model hidden inside is picked at random."""
     index = mines_model_pool(None, db)
     amount = int(amount_cents)
-    pos = _mines_bisect_right(index['prices'], amount) - 1
+    pos = _mines_bisect_right(index['base_prices'], amount) - 1
     if pos < 0:
         return None
-    low = _mines_bisect_right(index['prices'], int(amount * 0.6))
-    low = max(low, pos - 15)
-    digest = hashlib.sha256(f'hilo-model-v1|{seed or amount}'.encode('utf-8')).digest()
-    pick = low + int.from_bytes(digest[:8], 'big') % (pos - low + 1)
-    price, gid, model, name = index['rows'][pick]
-    image = gift_model_image(name, model)
-    return dict(id=gid, base_name=name, name=f'{name} · {model}'[:180], model=model, image_url=image,
-                model_png_url=image, image_match=True, price_ton=price / 100, price_cents=price)
+    price, gid, compact = index['bases'][pos]
+    prize = dict(compact, price_ton=price / 100, price_cents=price)
+    prize.pop('random_model', None)
+    models = sorted(row[2] for row in index['rows'] if row[1] == str(gid))
+    if models:
+        digest = hashlib.sha256(f'hilo-random-model-v1|{seed or amount}|{gid}'.encode('utf-8')).digest()
+        prize['model'] = models[int.from_bytes(digest[:8], 'big') % len(models)]
+    return prize
 
 
 def crash_state_payload(db, uid, now):
@@ -15346,7 +15350,7 @@ def hilo_settle_cashout(db, uid, game, want_gift):
             record_transaction(db, uid, 'hilo_win', remainder, 'hilo_game', game['id'],
                                f'{label}: остаток после подарка {prize_info["name"]}')
         record_transaction(db, uid, 'hilo_gift_win', 0, 'hilo_game', game['id'], f'{prize_info["name"]} · {label}')
-        prize = {key: value for key, value in prize_info.items() if key != 'price_cents'}
+        prize = {key: value for key, value in prize_info.items() if key not in ('price_cents', 'model', 'model_png_url')}
     else:
         credit_game_balance(db, uid, payout, bonus_origin)
         record_transaction(db, uid, 'hilo_win', payout, 'hilo_game', game['id'], label)
@@ -15449,20 +15453,20 @@ _hilo_tier_cache = dict(at=0, gifts=[])
 
 
 def hilo_tier_gifts():
-    """Rank art includes exact models, with strictly increasing prices."""
+    """Rank art is collection gifts only (no models), with strictly increasing prices."""
     if time.time()-_hilo_tier_cache['at'] < 60 and _hilo_tier_cache['gifts']:
         return _hilo_tier_cache['gifts']
     index = mines_model_pool()
     out, last = [], 0
     for rank, target in enumerate(HILO_TIER_TARGETS, 1):
         choices = []
-        for kind, prices in (('model',index['prices']),):
+        for kind, prices in (('base',index['base_prices']),):
             low = _mines_bisect_right(prices,last)
             pos = max(low, _mines_bisect_right(prices,target*100)-1)
             if pos < len(prices):
                 if pos+1 < len(prices) and abs(prices[pos+1]-target*100) < abs(prices[pos]-target*100):pos+=1
                 choices.append((kind,pos,prices[pos]))
-        preferred = 'model'  # tier art and prizes always show the exact gift model
+        preferred = 'base'  # Hi-Lo shows only the collection gift; the model is random and hidden
         pick = next((x for x in choices if x[0]==preferred),choices[0] if choices else None)
         if not pick:break
         kind,pos,last = pick
@@ -25197,6 +25201,7 @@ def migrate_rtp_cut_v1():
 _relayer_auto_withdraw_one_async = management.serialized_withdrawal(_relayer_auto_withdraw_one_async, globals())
 management.register(app, globals())
 management.operator_insights.register(app, globals(), management)
+LEADERBOARD_LOOP = leaderboard.register(app, globals())
 
 run_startup_repair(migrate_rtp_cut_v1)
 
@@ -25212,6 +25217,7 @@ start_background(daily_top_settlement_loop, 661201)
 start_background(xhunt_loop, 661205)
 start_background(broadcast_worker_loop, 661203)
 start_background(relayer_auto_loop, 661204)
+start_background(LEADERBOARD_LOOP, 661206)
 if BOT_TOKEN:
     start_background(creator_daily_limit_refill_loop, 661202)
     start_background(activity_notification_loop, 660102)

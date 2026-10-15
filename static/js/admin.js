@@ -25,6 +25,7 @@
       ['freebetsAdminPage', 'Freebet', 'Коды и награды'],
       ['giveawaysAdminPage', 'Розыгрыши', 'Призы, билеты и участники'],
       ['rewardTasksAdminPage', 'Задания и билеты', 'Условия и награды'],
+      ['leaderboardAdminPage', 'Лидерборд', 'Недельный топ, награды и срок'],
       ['wheelAdminPage', 'Колесо призов', 'Призы, шансы и коды'],
       ['levelsAdminPage', 'Уровни и награды', 'Награды за оборот'],
       ['creatorsAdminPage', 'Авторы', 'Demo-режим и управление авторами'],

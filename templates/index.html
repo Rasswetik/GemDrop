@@ -4667,8 +4667,7 @@ html.perf-lite .gc-art-road *{animation:none!important}
 </div>
 </div>
 <section class="panel pf-card pf-inv">
-<div class="panel-head"><h2>Инвентарь</h2><span id="inventoryCount">0</span></div>
-<div id="invSellBar" class="inv-sell hidden"><div class="is-sum"><small>Стоимость всех подарков</small><b id="invTotal">0</b></div><button id="invSellAll" type="button">Продать всё</button></div>
+<div class="panel-head inv-head"><h2>Инвентарь</h2><div class="inv-right"><span class="inv-cnt"><span id="inventoryCount">0</span><b id="invTotal" class="hidden"></b></span><button id="invSellAll" type="button" class="hidden">Продать всё</button></div></div>
 <div id="inventoryGrid" class="inventory"></div></section>
 <div class="pf-roles"><button id="creatorEntry" class="secondary hidden">Панель автора</button><button id="adminEntry" class="secondary hidden">Админ-панель</button></div>
 <div class="pf-actions"><button id="profileLogout" class="profile-logout" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10"/><path d="M14 8l4 4-4 4M9 12h9"/></svg><span>Выйти</span></button></div>
@@ -11358,6 +11357,20 @@ html.hw body.studio #upgradePage .ug-pick-label{color:#7f54e3!important}
 @keyframes hwWin{0%{opacity:1}22%{opacity:.55}30%{opacity:1}58%{opacity:.8}64%{opacity:1}86%{opacity:.4}92%{opacity:1}100%{opacity:1}}
 
 /* 22. Bat gliding across a scene — 10 frames, 13s (position + banking). */
+
+/* Crash in Halloween: a bat flies past only now and then (the pass takes the first third of a long cycle) */
+.hw-glide-rare{animation:hwGlideRare var(--t,50s) linear infinite;animation-delay:var(--d,0s);opacity:0}
+@keyframes hwGlideRare{
+ 0%{transform:translate(-40px,0) rotate(6deg);opacity:0}
+ 2%{transform:translate(-20px,2px) rotate(5deg);opacity:1}
+ 6%{transform:translate(50px,-9px) rotate(-6deg)}
+ 10%{transform:translate(130px,4px) rotate(7deg)}
+ 14%{transform:translate(210px,-12px) rotate(-7deg)}
+ 18%{transform:translate(290px,6px) rotate(6deg)}
+ 22%{transform:translate(370px,-8px) rotate(-6deg);opacity:1}
+ 26%{transform:translate(470px,0) rotate(0deg);opacity:0}
+ 100%{transform:translate(470px,0);opacity:0}}
+html.hw #crashPage #crPlanes{filter:hue-rotate(250deg) saturate(.75) brightness(.85)}
 .hw-glide{animation:hwGlide var(--t,13s) linear infinite;animation-delay:var(--d,0s)}
 @keyframes hwGlide{
  0%{transform:translate(-40px,0) rotate(6deg);opacity:0}
@@ -13706,7 +13719,7 @@ ${[[84,236,0],[260,230,-.8],[150,244,-1.6],[210,240,-2.4],[310,236,-3.2]].map(p=
 const GRAD={crSkyG:['#170c36','#3d2468','#8a5fa6'],crDuskG:['#0f0624','#2c1450','#7a3f8e'],crSpaceG:['#0c041c','#1d0a34','#2f0f48'],crEarthG:['#9a6ab8','#5a3a8a','#24123e'],crHillG:['#3a2158','#1d1033'],crHillG2:['#46286a','#1d1033'],crCloudG:['#5a3a86','#3f2766','#2c1a4a'],gdTrail:['#ffb23e','#ff6a00'],gdArea:['#ff8a1f','#d6361f'],lbCore:['#7a2a14','#3a120a','#120505'],lbTrackG:['#2a1210','#1a0b0a'],gemLight:['#ffd873','#ff8a1f','#d6361f']};
 const ROCKET=`<use href="#hwRocket" x="-62.700" y="-28.500" width="104.500" height="57"/>`;
 const MOON=`<circle class="hw-halo" cx="250" cy="62" r="52" fill="url(#hwMoonG)"/><circle cx="250" cy="62" r="24" fill="url(#hwMoonG2)" stroke="#f0b45a" stroke-width="1.200"/><circle cx="243" cy="56" r="4" fill="#e8b866" opacity=".55"/><circle cx="256" cy="70" r="5" fill="#e8b866" opacity=".55"/><circle cx="257" cy="53" r="2.600" fill="#e8b866" opacity=".55"/>`;
-const CR_BATS=`<g class="hw-only" pointer-events="none">${[[0,34,30,0,16],[0,70,24,-5,19],[0,104,34,-10,15],[0,136,22,-3,21]].map(p=>`<g class="hw-glide" style="--d:${p[3]}s;--t:${p[4]}s"><use href="#hwBat" x="${p[0]}" y="${p[1]}" width="${p[2]}" height="${p[2]/2}"/></g>`).join('')}</g>`;
+const CR_BATS=`<g class="hw-only" pointer-events="none">${[[0,30,26,-4,47],[0,74,22,-21,61],[0,112,30,-37,53]].map(p=>`<g class="hw-glide-rare" style="--d:${p[3]}s;--t:${p[4]}s"><use href="#hwBat" x="${p[0]}" y="${p[1]}" width="${p[2]}" height="${p[2]/2}"/></g>`).join('')}</g>`;
 const CR_PUMPKINS=`<g class="hw-only" pointer-events="none">${[[24,22,16,0,10],[62,92,12,-4,13],[110,10,14,-7,11],[168,44,18,-2,12],[216,16,12,-8,10],[262,98,16,-5,14],[290,34,13,-9,12],[40,150,12,-3,13],[236,138,14,-6,11],[140,118,10,-10,12]].map(p=>`<g class="hw-tumble" style="--d:${p[3]}s;--t:${p[4]}s">${U('hwMini',p[0],p[1],p[2],p[2]*.93)}</g>`).join('')}</g>`;
 /* road: graveyard on top of the burrow world */
 function roadDeco(w){let o='',x=150,i=0;while(x<w-120){const k=i++%4;o+=k===0?U('hwTomb',x,270,26,33):k===1?U('hwGourd',x,274,28,26,'class="hw-bob"'):k===2?U('hwCandle',x,264,11,28):U('hwSkull',x,282,20,22);x+=110+((i*37)%50)}
@@ -16609,10 +16622,9 @@ function swap(on){
   let h=art.querySelector('.hw-art');if(!h){h=document.createElementNS(NS,'svg');h.setAttribute('class','hw-art');h.setAttribute('viewBox','0 12 320 156');h.setAttribute('preserveAspectRatio','xMidYMid slice');h.setAttribute('aria-hidden','true');h.innerHTML=CARD[k]();art.append(h)}});
  const recolor=(map)=>Object.entries(map).forEach(([id,cols])=>{const g=document.getElementById(id);if(!g)return;g.querySelectorAll('stop').forEach((s,i)=>{if(!cols[i])return;if(!orig.has(s))orig.set(s,s.getAttribute('stop-color'));s.setAttribute('stop-color',on?cols[i]:orig.get(s))})});
  recolor(GRAD);recolor(RDGRAD);
- const rk=$$('#crRocket .cr-cartoon-rocket');if(rk){if(!orig.has(rk))orig.set(rk,rk.innerHTML);rk.innerHTML=on?ROCKET:orig.get(rk)}
- const sun=document.getElementById('crSun');if(sun){if(!orig.has(sun))orig.set(sun,sun.innerHTML);sun.innerHTML=on?MOON:orig.get(sun)}
- const cl=document.getElementById('crClouds'),sp=document.getElementById('crSpace');
- for(const [host,markup] of [[cl,CR_BATS],[sp,CR_PUMPKINS]]){if(!host)continue;const d=host.querySelector(':scope>.hw-only');if(on&&!d){const a=document.createElementNS(NS,'g');a.innerHTML=markup;host.append(a.firstChild)}else if(!on&&d)d.remove()}
+ /* Crash keeps its normal rocket, sun and space: Halloween only tints the sky violet and lets a few bats fly past now and then */
+ const cl=document.getElementById('crClouds');
+ for(const [host,markup] of [[cl,CR_BATS]]){if(!host)continue;const d=host.querySelector(':scope>.hw-only');if(on&&!d){const a=document.createElementNS(NS,'g');a.innerHTML=markup;host.append(a.firstChild)}else if(!on&&d)d.remove()}
  roadSync();wheelSync();
  const br=$$('.studio-brand svg');if(br){if(!orig.has(br))orig.set(br,br.innerHTML);br.innerHTML=on?'<use href="#hwGemBare" x="3" y="-1" width="25" height="32.500"/>':orig.get(br)}
  const au=$$('.auth-art svg');if(au){if(!orig.has(au))orig.set(au,au.innerHTML);au.innerHTML=on?'<use href="#hwGem" x="38" y="14" width="124" height="161"/>':orig.get(au)}
@@ -19813,7 +19825,7 @@ html body #publicProfileModal .public-profile-avatar{width:76px!important;height
 html body #publicProfileModal .public-level-block{margin:12px 0 8px!important}
 </style>
 <div id="vipModal" class="vipm hidden" role="dialog" aria-modal="true" aria-label="VIP-статус"><button id="vipClose" class="vip-x" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button><div class="vip-scroll"><div class="vip-hero"><div id="vipHeroAvatar" class="vip-hero-av">G</div><div id="vipHeroNick" class="vip-hero-nick">Игрок</div><div class="vip-status"><span id="vipHeroGem"></span><div><small id="vipHeroSub">VIP-статус</small><b id="vipHeroName">Quartz</b></div></div><div class="vip-prog"><div class="vip-prog-row"><span id="vipVals"></span><span id="vipNext"></span></div><div class="vip-track"><i id="vipBar"></i></div><div class="vip-prog-foot"><span>Оборот</span><span id="vipLeft"></span></div></div></div><div id="vipPb" class="vip-pb"><div class="pb-top"><b>PLAYBONUS</b><button type="button" class="pb-info" aria-label="Что это">i</button></div><div class="pb-pct"></div><div class="pb-row"><span class="pb-val"></span><button type="button" class="pb-claim" disabled>Забрать на баланс</button></div></div><div class="vip-h"><span>Уровни</span><small>оборот в TON</small></div><div id="vipList" class="vip-list"></div></div></div>
-<link rel="stylesheet" href="/static/css/vip.css?v=18">
-<script src="/static/js/vip.js?v=9"></script><script src="/static/js/invsell.js?v=1"></script>
+<link rel="stylesheet" href="/static/css/vip.css?v=19">
+<script src="/static/js/vip.js?v=9"></script><script src="/static/js/invsell.js?v=2"></script>
 <script src="/static/js/haptics.js?v=1"></script>
 <script src="/static/js/wins.js?v=2"></script>

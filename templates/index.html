@@ -19845,12 +19845,15 @@ html body #publicProfileModal .pp-tabs button small{text-transform:none!importan
 
 <style id="mines-ladder-up">html body[data-page="minesPage"][data-page] #minesPage .mines-layout{margin-top:-16px!important}html body[data-page="minesPage"][data-page] #minesPage .ladder{margin-top:0!important}</style>
 <style id="mines-cards-v2">
-/* Mines: board and bet form sit in their own cards again, the ladder is a separate strip above */
-html body[data-page="minesPage"][data-page] #minesPage .ladder{margin-bottom:16px!important;background:#12141c;border-color:rgba(255,255,255,.07)}
-html body[data-page="minesPage"][data-page] #minesPage .board{padding:22px!important;gap:10px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:26px!important;background:radial-gradient(120% 80% at 50% 0,#1a1d2b,#10121a 70%)!important;box-shadow:0 14px 34px #0006,inset 0 1px #ffffff0a!important;box-sizing:border-box}
+/* Mines: ladder + board are ONE plate split in two; the bet form is its own card */
+html body[data-page="minesPage"][data-page] #minesPage .mines-play{padding:12px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:26px!important;background:radial-gradient(120% 80% at 50% 0,#1a1d2b,#10121a 70%)!important;box-shadow:0 14px 34px #0006,inset 0 1px #ffffff0a!important;box-sizing:border-box;display:grid;gap:12px}
+html body[data-page="minesPage"][data-page] #minesPage .ladder{margin:0!important;background:#0c0e15;border-color:rgba(255,255,255,.06)}
+html body[data-page="minesPage"][data-page] #minesPage .board{padding:6px 8px 8px!important;gap:10px!important;border:0!important;background:none!important;box-shadow:none!important;box-sizing:border-box}
 html body[data-page="minesPage"][data-page] #minesPage .mines-settings{padding:20px 18px 18px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:26px!important;background:linear-gradient(180deg,#151822,#10121a)!important;box-shadow:0 14px 34px #0006,inset 0 1px #ffffff0a!important;box-sizing:border-box}
-@media(max-width:380px){html body[data-page="minesPage"][data-page] #minesPage .board{padding:16px!important;gap:8px!important}}
-html.hw body[data-page="minesPage"][data-page] #minesPage .board{background:radial-gradient(120% 80% at 50% 0,#2a1750,#150b26 70%)!important;border-color:rgba(182,140,255,.22)!important}
+html body[data-page="minesPage"][data-page] #minesPage .mines-title{margin-top:-8px!important}
+html body[data-page="minesPage"][data-page] #minesPage .mines-layout{margin-top:-4px!important}
+html.hw body[data-page="minesPage"][data-page] #minesPage .mines-play{background:radial-gradient(120% 80% at 50% 0,#2a1750,#150b26 70%)!important;border-color:rgba(182,140,255,.22)!important}
+html.hw body[data-page="minesPage"][data-page] #minesPage .ladder{background:#0f0819}
 html.hw body[data-page="minesPage"][data-page] #minesPage .mines-settings{background:linear-gradient(180deg,#24133f,#150b26)!important;border-color:rgba(182,140,255,.22)!important}
 </style>
 <style id="pp-neutral-v7">

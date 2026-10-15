@@ -41,12 +41,15 @@ window.AdminUserControls = {
     bindForm('bindReferralForm',async f=>{const uid=ready();await saveUser('/referrals',{referred_id:f.elements.referred_id.value});if(uid===state.userId)f.reset();});
     bindForm('setReferrerForm',async f=>{const uid=ready();await api('/api/admin/users/'+encodeURIComponent(f.elements.referrer_id.value)+'/referrals',{referred_id:uid});if(state.userId!==uid)return;await ctx.reloadUser(uid);if(state.userId===uid){msg('Реферер изменён.');f.reset();}});
     bindForm('levelForm',async f=>saveUser('/level',{level:f.elements.level.value}));
+    bindForm('vipTierForm',async f=>saveUser('/vip',{tier:f.elements.tier.value}));
+    bindForm('vipTurnoverForm',async f=>saveUser('/vip',{turnover:f.elements.turnover.value}));
     bindForm('maxDropForm',async()=>saveUser('/max-drop',{gift_id:maxDropPicker.value()}));
     $('resetMaxDrop').onclick=()=>action($('resetMaxDrop'),()=>saveUser('/max-drop',{clear:true}));
     function renderList(root,items,fn,empty){root.replaceChildren(...items.map(fn));if(!items.length)root.append(node('p',empty,'muted'));}
     function line(copy,button){const n=node('div',null,'control-line');n.append(copy,button);return n;}
     function render(d,ban){
       $('levelForm').elements.level.replaceChildren(...d.available_levels.map(n=>new Option('Уровень '+n,n)));$('levelForm').elements.level.value=d.user.level;
+      if(d.vip){const sel=$('vipTierForm').elements.tier;sel.replaceChildren(new Option('Без статуса','none'),...d.vip.tiers.map(t=>new Option(t.name+' · '+money(t.ton)+' TON',t.key)));$('managedVip').textContent='Сейчас: '+d.vip.current+' · оборот '+money(d.user.turnover)+' TON';$('vipTurnoverForm').elements.turnover.value=d.user.turnover}
       const drop=d.user.max_drop_override;$('managedMaxDrop').textContent=drop?'Ручное значение: '+drop.name+' · '+money(drop.price_ton)+' TON':'Максимальный выигрыш определяется автоматически по NFT-призам.';
       renderList($('managedReferrals'),d.referrals,r=>line(userCell(r),controlButton('Отвязать',()=>saveUser('/referrals/'+r.id,undefined,'DELETE'))),'Рефералов нет.');
       $('managedReferrer').replaceChildren(d.referrer?line(userCell(d.referrer),controlButton('Отвязать',async()=>{const uid=ready();await api('/api/admin/users/'+d.referrer.id+'/referrals/'+uid,undefined,'DELETE');if(uid===state.userId){await ctx.reloadUser(uid);msg('Привязка снята.');}})):node('p','Реферер не назначен.','muted'));

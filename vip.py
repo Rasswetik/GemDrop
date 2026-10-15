@@ -16,35 +16,48 @@ MIN_FEED_CENTS = 50          # smaller wins are not worth a feed row (gifts alwa
 FEED_SIZE = 16
 FEED_KEEP = 400
 
-def _tier(key, name, ton, tickets, bonus_ton, gift=None, level=0):
-    """Rewards follow the reference screens: Quartz gives a bonus NFT gift, the rest tickets + TON.
-    level: 0 base perks, 1 = + VIP raffles and PLAYBONUS, 2 = + personal manager."""
+def _tier(key, name, ton, tickets, bonus_ton, gift=None, level=0, pct=0):
+    """level: 0 tickets (+TON), 1 = + exclusive promo codes, 2 = + VIP raffles and PLAYBONUS, 3 = + personal manager.
+    pct: PLAYBONUS percent (the cashback rate) once this tier is reached; gift = (min, max) TON price of the bonus NFT."""
     perks = ['Разовое задание: %s билетов' % format(tickets, ',').replace(',', ' ')]
     if gift:
         perks.append('Бонусный NFT Gift за достижение уровня')
     if bonus_ton:
         perks.append('Бонус %s TON за достижение уровня' % format(bonus_ton, ',').replace(',', ' '))
-    perks += ['Эксклюзивные промокоды', 'Спонтанные раздачи подарков']
     if level >= 1:
-        perks += ['Эксклюзивные VIP-розыгрыши', 'PLAYBONUS']
+        perks += ['Эксклюзивные промокоды', 'Спонтанные раздачи подарков']
     if level >= 2:
+        perks += ['Эксклюзивные VIP-розыгрыши', 'PLAYBONUS: %d%% кэшбэка' % pct]
+    if level >= 3:
         perks += ['Персональный VIP-менеджер', 'Бонусы от VIP-менеджера']
     return dict(key=key, name=name, ton=ton, tickets=tickets, bonus_ton=bonus_ton, gift_min=gift[0] if gift else 0,
-                gift_max=gift[1] if gift else 0, gift=bool(gift), playbonus=level >= 1, perks=perks)
+                gift_max=gift[1] if gift else 0, gift=bool(gift), playbonus=level >= 2, pct=pct, perks=perks)
 
 
-PLAYBONUS_TIER = 2      # index of the first tier that lets the player pay PLAYBONUS out (Opal)
+PLAYBONUS_TIER = 3      # index of the first tier that lets the player pay PLAYBONUS out (Opal, 10 000 TON)
+BASE_PERCENT = 1        # cashback rate before the first PLAYBONUS tier
 
 # Rewards are given automatically the moment a tier is reached. Edit this table to change the economy.
 VIP_TIERS = [
-    _tier('iron', 'Quartz', 500, 1000, 0, gift=(1, 3)),
-    _tier('bronze', 'Amber', 2500, 2500, 10),
-    _tier('silver', 'Opal', 10000, 5000, 25, level=1),
-    _tier('gold', 'Citrine', 30000, 10000, 50, level=1),
-    _tier('platinum', 'Aquamarine', 100000, 25000, 100, level=2),
-    _tier('diamond', 'Amethyst', 300000, 100000, 500, level=2),
-    _tier('obsidian', 'Onyx', 1000000, 500000, 2500, level=2),
+    _tier('jade', 'Jade', 500, 500, 3),
+    _tier('iron', 'Quartz', 1000, 1000, 0, gift=(1, 5), level=1),
+    _tier('bronze', 'Amber', 5000, 2500, 10, gift=(3, 8), level=1),
+    _tier('silver', 'Opal', 10000, 5000, 25, gift=(8, 20), level=2, pct=1),
+    _tier('gold', 'Citrine', 25000, 10000, 50, gift=(20, 60), level=2, pct=2),
+    _tier('platinum', 'Aquamarine', 50000, 25000, 100, gift=(60, 150), level=3, pct=3),
+    _tier('diamond', 'Amethyst', 250000, 100000, 500, gift=(150, 400), level=3, pct=4),
+    _tier('obsidian', 'Onyx', 1000000, 500000, 2500, gift=(400, 1000), level=3, pct=5),
 ]
+
+
+def cashback_percent(turnover_cents):
+    """PLAYBONUS percent for a player with that turnover."""
+    ton = int(turnover_cents or 0) / 100
+    pct = BASE_PERCENT
+    for t in VIP_TIERS:
+        if t['pct'] and ton >= t['ton']:
+            pct = t['pct']
+    return pct
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vip_claims (
@@ -226,7 +239,7 @@ def register(app, ns):
         pb_open = state['reached'] and state['index'] >= PLAYBONUS_TIER
         return jsonify(ok=True, state=state, tiers=tiers, pending=len(unseen), unseen=unseen,
                        playbonus=dict(amount=int(pb['playbonus'] or 0) / 100 if pb and not demo else 0, unlocked=bool(pb_open),
-                                      tier=VIP_TIERS[PLAYBONUS_TIER]['name'], percent=ns['LOSS_CASHBACK_PERCENT']))
+                                      tier=VIP_TIERS[PLAYBONUS_TIER]['name'], percent=cashback_percent(cents)))
 
     @app.post('/api/vip/seen')
     @login
@@ -265,6 +278,47 @@ def register(app, ns):
         finally:
             db.close()
         return jsonify(ok=True, amount=amount / 100, user=ns['profile']())
+
+    @app.post('/api/admin/users/<int:user_id>/vip')
+    @ns['admin_required']
+    def admin_user_vip(user_id):
+        from flask import request
+        data = request.get_json(silent=True) or {}
+        if data.get('tier') not in (None, ''):
+            key = str(data['tier'])
+            if key == 'none':
+                cents = 0
+            else:
+                tier = next((t for t in VIP_TIERS if t['key'] == key), None)
+                if not tier:
+                    return ns['error']('Уровень не найден.', 404)
+                cents = tier['ton'] * 100
+        else:
+            try:
+                cents = int(round(float(str(data.get('turnover')).replace(',', '.')) * 100))
+            except (TypeError, ValueError):
+                return ns['error']('Укажите оборот в TON.')
+            if cents < 0 or cents > 10 ** 14:
+                return ns['error']('Некорректный оборот.')
+        db = connect()
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT turnover_cents FROM users WHERE id=?' + (' FOR UPDATE' if ns['DATABASE_URL'] else ''), (user_id,)).fetchone()
+            if not row:
+                db.rollback()
+                return ns['error']('Пользователь не найден.', 404)
+            db.execute('UPDATE users SET turnover_cents=? WHERE id=?', (cents, user_id))
+            granted = grant_due(db, user_id, cents)
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], user_id, 'vip_turnover_set', '%s → %s TON' % (int(row['turnover_cents'] or 0) / 100, cents / 100)))
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception('admin vip failed')
+            return ns['error']('Не удалось изменить оборот.', 500)
+        finally:
+            db.close()
+        return jsonify(ok=True, turnover=cents / 100, state=tier_state(cents), granted=[g['name'] for g in granted])
 
     @app.get('/api/recent-wins')
     @login

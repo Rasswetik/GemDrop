@@ -1937,11 +1937,12 @@ def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', refere
     if not loss_cents:
         return 0
     lock = ' FOR UPDATE' if DATABASE_URL else ''
-    row = db.execute('SELECT loss_cashback_residual FROM users WHERE id=?' + lock, (int(user_id),)).fetchone()
+    row = db.execute('SELECT loss_cashback_residual,turnover_cents FROM users WHERE id=?' + lock, (int(user_id),)).fetchone()
     if not row:
         return 0
     residual = max(0, int(row['loss_cashback_residual'] or 0))
-    numerator = loss_cents * LOSS_CASHBACK_PERCENT + residual
+    percent = vip.cashback_percent(row['turnover_cents'])
+    numerator = loss_cents * percent + residual
     credit = numerator // 100
     residual = numerator % 100
     db.execute('UPDATE users SET playbonus=playbonus+?,loss_cashback_residual=? WHERE id=?',
@@ -1951,7 +1952,7 @@ def credit_main_loss_cashback(db, user_id, loss_cents, reference_type='', refere
     except Exception:
         app.logger.exception('halloween pumpkin accrual failed')
     if credit:
-        note = f'Кэшбэк {LOSS_CASHBACK_PERCENT}% за проигрыш с основного баланса'
+        note = f'PLAYBONUS {percent}% за проигрыш с основного баланса'
         if details:
             note += ' · ' + str(details)[:300]
         record_transaction(db, int(user_id), 'loss_cashback', credit, reference_type, reference_id, note)
@@ -10040,7 +10041,7 @@ PUBLIC_BALANCE_KINDS = {
     'roll_gift': 'Подарок из Roll',
     'upgrade_bet': 'Ставка Upgrade',
     'upgrade_cashback': 'Утешительный приз Upgrade',
-    'loss_cashback': 'Кэшбэк 2% → PLAYBONUS',
+    'loss_cashback': 'Кэшбэк → PLAYBONUS',
     'playbonus_claim': 'PLAYBONUS на основной баланс',
     'vip_bonus': 'Награда VIP-статуса',
     'gift_sale': 'Продажа подарка',
@@ -20083,6 +20084,8 @@ def admin_user(user_id):
                                                      set_at=user['max_drop_override_set_at'])
                                                 if int(user['max_drop_override_price'] or 0)>0 and user['max_drop_override_name'] else None)),items=[inventory_item(x) for x in items],
                    available_levels=available_levels,
+                   vip=dict(tiers=[dict(key=t['key'],name=t['name'],ton=t['ton']) for t in vip.VIP_TIERS],
+                            current=(vip.VIP_TIERS[vip.tier_state(user['turnover_cents'])['index']]['name'] if vip.tier_state(user['turnover_cents'])['reached'] else 'нет')),
                    referrals=[dict(id=r['id'],name=r['name'],username=r['username'] or '',photo_url=r['photo_url'] or '',created_at=r['created_at']) for r in referred],
                    referrer=(dict(id=referrer['id'],name=referrer['name'],username=referrer['username'] or '',photo_url=referrer['photo_url'] or '',created_at=referrer['created_at']) if referrer else None),
                    promos=[dict(code=p['code'],purpose=promo_purpose(p),expired=promo_is_expired(p),

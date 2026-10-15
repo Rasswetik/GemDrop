@@ -1,6 +1,7 @@
 /* VIP statuses: seven tiers by turnover, gem icons, the VIP window, badge buttons next to avatars. */
 (function(){
   var PAL={
+    jade:['#e2fbe9','#79cf9b','#2c7650','#b4f0cb'],
     iron:['#f1f4f8','#a3acb7','#5a626d','#d5dbe3'],
     bronze:['#ffd2a8','#c47a42','#6d3b1c','#f0a36b'],
     silver:['#ffffff','#cfd5de','#7d8795','#eef1f6'],
@@ -9,10 +10,11 @@
     diamond:['#d9bfff','#8147e6','#2b1069','#b189ff'],
     obsidian:['#6a6d78','#1d1e23','#050506','#9aa0ad']
   };
-  var KEYS=['iron','bronze','silver','gold','platinum','diamond','obsidian'],uid=0,state=null,loadedAt=0,loading=null;
+  var KEYS=['jade','iron','bronze','silver','gold','platinum','diamond','obsidian'],uid=0,state=null,loadedAt=0,loading=null;
   function $(id){return document.getElementById(id)}
   /* rank emblems: a shield that gets more ornate with every tier (chevrons -> star -> wings -> crown -> aura) */
   var SPEC=[
+    {},
     {chev:1},
     {chev:2},
     {chev:2,star:1},
@@ -22,7 +24,7 @@
     {star:1,wings:1,crown:1,glow:1,spark:1}
   ];
   function gem(i,size){
-    i=Math.max(0,Math.min(6,i));
+    i=Math.max(0,Math.min(7,i));
     var k=KEYS[i],p=PAL[k],sp=SPEC[i],n=++uid,g='vg'+n,s=size||40,dark=k==='obsidian';
     var edge=dark?'#e8ebf2':'#ffffff',eo=dark?.8:.6,ink=dark?'#f2f4f8':p[0],ink2=dark?'#aeb4c2':p[3];
     var SH='M32 11 52 17V33C52 46 43 54 32 60 21 54 12 46 12 33V17Z';
@@ -84,6 +86,7 @@
   function paintPlaybonus(){
     var p=state&&state.playbonus,c=$('vipPb');if(!p||!c)return;
     c.querySelector('.pb-val').innerHTML=tonIcon()+fmt(p.amount)+' TON';
+    var pe=c.querySelector('.pb-pct');if(pe)pe.textContent='Ваш процент: '+p.percent+'%';
     var b=c.querySelector('.pb-claim');b.disabled=!(p.unlocked&&p.amount>0);
     b.textContent=p.unlocked?'Забрать на баланс':'Откроется на '+p.tier;
     c.classList.toggle('locked',!p.unlocked);
@@ -99,8 +102,8 @@
     }catch(e){try{toast(e.message||'Не удалось забрать PLAYBONUS')}catch(_){}paintPlaybonus()}
   }
   function pbInfo(){
-    var p=(state&&state.playbonus)||{percent:2,tier:'Opal'};
-    showInfo('<h3>PLAYBONUS</h3><p>С каждого проигрыша с основного баланса мы возвращаем '+p.percent+'% в PLAYBONUS.</p><p>Накопленную сумму можно забрать на основной баланс — функция открывается со статуса <b>'+esc(p.tier)+'</b>. До этого PLAYBONUS продолжает копиться.</p>');
+    var p=(state&&state.playbonus)||{percent:1,tier:'Opal'};
+    showInfo('<h3>PLAYBONUS</h3><p>С каждого проигрыша с основного баланса мы возвращаем '+p.percent+'% в PLAYBONUS. С ростом VIP-статуса процент увеличивается: от 1% на Opal до 5% на Onyx.</p><p>Накопленную сумму можно забрать на основной баланс — функция открывается со статуса <b>'+esc(p.tier)+'</b>. До этого PLAYBONUS продолжает копиться.</p>');
   }
   function showInfo(html){
     var o=document.createElement('div');o.className='vip-pop';
@@ -118,7 +121,8 @@
       var i=Math.max(0,KEYS.indexOf(r.tier));
       var o=document.createElement('div');o.className='vip-pop vip-reward';
       var g=r.gift?'<div class="vr-gift"><img src="'+esc(r.gift.image_url)+'" alt=""><b>'+esc(r.gift.name)+'</b><small>'+tonIcon()+fmt(r.gift.price)+' TON</small></div>':'';
-      var chips='<div class="vr-chips"><span><i>🎟</i>+'+fmt(r.tickets)+' билетов</span>'+(r.balance?'<span><i>💎</i>+'+fmt(r.balance)+' TON на баланс</span>':'')+'</div>';
+      var TK='<svg class="vr-tk" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4Z" fill="#ffd75e" stroke="#a8741a" stroke-width="1.2"/><path d="M14 7v10" stroke="#a8741a" stroke-width="1.4" stroke-dasharray="2 2"/></svg>';
+      var chips='<div class="vr-chips"><span>'+TK+'+'+fmt(r.tickets)+' билетов</span>'+(r.balance?'<span>'+tonIcon()+'+'+fmt(r.balance)+' TON на баланс</span>':'')+'</div>';
       var pb=r.playbonus_unlocked?'<div class="vr-pb">Открыт <b>PLAYBONUS</b> — кэшбэк с проигрышей теперь можно забирать на основной баланс</div>':'';
       o.innerHTML='<div class="vip-pop-card"><div class="vr-gem">'+gem(i,84)+'</div><small class="vr-k">Новый VIP-статус</small><h3>'+esc(r.name)+'</h3>'+g+chips+pb+'<button type="button" class="vip-pop-ok">Отлично</button></div>';
       o.onclick=function(e){if(e.target.classList.contains('vip-pop-ok')){o.remove();next()}};

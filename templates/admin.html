@@ -6,11 +6,12 @@
 <script src="/static/js/admin-user-controls.js?v=20261015" defer></script>
 <script src="/static/js/admin-inspector.js?v=20261015" defer></script>
 {% for script in tool_scripts %}<script src="/static/js/tools/{{ script }}?v=20261015" defer></script>
-{% endfor %}<script src="/static/js/admin.js?v=20261015" defer></script></head>
+{% endfor %}<script src="/static/js/admin.js?v=20261015" defer></script><script>try{var t=localStorage.getItem('adminTheme');if(!t&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}</script>
+</head>
 <body>
 <header><button id="menuToggle" aria-label="Открыть меню" aria-expanded="false">☰</button><a class="brand" href="/admin">GemDrop <span>admin</span></a>
 <div class="header-search"><input id="globalSearch" type="search" placeholder="Найти раздел или игрока (имя, @username, ID)" aria-label="Поиск по панели" autocomplete="off"><div id="searchResults" class="search-results" hidden></div></div>
-<span id="operator"></span><button id="refresh" title="Обновить текущий раздел">Обновить</button></header>
+<span id="operator"></span><button id="themeToggle" class="theme-toggle" type="button" aria-label="Переключить тему" title="Светлая / тёмная тема">◐</button><button id="refresh" title="Обновить текущий раздел">Обновить</button></header>
 <button id="menuShade" class="shade" aria-label="Закрыть меню" hidden></button>
 <aside id="sidebar"><div class="sidebar-head"><strong>Управление</strong><button id="menuClose" aria-label="Закрыть меню">×</button></div>
 <nav id="navigation" aria-label="Разделы панели"></nav>
@@ -73,4 +74,5 @@
 </div></dialog>
 <dialog id="procurementDialog"><div class="heading"><h2>Закупка NFT без Partner token</h2><button data-close aria-label="Закрыть закупку">×</button></div><div id="procurementDetails"></div><ol id="procurementSteps"></ol><div class="filters"><a id="portalOpen" class="button primary" target="_blank" rel="noopener">Открыть Portal</a><button id="copyTraits">Скопировать коллекцию и модель</button><button id="retryDelivery">Повторить доставку</button></div><p class="muted">Заявка остаётся ожидающей до подтверждения передачи. Повторная доставка не списывает комиссию ещё раз.</p></dialog>
 <div id="message" role="status" hidden></div>
+<script>(function(){var b=document.getElementById('themeToggle');if(!b)return;function paint(){b.textContent=document.documentElement.dataset.theme==='dark'?'☀':'☾'}paint();b.onclick=function(){var d=document.documentElement.dataset.theme==='dark';if(d)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme='dark';try{localStorage.setItem('adminTheme',d?'light':'dark')}catch(e){}paint()}})();</script>
 </body></html>

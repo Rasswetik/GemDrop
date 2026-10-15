@@ -16,8 +16,10 @@
       if (!shown.length) list.append(K.empty('Подарки не найдены'));
       for (const x of shown) {
         const input = K.input({inputMode: 'numeric', placeholder: 'Telegram custom emoji ID', value: x.emoji_id || '', 'aria-label': 'Emoji ID для ' + (x.name || 'подарка')}), sm = h('small');
-        const upd = () => sm.textContent = (x.emoji ? 'Сейчас: ' + x.emoji + ' · ' : '') + (x.emoji_id || 'ID не задан'); upd();
-        list.append(h('div', {class: 'list-item', style: {flexWrap: 'wrap'}}, K.gift(x, 44), h('div', {class: 'grow'}, h('strong', {text: x.name || 'Подарок'}), sm), input,
+        const thumb = h('div', {style: {width: '36px', height: '36px', display: 'grid', placeItems: 'center', fontSize: '22px'}});
+        const paintThumb = () => { thumb.replaceChildren(); if (x.emoji_id) thumb.append(h('img', {alt: x.emoji || '', loading: 'lazy', src: K.emojiThumb(encodeURIComponent(x.emoji_id)), style: {width: '100%', height: '100%', objectFit: 'contain'}, onerror() { thumb.textContent = x.emoji || ''; }})); };
+        const upd = () => { paintThumb(); sm.textContent = (x.emoji ? 'Сейчас: ' + x.emoji + ' · ' : '') + (x.emoji_id || 'ID не задан'); }; upd();
+        list.append(h('div', {class: 'list-item', style: {flexWrap: 'wrap'}}, K.gift(x, 44), h('div', {class: 'grow'}, h('strong', {text: x.name || 'Подарок'}), sm), thumb, input,
           K.btn('Сохранить', async () => { const r = await api('/api/admin/gift-emojis', {gift_id: x.gift_id, emoji_id: input.value.trim()}); x.emoji_id = r.item.emoji_id || ''; x.emoji = r.item.emoji || ''; upd(); paint0(); K.ok(x.emoji_id ? 'Эмодзи привязан' : 'Привязка очищена'); }, 'small')));
       }
     }

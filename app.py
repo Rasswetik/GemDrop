@@ -15438,7 +15438,7 @@ def hilo_tier_gifts():
             if pos < len(prices):
                 if pos+1 < len(prices) and abs(prices[pos+1]-target*100) < abs(prices[pos]-target*100):pos+=1
                 choices.append((kind,pos,prices[pos]))
-        preferred = 'model' if mines_model_roll(f'hilo-tier:{rank}') else 'base'
+        preferred = 'model'  # tier art and prizes always show the exact gift model
         pick = next((x for x in choices if x[0]==preferred),choices[0] if choices else None)
         if not pick:break
         kind,pos,last = pick

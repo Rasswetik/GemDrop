@@ -27,6 +27,14 @@
     const search = K.input({type: 'search', placeholder: 'Поиск уведомления', 'aria-label': 'Поиск'}), info = h('div', {class: 'muted'}), list = h('div', {class: 'stack'});
     const paintInfo = () => info.textContent = `Библиотека emoji: ${lib.items.length} · стартовый набор: ${lib.starter_loaded}/${lib.starter_total} · emoji подарков: ${lib.gifts.length}${data ? ' · изменено текстов: ' + data.custom_count : ''}${lib.notice ? ' · ' + lib.notice : ''}`;
     paintInfo();
+    /* при открытии окна сами подтягиваем premium emoji из Telegram, чтобы в выборе были картинки */
+    const autoImport = async () => {
+      if (!lib.starter_total || lib.starter_loaded >= lib.starter_total) return;
+      info.textContent = 'Импортируем premium emoji из Telegram…';
+      try { await api('/api/admin/emojis/starter', {}); await loadLib(true); } catch (e) { /* без токена бота импорт недоступен */ }
+      paintInfo();
+    };
+    autoImport();
 
     function card(it) {
       const ta = K.textarea(it.text, {rows: 5, maxLength: 3500, spellcheck: false}), pv = h('div', {class: 'notice'}), reset = h('button', {type: 'button', class: 'small', text: 'Вернуть стандартный', disabled: !it.custom}), badge = h('span');
@@ -40,7 +48,7 @@
       chips.append(h('button', {type: 'button', class: 'small', text: '✨ premium emoji', onclick: async () => {
         if (picker.childElementCount) { picker.replaceChildren(); return; }
         const l = await loadLib(), q = K.input({type: 'search', placeholder: 'Поиск emoji'}), body = h('div');
-        const cell = (id, glyph, label) => h('button', {type: 'button', title: label || glyph, dataset: {l: String(label || '').toLowerCase()}, onclick: () => ins(K.tg.token(id, glyph))}, h('span', {text: glyph || '⭐', style: {fontSize: '20px'}}), h('img', {src: K.emojiThumb(id), alt: '', style: {width: '26px', height: '26px'}, onerror(e) { e.target.remove(); }}));
+        const cell = (id, glyph, label) => h('button', {type: 'button', title: label || glyph, dataset: {l: String(label || '').toLowerCase()}, onclick: () => ins(K.tg.token(id, glyph))}, h('img', {src: K.emojiThumb(id), alt: glyph || '⭐', loading: 'lazy', style: {width: '30px', height: '30px', objectFit: 'contain'}, onerror(e) { e.target.replaceWith(h('span', {text: glyph || '⭐', style: {fontSize: '22px'}})); }}));
         const draw = () => { const s = q.value.trim().toLowerCase(); body.replaceChildren(); for (const [title, cells] of [['Подарки', l.gifts.map(x => cell(x.id, x.emoji, x.label))], ['Библиотека', l.items.map(x => cell(x.id, x.emoji, x.label || x.emoji))]]) { const f = cells.filter(c => !s || c.dataset.l.includes(s)); if (f.length) body.append(h('div', {class: 'group-title', text: title}), h('div', {class: 'catalog-grid'}, f)); } if (!body.children.length) body.append(K.empty(l.items.length || l.gifts.length ? 'Ничего не найдено' : 'Библиотека пуста. Нажмите «+ Стартовый набор emoji» вверху страницы или привяжите emoji к подаркам.')); };
         q.oninput = draw; draw(); picker.replaceChildren(q, body);
       }}));

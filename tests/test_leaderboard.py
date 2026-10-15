@@ -77,6 +77,24 @@ class LeaderboardTests(unittest.TestCase):
                 after = db.execute('SELECT balance FROM users WHERE id=?', (self.uid,)).fetchone()[0]
             self.assertEqual(after - before, 2500)
 
+    def test_medals_are_granted_listed_and_shown_on_profile(self):
+        self.reset()
+        with m.connect() as db:
+            db.execute('DELETE FROM user_medals')
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/leaderboard/medals', {'place': 1, 'medal': 'nope'}, 400)
+            self.assertEqual(self.post('/api/admin/leaderboard/medals', {'place': 1, 'medal': 'hw1'})['medals'], {'1': 'hw1'})
+            self.post('/api/admin/leaderboard/start', {'hours': 24, 'title': 'Тест'})
+            with m.connect() as db:
+                m.increase_turnover(db, self.uid, 1000)
+            self.post('/api/admin/leaderboard/finish', {'award': True})
+        mine = self.client.get('/api/medals').get_json()['medals']
+        self.assertEqual((mine[0]['key'], mine[0]['place'], mine[0]['title'], mine[0]['shown']), ('hw1', 1, 'Тест', True))
+        self.post('/api/medals/%d/shown' % mine[0]['id'], {'shown': False})
+        self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'], [])
+        self.post('/api/medals/%d/shown' % mine[0]['id'], {'shown': True})
+        self.assertEqual(self.client.get('/api/users/%d/profile' % self.uid).get_json()['medals'][0]['name'], 'Король Хэллоуина')
+
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):
         gifts = [{'id': 'hb', 'name': 'Hilo Base', 'price_ton': 5, 'image_url': 'https://example.com/b.png', 'image_match': True}]
         m.save_document('portal_catalog', {'gifts': gifts})

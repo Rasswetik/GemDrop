@@ -14,6 +14,9 @@ MAX_PLACES = 20
 MAX_PRIZES_PER_PLACE = 10
 LIST_SIZE = 100
 DEFAULTS = dict(enabled=True, period_hours=168, auto_repeat=False)
+MEDALS = {'hw1': 'Король Хэллоуина', 'hw2': 'Призрачный мастер', 'hw3': 'Повелитель теней', 'hw4': 'Ведьмин избранник', 'hw5': 'Хранитель костей',
+          'c1': 'Золотая медаль', 'c2': 'Серебряная медаль', 'c3': 'Бронзовая медаль'}   # drawn in static/js/medals.js
+MAX_SHOWN_MEDALS = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lb_periods (
@@ -29,6 +32,12 @@ CREATE TABLE IF NOT EXISTS lb_awards (
     turnover INTEGER NOT NULL DEFAULT 0,gift_name TEXT NOT NULL DEFAULT '',image_url TEXT NOT NULL DEFAULT '',
     floor_price INTEGER NOT NULL DEFAULT 0,inventory_id INTEGER,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS user_medals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,medal_key TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',
+    place INTEGER NOT NULL DEFAULT 0,period_id INTEGER NOT NULL DEFAULT 0,shown INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS user_medals_user ON user_medals(user_id,id);
 CREATE INDEX IF NOT EXISTS lb_turnover_rank ON lb_turnover(period_id,cents);
 CREATE INDEX IF NOT EXISTS lb_awards_period ON lb_awards(period_id,place);
 """
@@ -89,12 +98,21 @@ def config():
         if 1 <= place <= MAX_PLACES and isinstance(prizes, list) and prizes:
             rewards[str(place)] = [p for p in prizes if isinstance(p, dict)][:MAX_PRIZES_PER_PLACE]
     out['rewards'] = rewards
+    medals = {}
+    for key, medal in (doc.get('medals') if isinstance(doc.get('medals'), dict) else {}).items():
+        try:
+            place = int(key)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= place <= MAX_PLACES and medal in MEDALS:
+            medals[str(place)] = medal
+    out['medals'] = medals
     return out
 
 
 def save_config(cfg):
     _ns['save_document'](CONFIG_DOC, dict(enabled=bool(cfg['enabled']), auto_repeat=bool(cfg['auto_repeat']),
-                                          period_hours=int(cfg['period_hours']), rewards=cfg['rewards']))
+                                          period_hours=int(cfg['period_hours']), rewards=cfg['rewards'], medals=cfg.get('medals') or {}))
 
 
 def enabled():
@@ -198,9 +216,15 @@ def settle(db, period_id, reason='ended', award=True):
     won = []
     prow = db.execute('SELECT * FROM lb_periods WHERE id=?', (period_id,)).fetchone()
     title = season_title(db, prow) if prow else 'Сезон'
-    if award and cfg['rewards']:
-        last = max(int(k) for k in cfg['rewards'])
+    medal_notes = {}
+    if award and (cfg['rewards'] or cfg['medals']):
+        last = max([int(k) for k in cfg['rewards']] + [int(k) for k in cfg['medals']])
         for place, row in enumerate(top_rows(db, period_id, last), 1):
+            medal = cfg['medals'].get(str(place))
+            if medal:
+                db.execute('INSERT INTO user_medals(user_id,medal_key,title,place,period_id,shown) VALUES(?,?,?,?,?,1)',
+                           (int(row['user_id']), medal, title, place, period_id))
+                medal_notes[int(row['user_id'])] = (place, MEDALS[medal])
             for prize in cfg['rewards'].get(str(place), []):
                 try:
                     inv_id, v = award_prize(db, int(row['user_id']), prize)
@@ -218,6 +242,8 @@ def settle(db, period_id, reason='ended', award=True):
         by_user = {}
         for uid, place, name, is_ton, gid in won:
             by_user.setdefault(uid, []).append((place, name, is_ton, gid))
+        for uid in medal_notes:
+            by_user.setdefault(uid, [])
         for uid, items in by_user.items():
             def line(place, name, is_ton, gid):
                 if is_ton:
@@ -225,7 +251,11 @@ def settle(db, period_id, reason='ended', award=True):
                     return f'<b>{place} место</b> — {_ns["escape"](amount)} [[ton]]'
                 return f'<b>{place} место</b> — {_ns["gift_custom_emoji_html"](gid, name)} {_ns["escape"](name)}'
             lines = '\n'.join(line(*it) for it in items[:10])
-            tail = 'Подарки уже в инвентаре, TON — на балансе.' if any(i[2] for i in items) else 'Подарки уже в инвентаре.'
+            tail = ('Подарки уже в инвентаре, TON — на балансе.' if any(i[2] for i in items) else 'Подарки уже в инвентаре.') if items else ''
+            if uid in medal_notes:
+                tail = (tail + '\n' if tail else '') + '🏅 Медаль «%s» — в профиле, раздел «Мои медали».' % _ns['escape'](medal_notes[uid][1])
+            if not lines:
+                lines = '<b>%d место</b>' % medal_notes[uid][0]
             try:
                 notify(uid, f'🏆 <b>{_ns["escape"](title)} завершён</b>\nВы заняли призовое место!\n{lines}\n{tail}', None, 'HTML', db=db)
             except Exception:
@@ -404,7 +434,7 @@ def register(app, ns):
             awards = [dict(period_id=int(r['period_id']), place=int(r['place']), user_id=int(r['user_id']), gift_name=r['gift_name'],
                            image_url=r['image_url'], price_ton=int(r['floor_price'] or 0) / 100, created_at=r['created_at'])
                       for r in db.execute('SELECT * FROM lb_awards ORDER BY id DESC LIMIT 30').fetchall()]
-        return jsonify(config=dict(enabled=cfg['enabled'], period_hours=cfg['period_hours'], auto_repeat=cfg['auto_repeat']),
+        return jsonify(config=dict(enabled=cfg['enabled'], period_hours=cfg['period_hours'], auto_repeat=cfg['auto_repeat']), medals=cfg['medals'], medal_names=MEDALS,
                        rewards=rewards_view(cfg), period=view, top=top, history=history, awards=awards, max_places=MAX_PLACES)
 
     @app.post('/api/admin/leaderboard/config')
@@ -456,6 +486,52 @@ def register(app, ns):
             cfg['rewards'].pop(str(place), None)
         save_config(cfg)
         return jsonify(ok=True, prizes=[prize_view(p) for p in prizes])
+
+    @app.post('/api/admin/leaderboard/medals')
+    @admin
+    def admin_leaderboard_medals():
+        data = request.get_json(silent=True) or {}
+        try:
+            place = int(data.get('place'))
+        except (TypeError, ValueError):
+            return error('Выберите место.')
+        if not 1 <= place <= MAX_PLACES:
+            return error(f'Места: от 1 до {MAX_PLACES}.')
+        medal = str(data.get('medal') or '')
+        if medal and medal not in MEDALS:
+            return error('Такой медали нет.')
+        cfg = config()
+        if medal:
+            cfg['medals'][str(place)] = medal
+        else:
+            cfg['medals'].pop(str(place), None)
+        save_config(cfg)
+        return jsonify(ok=True, medals=cfg['medals'])
+
+    @app.get('/api/medals')
+    @login
+    def my_medals():
+        with connect() as db:
+            rows = db.execute('SELECT id,medal_key,title,place,shown,created_at FROM user_medals WHERE user_id=? ORDER BY id DESC', (int(session['uid']),)).fetchall()
+        return jsonify(ok=True, max_shown=MAX_SHOWN_MEDALS, medals=[dict(id=int(r['id']), key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'),
+                       title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
+
+    @app.post('/api/medals/<int:medal_id>/shown')
+    @login
+    def medal_shown(medal_id):
+        want = bool((request.get_json(silent=True) or {}).get('shown'))
+        uid = int(session['uid'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT id FROM user_medals WHERE id=? AND user_id=?', (medal_id, uid)).fetchone()
+            if not row:
+                return error('Медаль не найдена.', 404)
+            if want:
+                n = db.execute('SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND shown=1 AND id<>?', (uid, medal_id)).fetchone()['n']
+                if n >= MAX_SHOWN_MEDALS:
+                    return error(f'В профиле можно показать не больше {MAX_SHOWN_MEDALS} медалей.', 409)
+            db.execute('UPDATE user_medals SET shown=? WHERE id=?', (1 if want else 0, medal_id))
+        return jsonify(ok=True, shown=want)
 
     @app.post('/api/admin/leaderboard/start')
     @admin
@@ -551,3 +627,10 @@ def register(app, ns):
             time.sleep(30)
 
     return loop
+
+
+def shown_medals(db, user_id):
+    """Medals the player chose to show on the public profile (newest first)."""
+    rows = db.execute('SELECT id,medal_key,title,place FROM user_medals WHERE user_id=? AND shown=1 ORDER BY id DESC LIMIT ?',
+                      (int(user_id), MAX_SHOWN_MEDALS)).fetchall()
+    return [dict(key=r['medal_key'], name=MEDALS.get(r['medal_key'], 'Медаль'), title=r['title'], place=int(r['place'])) for r in rows]

@@ -7,12 +7,42 @@
   const reasons = {ended: 'по сроку', early: 'досрочно, награды выданы', reset: 'сброс без наград'};
 
   K.register({id: 'leaderboardAdminPage', title: 'Лидерборд', async render(root) {
-    const box = h('div', {class: 'stack'}); let places = 3;
+    const box = h('div', {class: 'stack'}); let places = 5;
 
     function prizeCard(g, remove) {
       return h('div', {class: 'list-item'}, h('img', {class: 'thumb', src: g.image_url || '/static/img/gift.png', alt: '', referrerPolicy: 'no-referrer', style: {width: '44px', height: '44px', objectFit: g.source_type === 'fragment' ? 'cover' : 'contain', borderRadius: '10px'}, onerror(e) { e.target.onerror = null; e.target.src = '/static/img/gift.png'; }}),
         h('div', {class: 'grow'}, h('strong', {text: g.name}), h('small', {text: (g.source_type === 'ton' ? 'На баланс' : g.source_type === 'fragment' ? 'Fragment' : g.model ? 'Модель' : 'Подарок') + ' · ' + K.money(g.price_ton) + ' TON'})),
         remove ? K.btn('Убрать', remove, 'danger') : null);
+    }
+
+    function medalPicker(place, d) {
+      const cur = (d.medals || {})[String(place)] || '';
+      const holder = h('div', {class: 'row', style: {alignItems: 'center', gap: '12px'}});
+      const paintHolder = key => {
+        holder.replaceChildren();
+        const prev = h('div', {style: {width: '56px'}}); prev.innerHTML = key ? window.GDMedals.svg(key, 52) : '';
+        holder.append(prev, h('div', {class: 'grow'}, h('strong', {text: key ? window.GDMedals.name(key) : 'Медаль не выбрана'}), h('small', {class: 'muted', text: 'Выдаётся навсегда вместе с призом при завершении сезона'})),
+          K.btn(key ? 'Сменить медаль' : 'Выбрать медаль', () => chooseMedal(place, key, async v => { await api('/api/admin/leaderboard/medals', {place, medal: v}); K.ok(v ? 'Медаль сохранена' : 'Медаль убрана'); await load(); })),
+          key ? K.btn('Убрать', async () => { await api('/api/admin/leaderboard/medals', {place, medal: ''}); K.ok('Медаль убрана'); await load(); }, 'small') : null);
+      };
+      paintHolder(cur); return holder;
+    }
+    function chooseMedal(place, current, pick) {
+      const back = h('div', {style: {position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(6,4,14,.72)', display: 'grid', placeItems: 'center', padding: '16px'}});
+      const close = () => back.remove();
+      const grid = h('div', {style: {display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: '12px'}});
+      ['Хэллоуин', 'Классика'].forEach(set => {
+        grid.append(h('div', {style: {gridColumn: '1/-1', fontWeight: 800, marginTop: '6px'}, text: set}));
+        window.GDMedals.LIST.filter(m => m.set === set).forEach(m => {
+          const tile = h('button', {type: 'button', style: {display: 'grid', justifyItems: 'center', gap: '6px', padding: '12px 8px', borderRadius: '16px', border: m.key === current ? '2px solid #a066ff' : '1px solid rgba(255,255,255,.12)', background: '#1b1e27', color: '#fff', cursor: 'pointer'}, onclick: async () => { try { await pick(m.key); close(); } catch (e) { K.err ? K.err(e) : alert(e.message); } }});
+          const art = h('div'); art.innerHTML = window.GDMedals.svg(m.key, 84); tile.append(art, h('b', {text: m.name, style: {fontSize: '12px', textAlign: 'center'}}), h('small', {text: 'как за ' + m.place + ' место', style: {color: '#8d99a8'}}));
+          grid.append(tile);
+        });
+      });
+      back.append(h('div', {style: {width: 'min(100%,560px)', maxHeight: '86vh', overflow: 'auto', padding: '18px', borderRadius: '22px', background: '#14161d', border: '1px solid rgba(255,255,255,.1)', color: '#fff'}},
+        h('div', {style: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}, h('strong', {text: 'Медаль за ' + place + ' место', style: {fontSize: '18px'}}), K.btn('Закрыть', close, 'small')), grid));
+      back.addEventListener('click', e => { if (e.target === back) close(); });
+      document.body.append(back);
     }
 
     function placeEditor(place, list, d) {
@@ -39,7 +69,7 @@
         else { item.gift_id = picker.value; if (kind.value === 'model' && !String(item.gift_id).includes('@m:')) throw new Error('Выберите модель подарка.'); }
         await save([...list, item]);
       }, 'primary');
-      wrap.append(h('strong', {text: place + ' место'}), list.length ? h('div', {class: 'list'}, list.map((g, i) => prizeCard(g, () => save(list.filter((_, j) => j !== i))))) : h('small', {class: 'muted', text: 'Награда не задана.' + (place <= 3 ? ' Пока награды нет — панель этого места на странице скрыта.' : '')}), K.field('Тип награды', kind), body, h('div', {class: 'row'}, add));
+      wrap.append(h('strong', {text: place + ' место'}), medalPicker(place, d), list.length ? h('div', {class: 'list'}, list.map((g, i) => prizeCard(g, () => save(list.filter((_, j) => j !== i))))) : h('small', {class: 'muted', text: 'Награда не задана.' + (place <= 3 ? ' Пока награды нет — панель этого места на странице скрыта.' : '')}), K.field('Тип награды', kind), body, h('div', {class: 'row'}, add));
       return wrap;
     }
 
@@ -66,7 +96,7 @@
         await api('/api/admin/leaderboard/config', {enabled: en.querySelector('input').checked, auto_repeat: rep.querySelector('input').checked, period_hours: hrs.value}); K.ok('Сохранено'); await load();
       })));
 
-      places = Math.max(places, ...Object.keys(d.rewards).map(Number), 3);
+      places = Math.max(places, ...Object.keys(d.rewards).map(Number), ...Object.keys(d.medals || {}).map(Number), 5);
       const editors = [...Array(places).keys()].map(i => placeEditor(i + 1, d.rewards[String(i + 1)] || [], d));
       box.append(K.card('Награды за места', 'За одно место можно задать несколько наград. Места 1–3 получают отдельные панели, с 4-го награда показывается рядом с ником. Выдаются при завершении периода в инвентарь победителей.', h('div', {class: 'list'}, editors),
         places < d.max_places ? h('div', {class: 'row'}, K.btn('Добавить ещё место', async () => { places++; paint(d); })) : null));

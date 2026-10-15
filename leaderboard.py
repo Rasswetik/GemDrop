@@ -126,6 +126,18 @@ def start_period(db, hours, start=None):
     return db.execute("SELECT * FROM lb_periods WHERE status='active' ORDER BY id DESC LIMIT 1").fetchone()
 
 
+def season_title(db, period):
+    """Admin-given name of the season, or «Сезон N» by its order."""
+    try:
+        custom = str(period['title'] or '').strip()
+    except (KeyError, IndexError, TypeError):
+        custom = ''
+    if custom:
+        return custom
+    n = db.execute('SELECT COUNT(*) AS n FROM lb_periods WHERE id<=?', (int(period['id']),)).fetchone()['n']
+    return 'Сезон %d' % int(n)
+
+
 def settle_due(db):
     row = db.execute("SELECT * FROM lb_periods WHERE status='active' ORDER BY id DESC LIMIT 1").fetchone()
     if row:
@@ -162,6 +174,14 @@ def inventory_values(prize):
 
 def award_prize(db, user_id, prize):
     v = inventory_values(prize)
+    if prize.get('source_type') == 'ton':
+        cents = int(round(float(prize.get('price_ton') or 0) * 100))
+        if cents <= 0:
+            raise ValueError('Сумма TON должна быть больше нуля.')
+        db.execute('UPDATE users SET balance=balance+? WHERE id=?', (cents, user_id))
+        _ns['record_transaction'](db, user_id, 'leaderboard_prize', cents, 'leaderboard', 0, 'Лидерборд · награда')
+        v.update(gift_name='%s TON' % ('%g' % (cents / 100)), image_url='/static/img/ton.png', price=cents)
+        return None, v
     cur = db.execute("""INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,
                         fragment_number,fragment_model,fragment_backdrop,fragment_symbol,price_source,animation_url)
                         VALUES(?,?,?,?,?,'leaderboard',?,?,?,?,?,?,?)""",
@@ -176,6 +196,8 @@ def settle(db, period_id, reason='ended', award=True):
         return False
     cfg = config()
     won = []
+    prow = db.execute('SELECT * FROM lb_periods WHERE id=?', (period_id,)).fetchone()
+    title = season_title(db, prow) if prow else 'Сезон'
     if award and cfg['rewards']:
         last = max(int(k) for k in cfg['rewards'])
         for place, row in enumerate(top_rows(db, period_id, last), 1):
@@ -188,18 +210,24 @@ def settle(db, period_id, reason='ended', award=True):
                 db.execute('INSERT INTO lb_awards(period_id,user_id,place,turnover,gift_name,image_url,floor_price,inventory_id) '
                            'VALUES(?,?,?,?,?,?,?,?)', (period_id, int(row['user_id']), place, int(row['cents']),
                                                        v['gift_name'], v['image_url'], v['price'], inv_id))
-                won.append((int(row['user_id']), place, v['gift_name']))
+                won.append((int(row['user_id']), place, v['gift_name'], prize.get('source_type') == 'ton', v['gift_id']))
     db.execute("UPDATE lb_periods SET status='finished',finished_at=?,finish_reason=? WHERE id=?",
                (iso(now_utc()), reason, period_id))
     notify = _ns.get('notify_user_async')
     if notify:
         by_user = {}
-        for uid, place, name in won:
-            by_user.setdefault(uid, []).append((place, name))
+        for uid, place, name, is_ton, gid in won:
+            by_user.setdefault(uid, []).append((place, name, is_ton, gid))
         for uid, items in by_user.items():
-            lines = '\n'.join(f'{place} место — {_ns["escape"](name)}' for place, name in items[:10])
+            def line(place, name, is_ton, gid):
+                if is_ton:
+                    amount = name.rsplit(' ', 1)[0]
+                    return f'<b>{place} место</b> — {_ns["escape"](amount)} [[ton]]'
+                return f'<b>{place} место</b> — {_ns["gift_custom_emoji_html"](gid, name)} {_ns["escape"](name)}'
+            lines = '\n'.join(line(*it) for it in items[:10])
+            tail = 'Подарки уже в инвентаре, TON — на балансе.' if any(i[2] for i in items) else 'Подарки уже в инвентаре.'
             try:
-                notify(uid, f'🏆 <b>Недельный топ завершён</b>\nВаши награды:\n{lines}\nПодарки уже в инвентаре.', None, 'HTML', db=db)
+                notify(uid, f'🏆 <b>{_ns["escape"](title)} завершён</b>\nВы заняли призовое место!\n{lines}\n{tail}', None, 'HTML', db=db)
             except Exception:
                 _ns['app'].logger.exception('Leaderboard notification failed')
     if cfg['enabled'] and cfg['auto_repeat'] and reason == 'ended':
@@ -251,6 +279,16 @@ def place_of(db, user_id, period_id=None):
 def normalise_prize(raw):
     ns = _ns
     source = str(raw.get('source_type') or raw.get('type') or 'catalog')
+    if source == 'ton':
+        try:
+            amount = round(float(str(raw.get('price_ton') or raw.get('amount') or 0).replace(',', '.')), 2)
+        except (TypeError, ValueError):
+            amount = 0
+        if not 0.01 <= amount <= 100000:
+            raise ValueError('Сумма TON: от 0.01 до 100 000.')
+        out = dict(source_type='ton', gift_id='', name='%g TON' % amount, base_name='TON', model='', image_url='/static/img/ton.png', price_ton=amount)
+        out['id'] = _ns['secrets'].token_hex(5)
+        return out
     if source == 'fragment':
         gift = ns['fragment_gift_from_url'](raw.get('fragment_url') or raw.get('url'), True,
                                             allow_missing_price=raw.get('price_ton') not in (None, ''))
@@ -278,8 +316,6 @@ def normalise_prize(raw):
                    image_url=image, price_ton=price / 100)
     else:
         raise ValueError('Неизвестный источник подарка.')
-    if ns['gift_black_background'](out) and not ns['black_backgrounds_enabled']():
-        raise ValueError('Отображение Black и Onyx Black выключено.')
     out['id'] = _ns['secrets'].token_hex(5)
     return out
 
@@ -299,13 +335,20 @@ def register(app, ns):
             db.executescript(SCHEMA)
     except Exception:
         app.logger.exception('Leaderboard schema setup failed')
+    try:
+        with connect() as db:
+            have = {r['name'] for r in db.execute('PRAGMA table_info(lb_periods)').fetchall()} if not ns['DATABASE_URL'] else set()
+            if 'title' not in have:
+                db.execute("ALTER TABLE lb_periods ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass   # column already there (PostgreSQL) or the table is not reachable right now
 
     def period_view(db, period):
         if not period:
             return None
         stats = db.execute('SELECT COUNT(*) AS n,COALESCE(SUM(cents),0) AS total FROM lb_turnover WHERE period_id=? AND cents>0',
                            (period['id'],)).fetchone()
-        return dict(id=int(period['id']), starts_at=period['starts_at'], ends_at=period['ends_at'],
+        return dict(id=int(period['id']), title=season_title(db, period), starts_at=period['starts_at'], ends_at=period['ends_at'],
                     participants=int(stats['n']), turnover=int(stats['total']) / 100)
 
     def rewards_view(cfg):
@@ -356,7 +399,7 @@ def register(app, ns):
             top = [dict(place=i, user_id=int(r['user_id']), name=(names[int(r['user_id'])]['name'] if int(r['user_id']) in names else ''),
                         username=(names[int(r['user_id'])]['username'] if int(r['user_id']) in names else ''),
                         turnover=int(r['cents']) / 100) for i, r in enumerate(rows, 1)]
-            history = [dict(id=int(r['id']), starts_at=r['starts_at'], ends_at=r['ends_at'], finished_at=r['finished_at'], reason=r['finish_reason'])
+            history = [dict(id=int(r['id']), title=season_title(db, r), starts_at=r['starts_at'], ends_at=r['ends_at'], finished_at=r['finished_at'], reason=r['finish_reason'])
                        for r in db.execute("SELECT * FROM lb_periods WHERE status='finished' ORDER BY id DESC LIMIT 8").fetchall()]
             awards = [dict(period_id=int(r['period_id']), place=int(r['place']), user_id=int(r['user_id']), gift_name=r['gift_name'],
                            image_url=r['image_url'], price_ton=int(r['floor_price'] or 0) / 100, created_at=r['created_at'])
@@ -435,7 +478,7 @@ def register(app, ns):
                 return error('Окончание должно быть в будущем.')
             if end - start > timedelta(days=90):
                 return error('Сезон не может быть длиннее 90 дней.')
-            db.execute("INSERT INTO lb_periods(starts_at,ends_at,status) VALUES(?,?,'active')", (iso(start), iso(end)))
+            db.execute("INSERT INTO lb_periods(starts_at,ends_at,status,title) VALUES(?,?,'active',?)", (iso(start), iso(end), str(data.get('title') or '').strip()[:40]))
             db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
                        (session['uid'], session['uid'], 'leaderboard_start', iso(end)))
         _cache.update(id=0, ends=0.0, at=0.0)
@@ -449,6 +492,11 @@ def register(app, ns):
             period = active_period(db)
             if not period:
                 return error('Таблица лидеров выключена.', 409)
+            if 'title' in data:
+                db.execute('UPDATE lb_periods SET title=? WHERE id=?', (str(data.get('title') or '').strip()[:40], period['id']))
+                if not data.get('ends_at') and not data.get('extend_hours'):
+                    _cache.update(id=0, ends=0.0, at=0.0)
+                    return jsonify(ok=True)
             if data.get('ends_at'):
                 end = parse(data['ends_at'])
             else:
@@ -461,6 +509,21 @@ def register(app, ns):
             db.execute('UPDATE lb_periods SET ends_at=? WHERE id=?', (iso(end), period['id']))
         _cache.update(id=0, ends=0.0, at=0.0)
         return jsonify(ok=True, ends_at=iso(end))
+
+    @app.post('/api/admin/leaderboard/reset-standings')
+    @admin
+    def admin_leaderboard_reset_standings():
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            period = active_period(db)
+            if not period:
+                return error('Сезон не запущен.', 409)
+            removed = db.execute('SELECT COUNT(*) AS n FROM lb_turnover WHERE period_id=?', (period['id'],)).fetchone()['n']
+            db.execute('DELETE FROM lb_turnover WHERE period_id=?', (period['id'],))
+            db.execute('INSERT INTO admin_log(admin_id,user_id,action,details) VALUES(?,?,?,?)',
+                       (session['uid'], session['uid'], 'leaderboard_reset_standings', 'removed %s' % removed))
+        _cache.update(id=0, ends=0.0, at=0.0)
+        return jsonify(ok=True, removed=int(removed))
 
     @app.post('/api/admin/leaderboard/finish')
     @admin

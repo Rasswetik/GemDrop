@@ -18724,11 +18724,11 @@ function lbPodium(top,rewards,live){let box=$('lbPodium');box.replaceChildren();
   col.append(av,who,ped);if(!free)col.onclick=()=>openPublicProfile(r.user_id);box.append(col)})}
 function lbIntroCards(rewards){let box=$('lbiCards');box.replaceChildren();Object.keys(rewards).map(Number).sort((a,b)=>a-b).forEach(p=>{let items=rewards[p];if(!items||!items.length)return;let g=items[0],c=document.createElement('div');c.className='lbi-c p'+Math.min(p,4);let h=document.createElement('b');h.innerHTML='<i>'+p+'</i>Место';let nm=document.createElement('span');nm.textContent=items.map(x=>x.name).join(' + ');let pr=document.createElement('small');pr.textContent='◆ '+money(items.reduce((a,x)=>a+Number(x.price_ton||0),0));c.append(h,lbGift(g),nm,pr);box.append(c)});box.classList.toggle('hidden',!box.childElementCount)}
 function lbIntroKey(pid){let u='x';try{u=(user&&user.id)||'x'}catch(e){}return'gd_lb_intro_v2_'+u+'_'+pid}
-function lbIntroOpen(){let d=LBD.data;if(!d||!d.period)return;$('lbiSeason').textContent='Сезон '+d.period.id;lbIntroCards(d.rewards||{});$('lbIntro').classList.remove('hidden');$('lbIntro').querySelector('.lbi-card').scrollTop=0;lbTick()}
+function lbIntroOpen(){let d=LBD.data;if(!d||!d.period)return;$('lbiSeason').textContent=d.period.title||('Сезон '+d.period.id);lbIntroCards(d.rewards||{});$('lbIntro').classList.remove('hidden');$('lbIntro').querySelector('.lbi-card').scrollTop=0;lbTick()}
 function lbIntroMaybe(){let d=LBD.data;if(!d||!d.enabled||!d.period)return;let k=lbIntroKey(d.period.id);try{if(localStorage.getItem(k))return;localStorage.setItem(k,'1')}catch(e){return}if(document.querySelector('.modal:not(.hidden)'))return;lbIntroOpen()}
 function lbRender(d){LBD.data=d;if(!d||!d.enabled){$('lbList').innerHTML='<div class="lb-empty">Лидерборд временно недоступен</div>';$('lbMe').classList.add('hidden');$('lbPodium').replaceChildren();LBD.end=0;lbTick();return}
  let live=!!d.period,rewards=d.rewards||{};let e=live&&d.period.ends_at?new Date(String(d.period.ends_at).replace(' ','T')+(/[zZ]|[+-]\d\d:?\d\d$/.test(d.period.ends_at)?'':'Z')):null;LBD.end=e&&!isNaN(e)?e.getTime():0;lbTick();
- $('lbSub').textContent=live?'Играйте в любые игры — призы получают лучшие по обороту за сезон':'Сезон ещё не начался. Следите за анонсами!';
+ $('lbSub').textContent=live?((d.period&&d.period.title?d.period.title+' · ':'')+'играйте в любые игры — призы получают лучшие по обороту за сезон'):'Сезон ещё не начался. Следите за анонсами!';
  lbPodium(d.top||[],rewards,live);
  let list=$('lbList');list.replaceChildren();let frag=document.createDocumentFragment();for(let i=4;i<=100;i++){let r=(d.top||[]).find(x=>x.place===i);frag.append(lbRow(r?Object.assign({},r,{rewards:rewards[i]||[]}):{place:i,empty:true,rewards:rewards[i]||[]},false))}list.append(frag);
  let me=$('lbMe');me.replaceChildren();me.classList.toggle('hidden',!live);if(live)me.append(lbRow(Object.assign({},d.me),true))}
@@ -19844,6 +19844,15 @@ html body #publicProfileModal .pp-tabs button small{text-transform:none!importan
 </script>
 
 <style id="mines-ladder-up">html body[data-page="minesPage"][data-page] #minesPage .mines-layout{margin-top:-16px!important}html body[data-page="minesPage"][data-page] #minesPage .ladder{margin-top:0!important}</style>
+<style id="mines-cards-v2">
+/* Mines: board and bet form sit in their own cards again, the ladder is a separate strip above */
+html body[data-page="minesPage"][data-page] #minesPage .ladder{margin-bottom:16px!important;background:#12141c;border-color:rgba(255,255,255,.07)}
+html body[data-page="minesPage"][data-page] #minesPage .board{padding:22px!important;gap:10px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:26px!important;background:radial-gradient(120% 80% at 50% 0,#1a1d2b,#10121a 70%)!important;box-shadow:0 14px 34px #0006,inset 0 1px #ffffff0a!important;box-sizing:border-box}
+html body[data-page="minesPage"][data-page] #minesPage .mines-settings{padding:20px 18px 18px!important;border:1px solid rgba(255,255,255,.07)!important;border-radius:26px!important;background:linear-gradient(180deg,#151822,#10121a)!important;box-shadow:0 14px 34px #0006,inset 0 1px #ffffff0a!important;box-sizing:border-box}
+@media(max-width:380px){html body[data-page="minesPage"][data-page] #minesPage .board{padding:16px!important;gap:8px!important}}
+html.hw body[data-page="minesPage"][data-page] #minesPage .board{background:radial-gradient(120% 80% at 50% 0,#2a1750,#150b26 70%)!important;border-color:rgba(182,140,255,.22)!important}
+html.hw body[data-page="minesPage"][data-page] #minesPage .mines-settings{background:linear-gradient(180deg,#24133f,#150b26)!important;border-color:rgba(182,140,255,.22)!important}
+</style>
 <style id="pp-neutral-v7">
 /* profile: less blue, neutral dark with a soft blue accent */
 html body #publicProfileModal .public-profile-card{background:radial-gradient(120% 50% at 50% 0,rgba(61,179,250,.07),transparent 60%),linear-gradient(180deg,#191b22,#101116 60%)!important;border-color:rgba(255,255,255,.08)!important}

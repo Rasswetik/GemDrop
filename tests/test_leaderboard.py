@@ -55,6 +55,28 @@ class LeaderboardTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/leaderboard/weekly').get_json()['top'], [])
             self.assertIsNone(self.client.get('/api/leaderboard/weekly').get_json()['period'])
 
+    def test_season_title_ton_prize_and_standings_reset(self):
+        self.reset()
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/leaderboard/start', {'hours': 24, 'title': 'Осенний сезон'})
+            self.assertEqual(self.client.get('/api/leaderboard/weekly').get_json()['period']['title'], 'Осенний сезон')
+            self.post('/api/admin/leaderboard/period', {'title': 'Сезон 7'})
+            self.assertEqual(self.client.get('/api/leaderboard/weekly').get_json()['period']['title'], 'Сезон 7')
+            self.post('/api/admin/leaderboard/rewards/1', {'prizes': [{'_new': True, 'source_type': 'ton', 'price_ton': '25'}]})
+            self.post('/api/admin/leaderboard/rewards/2', {'prizes': [{'_new': True, 'source_type': 'ton', 'price_ton': '0'}]}, 400)
+            with m.connect() as db:
+                m.increase_turnover(db, self.uid, 1000)
+            self.assertEqual(len(self.client.get('/api/leaderboard/weekly').get_json()['top']), 1)
+            self.assertEqual(self.post('/api/admin/leaderboard/reset-standings', {})['removed'], 1)
+            self.assertEqual(self.client.get('/api/leaderboard/weekly').get_json()['top'], [])
+            with m.connect() as db:
+                m.increase_turnover(db, self.uid, 1000)
+                before = db.execute('SELECT balance FROM users WHERE id=?', (self.uid,)).fetchone()[0]
+            self.post('/api/admin/leaderboard/finish', {'award': True})
+            with m.connect() as db:
+                after = db.execute('SELECT balance FROM users WHERE id=?', (self.uid,)).fetchone()[0]
+            self.assertEqual(after - before, 2500)
+
     def test_hilo_prize_is_base_gift_with_hidden_random_model(self):
         gifts = [{'id': 'hb', 'name': 'Hilo Base', 'price_ton': 5, 'image_url': 'https://example.com/b.png', 'image_match': True}]
         m.save_document('portal_catalog', {'gifts': gifts})

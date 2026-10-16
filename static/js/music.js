@@ -188,7 +188,7 @@
       '<div class="pls-list">' + PL.list.map(function (x, j) { return '<button type="button" class="pls-it' + (j === PL.i ? ' cur' : '') + '" data-j="' + j + '">' + (window.GDMedals ? GDMedals.svg(x, 38, true) : '') + '<span>' + esc(KEYS[x]) + '</span>' + (j === PL.i ? '<i>играет</i>' : '') + '</button>'; }).join('') + '</div>';
     var seek = body.querySelector('.pls-seek'), vl = body.querySelector('.pls-vl');
     vl.style.setProperty('--p', vl.value + '%');
-    vl.oninput = function () { PL.vol = vl.value / 100; vl.style.setProperty('--p', vl.value + '%'); if (PL.a) PL.a.volume = PL.vol; try { localStorage.setItem('gd_pl_vol', String(PL.vol)); } catch (e) {} };
+    vl.oninput = function () { PL.vol = vl.value / 100; vl.style.setProperty('--p', vl.value + '%'); plSetVol(); try { localStorage.setItem('gd_pl_vol', String(PL.vol)); } catch (e) {} };
     body.querySelector('.pls-pp').onclick = function () { if (PL.a && !PL.a.paused) PL.a.pause(); else plPlay(PL.i); };
     body.querySelector('.pls-nx').onclick = function () { plStep(1); };
     body.querySelector('.pls-pv').onclick = function () { plStep(-1); };
@@ -199,6 +199,17 @@
     seek.oninput = function () { if (PL.a && PL.a.duration) { PL.a.currentTime = seek.value / 1000 * PL.a.duration; seek.style.setProperty('--p', seek.value / 10 + '%'); } };
     plUi();
   }
+  /* iOS Safari/Telegram ignores audio.volume, so the player volume goes through a Web Audio gain node */
+  function plGain(a) {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) throw 0;
+      if (!PL.ctx) { PL.ctx = new AC(); PL.gain = PL.ctx.createGain(); PL.gain.connect(PL.ctx.destination); }
+      if (PL.ctx.state === 'suspended' && PL.ctx.resume) PL.ctx.resume();
+      PL.ctx.createMediaElementSource(a).connect(PL.gain);
+      PL.gain.gain.value = PL.vol; a.volume = 1; PL.web = true;
+    } catch (e) { PL.web = false; a.volume = PL.vol; }
+  }
+  function plSetVol() { if (PL.web && PL.gain) PL.gain.gain.value = PL.vol; else if (PL.a) PL.a.volume = PL.vol; }
   function plStep(d) {
     var n = PL.list.length; if (!n) return;
     var j = PL.shuffle && n > 1 ? (PL.i + 1 + Math.floor(Math.random() * (n - 1))) % n : ((PL.i + d) % n + n) % n;
@@ -210,7 +221,7 @@
       if (!pk) return;
       stop(); stopProfile(); H.a && hypeEnd(300);
       if (PL.a) { try { PL.a.pause(); } catch (e) {} PL.a = null; }
-      PL.i = j; var a = new Audio(pk.url); a.volume = PL.vol; a.loop = false; PL.a = a;
+      PL.i = j; var a = new Audio(pk.url); a.loop = false; PL.a = a; plGain(a);
       a.addEventListener('play', plUi); a.addEventListener('pause', plUi);
       a.addEventListener('ended', function () { if (PL.a === a) plStep(1); });
       a.addEventListener('timeupdate', function () {

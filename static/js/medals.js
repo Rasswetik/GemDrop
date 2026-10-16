@@ -159,7 +159,7 @@
   function svg(key, size, still, opt) {
     opt = opt || {};
     css();
-    if (T3[key] && !(opt && (opt.noRibbon || opt.ribbonOnly))) { var iw = size || 64, ih = Math.round(iw * 110 / 96); return '<svg class="gdm st" data-mk="' + key + '" width="' + iw + '" height="' + ih + '" viewBox="0 0 96 110" aria-hidden="true"><image href="' + T3[key] + '" x="0" y="0" width="96" height="110"/></svg>'; }
+    if (T3[key] && !(opt && (opt.noRibbon || opt.ribbonOnly))) { var iw = size || 64, ih = Math.round(iw * 110 / 96); return '<svg class="gdm st" data-mk="' + key + '" width="' + iw + '" height="' + ih + '" viewBox="0 0 96 110" aria-hidden="true"><image href="' + T3[key] + '" x="0" y="0" width="96" height="110"/>' + ((BY[key] || {}).place ? '<rect x="36" y="92" width="24" height="15" rx="7.5" fill="rgba(10,10,25,.82)" stroke="#fff" stroke-opacity=".6"/><text x="48" y="103" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="900" fill="#fff">' + BY[key].place + '</text>' : '') + '</svg>'; }
     var m = BY[key] || BY.c1, p = PAL[AUTHOR3[key] ? 'red' : (m.pal || 'gold')], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : AUTHOR3[m.key] ? 118 : 110, h = Math.round(w * vh / 96), sh = AUTHOR3[m.key] ? 'round' : (m.shape || 'round'), i, a;
     var rar = m.img ? 'common' : (m.rarity || 'common'), st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
     var top = sh === 'hex' ? 22.5 : (sh === 'seal' ? 23.4 : 24);

@@ -75,7 +75,7 @@
   K.register({id: 'freebetsAdminPage', title: 'Freebet', async render(root) {
     const preset = K.preset; K.preset = null;
     const [list0, creators] = await Promise.all([api('/api/admin/freebets'), api('/api/admin/creators').then(d => d.items || []).catch(() => [])]);
-    const REW = [['balance', 'Баланс TON'], ['pumpkins', 'Тыквы (Хэллоуин)'], ['gift', 'Подарок'], ['wager_gift', 'Отыгрышный подарок'], ['deposit_bonus', 'Бонус на пополнение'], ['multi', 'Несколько наград']];
+    const REW = [['balance', 'Баланс TON'], ['pumpkins', 'Тыквы (Хэллоуин)'], ['gift', 'Подарок'], ['wager_gift', 'Отыгрышный подарок'], ['medal', 'Только медаль'], ['deposit_bonus', 'Бонус на пополнение'], ['multi', 'Несколько наград']];
     const code = K.input({maxLength: 32, placeholder: 'FB_... (можно оставить пустым)'});
     const author = K.select([['0', 'Без автора'], ...creators.map(c => [String(c.id), (c.name || 'Автор') + (c.username ? ' · @' + c.username : '') + ' · ID ' + c.id])], preset?.author ? String(preset.author) : '0');
     const type = K.select(REW, 'balance'), target = K.select([['main', 'Основной баланс'], ['bonus', 'Бонусный баланс']], 'main');
@@ -121,7 +121,7 @@
       h('div', {class: 'group-title', text: 'Условия'}), reqSub,
       h('div', {class: 'form-grid'}, K.field('Мин. уровень GemDrop', minLevel), K.field('Telegram Rating level', tgLevel), K.field('Мин. оборот, TON', turnover), K.field('Мин. подтверждённый депозит, TON', actDep, '0 = без условия'), K.field('Фрибет действует, дней', expDays), K.field('Лимит активаций · 0 = ∞', maxUses))], async () => {
       const t = type.value;
-      const d = await api('/api/admin/freebets', {medal: medalSel.value, code: code.value, reward_type: t, balance_target: target.value, amount: amount.value, pumpkins: pumpkins.value, gift_id: gift.value, wager_multiplier: wagerX.value, wager_attempts: lives.value, gift_expires_days: giftDays.value, burn_pool_enabled: burn.querySelector('input').checked, burn_fragment_url: burnUrl.value, bonus_percent: pct.value, bonus_fixed: fixed.value, min_deposit: minDep.value, components: t === 'multi' ? comps() : undefined, require_subscription: reqSub.input.checked, min_level: minLevel.value, min_telegram_level: tgLevel.value, min_turnover: turnover.value, activation_min_deposit: actDep.value, expires_in_days: expDays.value, max_uses: maxUses.value, author_user_id: author.value});
+      if (type.value === 'medal' && !medalSel.value) throw new Error('Выберите медаль'); const d = await api('/api/admin/freebets', {medal: medalSel.value, code: code.value, reward_type: t, balance_target: target.value, amount: amount.value, pumpkins: pumpkins.value, gift_id: gift.value, wager_multiplier: wagerX.value, wager_attempts: lives.value, gift_expires_days: giftDays.value, burn_pool_enabled: burn.querySelector('input').checked, burn_fragment_url: burnUrl.value, bonus_percent: pct.value, bonus_fixed: fixed.value, min_deposit: minDep.value, components: t === 'multi' ? comps() : undefined, require_subscription: reqSub.input.checked, min_level: minLevel.value, min_telegram_level: tgLevel.value, min_turnover: turnover.value, activation_min_deposit: actDep.value, expires_in_days: expDays.value, max_uses: maxUses.value, author_user_id: author.value});
       code.value = ''; K.ok('Фрибет создан'); await reload(); if (d.link) K.copy(d.link);
     }, 'Создать фрибет');
     paint(list0);

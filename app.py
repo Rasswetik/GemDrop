@@ -11008,6 +11008,12 @@ def apply_freebet_reward(db, promo, user_id, freebet_code):
         hw_add_pumpkins(db, user_id, qty, earned=False)
         reward = dict(type='pumpkins', amount=qty)
         record_transaction(db, user_id, 'freebet_pumpkins', 0, 'freebet', freebet_code, f'Freebet {freebet_code} · {qty} тыкв')
+    elif reward_type == 'medal':
+        link = leaderboard.promo_medals().get(freebet_code) or {}
+        mk = str(link.get('medal') or '')
+        if not mk or not leaderboard.award_medal(db, user_id, mk, link.get('title') or ('Freebet ' + freebet_code)):
+            raise ValueError('Награда фрибета настроена неверно.')
+        reward = dict(type='medal', medal=mk, name=leaderboard.mname(mk))
     elif reward_type == 'gift':
         bo, br, bp = bonus_inventory_clause(promo_balance_target(promo), promo['gift_price'])
         cur = db.execute("INSERT INTO inventory(user_id,gift_id,gift_name,image_url,floor_price,source,external_url,bonus_origin,bonus_unlock_required,bonus_unlock_progress) VALUES(?,?,?,?,?,'freebet',?,?,?,?)",
@@ -11241,7 +11247,9 @@ def try_activate_freebet(user_id, code):
                    (code, user_id, json.dumps(reward, ensure_ascii=False)))
         db.execute('UPDATE freebets SET uses_count=uses_count+1 WHERE code=?', (code,))
         db.commit()
-        if reward.get('type') == 'pumpkins':
+        if reward.get('type') == 'medal':
+            text = '🏅 Фрибет активирован! Вы получили медаль <b>' + escape(str(reward.get('name') or '')) + '</b>. Она уже в вашей коллекции.'
+        elif reward.get('type') == 'pumpkins':
             qty = int(reward.get('amount') or 0)
             text = render_notice('freebet_pumpkins', {'amount': qty, 'word': pumpkin_word(qty)},
                                  {'pumpkin': pumpkin_emoji_html()})
@@ -17751,6 +17759,10 @@ def _freebet_backing_values(data, code):
         amount = parse_amount(data.get('amount'))
         if not 1 <= amount <= 100000000:
             raise ValueError('Сумма фрибета должна быть от 0.01 до 1 000 000 TON.')
+    elif reward_type == 'medal':
+        if str(data.get('medal') or '').strip() not in leaderboard.all_names():
+            raise ValueError('Выберите медаль для Freebet.')
+        amount = 0
     elif reward_type == 'pumpkins':
         try:
             amount = int(float(str(data.get('pumpkins') or data.get('amount') or 0).replace(',', '.')))
@@ -19507,8 +19519,10 @@ def creator_create_bonus():
     if kind not in ('freebet', 'promocode'):
         return error('Выберите Freebet или промокод.')
     medal_key = str(data.get('medal') or '').strip()
-    if reward_type not in ('balance', 'wager_gift'):
-        return error('Авторам доступны TON или отыгрышный подарок.')
+    if reward_type not in ('balance', 'wager_gift', 'medal'):
+        return error('Авторам доступны TON, отыгрышный подарок или только медаль.')
+    if reward_type == 'medal' and not medal_key:
+        return error('Выберите медаль.')
     code = str(data.get('code') or '').strip().upper()
     if code and not re.fullmatch(r'[A-Z0-9_-]{3,32}', code):
         return error('Код: 3–32 символа, только A-Z, 0-9, _ и -. Можно оставить поле пустым — код сгенерируется автоматически.')
@@ -19549,7 +19563,7 @@ def creator_create_bonus():
             return error('Укажите сумму TON с точностью до 0.01.')
         if amount < 1:
             return error('Минимальная награда — 0.01 TON.')
-    else:
+    elif reward_type == 'wager_gift':
         if cfg['wager_daily_limit'] <= 0:
             return error('Отыгрышные подарки доступны с уровня Creator.', 403)
         if max_uses > int(cfg['wager_max_uses']):
@@ -19606,7 +19620,7 @@ def creator_create_bonus():
             target_remaining = max(0, target_limit - target_used)
             if cost > total_remaining or cost > target_remaining:
                 return error(f'Превышен дневной лимит {target_name} баланса. Осталось {target_remaining/100:.2f} TON.', 409)
-        elif int(usage['wager_count']) >= int(cfg['wager_daily_limit']):
+        elif reward_type == 'wager_gift' and int(usage['wager_count']) >= int(cfg['wager_daily_limit']):
             return error(f'Дневной лимит отыгрышных подарков: {cfg["wager_daily_limit"]}.', 409)
         source = 'Freebet' if kind == 'freebet' else 'Creator'
         active = 0 if kind == 'freebet' else 1

@@ -283,3 +283,21 @@ class CreatorMedalTests(unittest.TestCase):
             panel = self.client.get('/api/creator/medals').get_json()
             self.assertEqual(panel['medals'][0]['key'], 'goshan')
             self.assertIn('owners', panel['medals'][0])
+            self.post('/api/creator/bonus-builder', {'kind': 'freebet', 'reward_type': 'medal', 'max_uses': '5', 'code': 'CRMEDAL1'}, 400)
+            made = self.post('/api/creator/bonus-builder', {'kind': 'freebet', 'reward_type': 'medal', 'max_uses': '5', 'code': 'CRMEDAL1', 'medal': 'goshan'})
+            self.assertEqual(made['code'], 'CRMEDAL1')
+            self.assertEqual(self.client.get('/api/creator/medals').get_json()['medal_week']['left'], 0)
+
+    def test_freebet_with_only_a_medal(self):
+        with patch.object(m, 'ADMIN_IDS', {self.uid}):
+            self.post('/api/admin/freebets', {'code': 'MEDFB1', 'reward_type': 'medal', 'max_uses': 3}, 400)
+            self.post('/api/admin/freebets', {'code': 'MEDFB1', 'reward_type': 'medal', 'medal': 'kess', 'max_uses': 3})
+        guest = self.uid + 9300
+        with m.connect() as db:
+            db.execute('INSERT OR IGNORE INTO users(id,name,username,photo_url) VALUES(?,?,?,?)', (guest, 'G', 'g%d' % guest, ''))
+            db.commit()
+        res = m.try_activate_freebet(guest, 'MEDFB1')
+        self.assertEqual(res['status'], 'ok', res)
+        self.assertEqual(res['reward']['medal'], 'kess')
+        with m.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) AS n FROM user_medals WHERE user_id=? AND medal_key='kess'", (guest,)).fetchone()['n'], 1)

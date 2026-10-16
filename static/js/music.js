@@ -86,6 +86,7 @@
     '.mpl-art{grid-row:1;width:64px;height:64px;display:grid;place-items:center;position:relative}.mpl-art:before{content:"";position:absolute;inset:-6px;border-radius:50%;background:radial-gradient(circle,rgba(71,176,245,.45),transparent 70%);opacity:.5;transition:opacity .4s}.mpl.on .mpl-art:before{opacity:1}.mpl-art .gdm{width:64px;height:auto;position:relative}' +
     '.mpl-t{min-width:0;display:flex;flex-direction:column;gap:3px}.mpl-t b{font-size:16px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mpl-t small{font-size:12px;color:var(--muted,#96a0a8);display:flex;align-items:center}' +
     '.mpl-pp{width:50px;height:50px;border-radius:50%;border:0;background:linear-gradient(135deg,#9ae9e3,#47b0f5);cursor:pointer;display:grid;place-items:center;padding:0;box-shadow:0 6px 18px rgba(71,176,245,.45);transition:transform .15s}.mpl-pp:active{transform:scale(.92)}.mpl-pp svg{width:20px;height:20px;fill:#0f1326}' +
+    '.mpl-ctl{display:flex;align-items:center;gap:8px}.mpl-nx{width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);cursor:pointer;display:grid;place-items:center;padding:0}.mpl-nx:active{transform:scale(.92)}.mpl-nx svg{width:16px;height:16px;fill:#dfe6ee}' +
     '.mpl-bar{grid-column:1/4;display:flex;align-items:center;gap:10px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted,#96a0a8)}.mpl-bar span{min-width:30px}.mpl-bar span:last-child{text-align:right}' +
     '.mpl-bar input[type=range]{--p:0%;flex:1;min-width:0;height:5px;border-radius:5px;-webkit-appearance:none;appearance:none;outline:0;cursor:pointer;background:linear-gradient(90deg,#9ae9e3,#47b0f5) 0/var(--p) 100% no-repeat,rgba(255,255,255,.14)}' +
     '.mpl-bar input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}.mpl-bar input[type=range]::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}' +
@@ -101,20 +102,24 @@
     var v0 = a.volume, t0 = performance.now();
     (function step(now) { var q = Math.min(1, (now - t0) / 700); a.volume = Math.max(0, v0 * (1 - q)); if (q < 1) requestAnimationFrame(step); else try { a.pause(); } catch (e) {} })(t0);
   }
+  var PREV = '<svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>', NEXT = '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>';
   var PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   window.GDMusicProfile = function (d) {
     removePlayer(); stop(); var tk = P.tk = (P.tk || 0) + 1; READY.then(function () { if (P.tk === tk) buildProfile(d, tk); });
   };
-  function buildProfile(d, tk) {
+  function buildProfile(d, tk, idx, auto) {
     removePlayer();
     var chip = document.getElementById('ppMedals'); if (!chip) return;
-    var key = ((d && d.medals) || []).map(function (m) { return m.key; }).filter(function (k) { return KEYS[k]; })[0];
-    if (!key) return;
+    var keys = [], seenK = {};
+    ((d && d.medals) || []).forEach(function (m) { if (KEYS[m.key] && !seenK[m.key]) { seenK[m.key] = 1; keys.push(m.key); } });
+    if (!keys.length) return;
+    idx = ((idx || 0) % keys.length + keys.length) % keys.length;
+    var key = keys[idx], multi = keys.length > 1;
     pick(key, false).then(function (pk) { var has = !!pk;
       if (!has || P.tk !== tk || !document.getElementById('ppMedals')) return;
       removePlayer();
       var el = document.createElement('div'); el.id = 'ppPlayer'; el.className = 'mplw';
-      el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key].replace(/</g, '&lt;') + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' +
+      el.innerHTML = '<div class="mpl-sep">Трек медали</div><div class="mpl"><div class="mpl-art">' + (window.GDMedals ? GDMedals.svg(key, 64, true) : '') + '</div><div class="mpl-t"><b>' + KEYS[key].replace(/</g, '&lt;') + '</b><small><span class="mpl-eq"><i></i><i></i><i></i></span>Играет сейчас</small></div><div class="mpl-ctl">' + (multi ? '<button type="button" class="mpl-nx" data-d="-1" aria-label="Предыдущий трек">' + PREV + '</button>' : '') + '<button type="button" class="mpl-pp" aria-label="Играть">' + PLAY + '</button>' + (multi ? '<button type="button" class="mpl-nx" data-d="1" aria-label="Следующий трек">' + NEXT + '</button>' : '') + '</div>' +
         '<div class="mpl-bar"><span class="mpl-c">0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="mpl-d">0:00</span></div></div>';
       chip.parentNode.insertBefore(el, chip.nextSibling);
       var a = new Audio(pk.url); a.preload = 'auto'; P.a = a;
@@ -126,7 +131,11 @@
       rng.addEventListener('input', function () { seeking = true; if (a.duration) { a.currentTime = rng.value / 1000 * a.duration; rng.style.setProperty('--p', rng.value / 10 + '%'); c.textContent = fmt(a.currentTime); } });
       rng.addEventListener('change', function () { seeking = false; });
       btn.onclick = function () { if (a.paused) { stop(); a.play().catch(function () {}); } else a.pause(); };
-      a.volume = .8; if (enabled()) { stop(); a.play().catch(function () {}); }       // starts by itself; the browser may need a tap
+      el.querySelectorAll('.mpl-nx').forEach(function (nb) {
+        nb.onclick = function () { var was = !a.paused; buildProfile(d, tk, idx + Number(nb.dataset.d), was); };
+      });
+      if (multi) { var cnt = el.querySelector('.mpl-t small'); cnt.insertAdjacentHTML('beforeend', '<span style="margin-left:8px;opacity:.75">' + (idx + 1) + ' / ' + keys.length + '</span>'); }
+      a.volume = .8; if (auto === undefined ? enabled() : auto) { stop(); a.play().catch(function () {}); }       // starts by itself; the browser may need a tap
     });
   }
   var mo = document.getElementById('publicProfileModal');

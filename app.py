@@ -14781,7 +14781,9 @@ def arena_bot_tick(db, now):
         if now >= int(row['close_at']) - ARENA_SNIPE_WINDOW_MS - 400:
             return False
     else:
-        due = int(row['open_at'] or now) + 2500 + d[1] % 6000
+        # Never open a round on its own: a lone bot gets refunded when the timer ends, then re-bets,
+        # and the arena would "start" forever. The bot only joins once a real player has started the timer.
+        return False
     if now < due:
         return False
     if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():

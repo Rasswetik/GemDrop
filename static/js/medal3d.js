@@ -286,20 +286,78 @@
 
   /* ---------- 3D profile frames (ring + ornaments), rendered to a transparent PNG ---------- */
   function buildFrame(geo, f) {
-    var p = (f.pal || ['#fff3b0', '#ffc933', '#a86a05', '#ffe58a']).map(hx), i, n = f.n || 12, Ro = .0505, cw = p[1], cl = p[0], cd = p[2];
-    var ringCol = f.ring ? hx(f.ring) : cw;
-    torus(geo, 0, 0, 0, .0415, .0042, ringCol, .9, .2); torus(geo, 0, 0, .001, .0376, .0015, cl, .95, .12); torus(geo, 0, 0, -.001, .0456, .0012, cd, .85, .25);
-    var m = f.m, ang = function (k, off) { return k / n * Math.PI * 2 + (off || 0); };
-    if (m === 'spikes') { for (i = 0; i < n; i++) { var a = ang(i), lg = i % 2 ? .8 : 1.15; cone(geo, [Math.cos(a) * .0465, Math.sin(a) * .0465, 0], nrm([Math.cos(a), Math.sin(a), .1]), .0042, .0135 * lg, [.8, .83, .95], .95, .16); } }
-    else if (m === 'studs') { var PC = f.cols || [[1, .1, .55], [1, .86, .05], [.05, .8, .95], [1, .45, .05]]; for (i = 0; i < n; i++) { var a2 = ang(i, .1); ell(geo, {c: [Math.cos(a2) * Ro, Math.sin(a2) * Ro, .002], r: [.0058, .0058, .0058]}, PC[i % PC.length], .1, .25); } }
-    else if (m === 'leaves') { for (i = 0; i < n; i++) { var a3 = ang(i, .1); ell(geo, {c: [Math.cos(a3) * .0485, Math.sin(a3) * .0485, .002], r: [.0096, .0036, .0024], rol: a3 + Math.PI / 2 + (i % 2 ? .45 : -.45)}, f.leaf ? hx(f.leaf) : [1, .8, .3], .9, .22); } }
-    else if (m === 'links') { for (i = 0; i < n; i++) { var a4 = ang(i); ell(geo, {c: [Math.cos(a4) * .0488, Math.sin(a4) * .0488, .002], r: i % 2 ? [.0034, .0062, .0026] : [.0062, .0034, .0034], rol: a4, pit: i % 2 ? 0 : 1.2}, [1, .8, .22], .95, .16); } }
-    else if (m === 'neon') { torus(geo, 0, 0, 0, .0452, .0022, [1, .3, .75], .6, .08); torus(geo, 0, 0, .0016, .0458, .0012, [.5, .9, 1], .6, .06); for (i = 0; i < 4; i++) { var a5 = ang(i, .5, 0); ell(geo, {c: [Math.cos(a5 * 1) * .0545, Math.sin(a5) * .0545, .003], r: [.0042, .0012, .0012], rol: 0}, [1, 1, 1], 0, .2); ell(geo, {c: [Math.cos(a5) * .0545, Math.sin(a5) * .0545, .003], r: [.0012, .0042, .0012]}, [1, 1, 1], 0, .2); } }
-    else if (m === 'dice') { for (i = 0; i < n; i++) { var a6 = ang(i, .2); ell(geo, {c: [Math.cos(a6) * Ro, Math.sin(a6) * Ro, .004], r: [.0062, .0062, .0062], rol: a6, pw: .5}, [.95, .95, .98], .05, .3); ell(geo, {c: [Math.cos(a6) * Ro, Math.sin(a6) * Ro, .0108], r: [.0016, .0016, .0008]}, [.9, .1, .15], 0, .4); } }
-    else if (m === 'play') { for (i = 0; i < n; i++) { var a7 = ang(i, .2), cx = Math.cos(a7) * Ro, cy = Math.sin(a7) * Ro; ell(geo, {c: [cx, cy, .004], r: [.0088, .0062, .0034], pw: .5}, [1, .08, .08], .2, .25); cone(geo, [cx - .0022, cy, .0068], [1, 0, .05], .0032, .0056, [1, 1, 1], 0, .3); } }
-    else if (m === 'star') { for (i = 0; i < n; i++) { var a8 = ang(i, .2); emblem2(geo, 'star', .0, Math.cos(a8) * Ro, Math.sin(a8) * Ro, .3); } }
-    else if (HWK[m]) { for (i = 0; i < n; i++) { var a9 = ang(i, .2); emblem(geo, m, 0, Math.cos(a9) * Ro, Math.sin(a9) * Ro, .4); } }
-    else if (m) { for (i = 0; i < n; i++) { var a10 = ang(i, .2); emblem2(geo, m, 0, Math.cos(a10) * Ro, Math.sin(a10) * Ro, .4); } }
+    var p = (f.pal || ['#fff3b0', '#ffc933', '#a86a05', '#ffe58a']).map(hx), cl = p[0], cw = p[1], cd = p[2], ca = p[3], PI = Math.PI, cs = Math.cos, sn = Math.sin, R = .0415;
+    var ringCol = f.ring ? hx(f.ring) : cw, i, k;
+    var E = function (c, r, col, mf, rf, rol, pit, pw) { ell(geo, {c: c, r: r, rol: rol || 0, pit: pit || 0, pw: pw}, col, mf, rf); };
+    var G = [1, .8, .22], WH = [.97, .97, 1];
+    var mix = function (A, B, t) { return [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]; };
+    /* ---- ring body: every frame has its own ring profile ---- */
+    torus(geo, 0, 0, 0, R, .0042, ringCol, .9, .2); torus(geo, 0, 0, .001, R - .0039, .0015, cl, .95, .12); torus(geo, 0, 0, -.001, R + .0041, .0012, cd, .85, .25);
+    var rs = f.r || 'plain';
+    if (rs === 'rope') for (i = 0; i < 46; i++) { var a = i / 46 * PI * 2; E([cs(a) * R, sn(a) * R, .003], [.0056, .0021, .0024], i % 2 ? cl : cw, .9, .2, a + PI / 2 + .75); }
+    if (rs === 'faceted') for (i = 0; i < 22; i++) { var a1 = i / 22 * PI * 2; E([cs(a1) * R, sn(a1) * R, .0016], [.0068, .0038, .0044], i % 2 ? cl : ca, .9, .14, a1 + PI / 2, 0, .55); }
+    if (rs === 'beaded') for (i = 0; i < 30; i++) { var a2 = i / 30 * PI * 2; E([cs(a2) * R, sn(a2) * R, .002], [.0046, .0046, .0046], f.cols ? f.cols[i % f.cols.length] : (i % 2 ? ca : cw), .5, .2); }
+    if (rs === 'chain') for (i = 0; i < 20; i++) { var a3 = i / 20 * PI * 2; E([cs(a3) * R, sn(a3) * R, .002], i % 2 ? [.0036, .0066, .0028] : [.0068, .0036, .0036], i % 2 ? cl : cw, .95, .14, a3 + PI / 2, i % 2 ? 0 : .6); }
+    if (rs === 'double') { torus(geo, 0, 0, 0, R + .0075, .0018, mix(cw, cl, .4), .9, .2); for (i = 0; i < 12; i++) { var a4 = i / 12 * PI * 2 + .26; E([cs(a4) * (R + .0037), sn(a4) * (R + .0037), .003], [.0034, .0034, .0034], f.gem ? hx(f.gem) : ca, .4, .1); } }
+    if (rs === 'neon') { torus(geo, 0, 0, 0, .0452, .0022, [1, .3, .75], .6, .08); torus(geo, 0, 0, .0016, .0458, .0012, [.5, .9, 1], .6, .06); torus(geo, 0, 0, .0016, .0396, .0010, [1, .3, .75], .6, .08); }
+    /* ---- decorations ---- */
+    var pol = function (a, r) { return [cs(a) * r, sn(a) * r]; };
+    var wings = function (c1, c2, sc) {
+      sc = sc || .84; var lens = [.030, .037, .036, .031, .025, .019];
+      [-1, 1].forEach(function (sd) { for (k = 0; k < 6; k++) {
+        var th = (38 - k * 19) * PI / 180, d = [sd * cs(th), sn(th)], L = lens[k] * sc, b = [sd * .0468, .016 - k * .0046];
+        E([b[0] + d[0] * L, b[1] + d[1] * L, -.002 - k * .0003], [L, .0052 * sc, .0016], mix(c1, c2, k / 5), .7, .3, Math.atan2(d[1], d[0])); } });
+    };
+    var wreath = function (col, col2, a0, a1, n) {
+      for (i = 0; i <= n; i++) { var a = a0 + (a1 - a0) * i / n, q1 = pol(a, R + .0058), q2 = pol(a + (a1 - a0) / n / 2, R + .0082);
+        E([q1[0], q1[1], .003], [.0108, .0037, .0022], col, .5, .3, a + PI / 2 - .62); E([q2[0], q2[1], .0036], [.0098, .0034, .0022], col2 || col, .5, .3, a + PI / 2 + .62); }
+    };
+    var flames = function (c1, c2, n, hh) {
+      for (i = 0; i < n; i++) { var a = i / n * PI * 2, h = hh * (.7 + .3 * sn(i * 2.3 + 1) + .25 * cs(i * 1.1)), q = pol(a, R + .004), dd = nrm([cs(a), sn(a), .05]); dd = nrm([dd[0] - sn(a) * .45, dd[1] + cs(a) * .45, .05]);
+        cone(geo, [q[0], q[1], -.001], dd, .0062, h, c1, .1, .45); cone(geo, [q[0], q[1], .002], dd, .0036, h * .62, c2, .1, .4); }
+    };
+    var rays = function (col, n, h0, h1) { for (i = 0; i < n; i++) { var a = i / n * PI * 2 + .05, q = pol(a, R + .0055); cone(geo, [q[0], q[1], -.002], nrm([cs(a), sn(a), 0]), .0026, i % 2 ? h0 : h1, col, .95, .16); } };
+    var thorns = function (col) { for (i = 0; i < 26; i++) { var a = i / 26 * PI * 2 + .02, w = Math.pow((1 + sn(a)) / 2, 1.6), q = pol(a, R + .003); cone(geo, [q[0], q[1], 0], nrm([cs(a), sn(a), .08]), .0042, .008 + .03 * w + (i % 2 ? 0 : .004), col, .95, .16); } };
+    var sparkle = function (x, y, s, col) { E([x, y, .004], [.0078 * s, .0013 * s, .0013 * s], col, .3, .2); E([x, y, .004], [.0013 * s, .0078 * s, .0013 * s], col, .3, .2); E([x, y, .004], [.0026 * s, .0026 * s, .0026 * s], WH, 0, .2); };
+    var sparkles = function (col, arr) { arr.forEach(function (q) { var o = pol(q[0] * PI / 180, q[1]); sparkle(o[0], o[1], q[2], col); }); };
+    var bow = function (col, col2) {
+      [-1, 1].forEach(function (sd) { E([sd * .0092, -R - .0035, .007], [.0105, .0058, .0034], col, .3, .3, sd * -.4); tube(geo, [[sd * .003, -R - .003, .005], [sd * .009, -R - .016, .005], [sd * .0125, -R - .030, .005]], function (t) { return .0037 - .0013 * t; }, col2 || col, .3, .35); });
+      E([0, -R - .0035, .0085], [.0046, .0046, .0042], col2 || col, .3, .3);
+    };
+    var gems = function (col, angs) { angs.forEach(function (d) { var q = pol(d * PI / 180, R); E([q[0], q[1], .0046], [.0052, .0052, .0036], col, .4, .1); E([q[0] - .0012, q[1] + .0013, .0078], [.0015, .0011, .0008], WH, 0, .2); }); };
+    /* custom hero pieces */
+    var G2 = function (x, y, sc) { var K = 1.4 * sc; return {e: function (c, r, col, mf, rf, rol, pit, pw) { E([c[0] * K + x, c[1] * K + y, .004 + c[2]], [r[0] * K, r[1] * K, r[2] * K], col, mf, rf, rol, pit, pw); }, c: function (c, d, r, h, col, mf, rf) { cone(geo, [c[0] * K + x, c[1] * K + y, .004 + c[2]], d, r * K, h * K, col, mf, rf); }, t: function (P, rad, col, mf, rf) { tube(geo, P.map(function (q) { return [q[0] * K + x, q[1] * K + y, .004 + (q[2] || 0)]; }), function (t) { return rad(t) * K; }, col, mf, rf); }}; };
+    var custom = {
+      play: function (x, y, sc) { var g = G2(x, y, sc); g.e([0, 0, .004], [.0175, .0125, .0052], [1, .06, .06], .15, .25, 0, 0, .45); g.e([0, 0, .006], [.0155, .0105, .003], [1, .22, .18], .1, .3, 0, 0, .45); g.c([-.0045, 0, .0095], [1, 0, 0], .0062, .0115, WH, 0, .3); },
+      bolt: function (x, y, sc) { var g = G2(x, y, sc); g.t([[.006, .022], [-.006, .003], [.005, .002], [-.007, -.023]], function () { return .0042; }, [1, .85, .15], .9, .15); g.t([[.006, .022], [-.006, .003], [.005, .002], [-.007, -.023]], function () { return .0018; }, [1, .98, .7], .5, .2); },
+      rocket: function (x, y, sc) { var g = G2(x, y, sc); g.c([0, -.012, .004], [0, -1, 0], .0052, .016, [1, .55, .1], .1, .4); g.c([0, -.012, .006], [0, -1, 0], .003, .0095, [1, .9, .3], .1, .4); g.e([0, 0, .006], [.0068, .0185, .0068], WH, .6, .2); g.c([0, .0105, .006], [0, 1, 0], .0068, .0125, [.95, .15, .2], .4, .25); [-1, 1].forEach(function (sd) { g.e([sd * .0078, -.0075, .005], [.0036, .0072, .0016], [.95, .15, .2], .4, .25, sd * .55); }); g.e([0, .0025, .0125], [.0030, .0030, .0014], [.25, .65, 1], .5, .1); },
+      pick: function (x, y, sc) { var g = G2(x, y, sc); g.t([[-.012, -.017], [.003, 0], [.012, .014]], function () { return .0021; }, [.55, .32, .14], 0, .6); g.t([[.0015, .0235], [.0125, .0235], [.0235, .0105]], function (t) { return .0036 * (1 - Math.abs(t - .5) * 1.2); }, [.78, .82, .9], .9, .2); },
+      cards: function (x, y, sc) { var g = G2(x, y, sc); [-1, 0, 1].forEach(function (sd) { var cx = sd * .0125, cy = -.0016 * sd * sd; g.e([cx, cy, .002 + sd * .0003 + .001], [.0108, .0155, .0022], WH, .1, .4, -sd * .33, 0, .55); g.e([cx, cy + .001, .0048], [.0036, .0036, .001], sd ? [.9, .08, .15] : [.1, .1, .16], 0, .4, -sd * .33); }); },
+      dice: function (x, y, sc) { var g = G2(x, y, sc); [[-.0092, .001, .4, [.95, .12, .18]], [.0102, -.0016, -.32, WH]].forEach(function (d) { g.e([d[0], d[1], .006], [.0092, .0092, .0092], d[3], .1, .35, d[2], .3, .5); [-.0035, 0, .0035].forEach(function (o) { g.e([d[0] + o * cs(d[2]) - o * sn(d[2]), d[1] + o * sn(d[2]) + o * cs(d[2]), .0145], [.0014, .0014, .0010], d[3] === WH ? [.1, .1, .15] : WH, 0, .4); }); }); },
+      clover: function (x, y, sc) { var g = G2(x, y, sc), gr = [.2, .72, .22]; [[0, 1], [1, 0], [0, -1], [-1, 0]].forEach(function (d) { g.e([d[0] * .0072, d[1] * .0072, .008], [.0074, .0074, .0042], gr, .2, .35); g.e([d[0] * .0072 * 1.15, d[1] * .0072 * 1.15, .0108], [.0032, .0016, .0012], [.6, 1, .5], 0, .4); }); g.e([0, 0, .0118], [.0032, .0032, .0028], G, .9, .2); g.t([[.003, -.012], [.008, -.022], [.003, -.03]], function () { return .0014; }, [.15, .55, .15], 0, .5); },
+      moon: function (x, y, sc) { var g = G2(x, y, sc), P = [], N = 12; for (i = 0; i <= N; i++) { var a = (55 + i / N * 250) * PI / 180; P.push([cs(a) * .0155, sn(a) * .0155, .008]); } g.t(P, function (t) { return .0008 + .0072 * sn(t * PI); }, [1, .95, .7], .7, .25); g.e([.0105, .0075, .008], [.0042, .0010, .0010], G, .3, .2); g.e([.0105, .0075, .008], [.0010, .0042, .0010], G, .3, .2); },
+      cup2: function (x, y, sc) { emblem2(geo, 'cup', 0, x, y, sc); }
+    };
+    var emb = function (kind, x, y, sc) { if (!kind) return; if (HWK[kind]) emblem(geo, kind, 0, x, y, sc); else if (custom[kind]) custom[kind](x, y, sc); else emblem2(geo, kind, 0, x, y, sc); };
+    var D = f.d || [], hs = f.hs || 1;
+    D.forEach(function (d) {
+      if (d === 'wings') wings(mix(cl, WH, .3), cd);
+      if (d === 'wings_d') wings([.28, .2, .42], [.08, .05, .16]);
+      if (d === 'wreath') wreath(f.leaf ? hx(f.leaf) : cl, f.leaf ? mix(hx(f.leaf), WH, .25) : ca, 150 * PI / 180, 390 * PI / 180, 13);
+      if (d === 'wreath_g') wreath([.2, .62, .2], [.45, .85, .3], 150 * PI / 180, 390 * PI / 180, 13);
+      if (d === 'flames') flames(cw, mix(cl, WH, .5), 15, .028);
+      if (d === 'flames_o') flames([1, .35, .05], [1, .85, .25], 15, .03);
+      if (d === 'rays') rays(ca, 18, .012, .024);
+      if (d === 'thorns') thorns([.82, .85, .96]);
+      if (d === 'bow') bow(cw, cl);
+      if (d === 'bow_r') bow([.9, .12, .2], [1, .45, .5]);
+      if (d === 'gems') gems(f.gem ? hx(f.gem) : [.95, .2, .35], [0, 180, 35, 145, 215, 325]);
+      if (d === 'sparkles') sparkles(ca, [[18, .066, 1], [162, .066, 1], [55, .074, .75], [125, .074, .75], [205, .068, .9], [335, .068, .9], [270, .07, .8]]);
+    });
+    if (f.pend) emb(f.pend, 0, -R - .024, .55);
+    if (f.h) emb(f.h, 0, R + .025 * hs, 1.0 * hs);
+    if (f.s) [-1, 1].forEach(function (sd) { var q = pol((90 - sd * 40) * PI / 180, R + .006); emb(f.s, q[0], q[1] + .004, .62 * (f.ss || 1)); });
+    if (f.s2) [-1, 1].forEach(function (sd) { var q = pol((90 - sd * 78) * PI / 180, R + .006); emb(f.s2, q[0], q[1], .5); });
   }
   var HWK = {pumpkin: 1, ghost: 1, bat: 1, hat: 1, skull: 1};
 
@@ -433,7 +491,7 @@
         sz = Math.max(-.7, Math.min(.7, sz)); sx = Math.max(-.5, Math.min(.5, sx));
         if (man) { ry = man.ry; sz = man.sz; sx = man.sx; T = man.T; rx = man.rx; }
         var Rm = mul(rotZ(sz), mul(rotX(sx), rotY(ry))), Mm = mul(trans(PV[0], PV[1], PV[2]), mul(Rm, trans(-PV[0], -PV[1], -PV[2])));
-        var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : 20)));
+        var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : (o.frame ? (o.frame.cam || 12.5) : 20))));
         gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T); gl.uniform1f(U('uTw'), ry);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, mul(W0, Mm))); gl.uniformMatrix3fv(U('uR'), false, m3(mul(rotX(rx), Rm)));
         gl.drawElements(gl.TRIANGLES, medalCount, gl.UNSIGNED_SHORT, 0);

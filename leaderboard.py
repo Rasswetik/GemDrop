@@ -1025,7 +1025,7 @@ def register(app, ns):
             if session.get('uid'):
                 mine = bool(db.execute('SELECT 1 FROM user_medals WHERE user_id=? AND medal_key=?', (int(session['uid']), key)).fetchone())
         if cm.get('manual_only'):
-            status, how = 'Уникальная', 'Её нельзя получить в событиях или играх. Её выдаёт только администрация.'
+            status, how = 'Уникальная', 'Особая медаль. Её нельзя получить в событиях или играх.'
         elif placed:
             status, how = 'Сезонная', 'Награда за %s место в сезоне лидерборда.' % ', '.join(str(x) for x in placed)
         elif ev:

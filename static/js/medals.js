@@ -141,6 +141,16 @@
     return 'M48 62L' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + 'A' + R + ' ' + R + ' 0 0 1 ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1) + 'Z';
   }
   var AUTHOR3 = {goshan: 1}, SHAPE_OVR = {nickolay: 'hex', kuzmatagin: 'octa'};
+  // metal rim highlights: a bright arc on the lit side, a dark arc opposite and a warm bounce light below
+  function rimSpec(sh, p, id) {
+    var R = sh === 'seal' ? 36.6 : sh === 'round' ? 36.4 : 35.4;
+    function arc(a1, a2, col, op, w) {
+      if (sh === 'hex' || sh === 'octa') return '';
+      var p1 = pt(a1 * Math.PI / 180, R), p2 = pt(a2 * Math.PI / 180, R);
+      return '<path d="M' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + 'A' + R + ' ' + R + ' 0 0 1 ' + p2[0].toFixed(1) + ' ' + p2[1].toFixed(1) + '" fill="none" stroke="' + col + '" stroke-opacity="' + op + '" stroke-width="' + w + '" stroke-linecap="round"/>';
+    }
+    return arc(205, 275, '#fff', .8, 1.8) + arc(215, 250, '#fff', .9, .9) + arc(20, 85, '#000', .32, 2.2) + arc(112, 150, p[3], .6, 1.4);
+  }
   function star(x, y, s, cls, extra) {
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
@@ -185,15 +195,20 @@
       }
     }
 
-    // ribbon: satin strap, fold shading, stitched edges
-    var strap = '<path d="M29 4L49 46L39 50L19 11Z" fill="url(#' + id + 'a)"/>' +
-      '<path d="M29 4L49 46L39 50L19 11Z" fill="url(#' + id + 'f)"/>' +
-      '<path d="M29 4L33.5 4L51 40L47 46Z" fill="#fff" opacity=".13"/>' +
-      '<path d="M29 4L49 46L39 50L19 11Z" fill="none" stroke="rgba(0,0,0,.28)" stroke-width=".7" stroke-linejoin="round"/>' +
-      '<path d="M28.8 7.2L45.6 42.5M22.4 14.2L37.4 43.5" stroke="#fff" stroke-opacity=".55" stroke-width=".6" stroke-dasharray="1.8 1.5" fill="none" stroke-linecap="round"/>';
+    // ribbon: woven satin V strap that runs through the bail, with a centre ridge and stitched edges
+    var strap = '<path d="M17 7L28 1.5L52 24L46.5 29Z" fill="url(#' + id + 'a)"/>' +
+      '<path d="M17 7L28 1.5L52 24L46.5 29Z" fill="url(#' + id + 'f)"/>' +
+      '<path d="M22.4 4.3L49.2 26.5" stroke="#000" stroke-opacity=".16" stroke-width=".9" fill="none"/>' +
+      '<path d="M23.6 3.7L50.4 25.6" stroke="#fff" stroke-opacity=".22" stroke-width=".7" fill="none"/>' +
+      '<path d="M19 8.4L47.6 27.6M24.5 11L45 28.6M20.5 5.6L30 1.9" stroke="' + p[4] + '" stroke-opacity="0" fill="none"/>' +
+      '<path d="M18.6 7.8L47.4 27.4M26.4 3L50.2 24.6" stroke="#fff" stroke-opacity=".5" stroke-width=".55" stroke-dasharray="1.6 1.4" fill="none" stroke-linecap="round"/>' +
+      '<path d="M17 7L28 1.5L52 24L46.5 29Z" fill="none" stroke="rgba(0,0,0,.34)" stroke-width=".7" stroke-linejoin="round"/>' +
+      '<path d="M17 7L28 1.5" stroke="#fff" stroke-opacity=".25" stroke-width=".6"/>';
     var ribbon = '<g class="gm-rb">' + strap + '<g transform="translate(96 0) scale(-1 1)">' + strap + '</g>' +
-      '<path d="M67 4L60 4L45 40L49 46Z" fill="#000" opacity=".12"/>' +
-      '<path d="M36 5.5L48 31L60 5.5L56 4L48 20L40 4Z" fill="#000" opacity=".16"/></g>';
+      '<path d="M40 25L48 33L56 25L52 22L48 26L44 22Z" fill="#000" opacity=".28"/></g>' +
+      '<g><rect x="42.2" y="17.4" width="11.6" height="11" rx="5" fill="url(#' + id + 'r)" stroke="rgba(0,0,0,.45)" stroke-width=".7"/>' +
+      '<rect x="43.6" y="18.6" width="8.8" height="4.6" rx="2.3" fill="#fff" opacity=".35"/>' +
+      '<ellipse cx="48" cy="23.2" rx="2.7" ry="2.3" fill="#1a0f08" opacity=".8"/><ellipse cx="48" cy="22.9" rx="2.7" ry="2.2" fill="none" stroke="' + p[0] + '" stroke-opacity=".7" stroke-width=".6"/></g>';
 
     if (AUTHOR3[m.key]) { p = ['#ffe3e3', '#ff2b2b', '#9c0000', '#ff7a7a', '#2c2c33', '#101015'].concat(p.slice(6)); rarBack = ''; rarRim = AUTHOR3[m.key] ? '<path d="' + shape('round', 35.6) + '" fill="none" stroke="#fff" stroke-width="1.4" stroke-dasharray="5 4" opacity=".85" class="' + (st ? '' : 'gm-ytr') + '"/>' : ''; glowOp = .35;
       rarTop = '<defs><linearGradient id="' + id + 'y" gradientUnits="userSpaceOnUse" x1="-30" y1="20" x2="30" y2="104">' + (st ? '' : '<animateTransform attributeName="gradientTransform" type="translate" values="-70 0;120 0;-70 0" dur="4.2s" repeatCount="indefinite"/>') + '<stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".42" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".95"/><stop offset=".58" stop-color="#ffd6d6" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>' +
@@ -206,8 +221,9 @@
     var gem = (rar === 'rare') ? '' : '<path d="' + beadRing + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".8" stroke-width="1.15" stroke-linecap="round" stroke-dasharray=".01 2.5"/>';
     var reed = sh === 'seal' ? '' : '<path d="' + shape(sh, 37) + '" fill="none" stroke="' + p[2] + '" stroke-opacity=".32" stroke-width="2" stroke-dasharray=".5 1.1"/>';
 
+    var frameImg = m.img ? '<path d="' + disc + '" fill="none" stroke="url(#' + id + 'e)" stroke-width="2.4" stroke-linejoin="round"/><path d="' + ring(sh, 28.2) + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".7" stroke-width=".5"/>' : '';
     var emb = m.img ? '<g class="gm-br"><image href="' + m.img + '" x="18.5" y="31.5" width="59" height="59" preserveAspectRatio="xMidYMid slice" clip-path="url(#' + id + 'c)"/></g>' :
-      '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 2px 1.5px rgba(0,0,0,.4))"><g class="gm-emb">' + (EMB[m.emb] || '').split('__ID__').join(id + 'e') + '</g></g>';
+      '<g transform="translate(48 61) scale(.9)" style="filter:drop-shadow(0 -.5px 0 rgba(255,255,255,.55)) drop-shadow(0 1.8px 1.4px rgba(0,0,0,.55))"><g class="gm-emb">' + (EMB[m.emb] || '').split('__ID__').join(id + 'e') + '</g></g>';
 
     var tri = AUTHOR3[m.key] ? '<g class="' + (st ? '' : 'gm-yt') + '" transform="translate(48 104)"><rect x="-13" y="-8" width="26" height="16" rx="5.5" fill="#ff1a1a" stroke="#fff" stroke-width="1.2"/><rect x="-11.5" y="-7" width="23" height="6" rx="3" fill="#fff" opacity=".22"/><path d="M-3-4.2 5.2 0-3 4.2Z" fill="#fff"/></g>' : '';
     if (m.key === 'kuzmatagin') emb += '<g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="1.6" opacity=".5">' + [0, 1, 2].map(function (k) { return '<path class="' + (st ? '' : 'gm-steam') + '" style="animation-delay:' + (k * .9) + 's" d="M' + (31 + k * 4.2) + ' 84c-2.2-3 2.2-5 0-8s2.2-5 0-8"/>'; }).join('') + '</g>';
@@ -216,10 +232,11 @@
 
     var defs = '<defs>' +
       '<linearGradient id="' + id + 'r" gradientUnits="userSpaceOnUse" x1="16" y1="24" x2="80" y2="100"><stop offset="0" stop-color="' + p[0] + '"/><stop offset=".22" stop-color="' + p[3] + '"/><stop offset=".45" stop-color="' + p[1] + '"/><stop offset=".68" stop-color="' + p[2] + '"/><stop offset=".86" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[3] + '"/></linearGradient>' +
+      '<linearGradient id="' + id + 'w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + p[1] + '"/><stop offset=".5" stop-color="' + p[2] + '"/><stop offset="1" stop-color="#000" stop-opacity=".8"/></linearGradient>' +
       '<linearGradient id="' + id + 'q" gradientUnits="userSpaceOnUse" x1="16" y1="24" x2="80" y2="100"><stop offset="0" stop-color="' + p[2] + '"/><stop offset=".5" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[0] + '"/></linearGradient>' +
       '<linearGradient id="' + id + 'e" gradientUnits="userSpaceOnUse" x1="14" y1="24" x2="82" y2="100"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".38" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></linearGradient>' +
       '<radialGradient id="' + id + 'd" cx=".38" cy=".28" r=".95"><stop offset="0" stop-color="' + p[3] + '"/><stop offset=".55" stop-color="' + p[1] + '"/><stop offset="1" stop-color="' + p[2] + '"/></radialGradient>' +
-      '<radialGradient id="' + id + 'n" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".72" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>' +
+      '<radialGradient id="' + id + 'n" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".42"/></radialGradient>' +
       '<radialGradient id="' + id + 'g" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="' + glowCol + '" stop-opacity=".75"/><stop offset=".55" stop-color="' + glowCol + '" stop-opacity=".28"/><stop offset="1" stop-color="' + glowCol + '" stop-opacity="0"/></radialGradient>' +
       '<linearGradient id="' + id + 'l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
       '<linearGradient id="' + id + 's" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".6"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>' +
@@ -234,16 +251,20 @@
     return '<svg class="gdm' + (st ? ' st' : '') + '" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs +
       '<circle class="gm-glow" cx="48" cy="62" r="48" fill="url(#' + id + 'g)" opacity="' + glowOp + '"/>' +
       ribbon +
-      '<path d="' + shape(sh, 39.5) + '" fill="rgba(0,0,0,.14)" transform="translate(0 3.4)"/><path d="' + shapeO + '" fill="rgba(0,0,0,.38)" transform="translate(0 2)"/>' +
+      '<ellipse cx="48" cy="104.5" rx="27" ry="3.6" fill="rgba(0,0,0,.34)"/><path d="' + shape(sh, 39.5) + '" fill="rgba(0,0,0,.16)" transform="translate(0 4.6)"/>' +
+      // coin edge: a darker copy pushed down gives the medal real thickness
+      '<path d="' + shapeO + '" fill="url(#' + id + 'w)" stroke="rgba(0,0,0,.5)" stroke-width=".8" stroke-linejoin="round" transform="translate(0 2.8)"/>' +
       rarBack +
       // rim: two-tone metal, reeded edge, bevel highlights, crisp outline
       '<path d="' + shapeO + '" fill="url(#' + id + 'r)"/>' + reed +
       '<path d="' + shape(sh, 37.4) + '" fill="none" stroke="url(#' + id + 'e)" stroke-width="1.3" stroke-linejoin="round"/>' +
       '<path d="' + shapeO + '" fill="none" stroke="rgba(0,0,0,.4)" stroke-width=".7" stroke-linejoin="round"/>' +
+      rimSpec(sh, p, id) +
       gem + rarRim +
       // inner stamped ring: concave groove with bevel
       '<path d="' + ring(sh, 32.6) + '" fill="url(#' + id + 'q)" stroke="rgba(0,0,0,.4)" stroke-width=".8" stroke-linejoin="round"/>' +
-      '<path d="' + ring(sh, 31.6) + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".55" stroke-width=".6" stroke-linejoin="round"/>' +
+      '<path d="' + ring(sh, 32.1) + '" fill="none" stroke="url(#' + id + 'e)" stroke-width="1.7" stroke-linejoin="round"/>' +
+      '<path d="' + ring(sh, 31.6) + '" fill="none" stroke="' + p[0] + '" stroke-opacity=".5" stroke-width=".5" stroke-linejoin="round"/>' +
       // face
       '<path d="' + disc + '" fill="url(#' + id + 'd)"/>' +
       (m.img ? '' : '<path d="' + disc + '" fill="' + p[6] + '"/>') +
@@ -251,7 +272,7 @@
       '<path d="' + disc + '" fill="url(#' + id + 'n)"/>' +
       '<path d="' + disc + '" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1" stroke-linejoin="round"/>' +
       '<path d="' + ring(sh, 28.9) + '" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width=".6" stroke-linejoin="round"/>' +
-      emb +
+      emb + frameImg +
       // gloss + shine sweep
       '<g clip-path="url(#' + id + 'c)"><ellipse cx="40" cy="42" rx="27" ry="14" transform="rotate(-18 40 42)" fill="url(#' + id + 'l)" opacity=".5"/></g>' +
       '<g clip-path="url(#' + id + 'o)"><rect class="gm-shine" x="10" y="20" width="22" height="84" fill="url(#' + id + 's)" transform="skewX(-18)"' + (st ? ' style="transform:translateX(-70px)"' : '') + '/>' +

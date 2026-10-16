@@ -102,14 +102,27 @@
   function visible(el) { return el && el.offsetParent !== null; }
   function tick() {}
   /* frames only go on round avatars (leaders, recent wins, transfers, games); square profile avatars stay as they are */
+  var KEEP = typeof MutationObserver === 'function' ? new MutationObserver(function (list) {
+    list.forEach(function (m) { var el = m.target, k = el.getAttribute && el.getAttribute('data-fr'); if (k && !el.querySelector(':scope > .gdf-svg')) { el.setAttribute('data-fr', ''); apply(el, k); } });
+  }) : null;
+  function okRound(el) {
+    if (el.id === 'bigAvatar' || el.id === 'publicProfileAvatar' || el.closest('#publicProfileModal,.profile-hero')) return 0;
+    var cs = getComputedStyle(el), w = el.getBoundingClientRect().width, r = parseFloat(cs.borderTopLeftRadius) || 0;
+    if (w < 26) return w === 0 ? -1 : 0;     // -1: hidden for now, ask again when it shows
+    return (cs.borderTopLeftRadius.indexOf('%') > 0 ? r >= 45 : r >= w * .45) ? 1 : 0;
+  }
   function round(el, key) {
     if (!el || !key) return; var tries = 0;
+    var go = function () { apply(el, key); if (KEEP) KEEP.observe(el, {childList: true}); };
     (function chk() {
-      if (!el.isConnected) { if (++tries < 40) setTimeout(chk, 120); return; }
-      if (el.id === 'bigAvatar' || el.id === 'publicProfileAvatar' || el.closest('#publicProfileModal,.profile-hero')) return;
-      var cs = getComputedStyle(el), w = el.getBoundingClientRect().width, r = parseFloat(cs.borderTopLeftRadius) || 0;
-      if (w < 26 || !(cs.borderTopLeftRadius.indexOf('%') > 0 ? r >= 45 : r >= w * .45)) return;
-      apply(el, key);
+      if (!el.isConnected) { if (++tries < 80) setTimeout(chk, 120); return; }
+      var ok = okRound(el);
+      if (ok === 1) return go();
+      if (ok === -1) {
+        if (typeof IntersectionObserver !== 'function') { if (++tries < 400) setTimeout(chk, 500); return; }
+        var io = new IntersectionObserver(function (es) { if (es.some(function (e) { return e.isIntersecting; })) { var o2 = okRound(el); if (o2 !== -1) { io.disconnect(); if (o2 === 1) go(); } } });
+        io.observe(el);
+      }
     })();
   }
   

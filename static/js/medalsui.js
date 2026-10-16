@@ -136,22 +136,40 @@
     if ($('pfMedals')) return true;
     var anchor = $('pfSettingsRow'); if (!anchor) return false;
     var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedals';
-    row.innerHTML = '<span class="pf-row-t"><b>Коллекция медалей</b><small>Собирайте и надевайте до 3</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg('hw1', 46, true) + '</button>';
+    row.innerHTML = '<span class="pf-row-t"><b>Коллекция медалей</b><small>Собирайте и надевайте до 3</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg(GDMedals.by('kashtan') ? 'kashtan' : 'hw1', 46, true) + '</button>';
     row.querySelector('button').onclick = open; row.onclick = function (e) { if (e.target.closest('button')) return; open(); };
     anchor.parentNode.insertBefore(row, anchor); return true;
   }
 
+  function nameLines(raw) {     // wrap a long title into up to 3 lines that fit inside the medal disc
+    var words = raw.split(/\s+/).filter(Boolean), sizes = [9, 8, 7.2, 6.4, 5.8, 5.2];
+    for (var si = 0; si < sizes.length; si++) {
+      var fs = sizes[si], maxc = Math.floor(48 / (fs * .68)), lines = [], cur = '';
+      words.forEach(function (w) { var t = cur ? cur + ' ' + w : w; if (t.length > maxc && cur) { lines.push(cur); cur = w; } else cur = t; });
+      if (cur) lines.push(cur);
+      var ok = lines.length <= 3 && lines.every(function (l) { return l.length <= maxc + 1; });
+      if (ok && lines.length * fs * 1.18 <= 19) return {fs: fs, lines: lines};
+    }
+    return {fs: 5, lines: [raw.length > 22 ? raw.slice(0, 21) + '…' : raw]};
+  }
+  function nameSvg(f, col) {
+    var h = f.fs * 1.18, y0 = 61.5 - (f.lines.length - 1) * h / 2 + f.fs * .32, out = '';
+    f.lines.forEach(function (l, i) {
+      var y = y0 + i * h, t = esc(l);
+      out += '<text x="48" y="' + y + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + f.fs + '" font-weight="900" fill="rgba(0,0,0,.5)" transform="translate(.4 .6)">' + t + '</text><text x="48" y="' + y + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + f.fs + '" font-weight="900" fill="' + col + '">' + t + '</text>';
+    });
+    return out;
+  }
   function backSvg(d) {
     var m = GDMedals.by(d.key) || {}, P = GDMedals.PAL[m.key === 'goshan' ? 'red' : (m.pal || 'gold')] || GDMedals.PAL.gold, id = 'mb' + Math.random().toString(36).slice(2, 7);
-    var nm = esc(d.name), fs = nm.length > 14 ? 6.2 : nm.length > 9 ? 7.6 : 9;
+    var fit = nameLines(String(d.name || ''));
     return '<svg viewBox="0 0 96 110" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="' + id + 'r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + P[0] + '"/><stop offset=".35" stop-color="' + P[1] + '"/><stop offset=".7" stop-color="' + P[2] + '"/><stop offset="1" stop-color="' + P[1] + '"/></linearGradient>' +
       '<radialGradient id="' + id + 'd" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="' + P[3] + '"/><stop offset=".6" stop-color="' + P[1] + '"/><stop offset="1" stop-color="' + P[2] + '"/></radialGradient>' +
       '<path id="' + id + 't" d="M48 62m-27 0a27 27 0 1 1 54 0a27 27 0 1 1-54 0"/></defs>' +
       '<circle cx="48" cy="62" r="38" fill="url(#' + id + 'r)"/><circle cx="48" cy="62" r="35" fill="none" stroke="rgba(0,0,0,.35)" stroke-width=".8"/><circle cx="48" cy="62" r="34.4" fill="none" stroke="' + P[0] + '" stroke-opacity=".8" stroke-width="1.1" stroke-dasharray=".01 2.5" stroke-linecap="round"/>' +
       '<circle cx="48" cy="62" r="31.5" fill="url(#' + id + 'd)" stroke="rgba(0,0,0,.4)" stroke-width=".8"/><circle cx="48" cy="62" r="29" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width=".6"/>' +
       '<text font-family="system-ui,sans-serif" font-size="4" font-weight="800" fill="rgba(0,0,0,.55)"><textPath href="#' + id + 't" startOffset="0" textLength="166" lengthAdjust="spacingAndGlyphs">GEMDROP · ' + esc((d.collection || '').toUpperCase()) + ' · ' + esc((GDMedals.RAR && GDMedals.RAR[d.rarity] || '').toUpperCase()) + ' ·</textPath></text>' +
-      '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="rgba(0,0,0,.5)" transform="translate(.4 .6)">' + nm + '</text>' +
-      '<text x="48" y="' + (62 + fs * .32) + '" text-anchor="middle" font-family="Georgia,serif" font-size="' + fs + '" font-weight="900" fill="' + P[0] + '">' + nm + '</text>' +
+      nameSvg(fit, P[0]) +
       '<path d="M40 74h16" stroke="' + P[0] + '" stroke-opacity=".7" stroke-width=".8" stroke-linecap="round"/><text x="48" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="4" font-weight="700" fill="' + P[0] + '" fill-opacity=".85">' + (d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',')) + '% игроков</text>' +
       '<path d="M48 40l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5Z" fill="' + P[0] + '" fill-opacity=".9"/></svg>';
   }

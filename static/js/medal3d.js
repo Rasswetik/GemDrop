@@ -113,6 +113,65 @@
     }
     for (i = 0; i < N; i++) for (j = 0; j < Wd; j++) { var a0 = base + i * (Wd + 1) + j, b0 = base + (i + 1) * (Wd + 1) + j; geo.i.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
   }
+
+  /* ---------- decorations (per-medal 3D props) ---------- */
+  function xf(p, o) { // ellipsoid-local -> world: pitch (x), roll (z), translate
+    var cx = Math.cos(o.pit || 0), sx = Math.sin(o.pit || 0), cz = Math.cos(o.rol || 0), sz2 = Math.sin(o.rol || 0);
+    var y1 = p[1] * cx - p[2] * sx, z1 = p[1] * sx + p[2] * cx, x2 = p[0] * cz - y1 * sz2, y2 = p[0] * sz2 + y1 * cz;
+    return [x2 + o.c[0], y2 + o.c[1], z1 + o.c[2]];
+  }
+  function ell(geo, o, col, mf, rf) { // ellipsoid; o = {c, r:[a,b,c], pit, rol}
+    var A = 14, B = 20, i, j, base = geo.v.length / 14, r = o.r;
+    for (i = 0; i <= A; i++) for (j = 0; j <= B; j++) {
+      var th = i / A * Math.PI, ph = j / B * Math.PI * 2, ux = Math.sin(th) * Math.cos(ph), uy = Math.sin(th) * Math.sin(ph), uz = Math.cos(th);
+      var n = nrm([ux / r[0], uy / r[1], uz / r[2]]), nn = xf(n, {pit: o.pit, rol: o.rol, c: [0, 0, 0]});
+      geo.add(xf([ux * r[0], uy * r[1], uz * r[2]], o), nn, [0, 0], col, [mf, rf, 0]);
+    }
+    for (i = 0; i < A; i++) for (j = 0; j < B; j++) { var a = base + i * (B + 1) + j, b = a + B + 1; geo.i.push(a, b, a + 1, b, b + 1, a + 1); }
+  }
+  function tube(geo, P, rad, col, mf, rf, col2) { // swept tube along Catmull-Rom path; rad(t) radius, col2 optional tip colour
+    var N = 40, S = 10, i, j, base = geo.v.length / 14, pts = [], T = [], up = [0, 0, 1];
+    for (i = 0; i <= N; i++) pts.push(crom(P, i / N * (P.length - 1)));
+    for (i = 0; i <= N; i++) { var q = pts[Math.min(N, i + 1)], o = pts[Math.max(0, i - 1)]; T.push(nrm([q[0] - o[0], q[1] - o[1], q[2] - o[2]])); }
+    for (i = 0; i <= N; i++) {
+      var t = i / N, side = nrm(crs(T[i], up)), up2 = crs(side, T[i]), rr = rad(t), cc = col2 && (t < .08 || t > .93) ? col2 : col;
+      for (j = 0; j <= S; j++) { var a = j / S * Math.PI * 2, nx = Math.cos(a), ny = Math.sin(a), n = [side[0] * nx + up2[0] * ny, side[1] * nx + up2[1] * ny, side[2] * nx + up2[2] * ny];
+        geo.add([pts[i][0] + n[0] * rr, pts[i][1] + n[1] * rr, pts[i][2] + n[2] * rr], n, [0, 0], cc, [mf, rf, 0]); }
+    }
+    for (i = 0; i < N; i++) for (j = 0; j < S; j++) { var a0 = base + i * (S + 1) + j, b0 = a0 + S + 1; geo.i.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
+  }
+  function cone(geo, c, d, r, h, col, mf, rf) { // spike pointing along d
+    var S = 12, base = geo.v.length / 14, w = nrm(crs(d, Math.abs(d[2]) > .9 ? [1, 0, 0] : [0, 0, 1])), v = crs(d, w), j, k = r / h;
+    for (j = 0; j <= S; j++) { var a = j / S * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), rad = [w[0] * ca + v[0] * sa, w[1] * ca + v[1] * sa, w[2] * ca + v[2] * sa], n = nrm([rad[0] + d[0] * k, rad[1] + d[1] * k, rad[2] + d[2] * k]);
+      geo.add([c[0] + rad[0] * r, c[1] + rad[1] * r, c[2] + rad[2] * r], n, [0, 0], col, [mf, rf, 0]);
+      geo.add([c[0] + d[0] * h, c[1] + d[1] * h, c[2] + d[2] * h], n, [0, 0], col, [mf, rf, 0]); }
+    for (j = 0; j < S; j++) { var a1 = base + j * 2; geo.i.push(a1, a1 + 1, a1 + 2, a1 + 2, a1 + 1, a1 + 3); }
+  }
+  function decorate(geo, kind, pal) {
+    var i, c1 = pal ? hx(pal[3]) : [.9, .9, .95], c2 = pal ? hx(pal[1]) : [.8, .8, .8];
+    if (kind === 'spikes') {
+      var n = 20; for (i = 0; i < n; i++) { var a = i / n * Math.PI * 2 + .08, lg = i % 2 ? .8 : 1.15; cone(geo, [Math.cos(a) * .0485, Math.sin(a) * .0485, -.0006], nrm([Math.cos(a), Math.sin(a), .12]), .0042, .0125 * lg, [.7, .73, .82], .95, .18); }
+    }
+    if (kind === 'cap') { // flat cap (кепка) tilted on the upper-left of the rim
+      var K = [.52, .55, .42];
+      ell(geo, {c: [-.0225, .0345, .0135], r: [.0225, .0125, .0075], rol: .55, pit: -.1}, K, .0, .9);
+      ell(geo, {c: [-.0285, .0275, .0195], r: [.0155, .0036, .0095], rol: .55 + .5, pit: -.3}, [.14, .15, .13], .05, .6);
+      ell(geo, {c: [-.0205, .0395, .0205], r: [.0028, .0028, .0024], rol: 0, pit: 0}, [.13, .14, .12], 0, .6);
+    }
+    if (kind === 'banana') { // pop-art banana on the lower-right
+      tube(geo, [[.002, -.046, .014], [.022, -.050, .016], [.038, -.040, .018], [.043, -.022, .018], [.037, -.008, .016]], function (t) { return .0068 * Math.sin(Math.PI * (.12 + .76 * t)) + .0012; }, [1, .84, .08], .05, .32, [.22, .13, .05]);
+      tube(geo, [[.0025, -.0465, .0155], [.0225, -.0505, .0175], [.0385, -.0405, .0195], [.0435, -.0225, .0195]], function (t) { return .0016 * (1 - t) + .0006; }, [1, .96, .55], 0, .5);
+    }
+    if (kind === 'notes') { // two musical quavers + beam
+      var G = c1, bl = .0033;
+      [[-.036, -.045], [-.0105, -.045]].forEach(function (p, k) {
+        ell(geo, {c: [p[0], p[1], .0125], r: [.0074, .0052, .0036], rol: .42, pit: 0}, G, .85, .22);
+        tube(geo, [[p[0] + .0062, p[1] + .0012, .0125], [p[0] + .0062, p[1] + .016, .0125], [p[0] + .0062, p[1] + .034, .0125]], function () { return bl * .5; }, G, .85, .22);
+      });
+      tube(geo, [[-.0298, -.0108, .0125], [-.0232, -.0128, .0125], [-.0168, -.0148, .0125], [-.0043, -.0114, .0125]].map(function (p) { return [p[0], p[1] - .0, p[2]]; }).slice(0, 0).concat([[-.0298, -.0085, .0125], [-.0170, -.0102, .0125], [-.0043, -.0082, .0125]]), function () { return .0017; }, G, .85, .22);
+    }
+  }
+
   /* ---------- textures ---------- */
   function wrapText(x, text, maxw) { var words = String(text).split(/\s+/), lines = [], cur = ''; words.forEach(function (w) { var t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > maxw && cur) { lines.push(cur); cur = w; } else cur = t; }); if (cur) lines.push(cur); return lines; }
   function backCanvas(b) {
@@ -171,6 +230,7 @@
       disc(geo, .0455, -.0042, -1, 2, 2, 96);
       torus(geo, 0, 0, -.0043, .0462, .0007, [1, .7, .71], .65, .22);
       torus(geo, 0, RC, 0, RR, Rr, [.93, .86, .88], .95, .16);
+      if (o.deco) decorate(geo, o.deco, o.pal);
       medalCount = geo.i.length;
       ribbonLoop(geo, HY);
       var vb = gl.createBuffer(), ib = gl.createBuffer();

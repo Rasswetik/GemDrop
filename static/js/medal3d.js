@@ -224,6 +224,41 @@
     }
   }
 
+
+  /* ---------- 2D face textures (themed artwork baked into the medal) ---------- */
+  var HW = {pumpkin: ['#ff8a1f', '#ffd9a0'], ghost: ['#5fe0d0', '#d6fff8'], bat: ['#ff4a4a', '#ffd0a0'], hat: ['#b46bff', '#f0d6ff'], skull: ['#5dff9a', '#eaffd0']};
+  function rnd(seed) { var a = seed; return function () { a = (a * 16807) % 2147483647; return (a - 1) / 2147483646; }; }
+  function star4(x, c, px, py, r) { x.beginPath(); x.moveTo(px, py - r); x.quadraticCurveTo(px, py, px + r, py); x.quadraticCurveTo(px, py, px, py + r); x.quadraticCurveTo(px, py, px - r, py); x.quadraticCurveTo(px, py, px, py - r); x.fillStyle = c; x.fill(); }
+  function batShape(x, px, py, s) { x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px - s * .5, py - s * .55, px - s, py - s * .1); x.quadraticCurveTo(px - s * .7, py + s * .1, px - s * .5, py + s * .2); x.quadraticCurveTo(px - s * .3, py + s * .05, px, py + s * .3); x.quadraticCurveTo(px + s * .3, py + s * .05, px + s * .5, py + s * .2); x.quadraticCurveTo(px + s * .7, py + s * .1, px + s, py - s * .1); x.quadraticCurveTo(px + s * .5, py - s * .55, px, py); x.fill(); }
+  function faceCanvas(o, im) {
+    var S = 1024, c = document.createElement('canvas'); c.width = c.height = S; var x = c.getContext('2d'), i, pal = o.pal || null, cx = S / 2;
+    x.imageSmoothingQuality = 'high';
+    if (o.emb) { // Halloween scene
+      var th = HW[o.emb] || HW.pumpkin, R = rnd(7 + o.emb.length * 13);
+      var g = x.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#12061f'); g.addColorStop(.55, '#2d0f45'); g.addColorStop(1, '#4a1a33'); x.fillStyle = g; x.fillRect(0, 0, S, S);
+      var gl2 = x.createRadialGradient(cx, cx + 60, 40, cx, cx + 60, 520); gl2.addColorStop(0, th[0] + 'cc'); gl2.addColorStop(.5, th[0] + '44'); gl2.addColorStop(1, 'transparent'); x.fillStyle = gl2; x.fillRect(0, 0, S, S);
+      for (i = 0; i < 46; i++) star4(x, 'rgba(255,240,210,' + (.25 + R() * .6) + ')', R() * S, R() * S * .62, 2 + R() * 5);
+      var mx = 770, my = 230, mg = x.createRadialGradient(mx, my, 20, mx, my, 170); mg.addColorStop(0, 'rgba(255,244,200,.55)'); mg.addColorStop(1, 'transparent'); x.fillStyle = mg; x.fillRect(mx - 200, my - 200, 400, 400);
+      x.fillStyle = '#fff2c4'; x.beginPath(); x.arc(mx, my, 86, 0, 7); x.fill(); x.fillStyle = 'rgba(205,180,120,.35)'; [[-24, -14, 20], [22, 20, 15], [-8, 34, 9]].forEach(function (k) { x.beginPath(); x.arc(mx + k[0], my + k[1], k[2], 0, 7); x.fill(); });
+      x.fillStyle = 'rgba(8,2,16,.85)'; for (i = 0; i < 6; i++) batShape(x, 120 + R() * 760, 120 + R() * 300, 22 + R() * 30);
+      x.fillStyle = '#0c0416'; x.beginPath(); x.moveTo(0, 780); for (i = 0; i <= 8; i++) x.quadraticCurveTo(i * 128 - 64, 700 + (i % 2) * 40, i * 128, 770 + (i % 3) * 14); x.lineTo(S, S); x.lineTo(0, S); x.fill();
+      x.strokeStyle = '#0c0416'; x.lineWidth = 16; x.lineCap = 'round'; x.beginPath(); x.moveTo(150, 800); x.quadraticCurveTo(160, 640, 130, 560); x.moveTo(150, 700); x.quadraticCurveTo(210, 650, 250, 600); x.moveTo(146, 650); x.quadraticCurveTo(100, 600, 60, 590); x.stroke();
+      [[860, 790], [920, 810]].forEach(function (p) { x.fillStyle = '#0c0416'; x.beginPath(); x.moveTo(p[0] - 28, p[1] + 60); x.lineTo(p[0] - 28, p[1]); x.arc(p[0], p[1], 28, Math.PI, 0); x.lineTo(p[0] + 28, p[1] + 60); x.fill(); });
+      var fg = x.createLinearGradient(0, 700, 0, S); fg.addColorStop(0, 'transparent'); fg.addColorStop(1, th[0] + '66'); x.fillStyle = fg; x.fillRect(0, 700, S, 324);
+      x.strokeStyle = 'rgba(255,255,255,.22)'; x.lineWidth = 3; x.beginPath(); for (i = 0; i < 6; i++) { x.moveTo(0, 0); x.lineTo(Math.cos(i * .3) * 330, Math.sin(i * .3) * 330); } x.stroke(); for (var rr = 80; rr < 330; rr += 70) { x.beginPath(); for (i = 0; i <= 5; i++) { var a = i * .3 + .0, px = Math.cos(a) * rr, py = Math.sin(a) * rr; i ? x.quadraticCurveTo(Math.cos(a - .15) * rr * .86, Math.sin(a - .15) * rr * .86, px, py) : x.moveTo(px, py); } x.stroke(); }
+      return c;
+    }
+    if (im) x.drawImage(im, 0, 0, S, S);
+    var p = pal ? pal.map(hx).map(function (v) { return 'rgb(' + v.map(function (q) { return Math.round(q * 255); }).join(',') + ')'; }) : ['#fff', '#fc3', '#a60', '#fe8'];
+    var vg = x.createRadialGradient(cx, cx, S * .28, cx, cx, S * .72); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)'); x.fillStyle = vg; x.fillRect(0, 0, S, S);
+    var lk = x.createLinearGradient(0, 0, S, S); lk.addColorStop(0, p[3]); lk.addColorStop(.45, 'transparent'); lk.addColorStop(1, p[1]); x.globalAlpha = .26; x.globalCompositeOperation = 'soft-light'; x.fillStyle = lk; x.fillRect(0, 0, S, S); x.globalCompositeOperation = 'source-over'; x.globalAlpha = 1;
+    var rg = x.createLinearGradient(0, 0, S, S); rg.addColorStop(0, p[0]); rg.addColorStop(.5, p[1]); rg.addColorStop(1, p[2]); x.strokeStyle = rg; x.lineWidth = 26; x.beginPath(); x.arc(cx, cx, 500, 0, 7); x.stroke();
+    x.strokeStyle = 'rgba(255,255,255,.55)'; x.lineWidth = 4; x.setLineDash([2, 16]); x.lineCap = 'round'; x.beginPath(); x.arc(cx, cx, 470, 0, 7); x.stroke(); x.setLineDash([]);
+    var R2 = rnd(31); [[170, 170, 26], [860, 230, 20], [220, 840, 18], [830, 820, 24]].forEach(function (q) { star4(x, p[0], q[0], q[1], q[2]); });
+    if (o.fx === 'music') { x.fillStyle = p[0]; x.font = '900 120px system-ui,sans-serif'; x.textAlign = 'center'; x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 12; x.fillText('♪', 130, 900); x.fillText('♫', 900, 910); x.shadowBlur = 0; }
+    return c;
+  }
+
   /* ---------- textures ---------- */
   function wrapText(x, text, maxw) { var words = String(text).split(/\s+/), lines = [], cur = ''; words.forEach(function (w) { var t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > maxw && cur) { lines.push(cur); cur = w; } else cur = t; }); if (cur) lines.push(cur); return lines; }
   function backCanvas(b) {
@@ -271,16 +306,16 @@
       destroy: function () { alive = false; },
       rot: function (a, b, c) { ry = a; rx = b; if (c != null) { sz = c; vsz = 0; } auto = false; }
     };
-    var imgDone = !o.img, snapGo = null, shot = false;
-    if (o.img) { var im = new Image(); im.onerror = function () { imgDone = true; if (snapGo) snapGo(); }; im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1024; var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, 1024, 1024); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); imgDone = true; if (snapGo) snapGo(); }; im.src = o.img; }
+    var man = null, imgDone = !o.img, snapGo = null, shot = false;
+    if (o.img) { var im = new Image(); im.onerror = function () { imgDone = true; if (snapGo) snapGo(); }; im.onload = function () { var c = faceCanvas(o, im); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); imgDone = true; if (snapGo) snapGo(); }; im.src = o.img; }
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
     loadModel().then(function (g) {
       var geo = new Geo(); addGlb(geo, g, o);
       // portrait disc (our own artwork, uv from position so the whole picture fills the circle)
-      var pr0 = .0373 * 1, seg = 96, EC = o.emb && o.pal ? mixc(hx(o.pal[2]), [0, 0, 0], .55) : null, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]), i;
+      var pr0 = .0373 * 1, seg = 96, EC = null, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]), i;
       for (i = 0; i <= seg; i++) { var a = i / seg * Math.PI * 2, x = Math.cos(a) * pr0, y = Math.sin(a) * pr0; geo.add([x, y, .0043], [0, 0, 1], [.5 + x / (2 * pr0), .5 - y / (2 * pr0)], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]); }
       for (i = 0; i < seg; i++) geo.i.push(c0, c0 + 1 + i, c0 + 2 + i);
-      if (o.emb) emblem(geo, o.emb, .0043);
+      if (o.emb) { emblem(geo, o.emb, .0043); gl.useProgram(pr); up(gl, tf, 0, faceCanvas(o)); gl.uniform1f(U('uHas'), 1); }
       disc(geo, .0455, -.0042, -1, 2, 2, 96);
       torus(geo, 0, 0, -.0043, .0462, .0007, [1, .7, .71], .65, .22);
       torus(geo, 0, RC, 0, RR, Rr, [.93, .86, .88], .95, .16);
@@ -309,6 +344,7 @@
         vsz += (-11 * sz - 1.1 * vsz + (auto ? .5 * Math.sin(T * 1.25) : 0)) * dt; sz += vsz * dt;
         vsx += (-11 * sx - 1.3 * vsx + (auto ? .25 * Math.sin(T * .9 + 1) : 0)) * dt; sx += vsx * dt;
         sz = Math.max(-.7, Math.min(.7, sz)); sx = Math.max(-.5, Math.min(.5, sx));
+        if (man) { ry = man.ry; sz = man.sz; sx = man.sx; T = man.T; rx = man.rx; }
         var Rm = mul(rotZ(sz), mul(rotX(sx), rotY(ry))), Mm = mul(trans(PV[0], PV[1], PV[2]), mul(Rm, trans(-PV[0], -PV[1], -PV[2])));
         var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : 20)));
         gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T); gl.uniform1f(U('uTw'), ry);
@@ -318,6 +354,7 @@
         gl.drawElements(gl.TRIANGLES, count - medalCount, gl.UNSIGNED_SHORT, medalCount * 2);
         if (!force) requestAnimationFrame(frame);
       }
+      if (o.manual) { handle.draw = function (st) { man = st; frame(t0 + 16, true); }; if (o.ready) o.ready(handle); return; }
       if (o.snap) { ry = 0; rx = .08; sz = sx = 0; auto = false; var go = function () { if (!imgDone || shot) return; shot = true; frame(t0 + 16, true); o.snap(cv.toDataURL('image/png')); }; snapGo = go; go(); return; }
       requestAnimationFrame(frame);
     }

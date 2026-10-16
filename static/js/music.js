@@ -160,13 +160,13 @@
     c.textContent = '.pls{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:flex-end;justify-content:center;background:rgba(5,8,16,.62);backdrop-filter:blur(4px)}.pls.hidden{display:none}' +
       '.pls-c{width:min(100%,520px);max-height:88dvh;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 18px);border-radius:26px 26px 0 0;background:linear-gradient(180deg,#1b2036,#10142a);border:1px solid rgba(255,255,255,.1);box-shadow:0 -12px 40px rgba(0,0,0,.5);animation:plUp .3s cubic-bezier(.2,.9,.3,1)}@keyframes plUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}' +
       '.pls-grab{width:42px;height:4px;border-radius:4px;background:rgba(255,255,255,.2);margin:0 auto 12px}.pls-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.pls-h b{font-size:17px}.pls-x{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#fff;font-size:20px;cursor:pointer}' +
-      '.pls-now{display:grid;justify-items:center;gap:6px;padding:8px 0 4px}.pls-art{width:132px;height:132px;display:grid;place-items:center;position:relative}.pls-art:before{content:"";position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle,rgba(71,176,245,.5),transparent 70%);opacity:.45;transition:opacity .4s}.pls.on .pls-art:before{opacity:1}.pls-art .gdm{width:132px;height:auto;position:relative}' +
-      '.pls-t{font-size:19px;font-weight:700;text-align:center}.pls-s{font-size:12px;color:#96a0a8}' +
+      '.pls-now{display:grid;justify-items:center;gap:6px;padding:8px 0 4px}.pls-art{width:132px;height:162px;display:grid;place-items:center;position:relative}.pls-art:before{content:"";position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle,rgba(71,176,245,.5),transparent 70%);opacity:.45;transition:opacity .4s}.pls.on .pls-art:before{opacity:1}.pls-art .gdm{width:132px;height:auto;position:relative}' +
+      '.pls-t{font-size:19px;font-weight:700;text-align:center;color:#fff}.pls-h b{color:#fff}.pls-s{font-size:12px;color:#96a0a8}' +
       '.pls-bar{display:flex;align-items:center;gap:10px;margin:12px 0 4px;font-size:11px;font-variant-numeric:tabular-nums;color:#96a0a8}.pls-bar span{min-width:32px}.pls-bar span:last-child{text-align:right}' +
       '.pls input[type=range]{--p:0%;flex:1;min-width:0;height:5px;border-radius:5px;-webkit-appearance:none;appearance:none;outline:0;cursor:pointer;background:linear-gradient(90deg,#9ae9e3,#47b0f5) 0/var(--p) 100% no-repeat,rgba(255,255,255,.14)}.pls input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}.pls input[type=range]::-moz-range-thumb{width:15px;height:15px;border:0;border-radius:50%;background:#fff}' +
       '.pls-ctl{display:flex;align-items:center;justify-content:center;gap:16px;margin:8px 0}.pls-ctl button{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);cursor:pointer;display:grid;place-items:center;padding:0}.pls-ctl button svg{width:19px;height:19px;fill:#e6edf5}.pls-ctl .pls-pp{width:64px;height:64px;border:0;background:linear-gradient(135deg,#9ae9e3,#47b0f5);box-shadow:0 8px 22px rgba(71,176,245,.45)}.pls-ctl .pls-pp svg{width:26px;height:26px;fill:#0f1326}.pls-ctl button.act{border-color:#47b0f5;background:rgba(71,176,245,.2)}' +
       '.pls-vol{display:flex;align-items:center;gap:10px;margin:6px 4px 12px;color:#96a0a8}.pls-vol svg{width:18px;height:18px;fill:#96a0a8;flex:none}' +
-      '.pls-list{display:grid;gap:6px}.pls-it{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid transparent;cursor:pointer;text-align:left;color:inherit;font:inherit;width:100%}.pls-it.cur{border-color:rgba(71,176,245,.6);background:rgba(71,176,245,.12)}.pls-it .gdm{width:38px;height:auto}.pls-it span{flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pls-it i{font-style:normal;font-size:11px;color:#47b0f5}' +
+      '.pls-list{display:grid;gap:6px}.pls-it{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid transparent;cursor:pointer;text-align:left;color:#e8edf8;font:inherit;width:100%}.pls-it.cur{border-color:rgba(71,176,245,.6);background:rgba(71,176,245,.12)}.pls-it .gdm{width:38px;height:auto}.pls-it span{flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pls-it i{font-style:normal;font-size:11px;color:#47b0f5}' +
       '.pls-empty{padding:26px 10px;text-align:center;color:#96a0a8;font-size:13px;line-height:1.5}';
     document.head.appendChild(c);
   }
@@ -182,7 +182,7 @@
     if (!PL.list.length) { body.innerHTML = '<div class="pls-empty">У вас пока нет медалей с музыкой.<br>Музыкальные медали появятся здесь, и вы сможете слушать их на фоне.</div>'; return; }
     var k = PL.list[PL.i], esc = function (t) { return String(t).replace(/</g, '&lt;'); };
     body.innerHTML = '<div class="pls-now"><div class="pls-art">' + (window.GDMedals ? GDMedals.svg(k, 132, true) : '') + '</div><div class="pls-t">' + esc(KEYS[k]) + '</div><div class="pls-s">' + (PL.i + 1) + ' из ' + PL.list.length + ' · трек медали</div></div>' +
-      '<div class="pls-bar"><span class="pls-c">0:00</span><input class="pls-seek" type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="pls-d">0:00</span></div>' +
+      '<div class="pls-bar"><span class="pls-tc">0:00</span><input class="pls-seek" type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="pls-td">0:00</span></div>' +
       '<div class="pls-ctl"><button type="button" class="pls-sh' + (PL.shuffle ? ' act' : '') + '" aria-label="Перемешать">' + SHUF + '</button><button type="button" class="pls-pv" aria-label="Назад">' + PREV + '</button><button type="button" class="pls-pp" aria-label="Играть">' + PLAY + '</button><button type="button" class="pls-nx" aria-label="Дальше">' + NEXT + '</button><span style="width:46px"></span></div>' +
       '<div class="pls-vol">' + SPK + '<input class="pls-vl" type="range" min="0" max="100" value="' + Math.round(PL.vol * 100) + '" aria-label="Громкость"></div>' +
       '<div class="pls-list">' + PL.list.map(function (x, j) { return '<button type="button" class="pls-it' + (j === PL.i ? ' cur' : '') + '" data-j="' + j + '">' + (window.GDMedals ? GDMedals.svg(x, 38, true) : '') + '<span>' + esc(KEYS[x]) + '</span>' + (j === PL.i ? '<i>играет</i>' : '') + '</button>'; }).join('') + '</div>';
@@ -195,7 +195,7 @@
     body.querySelector('.pls-sh').onclick = function () { PL.shuffle = !PL.shuffle; this.classList.toggle('act', PL.shuffle); };
     body.querySelectorAll('.pls-it').forEach(function (b) { b.onclick = function () { plPlay(Number(b.dataset.j)); }; });
     var a = PL.a;
-    if (a) { seek.value = a.duration ? a.currentTime / a.duration * 1000 : 0; seek.style.setProperty('--p', seek.value / 10 + '%'); body.querySelector('.pls-c').textContent = fmt(a.currentTime); body.querySelector('.pls-d').textContent = fmt(a.duration); }
+    if (a) { seek.value = a.duration ? a.currentTime / a.duration * 1000 : 0; seek.style.setProperty('--p', seek.value / 10 + '%'); body.querySelector('.pls-tc').textContent = fmt(a.currentTime); body.querySelector('.pls-td').textContent = fmt(a.duration); }
     seek.oninput = function () { if (PL.a && PL.a.duration) { PL.a.currentTime = seek.value / 1000 * PL.a.duration; seek.style.setProperty('--p', seek.value / 10 + '%'); } };
     plUi();
   }
@@ -217,7 +217,7 @@
         var m = document.getElementById('plSheet'); if (!m || !PL.open || PL.a !== a) return;
         var seek = m.querySelector('.pls-seek'); if (!seek || !a.duration) return;
         seek.value = a.currentTime / a.duration * 1000; seek.style.setProperty('--p', seek.value / 10 + '%');
-        m.querySelector('.pls-c').textContent = fmt(a.currentTime); m.querySelector('.pls-d').textContent = fmt(a.duration);
+        m.querySelector('.pls-tc').textContent = fmt(a.currentTime); m.querySelector('.pls-td').textContent = fmt(a.duration);
       });
       a.play().catch(function () {});
       plRender();

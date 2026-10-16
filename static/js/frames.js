@@ -71,8 +71,12 @@
     return CACHE[key] = new Promise(function (res) { QUEUE.push([key, res]); pump(); });
   }
   function pump() {
-    if (BUSY || !QUEUE.length) return; BUSY = true; var job = QUEUE.shift(), done = false;
-    function fin(u) { if (done) return; done = true; BUSY = false; job[1](u || ''); if (!u) delete CACHE[job[0]]; setTimeout(pump, 20); }
+    if (BUSY || !QUEUE.length) return;
+    var rd = window.GDMedals && GDMedals.ready; if (rd && !pump.ok) { BUSY = true; rd.then(function () { pump.ok = 1; BUSY = false; pump(); }, function () { pump.ok = 1; BUSY = false; pump(); }); return; }
+    BUSY = true; var job = QUEUE.shift(), done = false;
+    function fin(u) { if (done) return; done = true; if (!u) { BUSY = false; job[1](''); delete CACHE[job[0]]; setTimeout(pump, 20); return; }
+      var go = function (v) { BUSY = false; job[1](v); setTimeout(pump, 20); };
+      try { fetch(u).then(function (r) { return r.blob(); }).then(function (b) { go(URL.createObjectURL(b)); }).catch(function () { go(u); }); } catch (e) { go(u); } }
     try {
       if (!window.GDMedal3D) return fin('');
       var SH = {warhol: {t: 'bead', n: 18, cols: [[1, .1, .55], [1, .86, .05], [.05, .8, .95], [1, .45, .05]]}, poets: {t: 'scallop', n: 14}, vklube: {t: 'double'}, goshan: {t: 'rope'}, kess: {t: 'facet', n: 8}, nickolay: {t: 'scallop', n: 10}, kuzmatagin: {t: 'wave', n: 16}, hw1: {t: 'scallop', n: 8}, hw2: {t: 'wave', n: 12}, hw3: {t: 'points', n: 12}, hw4: {t: 'bead', n: 16}, hw5: {t: 'gear', n: 16}, vip: {t: 'points', n: 9, h: .011}, gem: {t: 'facet', n: 8}, champ: {t: 'rope'}, pioneer: {t: 'gear', n: 12}, insider: {t: 'facet', n: 6}, friend: {t: 'scallop', n: 10}, guard: {t: 'gear', n: 20}, collector: {t: 'bead', n: 20}, c1: {t: 'double'}, c2: {t: 'rope'}, c3: {t: 'wave', n: 14}, ton: {t: 'facet', n: 10}, lucky: {t: 'scallop', n: 4}, fire: {t: 'points', n: 14, h: .012}, bolt: {t: 'points', n: 6, h: .012}, rocket: {t: 'gear', n: 8}, gambler: {t: 'bead', n: 12}, miner: {t: 'gear', n: 10}, cards: {t: 'facet', n: 4}, night: {t: 'double'}};
@@ -96,13 +100,19 @@
   function svg(key) { return CACHE[key] && CACHE[key].u ? '' : ''; }
   function load() { return api('/api/frames').then(function (d) { S = {selected: d.selected || '', owned: d.owned || [], frames: d.frames || [], ok: true}; return S; }); }
   function visible(el) { return el && el.offsetParent !== null; }
-  function tick() {
-    var own = document.getElementById('bigAvatar');
-    if (own && visible(own) && S.ok) apply(own, S.selected);
-    var pub = document.getElementById('publicProfileAvatar');
-    if (pub && visible(pub)) { var d = window.PP_D || (typeof PP_D !== 'undefined' ? PP_D : null); apply(pub, d && d.frame ? d.frame : ''); }
+  function tick() {}
+  /* frames only go on round avatars (leaders, recent wins, transfers, games); square profile avatars stay as they are */
+  function round(el, key) {
+    if (!el || !key) return; var tries = 0;
+    (function chk() {
+      if (!el.isConnected) { if (++tries < 40) setTimeout(chk, 120); return; }
+      if (el.id === 'bigAvatar' || el.id === 'publicProfileAvatar' || el.closest('#publicProfileModal,.profile-hero')) return;
+      var cs = getComputedStyle(el), w = el.getBoundingClientRect().width, r = parseFloat(cs.borderTopLeftRadius) || 0;
+      if (w < 26 || !(cs.borderTopLeftRadius.indexOf('%') > 0 ? r >= 45 : r >= w * .45)) return;
+      apply(el, key);
+    })();
   }
-  setInterval(tick, 700);
+  
   var started = false; function boot() { if (started) return; started = true; load().then(tick).catch(function () { started = false; }); }
   document.addEventListener('click', boot, true); setTimeout(boot, 2500);
 
@@ -141,5 +151,5 @@
       el.querySelector('#gdcOn').onclick = function () { api('/api/frames/select', {key: key}).then(function (d) { S.selected = d.selected; tick(); el.remove(); }).catch(function (er) { if (window.toast) toast(er.message); }); };
     });
   }
-  window.GDFrames = {svg: svg, apply: apply, open: openCustomize, paint: paint, gained: gained, has: has, load: load, tick: tick, snap: snap, state: function () { return S; }};
+  window.GDFrames = {round: round, svg: svg, apply: apply, open: openCustomize, paint: paint, gained: gained, has: has, load: load, tick: tick, snap: snap, state: function () { return S; }};
 })();

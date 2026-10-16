@@ -537,6 +537,13 @@ def register(app, ns):
                 db.execute('ALTER TABLE user_medals ADD COLUMN main INTEGER NOT NULL DEFAULT 0')
     except Exception:
         app.logger.exception('user_medals.main migration failed')
+    try:   # frames table: Telegram ids do not fit into a 32-bit column
+        with connect() as db:
+            _frame_table(db)
+            if ns['DATABASE_URL']:
+                db.execute('ALTER TABLE user_frame ALTER COLUMN user_id TYPE BIGINT')
+    except Exception:
+        app.logger.exception('user_frame migration failed')
     try:   # the profile now holds up to 3 medals: keep the newest three of those already shown
         with connect() as db:
             seen = {}
@@ -1107,12 +1114,16 @@ def register(app, ns):
             if not found:
                 return resp
             with connect() as db:
-                mm = main_medals(db, [u for _, u in found])
-            if not mm:
+                ids = [u for _, u in found]
+                mm = main_medals(db, ids)
+                fm = frames_for(db, ids)
+            if not mm and not fm:
                 return resp
             for o, u in found:
                 if u in mm:
                     o['medal'] = mm[u]
+                if u in fm:
+                    o['frame'] = fm[u]
             resp.set_data(json.dumps(data, ensure_ascii=False, separators=(',', ':')))
         except Exception:
             _ns['app'].logger.exception('Main medal badge injection failed')
@@ -1388,7 +1399,7 @@ FRAME_KEYS = None   # every medal gives its own 3D profile frame (frame key = me
 
 
 def _frame_table(db):
-    db.execute('CREATE TABLE IF NOT EXISTS user_frame (user_id INTEGER PRIMARY KEY, frame TEXT NOT NULL DEFAULT \'\')')
+    db.execute('CREATE TABLE IF NOT EXISTS user_frame (user_id BIGINT PRIMARY KEY, frame TEXT NOT NULL DEFAULT \'\')')
 
 
 def owned_frames(db, user_id):
@@ -1406,6 +1417,23 @@ def frame_of(db, user_id):
         return k if k in owned_frames(db, user_id) else ''
     except Exception:
         return ''
+
+
+def frames_for(db, user_ids):
+    """{user_id: frame key} for the players in a feed (only frames whose medal the player still owns)."""
+    ids = sorted({int(u) for u in user_ids})[:300]
+    if not ids:
+        return {}
+    try:
+        ph = ','.join('?' * len(ids))
+        chosen = {int(r['user_id']): r['frame'] for r in db.execute('SELECT user_id,frame FROM user_frame WHERE frame<>\'\' AND user_id IN (%s)' % ph, tuple(ids)).fetchall()}
+        if not chosen:
+            return {}
+        ph2 = ','.join('?' * len(chosen))
+        have = {(int(r['user_id']), r['medal_key']) for r in db.execute('SELECT DISTINCT user_id,medal_key FROM user_medals WHERE user_id IN (%s)' % ph2, tuple(chosen)).fetchall()}
+        return {u: k for u, k in chosen.items() if (u, k) in have}
+    except Exception:
+        return {}
 
 
 def shown_medals(db, user_id):

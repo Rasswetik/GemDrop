@@ -189,7 +189,7 @@
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
     return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
   }
-  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1, kess: 1, nickolay: 1, kuzmatagin: 1, vip: 1, gem: 1, champ: 1, pioneer: 1, insider: 1, friend: 1, guard: 1, collector: 1, hw1: 1, hw2: 1, hw3: 1, hw4: 1, hw5: 1}, DECO = {jealous: 'spikes', kashtan: 'cap'}, MUS3 = {jealous: 1, warhol: 1, poets: 1, kashtan: 1};   // medals that have a real 3D model (static/models/medal.glb)
+  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1, vklube: 1, kess: 1, nickolay: 1, kuzmatagin: 1, vip: 1, gem: 1, champ: 1, pioneer: 1, insider: 1, friend: 1, guard: 1, collector: 1, hw1: 1, hw2: 1, hw3: 1, hw4: 1, hw5: 1}, DECO = {jealous: 'spikes', kashtan: 'cap'}, MUS3 = {vklube: 1, jealous: 1, warhol: 1, poets: 1, kashtan: 1};   // medals that have a real 3D model (static/models/medal.glb)
   function artOf(m) { // medals without a photo: their flat 2D emblem is baked into the medal face
     var e = m && m.emb && GDMedals.EMB && GDMedals.EMB[m.emb]; if (!e) return {};
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30 -30 60 60" width="600" height="600">' + e + '</svg>';

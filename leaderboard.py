@@ -25,11 +25,11 @@ BASE_MEDALS = dict(MEDALS)
 DEFAULT_EVENTS = {k: 'Хэллоуин' for k in ('hw1', 'hw2', 'hw3', 'hw4', 'hw5')}
 DEFAULT_EVENTS.update({k: 'Коллекция авторов' for k in ('goshan', 'kess', 'nickolay')})
 DEFAULT_EVENTS['kuzmatagin'] = 'Амбассадоры'
-DEFAULT_EVENTS.update({k: 'Музыка' for k in ('kashtan', 'jealous', 'warhol', 'poets')})   # event collections: medals tied to a seasonal event
+DEFAULT_EVENTS.update({k: 'Музыка' for k in ('kashtan', 'jealous', 'warhol', 'poets', 'vklube')})   # event collections: medals tied to a seasonal event
 MEDAL_DOC, MEDAL_SET_DOC, PROMO_MEDAL_DOC = 'custom_medals', 'medal_settings', 'promo_medals'
 RARITIES = {'common': 'Обычная', 'rare': 'Редкая', 'epic': 'Эпическая', 'legendary': 'Легендарная'}
 DEFAULT_RARITY = {'hw1': 'epic', 'hw2': 'rare', 'hw3': 'rare', 'hw4': 'rare', 'hw5': 'rare', 'vip': 'epic', 'gem': 'epic', 'champ': 'epic'}
-SEED_MEDALS = [('kashtan', 'Миша Каштан', 'kashtan.jpg', 'gold'), ('jealous', 'Jealous', 'jealous.jpg', 'black'), ('goshan', 'Goshan WOW', 'goshan.jpg', 'gold'), ('kess', 'Kess', 'kess.jpg', 'silver'), ('nickolay', 'NickolayGifts', 'nickolay.jpg', 'blue'), ('kuzmatagin', 'KUZMATAGIN', 'kuzmatagin.jpg', 'bronze'), ('warhol', 'Andy Warhol', 'warhol.jpg', 'blue'), ('poets', 'Общество мёртвых поэтов', 'poets.jpg', 'red')]
+SEED_MEDALS = [('kashtan', 'Миша Каштан', 'kashtan.jpg', 'gold'), ('jealous', 'Jealous', 'jealous.jpg', 'black'), ('goshan', 'Goshan WOW', 'goshan.jpg', 'gold'), ('kess', 'Kess', 'kess.jpg', 'silver'), ('nickolay', 'NickolayGifts', 'nickolay.jpg', 'blue'), ('kuzmatagin', 'KUZMATAGIN', 'kuzmatagin.jpg', 'bronze'), ('warhol', 'Andy Warhol', 'warhol.jpg', 'blue'), ('poets', 'Общество мёртвых поэтов', 'poets.jpg', 'red'), ('vklube', 'В клубе', 'vklube.jpg', 'black')]
 SEED_RARITY = {'kess': 'epic', 'nickolay': 'epic', 'kuzmatagin': 'rare', 'poets': 'epic'}
 DEFAULT_NOTIFY = '🏅 <b>Вам выдана медаль</b>\n«{medal}» — {title}\nОна уже в профиле, раздел «Мои медали».'
 DEFAULT_SEASON_NOTE = '🏅 Медаль «{medal}» — в профиле, раздел «Мои медали».'

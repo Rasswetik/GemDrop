@@ -159,7 +159,7 @@
     opt = opt || {};
     css();
     var m = BY[key] || BY.c1, p = PAL[AUTHOR3[key] ? 'red' : (m.pal || 'gold')], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : AUTHOR3[m.key] ? 118 : 110, h = Math.round(w * vh / 96), sh = AUTHOR3[m.key] ? 'round' : (m.shape || 'round'), i, a;
-    var rar = m.rarity || 'common', st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
+    var rar = m.img ? 'common' : (m.rarity || 'common'), st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
     var top = sh === 'hex' ? 22.5 : (sh === 'seal' ? 23.4 : 24);
     var glowCol = rar === 'rare' ? '#4d97ff' : rar === 'epic' ? '#a066ff' : p[1];
     var glowOp = rar === 'common' ? .55 : .85;

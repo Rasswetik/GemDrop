@@ -45,7 +45,11 @@
   function acc(g, i, ctor, n) { var a = g.j.accessors[i], bv = g.j.bufferViews[a.bufferView]; return new ctor(g.bin, (bv.byteOffset || 0) + (a.byteOffset || 0), a.count * n); }
   function Geo() { this.v = []; this.i = []; }
   Geo.prototype.add = function (p, n, uv, c, k) { this.v.push(p[0], p[1], p[2], n[0], n[1], n[2], uv[0], uv[1], c[0], c[1], c[2], k[0], k[1], k[2]); return this.v.length / 14 - 1; };
-  function addGlb(geo, g) {
+  function hx(h) { return [parseInt(h.substr(1, 2), 16) / 255, parseInt(h.substr(3, 2), 16) / 255, parseInt(h.substr(5, 2), 16) / 255]; }
+  function mixc(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  function addGlb(geo, g, o) {
+    o = o || {}; var pl = o.pal, T = null;
+    if (pl) { var p = pl.map(hx); T = {body: mixc(p[2], p[1], .3), bevel: p[1], hi: p[0], outer: mixc(p[1], p[2], .25), acc: p[3]}; }
     var mats = g.j.materials;
     g.j.nodes.forEach(function (nd) {
       if (SKIP[nd.name]) return;
@@ -54,6 +58,15 @@
       var isArt = prim.material === 9;
       if (nd.name.indexOf('Rim dash') === 0) kind = 5;
       var base = geo.v.length / 14, k, rr = 0, mf = mt.metallicFactor || 0, rf = mt.roughnessFactor == null ? .5 : mt.roughnessFactor;
+      if (T) {
+        var nm = nd.name;
+        if (nm === 'Solid medal body' || nm === 'Portrait bezel') { col = T.body; mf = .8; rf = .22; }
+        else if (nm === 'Polished outer bevel') { col = T.bevel; mf = .85; rf = .2; }
+        else if (nm === 'Outer bright highlight') { col = T.hi; mf = .9; rf = .16; }
+        else if (nm === 'Red outer bezel') { col = T.outer; mf = .8; rf = .2; }
+        else if (nm === 'Portrait bright inner rim' || nm === 'White circular accent' || nm.indexOf('Rim dash') === 0) { col = T.acc; mf = .5; rf = .25; }
+      }
+      if (!o.badge && /^(Badge|Play)/.test(nd.name)) return;
       if (nd.name === 'Badge silver surround') { col = [.96, .97, 1]; mf = .95; rf = .1; }
       if (nd.name === 'Badge red enamel') { col = [.95, .015, .02]; mf = .2; rf = .2; }
       if (nd.name === 'Play triangle') { col = [1, 1, 1]; mf = 0; rf = .3; }
@@ -150,7 +163,7 @@
     if (o.img) { var im = new Image(); im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1024; var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, 1024, 1024); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); }; im.src = o.img; }
     gl.enable(gl.DEPTH_TEST); gl.clearColor(0, 0, 0, 0);
     loadModel().then(function (g) {
-      var geo = new Geo(); addGlb(geo, g);
+      var geo = new Geo(); addGlb(geo, g, o);
       // portrait disc (our own artwork, uv from position so the whole picture fills the circle)
       var pr0 = .0373 * 1, seg = 96, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], [1, 1, 1], [0, .5, 1]), i;
       for (i = 0; i <= seg; i++) { var a = i / seg * Math.PI * 2, x = Math.cos(a) * pr0, y = Math.sin(a) * pr0; geo.add([x, y, .0043], [0, 0, 1], [.5 + x / (2 * pr0), .5 - y / (2 * pr0)], [1, 1, 1], [0, .5, 1]); }

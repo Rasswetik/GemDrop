@@ -44,12 +44,6 @@
   st.textContent += '.mdi{position:fixed;inset:0;z-index:2147483100;display:grid;place-items:center;padding:20px;background:rgba(5,4,12,.7);overscroll-behavior:contain}.mdi-c{position:relative;width:min(100%,380px);max-height:calc(100dvh - 40px);overflow:auto;display:grid;justify-items:center;gap:8px;padding:26px 18px 18px;border-radius:24px;text-align:center;background:var(--card,#14162a);border:1px solid var(--gd-line,#22253d);color:var(--text,#f4f5f7)}.mdi-c h3{margin:0;font-size:23px}.mdi-x{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer;padding:0}' +
     '.mdi-g{width:100%;display:grid;gap:0;margin-top:8px;border-radius:16px;overflow:hidden;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.04);text-align:left}.mdi-g div{display:flex;justify-content:space-between;gap:14px;padding:11px 14px;font-size:13.5px}.mdi-g div+div{border-top:1px solid var(--gd-line,#22253d)}.mdi-g span{color:var(--muted,#96a0a8);flex:none}.mdi-g b{font-weight:700;text-align:right}' +
     '.mdi-3d{position:relative;margin:4px 0 2px;perspective:900px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}.mdi-3d:active{cursor:grabbing}.mdi-in{position:relative;width:100%;height:100%;transform-style:preserve-3d}.mdi-f{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}.mdi-f svg{display:block;width:100%;height:100%}.mdi-e{position:absolute;border-radius:50%;pointer-events:none}.mdi-q{position:relative;display:grid;place-items:center;margin:4px 0}.mdi-q .gdm{filter:grayscale(1) brightness(.2) contrast(1.2) blur(1.5px);opacity:.6}.mdi-q .gdm *{animation:none!important}.mdi-q span{position:absolute;font-size:64px;font-weight:900;color:rgba(255,255,255,.72);text-shadow:0 3px 14px rgba(0,0,0,.8)}.mdi-hint{font-size:11.5px;color:var(--muted,#96a0a8);margin:0}.mdi-how{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.pp-medals span,.mdl-c .gdm,.mdl-c .mdl-lock{cursor:pointer}';
-  st.textContent += '.mdi-c{--gl:#8d99a8;padding:0 0 18px!important;gap:0!important;overflow-x:hidden}.mdi-c.r-rare{--gl:#4f9bff}.mdi-c.r-epic{--gl:#b57dff}.mdi-c.r-legendary{--gl:#ffc94a}' +
-    '.mdi-stage{position:relative;width:100%;display:grid;justify-items:center;padding:22px 0 8px;background:radial-gradient(ellipse 70% 55% at 50% 42%,color-mix(in srgb,var(--gl) 38%,transparent),transparent 72%),linear-gradient(180deg,rgba(255,255,255,.05),transparent 60%);border-radius:24px 24px 0 0}' +
-    '.mdi-stage:after{content:"";position:absolute;left:18%;right:18%;bottom:6px;height:16px;border-radius:50%;background:radial-gradient(ellipse at center,rgba(0,0,0,.5),transparent 70%);pointer-events:none}' +
-    '.mdi-stage .mdi-3d{margin:0}.mdi-head{display:grid;gap:6px;justify-items:center;padding:6px 18px 2px}.mdi-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;border:1px solid color-mix(in srgb,var(--gl) 55%,transparent);background:color-mix(in srgb,var(--gl) 14%,transparent)}' +
-    '.mdi-tiles{width:calc(100% - 36px);display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}.mdi-tiles div{display:grid;gap:3px;padding:10px 6px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--gd-line,#22253d)}.mdi-tiles span{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted,#96a0a8)}.mdi-tiles b{font-size:14px;font-weight:800;overflow-wrap:anywhere}' +
-    '.mdi-own{margin-top:10px;font-size:12px;font-weight:800;color:#2fd163}.mdi-c .mdi-how{padding:0 20px;margin-top:10px}.mdi-c .mdi-hint{margin-top:4px}.mdi-c .mdi-x{z-index:3;background:rgba(0,0,0,.35)}';
 
   var state = {q: '', f: 'all', own: {}, max: 3, shown: {}, cols: [], events: {}, main: ''};
   function modal() {
@@ -195,13 +189,13 @@
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
     return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
   }
-  var GL3D = {goshan: 1};   // medals that have a real 3D model (static/models/medal.glb)
+  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1};   // medals that have a real 3D model (static/models/medal.glb)
   function spin3d(host, d) {
     var m = GDMedals.by(d.key) || {};
     if (GL3D[d.key] && window.GDMedal3D && m.img) {
       var h = null;
       try {
-        h = GDMedal3D.mount(host, {img: m.img, back: {name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
+        h = GDMedal3D.mount(host, {img: m.img, badge: d.key === 'goshan', pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], back: {name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
       } catch (e) { h = null; }
       if (h) return;
     }
@@ -242,11 +236,8 @@
       }
       var el = document.createElement('div'); el.className = 'mdi'; el.setAttribute('role', 'dialog'); document.documentElement.classList.add('mdl-ns');
       var pc = d.percent >= 10 ? Math.round(d.percent) : String(d.percent).replace('.', ',');
-      var rc = {rare: 1, epic: 1, legendary: 1}[d.rarity] ? ' r-' + d.rarity : '';
-      el.innerHTML = '<div class="mdi-c' + rc + '"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-stage"><div class="mdi-3d"></div></div><p class="mdi-hint">Потяните, чтобы покрутить</p>' +
-        '<div class="mdi-head"><h3>' + esc(d.name) + '</h3><span class="mdi-chip">' + rarTag(d.rarity) + '</span></div>' +
-        '<div class="mdi-tiles"><div><span>Статус</span><b>' + esc(d.status) + '</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у</span><b>' + pc + '%</b></div></div>' +
-        (d.mine ? '<span class="mdi-own">✓ Эта медаль у вас</span>' : '') + '<p class="mdi-how">' + esc(d.how) + '</p></div>';
+      el.innerHTML = '<div class="mdi-c"><button type="button" class="mdi-x" aria-label="Закрыть">×</button><div class="mdi-3d"></div><p class="mdi-hint">Потяните, чтобы покрутить · двойной клик — перевернуть</p><h3>' + esc(d.name) + '</h3>' + rarTag(d.rarity) +
+        '<div class="mdi-g"><div><span>Статус</span><b>' + esc(d.status) + '</b></div><div><span>Коллекция</span><b>' + esc(d.collection) + '</b></div><div><span>Есть у игроков</span><b>' + pc + '%</b></div>' + (d.mine ? '<div><span>У вас</span><b style="color:#2fd163">Есть</b></div>' : '') + '</div><p class="mdi-how">' + esc(d.how) + '</p></div>';
       function close() { if (el._mus && window.GDMusic) GDMusic.fadeOut(600); el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
       el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('mdi-x')) close(); });
       document.body.appendChild(el); spin3d(el.querySelector('.mdi-3d'), d);

@@ -152,23 +152,30 @@
     if (kind === 'spikes') {
       var n = 20; for (i = 0; i < n; i++) { var a = i / n * Math.PI * 2 + .08, lg = i % 2 ? .8 : 1.15; cone(geo, [Math.cos(a) * .0485, Math.sin(a) * .0485, -.0006], nrm([Math.cos(a), Math.sin(a), .12]), .0042, .0125 * lg, [.7, .73, .82], .95, .18); }
     }
-    if (kind === 'cap') { // flat cap (кепка) tilted on the upper-left of the rim
-      var K = [.52, .55, .42];
-      ell(geo, {c: [-.0225, .0345, .0135], r: [.0225, .0125, .0075], rol: .55, pit: -.1}, K, .0, .9);
-      ell(geo, {c: [-.0285, .0275, .0195], r: [.0155, .0036, .0095], rol: .55 + .5, pit: -.3}, [.14, .15, .13], .05, .6);
-      ell(geo, {c: [-.0205, .0395, .0205], r: [.0028, .0028, .0024], rol: 0, pit: 0}, [.13, .14, .12], 0, .6);
+    if (kind === 'cap') { // Kashtan: flat cap on the upper-left + gold chain along the bottom rim
+      var K = [.50, .53, .40], gold = [1, .78, .2];
+      ell(geo, {c: [-.0262, .0372, .0120], r: [.0215, .0135, .0078], rol: .62, pit: -.1}, K, 0, .92);
+      ell(geo, {c: [-.0268, .0262, .0150], r: [.0150, .0042, .0068], rol: .62, pit: -.2}, [.30, .32, .24], 0, .8);
+      ell(geo, {c: [-.0210, .0425, .0200], r: [.0030, .0030, .0026], rol: 0, pit: 0}, [.18, .19, .16], 0, .6);
+      for (i = 0; i < 17; i++) { var a = Math.PI * (1.12 + i * .0455), cx = Math.cos(a) * .0505, cy = Math.sin(a) * .0505; ell(geo, {c: [cx, cy, .0035], r: [.0046, .0028, .0028], rol: a + Math.PI / 2, pit: i % 2 ? 1.5 : 0}, gold, .95, .16); }
+      ell(geo, {c: [0, -.0585, .0050], r: [.0050, .0066, .0030], rol: 0, pit: 0}, gold, .95, .14);
+      ell(geo, {c: [0, -.0585, .0072], r: [.0016, .0050, .0012], rol: 0, pit: 0}, [1, .95, .7], .9, .2);
+      ell(geo, {c: [0, -.0585, .0072], r: [.0040, .0015, .0012], rol: 0, pit: 0}, [1, .95, .7], .9, .2);
     }
-    if (kind === 'banana') { // pop-art banana on the lower-right
-      tube(geo, [[.002, -.046, .014], [.022, -.050, .016], [.038, -.040, .018], [.043, -.022, .018], [.037, -.008, .016]], function (t) { return .0068 * Math.sin(Math.PI * (.12 + .76 * t)) + .0012; }, [1, .84, .08], .05, .32, [.22, .13, .05]);
-      tube(geo, [[.0025, -.0465, .0155], [.0225, -.0505, .0175], [.0385, -.0405, .0195], [.0435, -.0225, .0195]], function (t) { return .0016 * (1 - t) + .0006; }, [1, .96, .55], 0, .5);
+    if (kind === 'pop') { // Warhol: ring of pop-art studs + banana peeking from behind
+      var PC = [[1, .1, .55], [1, .86, .05], [.05, .8, .95], [1, .45, .05]];
+      for (i = 0; i < 16; i++) { var b2 = i / 16 * Math.PI * 2 + .1; ell(geo, {c: [Math.cos(b2) * .0515, Math.sin(b2) * .0515, .0035], r: [.0058, .0058, .0058], rol: 0, pit: 0}, PC[i % 4], .05, .3); }
     }
-    if (kind === 'notes') { // two musical quavers + beam
-      var G = c1, bl = .0033;
-      [[-.036, -.045], [-.0105, -.045]].forEach(function (p, k) {
-        ell(geo, {c: [p[0], p[1], .0125], r: [.0074, .0052, .0036], rol: .42, pit: 0}, G, .85, .22);
-        tube(geo, [[p[0] + .0062, p[1] + .0012, .0125], [p[0] + .0062, p[1] + .016, .0125], [p[0] + .0062, p[1] + .034, .0125]], function () { return bl * .5; }, G, .85, .22);
+    if (kind === 'quill') { // Poets: quill feather + two notes, gold
+      var G = [1, .8, .3], F = [.96, .94, .88];
+      tube(geo, [[-.041, -.052, .0125], [-.020, -.030, .0135], [.002, -.006, .0145], [.026, .018, .0155]], function (t) { return .0015 * (1 - t * .75); }, G, .9, .2);
+      ell(geo, {c: [-.009, -.019, .0125], r: [.0235, .0060, .0016], rol: .83, pit: 0}, F, 0, .6);
+      ell(geo, {c: [-.003, -.0125, .0108], r: [.0140, .0038, .0013], rol: .83, pit: 0}, [.82, .78, .66], 0, .7);
+      [[.025, -.043], [.045, -.036]].forEach(function (p) {
+        ell(geo, {c: [p[0], p[1], .0125], r: [.0066, .0047, .0034], rol: .42, pit: 0}, G, .9, .2);
+        tube(geo, [[p[0] + .0056, p[1] + .001, .0125], [p[0] + .0056, p[1] + .015, .0125], [p[0] + .0056, p[1] + .030, .0125]], function () { return .0016; }, G, .9, .2);
       });
-      tube(geo, [[-.0298, -.0108, .0125], [-.0232, -.0128, .0125], [-.0168, -.0148, .0125], [-.0043, -.0114, .0125]].map(function (p) { return [p[0], p[1] - .0, p[2]]; }).slice(0, 0).concat([[-.0298, -.0085, .0125], [-.0170, -.0102, .0125], [-.0043, -.0082, .0125]]), function () { return .0017; }, G, .85, .22);
+      tube(geo, [[.0306, -.013, .0125], [.0396, -.0112, .0125], [.0506, -.0062, .0125]], function () { return .0021; }, G, .9, .2);
     }
   }
 
@@ -176,7 +183,7 @@
   function wrapText(x, text, maxw) { var words = String(text).split(/\s+/), lines = [], cur = ''; words.forEach(function (w) { var t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > maxw && cur) { lines.push(cur); cur = w; } else cur = t; }); if (cur) lines.push(cur); return lines; }
   function backCanvas(b) {
     b = b || {}; var S = 1024, c = document.createElement('canvas'); c.width = c.height = S; var x = c.getContext('2d'), cx = S / 2, i;
-    var g = x.createRadialGradient(cx - 120, cx - 160, 40, cx, cx, S * .62); g.addColorStop(0, '#9a1534'); g.addColorStop(.55, '#5e0b20'); g.addColorStop(1, '#2a0510'); x.fillStyle = g; x.fillRect(0, 0, S, S);
+    var g = x.createRadialGradient(cx - 120, cx - 160, 40, cx, cx, S * .62); var bp = b.pal ? b.pal.map(hx) : null, sh = function (c, k) { return 'rgb(' + c.map(function (v) { return Math.round(Math.min(1, v * k) * 255); }).join(',') + ')'; }; g.addColorStop(0, bp ? sh(bp[1], .9) : '#9a1534'); g.addColorStop(.55, bp ? sh(bp[1], .5) : '#5e0b20'); g.addColorStop(1, bp ? sh(bp[2], .8) : '#2a0510'); x.fillStyle = g; x.fillRect(0, 0, S, S);
     x.save(); x.translate(cx, cx); for (i = 0; i < 120; i++) { x.rotate(Math.PI * 2 / 120); x.fillStyle = 'rgba(255,255,255,.03)'; x.fillRect(-1, -S / 2, 2, S / 2 - 150); } x.restore();
     x.strokeStyle = 'rgba(255,215,220,.7)'; x.lineWidth = 6; x.beginPath(); x.arc(cx, cx, 470, 0, 7); x.stroke();
     x.strokeStyle = 'rgba(255,215,220,.3)'; x.lineWidth = 3; x.setLineDash([3, 14]); x.beginPath(); x.arc(cx, cx, 438, 0, 7); x.stroke(); x.setLineDash([]);
@@ -256,7 +263,7 @@
         vsx += (-11 * sx - 1.3 * vsx + (auto ? .25 * Math.sin(T * .9 + 1) : 0)) * dt; sx += vsx * dt;
         sz = Math.max(-.7, Math.min(.7, sz)); sx = Math.max(-.5, Math.min(.5, sx));
         var Rm = mul(rotZ(sz), mul(rotX(sx), rotY(ry))), Mm = mul(trans(PV[0], PV[1], PV[2]), mul(Rm, trans(-PV[0], -PV[1], -PV[2])));
-        var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(20)));
+        var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : 20)));
         gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T); gl.uniform1f(U('uTw'), ry);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, mul(W0, Mm))); gl.uniformMatrix3fv(U('uR'), false, m3(mul(rotX(rx), Rm)));
         gl.drawElements(gl.TRIANGLES, medalCount, gl.UNSIGNED_SHORT, 0);

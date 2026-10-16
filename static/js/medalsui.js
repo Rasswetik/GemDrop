@@ -189,13 +189,13 @@
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
     return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
   }
-  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1}, DECO = {jealous: 'spikes'};   // medals that have a real 3D model (static/models/medal.glb)
+  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1}, DECO = {jealous: 'spikes', kashtan: 'cap', warhol: 'pop', poets: 'quill'};   // medals that have a real 3D model (static/models/medal.glb)
   function spin3d(host, d) {
     var m = GDMedals.by(d.key) || {};
     if (GL3D[d.key] && window.GDMedal3D && m.img) {
       var h = null;
       try {
-        h = GDMedal3D.mount(host, {img: m.img, badge: d.key === 'goshan', deco: DECO[d.key], pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], back: {name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
+        h = GDMedal3D.mount(host, {img: m.img, badge: d.key === 'goshan', deco: DECO[d.key], pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], back: {pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
       } catch (e) { h = null; }
       if (h) return;
     }

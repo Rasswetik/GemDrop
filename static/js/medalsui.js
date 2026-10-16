@@ -188,11 +188,23 @@
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
     return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
   }
+  var GL3D = {goshan: 1};   // medals that have a real 3D model (static/models/medal.glb)
   function spin3d(host, d) {
+    var m = GDMedals.by(d.key) || {};
+    if (GL3D[d.key] && window.GDMedal3D && m.img) {
+      var h = null;
+      try {
+        h = GDMedal3D.mount(host, {img: m.img, back: {name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
+      } catch (e) { h = null; }
+      if (h) return;
+    }
+    spin3dDom(host, d);
+  }
+  function spin3dDom(host, d) {
     var W = 240, H = Math.round(W * 110 / 96), m = GDMedals.by(d.key) || {}, P = GDMedals.PAL[d.key === 'goshan' ? 'red' : (m.pal || 'gold')] || GDMedals.PAL.gold;
     host.style.width = W + 'px'; host.style.height = H + 'px';
-    var edge = '', i, D = Math.round(W * .79), z = 5;
-    for (i = -z + 1; i <= z - 1; i++) edge += '<div class="mdi-e" style="width:' + D + 'px;height:' + D + 'px;left:' + Math.round((W - D) / 2) + 'px;top:' + Math.round(H * 62 / 110 - D / 2) + 'px;background:' + (i % 2 ? P[2] : P[1]) + ';transform:translateZ(' + i + 'px)"></div>';
+    var edge = '', i, D = Math.round(W * .79), z = 8;
+    for (i = -z + 1; i <= z - 1; i++) edge += '<div class="mdi-e" style="width:' + D + 'px;height:' + D + 'px;left:' + Math.round((W - D) / 2) + 'px;top:' + Math.round(H * 62 / 110 - D / 2) + 'px;background:linear-gradient(180deg,' + P[1] + ',' + P[2] + ');filter:brightness(' + (1 - Math.abs(i) / (z * 3.2)).toFixed(2) + ');transform:translateZ(' + (i * .8) + 'px)"></div>';
     var rib = '', rz; for (rz = -1; rz <= 1; rz++) rib += '<div class="mdi-f" style="backface-visibility:visible;-webkit-backface-visibility:visible;transform:translateZ(' + rz * .6 + 'px)">' + '<i data-s="r"></i>' + '</div>';
     host.innerHTML = '<div class="mdi-in">' + rib + '<div class="mdi-f" style="transform:translateZ(' + z + 'px)">' + '<i data-s="f"></i>' + '</div>' + edge + '<div class="mdi-f" style="transform:rotateY(180deg) translateZ(' + z + 'px)">' + '<i data-s="b"></i>' + '</div></div>';
     var parts = {r: GDMedals.svg(d.key, W, true, {ribbonOnly: true}), f: GDMedals.svg(d.key, W, true, {noRibbon: true}), b: backSvg(d).replace('<svg ', '<svg width="1" height="1" ')};

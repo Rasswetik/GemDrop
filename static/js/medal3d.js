@@ -454,8 +454,13 @@
     var man = null, imgDone = !o.img, snapGo = null, shot = false;
     if (o.img) { var im = new Image(); im.onerror = function () { imgDone = true; if (snapGo) snapGo(); }; im.onload = function () { var c = faceCanvas(o, im); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); imgDone = true; if (snapGo) snapGo(); }; im.src = o.img; }
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
-    (o.frame ? Promise.resolve(null) : loadModel()).then(function (g) {
-      var geo = new Geo(); if (o.frame) { buildFrame(geo, o.frame); medalCount = geo.i.length; } else {
+    ((o.frame && !o.hollow) ? Promise.resolve(null) : loadModel()).then(function (g) {
+      var geo = new Geo(); if (o.hollow) {
+        addGlb(geo, g, {pal: o.pal}); if (o.deco) decorate(geo, o.deco, o.pal); medalCount = geo.i.length;
+        var hc = geo.add([0, 0, .0046], [0, 0, 1], [.5, .5], [0, 0, 0], [0, .5, 0]), hi, hr = o.holeR || .0373;
+        for (hi = 0; hi <= 96; hi++) { var ha = hi / 96 * Math.PI * 2; geo.add([Math.cos(ha) * hr, Math.sin(ha) * hr, .0046], [0, 0, 1], [.5, .5], [0, 0, 0], [0, .5, 0]); }
+        for (hi = 0; hi < 96; hi++) geo.i.push(hc, hc + 1 + hi, hc + 2 + hi);
+      } else if (o.frame) { buildFrame(geo, o.frame); medalCount = geo.i.length; } else {
       addGlb(geo, g, o);
       // portrait disc (our own artwork, uv from position so the whole picture fills the circle)
       var pr0 = .0373 * 1, seg = 96, EC = null, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]), i;
@@ -491,12 +496,14 @@
         sz = Math.max(-.7, Math.min(.7, sz)); sx = Math.max(-.5, Math.min(.5, sx));
         if (man) { ry = man.ry; sz = man.sz; sx = man.sx; T = man.T; rx = man.rx; }
         var Rm = mul(rotZ(sz), mul(rotX(sx), rotY(ry))), Mm = mul(trans(PV[0], PV[1], PV[2]), mul(Rm, trans(-PV[0], -PV[1], -PV[2])));
-        var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : (o.frame ? (o.frame.cam || 12.5) : 20))));
+        var W0 = mul(trans(0, o.hollow ? 0 : -.2, -5.9), mul(rotX(rx), scl(o.deco ? 17.5 : (o.hollow ? 17.5 : (o.frame ? (o.frame.cam || 12.5) : 20)))));
         gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T); gl.uniform1f(U('uTw'), ry);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, mul(W0, Mm))); gl.uniformMatrix3fv(U('uR'), false, m3(mul(rotX(rx), Rm)));
         gl.drawElements(gl.TRIANGLES, medalCount, gl.UNSIGNED_SHORT, 0);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, W0)); gl.uniformMatrix3fv(U('uR'), false, m3(rotX(rx)));
+        if (o.hollow) { gl.disable(gl.DEPTH_TEST); gl.blendFunc(gl.ZERO, gl.ZERO); }
         gl.drawElements(gl.TRIANGLES, count - medalCount, gl.UNSIGNED_SHORT, medalCount * 2);
+        if (o.hollow) { gl.enable(gl.DEPTH_TEST); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
         if (!force) requestAnimationFrame(frame);
       }
       if (o.manual) { handle.draw = function (st) { man = st; frame(t0 + 16, true); }; if (o.ready) o.ready(handle); return; }

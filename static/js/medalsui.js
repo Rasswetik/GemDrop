@@ -285,7 +285,7 @@
     });
   }
   snapIcons();
-  window.GDMedalInfo = info; window.GDMedalsOpen = function (t) { open(t); };
+  window.GDMedalInfo = info; window.GDMedalDeco = DECO; window.GDMedalsOpen = function (t) { open(t); };
   document.addEventListener('click', function (e) {
     var sp = e.target.closest('.pp-medals span[data-k]'); if (sp) { info(sp.dataset.k); return; }
     var g = e.target.closest('.mdl-c .gdm, .mdl-c .mdl-lock'); if (g) { var c = g.closest('.mdl-c'); info(c.dataset.k, c.classList.contains('lk')); }

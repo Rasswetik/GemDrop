@@ -9,7 +9,7 @@
       .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || 'Ошибка'); return j; }); });
   }
   var st = document.createElement('style');
-  st.textContent = '.gdfr{overflow:visible!important;border-radius:50%!important;position:relative!important}.gdfr>img:not(.gdf-svg){border-radius:50%}.gdf-svg{position:absolute;left:-125%;top:-125%;width:350%;height:350%;pointer-events:none;z-index:4;max-width:none!important;border-radius:0!important;object-fit:contain!important}' +
+  st.textContent = '.gdfr{overflow:visible!important;border-radius:50%!important;position:relative!important}.gdfr>img:not(.gdf-svg){border-radius:50%}.gdf-svg{position:absolute;left:-65.5%;top:-65.5%;width:231%;height:231%;pointer-events:none;z-index:4;max-width:none!important;border-radius:0!important;object-fit:contain!important}' +
     '@keyframes gdfPulse{0%,100%{opacity:.75}50%{opacity:1}}@keyframes gdfSpin{to{transform:rotate(360deg)}}.gdf-pulse{animation:gdfPulse 1.8s ease-in-out infinite}.gdf-spin{transform-origin:0 0;animation:gdfSpin 14s linear infinite}' +
     '.gdc{position:fixed;inset:0;z-index:2147483100;display:grid;place-items:center;padding:16px;background:rgba(5,4,12,.72);overscroll-behavior:contain}.gdc-c{position:relative;width:min(100%,420px);max-height:calc(100dvh - 32px);overflow:auto;border-radius:24px;padding:20px 16px 18px;background:var(--card,#14162a);border:1px solid var(--gd-line,#22253d);color:var(--text,#f4f5f7)}' +
     '.gdc-c h2{margin:0 36px 4px 4px;font-size:22px}.gdc-x{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer;padding:0}' +
@@ -75,7 +75,8 @@
     function fin(u) { if (done) return; done = true; BUSY = false; job[1](u || ''); if (!u) delete CACHE[job[0]]; setTimeout(pump, 20); }
     try {
       if (!window.GDMedal3D) return fin('');
-      GDMedal3D.mount(document.createElement('div'), {frame: specOf(job[0]), w: 512, h: 512, snap: function (u) { fin(u && u.length > 3000 ? u : ''); }, onfail: function () { fin(''); }});
+      var mm = window.GDMedals && GDMedals.by && GDMedals.by(job[0]) || {}, dc = window.GDMedalDeco || {};
+      GDMedal3D.mount(document.createElement('div'), {frame: 1, hollow: 1, deco: dc[job[0]], pal: job[0] === 'goshan' ? null : ((window.GDMedals && GDMedals.PAL && GDMedals.PAL[mm.pal || 'gold']) || null), w: 512, h: 512, snap: function (u) { fin(u && u.length > 3000 ? u : ''); }, onfail: function () { fin(''); }});
       setTimeout(function () { fin(''); }, 9000);
     } catch (e) { fin(''); }
   }

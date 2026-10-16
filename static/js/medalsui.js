@@ -244,6 +244,26 @@
       if (window.GDMusic && GDMusic.KEYS[d.key]) { GDMusic.playShort(d.key); el._mus = 1; }
     }).catch(function (e) { if (window.toast) toast(e.message); });
   }
+
+  // small medal icons = first frame of the real 3D model (same look as in the preview)
+  function snapIcons() {
+    if (!window.GDMedal3D || !GDMedals.ready) return;
+    GDMedals.ready.then(function () {
+      Object.keys(GL3D).forEach(function (k) {
+        var m = GDMedals.by(k); if (!m || !m.img || GDMedals.T3[k]) return;
+        try {
+          GDMedal3D.mount(document.createElement('div'), {snap: function (url) {
+            GDMedals.T3[k] = url;
+            Array.prototype.forEach.call(document.querySelectorAll('svg.gdm[data-mk="' + k + '"]'), function (el) {
+              if (el.closest('.mdi-3d')) return;
+              var w = el.getAttribute('width'), t = document.createElement('div'); t.innerHTML = GDMedals.svg(k, +w, true); var n = t.firstChild; if (n && el.parentNode) el.parentNode.replaceChild(n, el);
+            });
+          }, w: 270, h: 310, img: m.img, badge: k === 'goshan', deco: DECO[k], pal: k === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold']});
+        } catch (e) {}
+      });
+    });
+  }
+  snapIcons();
   window.GDMedalInfo = info;
   document.addEventListener('click', function (e) {
     var sp = e.target.closest('.pp-medals span[data-k]'); if (sp) { info(sp.dataset.k); return; }

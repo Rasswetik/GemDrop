@@ -224,7 +224,8 @@
       destroy: function () { alive = false; },
       rot: function (a, b, c) { ry = a; rx = b; if (c != null) { sz = c; vsz = 0; } auto = false; }
     };
-    if (o.img) { var im = new Image(); im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1024; var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, 1024, 1024); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); }; im.src = o.img; }
+    var imgDone = !o.img, snapGo = null, shot = false;
+    if (o.img) { var im = new Image(); im.onerror = function () { imgDone = true; if (snapGo) snapGo(); }; im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1024; var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, 1024, 1024); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); imgDone = true; if (snapGo) snapGo(); }; im.src = o.img; }
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
     loadModel().then(function (g) {
       var geo = new Geo(); addGlb(geo, g, o);
@@ -250,9 +251,9 @@
     var auto = !(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches);
     function rotZ(a) { var c = Math.cos(a), s2 = Math.sin(a); return new Float32Array([c, s2, 0, 0, -s2, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
     function start() {
-      function frame(now) {
-        if (!alive || !host.isConnected) return;
-        var T = (now - t0) / 1000, dt = Math.min(.04, (now - tp) / 1000); tp = now;
+      function frame(now, force) {
+        if (!alive || (!host.isConnected && !force)) return;
+        var T = (now - t0) / 1000, dt = Math.max(0, Math.min(.04, (now - tp) / 1000)); tp = now;
         // twist spring: the ribbon winds up as the medal turns, so it gets harder to turn and unwinds back (with overshoot)
         if (!down) { var tgt = auto ? .55 * Math.sin(T * .55) : 0; vy += (-7 * (ry - tgt) - 2.0 * vy) * dt; ry += vy * dt; rx += (.08 + (auto ? .02 * Math.sin(T * .8) : 0) - rx) * .05; if (Math.abs(vy) > 2) vsx += Math.sin(T * 40) * Math.abs(vy) * dt * .05; }
         ry = Math.max(-9.4, Math.min(9.4, ry));
@@ -267,8 +268,9 @@
         gl.drawElements(gl.TRIANGLES, medalCount, gl.UNSIGNED_SHORT, 0);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, W0)); gl.uniformMatrix3fv(U('uR'), false, m3(rotX(rx)));
         gl.drawElements(gl.TRIANGLES, count - medalCount, gl.UNSIGNED_SHORT, medalCount * 2);
-        requestAnimationFrame(frame);
+        if (!force) requestAnimationFrame(frame);
       }
+      if (o.snap) { ry = 0; rx = .08; sz = sx = 0; auto = false; var go = function () { if (!imgDone || shot) return; shot = true; frame(t0 + 16, true); o.snap(cv.toDataURL('image/png')); }; snapGo = go; go(); return; }
       requestAnimationFrame(frame);
     }
     cv.addEventListener('pointerdown', function (e) { down = true; auto = false; lx = e.clientX; ly = e.clientY; vy = vx = 0; cv.style.cursor = 'grabbing'; try { cv.setPointerCapture(e.pointerId); } catch (x) {} });

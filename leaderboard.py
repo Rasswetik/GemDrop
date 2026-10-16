@@ -68,6 +68,11 @@ def promo_medals():
 
 def medal_settings():
     doc = dict(_ns['read_document'](MEDAL_SET_DOC) or {})
+    if not (_ns['read_document']('migr_hide_kashtan') or {}).get('done'):   # one-time: hide the Kashtan medal for now (admin can unhide it later)
+        h0 = [x for x in (doc.get('hidden') or []) if x != 'kashtan'] + ['kashtan']
+        doc['hidden'] = h0
+        _ns['save_document'](MEDAL_SET_DOC, doc)
+        _ns['save_document']('migr_hide_kashtan', {'done': True})
     names = doc.get('names') if isinstance(doc.get('names'), dict) else {}
     hidden = doc.get('hidden') if isinstance(doc.get('hidden'), list) else []
     rar = doc.get('rarity') if isinstance(doc.get('rarity'), dict) else {}

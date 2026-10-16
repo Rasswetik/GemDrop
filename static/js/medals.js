@@ -155,9 +155,11 @@
     return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')"><path class="' + cls + '" ' + (extra || '') + ' d="M0 -3.4Q.5 -.5 3.4 0Q.5 .5 0 3.4Q-.5 .5 -3.4 0Q-.5 -.5 0 -3.4Z" fill="#fff"/></g>';
   }
 
+  var T3 = {};
   function svg(key, size, still, opt) {
     opt = opt || {};
     css();
+    if (T3[key] && !(opt && (opt.noRibbon || opt.ribbonOnly))) { var iw = size || 64, ih = Math.round(iw * 110 / 96); return '<svg class="gdm st" data-mk="' + key + '" width="' + iw + '" height="' + ih + '" viewBox="0 0 96 110" aria-hidden="true"><image href="' + T3[key] + '" x="0" y="0" width="96" height="110"/></svg>'; }
     var m = BY[key] || BY.c1, p = PAL[AUTHOR3[key] ? 'red' : (m.pal || 'gold')], id = 'gm' + (++N), w = size || 64, vh = m.place ? 120 : AUTHOR3[m.key] ? 118 : 110, h = Math.round(w * vh / 96), sh = AUTHOR3[m.key] ? 'round' : (m.shape || 'round'), i, a;
     var rar = m.img ? 'common' : (m.rarity || 'common'), st = !!still || (window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches), U = '#' + id;
     var top = sh === 'hex' ? 22.5 : (sh === 'seal' ? 23.4 : 24);
@@ -248,7 +250,7 @@
       '<clipPath id="' + id + 'c"><path d="' + disc + '"/></clipPath><clipPath id="' + id + 'o"><path d="' + shapeO + '"/></clipPath></defs>';
 
     if (opt.ribbonOnly) return '<svg class="gdm st" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs + ribbon.replace('class="gm-rb"', '') + '</svg>';
-    return '<svg class="gdm' + (st ? ' st' : '') + '" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs +
+    return '<svg class="gdm' + (st ? ' st' : '') + '" data-mk="' + key + '" width="' + w + '" height="' + h + '" viewBox="0 0 96 ' + vh + '" aria-hidden="true">' + defs +
       '<circle class="gm-glow" cx="48" cy="62" r="48" fill="url(#' + id + 'g)" opacity="' + glowOp + '"/>' +
       ribbon +
       '<ellipse cx="48" cy="104.5" rx="27" ry="3.6" fill="rgba(0,0,0,.34)"/><path d="' + shape(sh, 39.5) + '" fill="rgba(0,0,0,.16)" transform="translate(0 4.6)"/>' +
@@ -282,7 +284,7 @@
   function f1(n) { return (+n).toFixed(1); }
   var BASE = {};
   LIST.forEach(function (m) { BASE[m.key] = m.name; });
-  var api = {EMB: EMB, LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, PAL: PAL, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null};
+  var api = {EMB: EMB, LIST: LIST, by: function (k) { return BY[k] || null; }, svg: svg, PAL: PAL, name: function (k) { return (BY[k] || {}).name || 'Медаль'; }, ready: null, T3: T3};
   api.load = function () {
     api.RAR = {common: 'Обычная', rare: 'Редкая', epic: 'Эпическая', legendary: 'Легендарная'};
     api.ready = fetch('/api/medals/catalog', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {

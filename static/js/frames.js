@@ -9,7 +9,7 @@
       .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error(j.error || 'Ошибка'); return j; }); });
   }
   var st = document.createElement('style');
-  st.textContent = '.gdfr{overflow:visible!important;border-radius:50%!important;position:relative!important}.gdfr>img{border-radius:50%}.gdf-svg{position:absolute;left:-33.3%;top:-33.3%;width:166.7%;height:166.7%;pointer-events:none;z-index:4;overflow:visible}' +
+  st.textContent = '.gdfr{overflow:visible!important;border-radius:50%!important;position:relative!important}.gdfr>img:not(.gdf-svg){border-radius:50%}.gdf-svg{position:absolute;left:-59.5%;top:-59.5%;width:219%;height:219%;pointer-events:none;z-index:4;max-width:none!important;border-radius:0!important;object-fit:contain!important}' +
     '@keyframes gdfPulse{0%,100%{opacity:.75}50%{opacity:1}}@keyframes gdfSpin{to{transform:rotate(360deg)}}.gdf-pulse{animation:gdfPulse 1.8s ease-in-out infinite}.gdf-spin{transform-origin:0 0;animation:gdfSpin 14s linear infinite}' +
     '.gdc{position:fixed;inset:0;z-index:2147483100;display:grid;place-items:center;padding:16px;background:rgba(5,4,12,.72);overscroll-behavior:contain}.gdc-c{position:relative;width:min(100%,420px);max-height:calc(100dvh - 32px);overflow:auto;border-radius:24px;padding:20px 16px 18px;background:var(--card,#14162a);border:1px solid var(--gd-line,#22253d);color:var(--text,#f4f5f7)}' +
     '.gdc-c h2{margin:0 36px 4px 4px;font-size:22px}.gdc-x{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:inherit;font-size:18px;cursor:pointer;padding:0}' +
@@ -18,45 +18,53 @@
     '.gdc-card.on{border-color:#47b0f5;box-shadow:0 0 0 2px rgba(71,176,245,.25) inset}.gdc-card.lk{opacity:.55;cursor:default}.gdc-card b{font-size:14px}.gdc-card small{font-size:12px;color:var(--muted,#96a0a8)}' +
     '.gdc-av{position:relative;width:72px;height:72px;margin:18px 0 20px;border-radius:50%;background:#242841;display:grid;place-items:center;font-size:28px;font-weight:800;color:#47b0f5}.gdc-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}' +
     '.gdc-p{margin:6px 2px 0;font-size:13px;line-height:1.4;color:var(--muted,#96a0a8)}.gdc-big{width:100%;height:46px;margin-top:12px;border-radius:14px;border:0;background:linear-gradient(135deg,#8be9f0,#47b0f5);color:#08121c;font-weight:900;font-size:15px;cursor:pointer}' +
-    '.gdc-eq{display:flex;gap:8px;justify-content:center;margin:6px 0 4px;min-height:60px}';
+    '.gdc-lk{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.gdc-lk span{font-size:12px;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--muted,#96a0a8)}';
   document.head.appendChild(st);
 
-  function uid() { return 'gf' + (++N); }
-  function spikes(id) {
-    var o = '<defs><linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4a4f66"/><stop offset=".5" stop-color="#14151f"/><stop offset="1" stop-color="#2b2e3b"/></linearGradient><linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f6ff"/><stop offset="1" stop-color="#7a82a0"/></linearGradient></defs>', i;
-    for (i = 0; i < 20; i++) { var a = i / 20 * 360; o += '<path transform="rotate(' + a + ')" d="M-4 -42 L0 -57 L4 -42Z" fill="url(#' + id + 'b)" stroke="#2b2e3b" stroke-width=".6"/>'; }
-    return o + '<circle r="40" fill="none" stroke="url(#' + id + 'a)" stroke-width="8"/><circle r="36.2" fill="none" stroke="#9aa0c0" stroke-opacity=".6" stroke-width=".8"/><circle r="43.6" fill="none" stroke="#fff" stroke-opacity=".25" stroke-width=".8"/>';
+  /* every medal has its own 3D frame: motif ring around the avatar, rendered once by the WebGL renderer into a transparent PNG */
+  var SPEC = {
+    jealous: {m: 'spikes', n: 20, p: 'black', ring: '#2b2e3b'}, warhol: {m: 'studs', n: 16, p: 'blue'}, poets: {m: 'leaves', n: 14, p: 'red', leaf: '#ffcf5a'}, vklube: {m: 'neon', n: 4, p: 'black', ring: '#1a1030'}, kashtan: {m: 'links', n: 22, p: 'gold'},
+    goshan: {m: 'play', n: 8, p: 'red'}, kess: {m: 'star', n: 10, p: 'silver'}, nickolay: {m: 'gift', n: 8, p: 'blue'}, kuzmatagin: {m: 'cup', n: 8, p: 'bronze'},
+    hw1: {m: 'pumpkin', n: 8, p: 'gold'}, hw2: {m: 'ghost', n: 8, p: 'silver'}, hw3: {m: 'bat', n: 8, p: 'bronze'}, hw4: {m: 'hat', n: 8, p: 'violet'}, hw5: {m: 'skull', n: 8, p: 'teal'},
+    vip: {m: 'crown', n: 8, p: 'violet'}, gem: {m: 'diamond', n: 8, p: 'cyan'}, champ: {m: 'trophy', n: 8, p: 'gold'}, pioneer: {m: 'flag', n: 8, p: 'orange'}, insider: {m: 'key', n: 8, p: 'cyan'}, friend: {m: 'heart', n: 8, p: 'pink'}, guard: {m: 'shield', n: 8, p: 'silver'}, collector: {m: 'gift', n: 8, p: 'red'},
+    c1: {m: 'studs', n: 16, p: 'gold', mono: 1}, c2: {m: 'studs', n: 16, p: 'silver', mono: 1}, c3: {m: 'studs', n: 16, p: 'bronze', mono: 1},
+    ton: {m: 'diamond', n: 8, p: 'blue'}, lucky: {m: 'leaves', n: 14, p: 'green', leaf: '#7bd651'}, fire: {m: 'spikes', n: 18, p: 'orange'}, bolt: {m: 'star', n: 10, p: 'gold'}, rocket: {m: 'star', n: 10, p: 'blue'},
+    gambler: {m: 'dice', n: 8, p: 'red'}, miner: {m: 'studs', n: 16, p: 'green', mono: 1}, cards: {m: 'star', n: 10, p: 'obsidian'}, night: {m: 'star', n: 10, p: 'night'}
+  };
+  function hexRgb(h) { return [parseInt(h.substr(1, 2), 16) / 255, parseInt(h.substr(3, 2), 16) / 255, parseInt(h.substr(5, 2), 16) / 255]; }
+  function specOf(key) {
+    var sp = SPEC[key]; if (!sp) { var m = window.GDMedals && GDMedals.by && GDMedals.by(key); sp = {m: 'studs', n: 16, p: (m && m.pal) || 'gold', mono: 1}; }
+    var pal = (window.GDMedals && GDMedals.PAL && (GDMedals.PAL[sp.p] || GDMedals.PAL.gold)) || ['#fff3b0', '#ffc933', '#a86a05', '#ffe58a'];
+    var o = {m: sp.m, n: sp.n, pal: pal, ring: sp.ring, leaf: sp.leaf}; if (sp.mono) o.cols = [hexRgb(pal[3]), hexRgb(pal[1])]; return o;
   }
-  function pop(id) {
-    var C = ['#ff4fb0', '#ffd60a', '#2ad4ff', '#ff7a1a'], o = '<defs><linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8cc2ff"/><stop offset="1" stop-color="#17408f"/></linearGradient></defs><circle r="40" fill="none" stroke="url(#' + id + 'a)" stroke-width="8"/><circle r="43.6" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width=".8"/>', i;
-    for (i = 0; i < 16; i++) { var a = i / 16 * Math.PI * 2; o += '<circle cx="' + (Math.cos(a) * 49).toFixed(1) + '" cy="' + (Math.sin(a) * 49).toFixed(1) + '" r="5" fill="' + C[i % 4] + '" stroke="#fff" stroke-width="1"/><circle cx="' + (Math.cos(a) * 49 - 1.5).toFixed(1) + '" cy="' + (Math.sin(a) * 49 - 1.6).toFixed(1) + '" r="1.5" fill="#fff" opacity=".7"/>'; }
-    return o;
+  function has(k) { return true; }
+  var CACHE = {}, QUEUE = [], BUSY = false;
+  function snap(key) {
+    if (CACHE[key]) return CACHE[key];
+    return CACHE[key] = new Promise(function (res) { QUEUE.push([key, res]); pump(); });
   }
-  function laurel(id) {
-    var o = '<defs><linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6b7d"/><stop offset="1" stop-color="#7a0f22"/></linearGradient><linearGradient id="' + id + 'b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff2b0"/><stop offset="1" stop-color="#c8860e"/></linearGradient></defs><circle r="40" fill="none" stroke="url(#' + id + 'a)" stroke-width="8"/><circle r="43.8" fill="none" stroke="url(#' + id + 'b)" stroke-width="1.6"/>', i;
-    for (i = 0; i < 14; i++) { var a = i / 14 * 360 + 6; o += '<ellipse transform="rotate(' + a + ') translate(0 -48.5) rotate(' + (i % 2 ? 24 : -24) + ')" rx="2.5" ry="6" fill="url(#' + id + 'b)" stroke="#8a5a06" stroke-width=".4"/>'; }
-    return o + '<path d="M0 -53 l2 4 4.5 .6 -3.3 3.1 .8 4.5 -4 -2.2 -4 2.2 .8 -4.5 -3.3 -3.1 4.5 -.6z" fill="url(#' + id + 'b)"/>';
+  function pump() {
+    if (BUSY || !QUEUE.length) return; BUSY = true; var job = QUEUE.shift(), done = false;
+    function fin(u) { if (done) return; done = true; BUSY = false; job[1](u || ''); if (!u) delete CACHE[job[0]]; setTimeout(pump, 20); }
+    try {
+      if (!window.GDMedal3D) return fin('');
+      GDMedal3D.mount(document.createElement('div'), {frame: specOf(job[0]), w: 512, h: 512, snap: function (u) { fin(u && u.length > 3000 ? u : ''); }, onfail: function () { fin(''); }});
+      setTimeout(function () { fin(''); }, 9000);
+    } catch (e) { fin(''); }
   }
-  function neon(id) {
-    return '<defs><linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff3ea5"/><stop offset=".5" stop-color="#8a5cff"/><stop offset="1" stop-color="#2ad4ff"/></linearGradient><filter id="' + id + 'g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.6"/></filter></defs>' +
-      '<g class="gdf-pulse"><circle r="42" fill="none" stroke="url(#' + id + 'a)" stroke-width="8" filter="url(#' + id + 'g)" opacity=".9"/></g><circle r="41" fill="none" stroke="url(#' + id + 'a)" stroke-width="4.2"/><circle r="41" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="1"/>' +
-      '<g class="gdf-spin">' + [0, 1, 2, 3].map(function (k) { return '<path transform="rotate(' + k * 90 + ') translate(0 -50)" d="M0 -5 Q0 0 5 0 Q0 0 0 5 Q0 0 -5 0 Q0 0 0 -5Z" fill="#fff"/>'; }).join('') + '</g>';
-  }
-  function chain(id) {
-    var o = '<defs><linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset=".5" stop-color="#ffc933"/><stop offset="1" stop-color="#a86a05"/></linearGradient></defs><circle r="40" fill="none" stroke="url(#' + id + 'a)" stroke-width="7"/>', i;
-    for (i = 0; i < 22; i++) { var a = i / 22 * 360; o += '<ellipse transform="rotate(' + a + ') translate(0 -47)" rx="' + (i % 2 ? 2 : 3.6) + '" ry="' + (i % 2 ? 4.6 : 3.2) + '" fill="none" stroke="url(#' + id + 'a)" stroke-width="2.2"/>'; }
-    return o + '<circle r="43.5" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width=".8"/>';
-  }
-  var ART = {jealous: spikes, warhol: pop, poets: laurel, vklube: neon, kashtan: chain};
-  function svg(key) { var f = ART[key]; if (!f) return ''; var id = uid(); return '<svg class="gdf-svg" viewBox="-60 -60 120 120" aria-hidden="true">' + f(id) + '</svg>'; }
   function apply(el, key) {
     if (!el) return; var cur = el.getAttribute('data-fr') || '';
-    if ((key || '') === cur && (key ? el.querySelector('.gdf-svg') : true)) return;
+    if ((key || '') === cur && (key ? el.querySelector(':scope > .gdf-svg') : true)) return;
     var old = el.querySelector(':scope > .gdf-svg'); if (old) old.remove();
     el.setAttribute('data-fr', key || '');
-    if (!key || !ART[key]) { el.classList.remove('gdfr'); return; }
-    el.classList.add('gdfr'); el.insertAdjacentHTML('beforeend', svg(key));
+    if (!key) { el.classList.remove('gdfr'); return; }
+    el.classList.add('gdfr');
+    snap(key).then(function (u) {
+      if (!u || el.getAttribute('data-fr') !== key || el.querySelector(':scope > .gdf-svg')) return;
+      el.insertAdjacentHTML('beforeend', '<img class="gdf-svg" alt="" src="' + u + '">');
+    });
   }
+  function svg(key) { return CACHE[key] && CACHE[key].u ? '' : ''; }
   function load() { return api('/api/frames').then(function (d) { S = {selected: d.selected || '', owned: d.owned || [], frames: d.frames || [], ok: true}; return S; }); }
   function visible(el) { return el && el.offsetParent !== null; }
   function tick() {
@@ -71,43 +79,39 @@
 
   function ownImg() { var i = document.querySelector('#bigAvatar img'); return i ? i.src : ''; }
   function ownLetter() { var a = document.getElementById('bigAvatar'); return a && !a.querySelector('img') ? (a.textContent || '').trim().slice(0, 1) : ''; }
-  function avatarHtml(key) { var im = ownImg(); return '<div class="gdc-av' + (key ? ' gdfr' : '') + '" data-fr="' + (key || '') + '">' + (im ? '<img alt="" src="' + esc(im) + '">' : esc(ownLetter() || '👤')) + (key ? svg(key) : '') + '</div>'; }
+  function avHtml(key, extra) { var im = ownImg(); return '<div class="gdc-av" data-pv="' + (key || '') + '"' + (extra || '') + '>' + (im ? '<img alt="" src="' + esc(im) + '">' : esc(ownLetter() || '👤')) + '</div>'; }
   function overlay(inner) {
     var el = document.createElement('div'); el.className = 'gdc'; el.setAttribute('role', 'dialog'); el.innerHTML = '<div class="gdc-c"><button type="button" class="gdc-x" aria-label="Закрыть">×</button>' + inner + '</div>';
     el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('gdc-x')) el.remove(); });
     document.body.appendChild(el); return el;
   }
-  function openCustomize(start) {
-    var el = overlay('<h2>Кастомизация</h2><p class="gdc-p">Медали и рамки профиля</p><div class="gdc-tabs"><button type="button" data-t="m">Медали</button><button type="button" data-t="f">Рамки</button></div><div id="gdcBody"></div>');
-    var body = el.querySelector('#gdcBody');
-    function paintMedals() {
-      body.innerHTML = '<p class="gdc-p">Наденьте до 3 медалей — их увидят рядом с вашим ником. Награды за коллекции тоже здесь.</p><button type="button" class="gdc-big" id="gdcMed">Открыть коллекцию медалей</button>';
-      body.querySelector('#gdcMed').onclick = function () { el.remove(); if (window.GDMedalsOpen) window.GDMedalsOpen(); };
+  function paintPreviews(root) { Array.prototype.forEach.call(root.querySelectorAll('.gdc-av[data-pv]'), function (e) { if (e.dataset.pv) apply(e, e.dataset.pv); }); }
+  function nameOf(k) { var m = window.GDMedals && GDMedals.by && GDMedals.by(k); return (m && m.name) || k; }
+  /* Frames tab (rendered inside the medal "Кастомизация" window) */
+  function paint(body) {
+    function draw() {
+      var list = (S.frames && S.frames.length) ? S.frames : S.owned.map(function (k) { return {key: k, name: nameOf(k), owned: true}; });
+      var own = list.filter(function (f) { return f.owned; }), lk = list.filter(function (f) { return !f.owned; });
+      var h = '<div class="gdc-grid"><button type="button" class="gdc-card' + (!S.selected ? ' on' : '') + '" data-k="">' + avHtml('') + '<b>Без рамки</b><small>' + (!S.selected ? 'Надета' : 'Выбрать') + '</small></button>';
+      own.forEach(function (f) { h += '<button type="button" class="gdc-card' + (S.selected === f.key ? ' on' : '') + '" data-k="' + esc(f.key) + '">' + avHtml(f.key) + '<b>' + esc(f.name || nameOf(f.key)) + '</b><small>' + (S.selected === f.key ? 'Надета' : 'Выбрать') + '</small></button>'; });
+      h += '</div>';
+      if (lk.length) { h += '<p class="gdc-p" style="margin-top:14px"><b>Ещё не получены</b> — у каждой медали своя 3D-рамка, она открывается вместе с медалью:</p><div class="gdc-lk">' + lk.map(function (f) { return '<span>' + esc(f.name || nameOf(f.key)) + '</span>'; }).join('') + '</div>'; }
+      body.innerHTML = h; paintPreviews(body);
     }
-    function paintFrames() {
-      var h = '<div class="gdc-grid"><button type="button" class="gdc-card' + (!S.selected ? ' on' : '') + '" data-k=""><div class="gdc-av" style="margin:18px 0 20px">' + (ownImg() ? '<img alt="" src="' + esc(ownImg()) + '">' : esc(ownLetter() || '👤')) + '</div><b>Без рамки</b><small>' + (!S.selected ? 'Надета' : 'Выбрать') + '</small></button>';
-      (S.frames.length ? S.frames : KEYS.map(function (k) { return {key: k, owned: S.owned.indexOf(k) >= 0}; })).forEach(function (f) {
-        if (!ART[f.key]) return; var own = S.owned.indexOf(f.key) >= 0;
-        h += '<button type="button" class="gdc-card' + (S.selected === f.key ? ' on' : '') + (own ? '' : ' lk') + '" data-k="' + f.key + '" ' + (own ? '' : 'disabled') + '>' + avatarHtml(f.key) + '<b>' + esc(NAMES[f.key] || f.name) + '</b><small>' + (own ? (S.selected === f.key ? 'Надета' : 'Выбрать') : 'Нужна медаль «' + esc(f.name || f.key) + '»') + '</small></button>';
-      });
-      body.innerHTML = h + '</div><p class="gdc-p">Рамку дают музыкальные медали. Получите медаль — и рамка появится здесь.</p>';
-    }
-    body.addEventListener('click', function (e) {
-      var c = e.target.closest('.gdc-card[data-k]'); if (!c || c.disabled) return; var k = c.dataset.k;
-      api('/api/frames/select', {key: k}).then(function (d) { S.selected = d.selected || ''; paintFrames(); tick(); }).catch(function (er) { if (window.toast) toast(er.message); });
-    });
-    function tab(t) { Array.prototype.forEach.call(el.querySelectorAll('.gdc-tabs button'), function (b) { b.classList.toggle('on', b.dataset.t === t); }); if (t === 'm') paintMedals(); else { paintFrames(); load().then(paintFrames).catch(function () {}); } }
-    el.querySelector('.gdc-tabs').onclick = function (e) { var b = e.target.closest('button'); if (b) tab(b.dataset.t); };
-    tab(start === 'f' ? 'f' : 'm');
-    return el;
+    draw(); load().then(draw).catch(function () {});
+    if (!body._fr) { body._fr = 1; body.addEventListener('click', function (e) {
+      var c = e.target.closest('.gdc-card[data-k]'); if (!c) return; var k = c.dataset.k;
+      api('/api/frames/select', {key: k}).then(function (d) { S.selected = d.selected || ''; draw(); tick(); }).catch(function (er) { if (window.toast) toast(er.message); });
+    }); }
   }
+  function openCustomize(start) { if (window.GDMedalsOpen) window.GDMedalsOpen(start === 'f' ? 'f' : 'm'); }
   function gained(key) {
-    if (!ART[key]) return;
     load().catch(function () {}).then(function () {
-      var el = overlay('<h2 style="text-align:center;margin:0 0 6px">Вы получили рамку</h2><div style="display:grid;place-items:center">' + avatarHtml(key) + '</div><p class="gdc-p" style="text-align:center"><b style="color:inherit">' + esc(NAMES[key] || key) + '</b> — рамка вокруг вашего аватара в профиле.</p><button type="button" class="gdc-big" id="gdcOn">Надеть</button><button type="button" class="gdc-big" id="gdcLater" style="background:rgba(255,255,255,.08);color:inherit;margin-top:8px">Позже</button>');
+      var el = overlay('<h2 style="text-align:center;margin:0 0 6px">Вы получили рамку</h2><div style="display:grid;place-items:center">' + avHtml(key) + '</div><p class="gdc-p" style="text-align:center"><b style="color:inherit">' + esc(nameOf(key)) + '</b> — 3D-рамка вокруг вашего аватара в профиле.</p><button type="button" class="gdc-big" id="gdcOn">Надеть</button><button type="button" class="gdc-big" id="gdcLater" style="background:rgba(255,255,255,.08);color:inherit;margin-top:8px">Позже</button>');
+      paintPreviews(el);
       el.querySelector('#gdcLater').onclick = function () { el.remove(); };
       el.querySelector('#gdcOn').onclick = function () { api('/api/frames/select', {key: key}).then(function (d) { S.selected = d.selected; tick(); el.remove(); }).catch(function (er) { if (window.toast) toast(er.message); }); };
     });
   }
-  window.GDFrames = {svg: svg, apply: apply, open: openCustomize, gained: gained, has: function (k) { return !!ART[k]; }, load: load, tick: tick, state: function () { return S; }};
+  window.GDFrames = {svg: svg, apply: apply, open: openCustomize, paint: paint, gained: gained, has: has, load: load, tick: tick, snap: snap, state: function () { return S; }};
 })();

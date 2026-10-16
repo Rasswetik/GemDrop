@@ -1048,7 +1048,7 @@ def register(app, ns):
             owned = owned_frames(db, uid)
             cur = frame_of(db, uid)
         return jsonify(ok=True, selected=cur, owned=owned,
-                       frames=[dict(key=k, name=mname(k), owned=k in owned) for k in FRAME_KEYS if k not in medal_settings()['hidden'] or k in owned])
+                       frames=sorted([dict(key=k, name=mname(k), owned=k in owned) for k in all_names() if k not in medal_settings()['hidden'] or k in owned], key=lambda f: (not f['owned'])))
 
     @app.post('/api/frames/select')
     @login
@@ -1384,7 +1384,7 @@ def main_medals(db, user_ids):
     return out
 
 
-FRAME_KEYS = ('kashtan', 'jealous', 'warhol', 'poets', 'vklube')   # music medals give a profile frame (same key as the medal)
+FRAME_KEYS = None   # every medal gives its own 3D profile frame (frame key = medal key)
 
 
 def _frame_table(db):
@@ -1393,7 +1393,8 @@ def _frame_table(db):
 
 def owned_frames(db, user_id):
     have = {r['medal_key'] for r in db.execute('SELECT DISTINCT medal_key FROM user_medals WHERE user_id=?', (int(user_id),)).fetchall()}
-    return [k for k in FRAME_KEYS if k in have]
+    names = all_names()
+    return [k for k in names if k in have]
 
 
 def frame_of(db, user_id):

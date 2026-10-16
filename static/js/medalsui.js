@@ -33,6 +33,7 @@
     '.mdl-body{overflow:auto;flex:1;margin:0 -16px;padding:0 16px 4px;overscroll-behavior:contain}' +
     '.mdl-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.mdl-slot{display:grid;justify-items:center;align-content:center;gap:3px;min-height:104px;padding:8px 4px;border-radius:16px;border:1px dashed rgba(255,255,255,.14);background:rgba(255,255,255,.02);font-size:11px;color:var(--muted,#96a0a8);text-align:center}.mdl-slot.on{border:1px solid rgba(71,176,245,.45);background:rgba(71,176,245,.07);color:var(--text,#f4f5f7)}.mdl-slot em{font-style:normal;font-size:20px;opacity:.5}.mdl-slot span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
     '.mdl-star img,.mdl-slot em.mn img{width:13px;height:13px;object-fit:contain;vertical-align:-2px;margin-right:3px}.mdl-star img{margin:0}.mdl-modal{overscroll-behavior:contain}html.mdl-ns,html.mdl-ns body{overflow:hidden!important}.mdl-sec{margin:18px 0 0;padding:12px 10px 10px;border-radius:18px;background:linear-gradient(180deg,rgba(255,180,84,.09),rgba(255,180,84,.02));border:1px solid rgba(255,180,84,.28)}.mdl-sec .mdl-h{margin:0 2px 10px}.mdl-sec .mdl-h .rar{color:#ffb454;font-size:13px}' +
+    '.mdl-tabs{display:flex;gap:6px;margin:8px 0}.mdl-tabs button{flex:1;height:38px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:transparent;color:inherit;font-weight:700}.mdl-tabs button.on{background:#47b0f5;color:#04121c;border-color:#47b0f5}.mdl-card [hidden]{display:none!important}',
     '.mdl-filt{display:flex;gap:6px;margin-bottom:4px}.mdl-filt button{flex:1;height:34px;padding:0 8px;border-radius:12px;border:1px solid var(--gd-line,#22253d);background:rgba(255,255,255,.045);color:var(--muted,#96a0a8);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.mdl-filt button.on{background:linear-gradient(110deg,#9ae9e3,#47b0f5);border-color:transparent;color:#131524}' +
     '.mdl-h{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;font-size:12.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase}.mdl-h small{font-weight:600;color:var(--muted,#96a0a8);text-transform:none;letter-spacing:0}' +
     '.mdl-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mdl-c{position:relative;display:grid;justify-items:center;align-content:start;gap:3px;padding:10px 6px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid var(--gd-line,#22253d);text-align:center;min-width:0}.mdl-c.on{border-color:rgba(71,176,245,.55)}' +
@@ -50,11 +51,18 @@
     var m = $('mdlModal');
     if (m) return m;
     m = document.createElement('div'); m.id = 'mdlModal'; m.className = 'modal mdl-modal hidden'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
-    m.innerHTML = '<div class="modal-card mdl-card"><button type="button" class="modal-x" aria-label="Закрыть">×</button><h2>Коллекция медалей</h2><p class="mdl-meta" id="mdlMeta"></p><div class="mdl-body">' +
+    m.innerHTML = '<div class="modal-card mdl-card"><button type="button" class="modal-x" aria-label="Закрыть">×</button><h2>Кастомизация</h2><div class="mdl-tabs" id="mdlTabs"><button type="button" data-t="m" class="on">Медали</button><button type="button" data-t="f">Рамки</button></div><p class="mdl-meta" id="mdlMeta"></p><div class="mdl-body" id="mdlMedalsPane">' +
       '<div class="mdl-slots" id="mdlSlots"></div>' +
-      '<div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div></div>';
+      '<div class="mdl-filt" id="mdlF"></div><div id="mdlList"></div></div><div class="mdl-body" id="mdlFramesPane" hidden></div></div>';
     m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('modal-x')) { m.classList.add('hidden'); document.documentElement.classList.remove('mdl-ns'); } });
+    m.querySelector('#mdlTabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) tabTo(b.dataset.t); });
     document.body.appendChild(m); return m;
+  }
+  function tabTo(t) {
+    var m = $('mdlModal'); if (!m) return;
+    Array.prototype.forEach.call(m.querySelectorAll('#mdlTabs button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
+    $('mdlMedalsPane').hidden = t !== 'm'; $('mdlMeta').style.display = t === 'm' ? '' : 'none'; $('mdlFramesPane').hidden = t !== 'f';
+    if (t === 'f' && window.GDFrames) GDFrames.paint($('mdlFramesPane'));
   }
   function collection() {
     return (GDMedals.LIST || []).filter(function (m) { return !m.hidden || state.own[m.key]; });
@@ -113,8 +121,8 @@
       d.medals.forEach(function (x) { var o = state.own[x.key] || (state.own[x.key] = {n: 0}); o.n++; if (x.shown) state.shown[x.key] = 1; });
     });
   }
-  function open() {
-    var m = modal(); m.classList.remove('hidden'); document.documentElement.classList.add('mdl-ns');
+  function open(tab) {
+    var m = modal(); tabTo(tab === 'f' ? 'f' : 'm'); m.classList.remove('hidden'); document.documentElement.classList.add('mdl-ns');
     var list = $('mdlList'); list.innerHTML = '<div class="mdl-empty">Загрузка…</div>';
     if (!m.dataset.bound) {
       m.dataset.bound = '1';
@@ -137,8 +145,8 @@
     if ($('pfMedals')) return true;
     var anchor = $('pfSettingsRow'); if (!anchor) return false;
     var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedals';
-    row.innerHTML = '<span class="pf-row-t"><b>Кастомизация</b><small>Медали и рамки профиля</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg(GDMedals.by('kashtan') ? 'kashtan' : 'hw1', 46, true) + '</button>';
-    var openC = function () { if (window.GDFrames) GDFrames.open(); else open(); }; row.querySelector('button').onclick = openC; row.onclick = function (e) { if (e.target.closest('button')) return; openC(); };
+    row.innerHTML = '<span class="pf-row-t"><b>Кастомизация</b><small>Медали и 3D-рамки профиля</small></span><button type="button" class="pf-open-btn" style="padding:9px 18px;border-radius:12px;border:0;background:#47b0f5;color:#04121c;font-weight:800;font-size:14px">Открыть</button>';
+    var openC = function () { open(); }; row.querySelector('button').onclick = openC; row.onclick = function (e) { if (e.target.closest('button')) return; openC(); };
     anchor.parentNode.insertBefore(row, anchor); return true;
   }
 
@@ -277,7 +285,7 @@
     });
   }
   snapIcons();
-  window.GDMedalInfo = info; window.GDMedalsOpen = open;
+  window.GDMedalInfo = info; window.GDMedalsOpen = function (t) { open(t); };
   document.addEventListener('click', function (e) {
     var sp = e.target.closest('.pp-medals span[data-k]'); if (sp) { info(sp.dataset.k); return; }
     var g = e.target.closest('.mdl-c .gdm, .mdl-c .mdl-lock'); if (g) { var c = g.closest('.mdl-c'); info(c.dataset.k, c.classList.contains('lk')); }

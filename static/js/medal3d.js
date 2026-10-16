@@ -180,13 +180,13 @@
 
 
   /* ---------- 3D emblems for medals without a photo ---------- */
-  function emblem(geo, kind, z0) {
-    var K = 1.4, E = function (c, r, col, mf, rf, rol, pit) { ell(geo, {c: [c[0] * K, c[1] * K, z0 + c[2]], r: [r[0] * K, r[1] * K, r[2] * 1.15], rol: rol || 0, pit: pit || 0}, col, mf, rf); }, DK = [.06, .04, .08], i;
+  function emblem(geo, kind, z0, ox, oy, sc) {
+    ox = ox || 0; oy = oy || 0; var K = 1.4 * (sc || 1), E = function (c, r, col, mf, rf, rol, pit) { ell(geo, {c: [c[0] * K + ox, c[1] * K + oy, z0 + c[2]], r: [r[0] * K, r[1] * K, r[2] * 1.15 * (sc || 1)], rol: rol || 0, pit: pit || 0}, col, mf, rf); }, DK = [.06, .04, .08], i;
     if (kind === 'pumpkin') {
       var O = [1, .46, .06];
       E([-.0105, -.001, .0085], [.0125, .0155, .0092], [.93, .38, .04], 0, .38); E([.0105, -.001, .0085], [.0125, .0155, .0092], [.93, .38, .04], 0, .38);
       E([0, 0, .0095], [.0135, .0165, .0098], O, 0, .34);
-      tube(geo, [[0, .0145 * K, z0 + .0095], [.0008 * K, .0215 * K, z0 + .0095], [.0042 * K, .0262 * K, z0 + .0095]], function (t) { return .0026 * K * (1 - t * .3); }, [.22, .5, .12], 0, .6);
+      tube(geo, [[ox, .0145 * K + oy, z0 + .0095], [.0008 * K + ox, .0215 * K + oy, z0 + .0095], [.0042 * K + ox, .0262 * K + oy, z0 + .0095]], function (t) { return .0026 * K * (1 - t * .3); }, [.22, .5, .12], 0, .6);
       E([-.0062, .0035, .0192], [.0036, .0044, .0016], DK, 0, .5, .5); E([.0062, .0035, .0192], [.0036, .0044, .0016], DK, 0, .5, -.5);
       for (i = 0; i < 5; i++) { var x = (i - 2) * .0050; E([x, -.0075 - (2 - Math.abs(i - 2)) * -.0006 - (i % 2 ? .0015 : 0), .0190], [.0027, .0021, .0014], DK, 0, .5); }
     }
@@ -210,7 +210,7 @@
     if (kind === 'hat') {
       var V = [.36, .12, .56];
       E([0, -.0105, .006], [.0275, .0072, .0042], V, .05, .4);
-      cone(geo, [0, -.0095 * K, z0 + .0062], nrm([.14, 1, .06]), .0155 * K, .0345 * K, V, .05, .4);
+      cone(geo, [ox, -.0095 * K + oy, z0 + .0062], nrm([.14, 1, .06]), .0155 * K, .0345 * K, V, .05, .4);
       E([0, -.0072, .0127], [.0158, .0043, .0045], [1, .5, .08], .05, .4);
       E([0, -.0072, .0168], [.0042, .0033, .0016], [1, .85, .3], .9, .2);
       E([.0185, .0185, .0045], [.0020, .0020, .0020], [1, .85, .3], .9, .2); E([-.019, .0145, .0045], [.0014, .0014, .0014], [1, .85, .3], .9, .2);
@@ -282,6 +282,26 @@
       for (i = 0; i < 5; i++) { var a = i / 5 * Math.PI * 2 + Math.PI / 2; e([Math.cos(a) * .0085, Math.sin(a) * .0085, .008], [.0046, .0118, .0035], G, .95, .15, a - Math.PI / 2); }
     }
   }
+
+
+  /* ---------- 3D profile frames (ring + ornaments), rendered to a transparent PNG ---------- */
+  function buildFrame(geo, f) {
+    var p = (f.pal || ['#fff3b0', '#ffc933', '#a86a05', '#ffe58a']).map(hx), i, n = f.n || 12, Ro = .0505, cw = p[1], cl = p[0], cd = p[2];
+    var ringCol = f.ring ? hx(f.ring) : cw;
+    torus(geo, 0, 0, 0, .0415, .0042, ringCol, .9, .2); torus(geo, 0, 0, .001, .0376, .0015, cl, .95, .12); torus(geo, 0, 0, -.001, .0456, .0012, cd, .85, .25);
+    var m = f.m, ang = function (k, off) { return k / n * Math.PI * 2 + (off || 0); };
+    if (m === 'spikes') { for (i = 0; i < n; i++) { var a = ang(i), lg = i % 2 ? .8 : 1.15; cone(geo, [Math.cos(a) * .0465, Math.sin(a) * .0465, 0], nrm([Math.cos(a), Math.sin(a), .1]), .0042, .0135 * lg, [.8, .83, .95], .95, .16); } }
+    else if (m === 'studs') { var PC = f.cols || [[1, .1, .55], [1, .86, .05], [.05, .8, .95], [1, .45, .05]]; for (i = 0; i < n; i++) { var a2 = ang(i, .1); ell(geo, {c: [Math.cos(a2) * Ro, Math.sin(a2) * Ro, .002], r: [.0058, .0058, .0058]}, PC[i % PC.length], .1, .25); } }
+    else if (m === 'leaves') { for (i = 0; i < n; i++) { var a3 = ang(i, .1); ell(geo, {c: [Math.cos(a3) * .0485, Math.sin(a3) * .0485, .002], r: [.0096, .0036, .0024], rol: a3 + Math.PI / 2 + (i % 2 ? .45 : -.45)}, f.leaf ? hx(f.leaf) : [1, .8, .3], .9, .22); } }
+    else if (m === 'links') { for (i = 0; i < n; i++) { var a4 = ang(i); ell(geo, {c: [Math.cos(a4) * .0488, Math.sin(a4) * .0488, .002], r: i % 2 ? [.0034, .0062, .0026] : [.0062, .0034, .0034], rol: a4, pit: i % 2 ? 0 : 1.2}, [1, .8, .22], .95, .16); } }
+    else if (m === 'neon') { torus(geo, 0, 0, 0, .0452, .0022, [1, .3, .75], .6, .08); torus(geo, 0, 0, .0016, .0458, .0012, [.5, .9, 1], .6, .06); for (i = 0; i < 4; i++) { var a5 = ang(i, .5, 0); ell(geo, {c: [Math.cos(a5 * 1) * .0545, Math.sin(a5) * .0545, .003], r: [.0042, .0012, .0012], rol: 0}, [1, 1, 1], 0, .2); ell(geo, {c: [Math.cos(a5) * .0545, Math.sin(a5) * .0545, .003], r: [.0012, .0042, .0012]}, [1, 1, 1], 0, .2); } }
+    else if (m === 'dice') { for (i = 0; i < n; i++) { var a6 = ang(i, .2); ell(geo, {c: [Math.cos(a6) * Ro, Math.sin(a6) * Ro, .004], r: [.0062, .0062, .0062], rol: a6, pw: .5}, [.95, .95, .98], .05, .3); ell(geo, {c: [Math.cos(a6) * Ro, Math.sin(a6) * Ro, .0108], r: [.0016, .0016, .0008]}, [.9, .1, .15], 0, .4); } }
+    else if (m === 'play') { for (i = 0; i < n; i++) { var a7 = ang(i, .2), cx = Math.cos(a7) * Ro, cy = Math.sin(a7) * Ro; ell(geo, {c: [cx, cy, .004], r: [.0088, .0062, .0034], pw: .5}, [1, .08, .08], .2, .25); cone(geo, [cx - .0022, cy, .0068], [1, 0, .05], .0032, .0056, [1, 1, 1], 0, .3); } }
+    else if (m === 'star') { for (i = 0; i < n; i++) { var a8 = ang(i, .2); emblem2(geo, 'star', .0, Math.cos(a8) * Ro, Math.sin(a8) * Ro, .3); } }
+    else if (HWK[m]) { for (i = 0; i < n; i++) { var a9 = ang(i, .2); emblem(geo, m, 0, Math.cos(a9) * Ro, Math.sin(a9) * Ro, .4); } }
+    else if (m) { for (i = 0; i < n; i++) { var a10 = ang(i, .2); emblem2(geo, m, 0, Math.cos(a10) * Ro, Math.sin(a10) * Ro, .4); } }
+  }
+  var HWK = {pumpkin: 1, ghost: 1, bat: 1, hat: 1, skull: 1};
 
   /* ---------- 2D face textures (themed artwork baked into the medal) ---------- */
   var HW = {pumpkin: ['#ff8a1f', '#ffd9a0'], ghost: ['#5fe0d0', '#d6fff8'], bat: ['#ff4a4a', '#ffd0a0'], hat: ['#b46bff', '#f0d6ff'], skull: ['#5dff9a', '#eaffd0']};
@@ -376,8 +396,9 @@
     var man = null, imgDone = !o.img, snapGo = null, shot = false;
     if (o.img) { var im = new Image(); im.onerror = function () { imgDone = true; if (snapGo) snapGo(); }; im.onload = function () { var c = faceCanvas(o, im); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); imgDone = true; if (snapGo) snapGo(); }; im.src = o.img; }
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
-    loadModel().then(function (g) {
-      var geo = new Geo(); addGlb(geo, g, o);
+    (o.frame ? Promise.resolve(null) : loadModel()).then(function (g) {
+      var geo = new Geo(); if (o.frame) { buildFrame(geo, o.frame); medalCount = geo.i.length; } else {
+      addGlb(geo, g, o);
       // portrait disc (our own artwork, uv from position so the whole picture fills the circle)
       var pr0 = .0373 * 1, seg = 96, EC = null, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]), i;
       for (i = 0; i <= seg; i++) { var a = i / seg * Math.PI * 2, x = Math.cos(a) * pr0, y = Math.sin(a) * pr0; geo.add([x, y, .0043], [0, 0, 1], [.5 + x / (2 * pr0), .5 - y / (2 * pr0)], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]); }
@@ -387,7 +408,7 @@
       torus(geo, 0, RC, 0, RR, Rr, [.93, .86, .88], .95, .16);
       if (o.deco) decorate(geo, o.deco, o.pal);
       medalCount = geo.i.length;
-      ribbonLoop(geo, HY, o.pal ? hx(o.pal[1]).map(function (v) { return v * .62; }) : [.62, .05, .09]);
+      ribbonLoop(geo, HY, o.pal ? hx(o.pal[1]).map(function (v) { return v * .62; }) : [.62, .05, .09]); }
       var vb = gl.createBuffer(), ib = gl.createBuffer();
       gl.useProgram(pr); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geo.v), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(geo.i), gl.STATIC_DRAW);

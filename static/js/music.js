@@ -21,7 +21,8 @@
     a.addEventListener('loadedmetadata', function () { var d = a.duration || 0; t0 = d > secs + 4 ? Math.max(0, Math.min(d * .3, d - secs - 2)) : 0; try { a.currentTime = t0; } catch (e) {} });
     a.addEventListener('timeupdate', function () { if (!out && a.currentTime - t0 > secs - 1.6) { out = true; ramp(a, 0, 1500, function () { try { a.pause(); } catch (e) {} }); } });
   }
-  function stop() { try { pausePL(); } catch (e) {} if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
+  var I = {a: null, key: ''};
+  function stop() { try { islandKill(); } catch (e) {} try { pausePL(); } catch (e) {} if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
   function playShort(k, vol) {
     if (!enabled()) return Promise.resolve(false);
     return pick(k, true).then(function (pk) {
@@ -99,13 +100,14 @@
   function fadePlayer() {
     var o = document.getElementById('ppPlayer'), a = P.a; P.tk = (P.tk || 0) + 1; if (o) o.remove(); P.a = null;
     if (!a || a.paused) return;
+    if (a.src && !a.ended) { I.a = a; I.key = P.key || ''; islandTick(true); return; }   // keep playing: the mini player takes over
     var v0 = a.volume, t0 = performance.now();
     (function step(now) { var q = Math.min(1, (now - t0) / 700); a.volume = Math.max(0, v0 * (1 - q)); if (q < 1) requestAnimationFrame(step); else try { a.pause(); } catch (e) {} })(t0);
   }
   var PREV = '<svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>', NEXT = '<svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>';
   var PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
   window.GDMusicProfile = function (d) {
-    removePlayer(); stop(); var tk = P.tk = (P.tk || 0) + 1; READY.then(function () { if (P.tk === tk) buildProfile(d, tk); });
+    removePlayer(); stop(); islandKill(); var tk = P.tk = (P.tk || 0) + 1; READY.then(function () { if (P.tk === tk) buildProfile(d, tk); });
   };
   function buildProfile(d, tk, idx, auto) {
     removePlayer();
@@ -114,7 +116,7 @@
     ((d && d.medals) || []).forEach(function (m) { if (KEYS[m.key] && !seenK[m.key]) { seenK[m.key] = 1; keys.push(m.key); } });
     if (!keys.length) return;
     idx = ((idx || 0) % keys.length + keys.length) % keys.length;
-    var key = keys[idx], multi = keys.length > 1;
+    var key = keys[idx], multi = keys.length > 1; P.key = key;
     pick(key, false).then(function (pk) { var has = !!pk;
       if (!has || P.tk !== tk || !document.getElementById('ppMedals')) return;
       removePlayer();
@@ -221,7 +223,7 @@
       if (!pk) return;
       stop(); stopProfile(); H.a && hypeEnd(300);
       if (PL.a) { try { PL.a.pause(); } catch (e) {} PL.a = null; }
-      PL.i = j; var a = new Audio(pk.url); a.loop = false; PL.a = a; plGain(a);
+      PL.i = j; PL.dismissed = false; PL.started = true; var a = new Audio(pk.url); a.loop = false; PL.a = a; plGain(a);
       a.addEventListener('play', plUi); a.addEventListener('pause', plUi);
       a.addEventListener('ended', function () { if (PL.a === a) plStep(1); });
       a.addEventListener('timeupdate', function () {
@@ -263,5 +265,66 @@
   }
   if (!mountPlayerRow()) document.addEventListener('DOMContentLoaded', mountPlayerRow);
   setTimeout(mountPlayerRow, 900); setTimeout(mountPlayerRow, 2600);
-  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
+
+  /* ---- mini player ("island"): shows what plays when the profile / player sheet is closed ---- */
+  var IS = {el: null, key: null, kind: '', open: false, t: 0};
+  function islandCss() {
+    if (document.getElementById('gdIslandCss')) return;
+    var c = document.createElement('style'); c.id = 'gdIslandCss';
+    c.textContent = '.gdi{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:2147483100;transform:translateX(-50%) scale(.5) translateY(-18px);opacity:0;pointer-events:none;background:#05060a;color:#fff;border-radius:24px;box-shadow:0 8px 28px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.1);display:flex;flex-direction:column;overflow:hidden;width:176px;transition:width .38s cubic-bezier(.3,1.25,.5,1),transform .38s cubic-bezier(.3,1.25,.5,1),opacity .25s;font-family:system-ui,sans-serif;-webkit-tap-highlight-color:transparent}' +
+      '.gdi.on{transform:translateX(-50%) scale(1) translateY(0);opacity:1;pointer-events:auto}.gdi.big{width:min(340px,calc(100vw - 24px))}' +
+      '.gdi-r{display:flex;align-items:center;gap:9px;padding:5px 6px 5px 5px;min-height:42px}.gdi-art{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2a2d44,#0d0e18);overflow:hidden}.gdi-art .gdm{width:30px;height:auto;margin-top:2px}' +
+      '.gdi-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}.gdi-t b{font-size:12.5px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gdi-t small{font-size:10px;color:#8e97b3;line-height:1.1;white-space:nowrap}' +
+      '.gdi-eq{flex:none;display:inline-flex;align-items:flex-end;gap:2px;height:14px;margin-right:2px}.gdi-eq i{width:3px;height:4px;border-radius:2px;background:#47b0f5;animation:gdiEq .9s ease-in-out infinite}.gdi-eq i:nth-child(2){animation-delay:.18s;background:#a066ff}.gdi-eq i:nth-child(3){animation-delay:.36s;background:#ff7aaa}.gdi-eq i:nth-child(4){animation-delay:.54s}@keyframes gdiEq{0%,100%{height:3px}50%{height:14px}}.gdi:not(.play) .gdi-eq i{animation:none;height:3px}' +
+      '.gdi button{flex:none;border:0;background:rgba(255,255,255,.09);color:#fff;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;padding:0;cursor:pointer}.gdi button:active{background:rgba(255,255,255,.2)}.gdi button svg{width:15px;height:15px;fill:currentColor}' +
+      '.gdi-x,.gdi-pv,.gdi-nx{display:none!important}.gdi.big .gdi-x,.gdi.big .gdi-pv,.gdi.big .gdi-nx{display:grid!important}.gdi.solo .gdi-pv,.gdi.solo .gdi-nx{display:none!important}' +
+      '.gdi-bar{height:3px;margin:0 12px 7px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden;display:none}.gdi.big .gdi-bar{display:block}.gdi-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#47b0f5,#a066ff);border-radius:2px}' +
+      '@media(prefers-reduced-motion:reduce){.gdi,.gdi-eq i{transition:none;animation:none}}';
+    document.head.appendChild(c);
+  }
+  function islandSrc() {
+    if (PL.a && PL.a.src && !PL.dismissed && PL.started && !PL.open) return {kind: 'pl', a: PL.a, key: PL.list[PL.i], multi: PL.list.length > 1};
+    if (I.a && I.a.src) return {kind: 'p', a: I.a, key: I.key, multi: false};
+    return null;
+  }
+  function islandKill() { if (I.a) { try { I.a.pause(); } catch (e) {} I.a = null; } islandTick(true); }
+  function islandClose() {
+    var sr = islandSrc(); if (!sr) return;
+    if (sr.kind === 'pl') { PL.dismissed = true; try { PL.a.pause(); } catch (e) {} }
+    else { var a = I.a; I.a = null; if (a) { var v0 = a.volume, t0 = performance.now(); (function step(now) { var q = Math.min(1, (now - t0) / 500); a.volume = Math.max(0, v0 * (1 - q)); if (q < 1) requestAnimationFrame(step); else try { a.pause(); } catch (e) {} })(t0); } }
+    IS.open = false; islandTick(true);
+  }
+  function islandTick(force) {
+    var sr = islandSrc();
+    if (sr && sr.a.ended && sr.kind === 'p') { I.a = null; sr = null; }
+    if (!sr) { if (IS.el) { IS.el.classList.remove('on', 'big'); } IS.key = null; return; }
+    islandCss();
+    if (!IS.el) {
+      var el = document.createElement('div'); el.className = 'gdi'; el.setAttribute('role', 'region'); el.setAttribute('aria-label', 'Мини-плеер');
+      el.innerHTML = '<div class="gdi-r"><span class="gdi-art"></span><span class="gdi-t"><b></b><small></small></span><span class="gdi-eq"><i></i><i></i><i></i><i></i></span><button type="button" class="gdi-pv" aria-label="Предыдущий">' + PREV + '</button><button type="button" class="gdi-pp" aria-label="Пауза">' + PAUSE + '</button><button type="button" class="gdi-nx" aria-label="Следующий">' + NEXT + '</button><button type="button" class="gdi-x" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg></button></div><div class="gdi-bar"><i></i></div>';
+      el.addEventListener('click', function (e) {
+        var b = e.target.closest('button'), s2 = islandSrc();
+        if (b) {
+          e.stopPropagation(); if (!s2) return;
+          if (b.classList.contains('gdi-pp')) { if (s2.a.paused) { s2.a.play().catch(function () {}); } else s2.a.pause(); }
+          else if (b.classList.contains('gdi-nx')) plStep(1); else if (b.classList.contains('gdi-pv')) plStep(-1); else if (b.classList.contains('gdi-x')) islandClose();
+          islandTick(true); return;
+        }
+        IS.open = !IS.open; el.classList.toggle('big', IS.open); clearTimeout(IS.t); if (IS.open) IS.t = setTimeout(function () { IS.open = false; el.classList.remove('big'); }, 6000);
+      });
+      document.body.appendChild(el); IS.el = el;
+    }
+    var el2 = IS.el, key = sr.key, title = (KEYS[key] || '').replace(/</g, '&lt;');
+    if (IS.key !== key || force === 'redraw') {
+      IS.key = key; el2.querySelector('.gdi-art').innerHTML = window.GDMedals ? GDMedals.svg(key, 30, true) : '';
+      el2.querySelector('b').textContent = KEYS[key] || 'Трек медали';
+    }
+    var pl = !sr.a.paused;
+    el2.classList.add('on'); el2.classList.toggle('play', pl); el2.classList.toggle('solo', !sr.multi);
+    el2.querySelector('small').textContent = pl ? 'Играет' : 'Пауза';
+    var pp = el2.querySelector('.gdi-pp'); pp.innerHTML = pl ? PAUSE : PLAY;
+    var bar = el2.querySelector('.gdi-bar i'); if (bar && sr.a.duration) bar.style.width = (sr.a.currentTime / sr.a.duration * 100).toFixed(1) + '%';
+  }
+  setInterval(function () { try { islandTick(); } catch (e) {} }, 300);
+  window.GDMusic = {dbg: function () { return {I: I, PL: PL}; }, island: islandTick, fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
 })();

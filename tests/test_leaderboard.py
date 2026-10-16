@@ -284,9 +284,14 @@ class CreatorMedalTests(unittest.TestCase):
             self.assertEqual(panel['medals'][0]['key'], 'goshan')
             self.assertIn('owners', panel['medals'][0])
             self.post('/api/creator/bonus-builder', {'kind': 'freebet', 'reward_type': 'medal', 'max_uses': '5', 'code': 'CRMEDAL1'}, 400)
-            made = self.post('/api/creator/bonus-builder', {'kind': 'freebet', 'reward_type': 'medal', 'max_uses': '5', 'code': 'CRMEDAL1', 'medal': 'goshan'})
+            made = self.post('/api/creator/bonus-builder', {'kind': 'freebet', 'reward_type': 'medal', 'max_uses': '5', 'code': 'CRMEDAL1', 'medal': 'goshan', 'release': True})
             self.assertEqual(made['code'], 'CRMEDAL1')
             self.assertEqual(self.client.get('/api/creator/medals').get_json()['medal_week']['left'], 0)
+            board = self.client.get('/api/leaderboard/medals').get_json()
+            self.assertTrue(board['ok'])
+            self.assertIn('top', board)
+            self.assertEqual(len(board['releases']), 1)
+            self.assertEqual((board['releases'][0]['left'], board['releases'][0]['total']), (5, 5))
 
     def test_freebet_with_only_a_medal(self):
         with patch.object(m, 'ADMIN_IDS', {self.uid}):

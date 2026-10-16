@@ -19649,7 +19649,7 @@ def creator_create_bonus():
             links[code] = dict(medal=medal_key, title='От автора')
             save_document(leaderboard.PROMO_MEDAL_DOC, dict(codes=links))
             save_creator_record(uid, {'medal_grants': (record.get('medal_grants') or []) + [datetime.now(timezone.utc).isoformat()],
-                                      'medal_codes': ((record.get('medal_codes') or []) + [dict(code=code, medal=medal_key, kind=kind, at=datetime.now(timezone.utc).isoformat())])[-200:]})
+                                      'medal_codes': ((record.get('medal_codes') or []) + [dict(code=code, medal=medal_key, kind=kind, release=bool(data.get('release')), at=datetime.now(timezone.utc).isoformat())])[-200:]})
     except Exception as exc:
         try:
             db.connection.rollback() if DATABASE_URL else db.execute('ROLLBACK')

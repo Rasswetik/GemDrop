@@ -584,6 +584,66 @@ def register(app, ns):
                                name=('@'+me_row['username'] if me_row and me_row['username'] else (me_row['name'] if me_row else '')) or 'Игрок', photo_url=(me_row['photo_url'] if me_row else '') or '',
                                rewards=rewards.get(str(place), []) if place else []))
 
+    @app.get('/api/leaderboard/medals')
+    @login
+    def leaderboard_medals():
+        """Medal collectors ranking + author releases ("N of M left")."""
+        uid = int(session['uid'])
+        pts = {'common': 1, 'rare': 2, 'epic': 3, 'legendary': 5}
+        rar = rarity_map()
+        names = all_names()
+        with connect() as db:
+            rows = db.execute('SELECT user_id,medal_key FROM user_medals').fetchall()
+            per = {}
+            for r in rows:
+                if r['medal_key'] in names:
+                    per.setdefault(int(r['user_id']), set()).add(r['medal_key'])
+            board = sorted(((u, len(ks), sum(pts.get(rar.get(k, 'common'), 1) for k in ks)) for u, ks in per.items()), key=lambda x: (-x[1], -x[2], x[0]))
+            top_rows_ = board[:20]
+            ids = [u for u, _, _ in top_rows_]
+            users = {}
+            if ids:
+                for r in db.execute('SELECT id,name,username,photo_url FROM users WHERE id IN (%s)' % ','.join('?' for _ in ids), ids).fetchall():
+                    users[int(r['id'])] = r
+            top = []
+            for place, (u, n, sc) in enumerate(top_rows_, 1):
+                r = users.get(u)
+                top.append(dict(place=place, user_id=u, name=public_handle(r['username'] if r else '', r['name'] if r else ''),
+                                photo_url=(r['photo_url'] if r else '') or '', count=n, score=sc, me=u == uid))
+            mine = next(((i, n, sc) for i, (u, n, sc) in enumerate(board, 1) if u == uid), None)
+            total_medals = len(names)
+            # author releases
+            releases = []
+            for row in db.execute("SELECT name,payload FROM app_documents WHERE name LIKE 'creator:%'").fetchall():
+                try:
+                    author = int(str(row['name']).split(':', 1)[1])
+                    rec = json.loads(row['payload'] or '{}')
+                except (ValueError, TypeError, IndexError):
+                    continue
+                for c in (rec.get('medal_codes') or [])[-20:]:
+                    if not c.get('release') or c.get('medal') not in names:
+                        continue
+                    code = c.get('code')
+                    pr = db.execute('SELECT max_uses,uses_count FROM promo_codes WHERE code=?', (code,)).fetchone()
+                    if not pr:
+                        continue
+                    left_total = int(pr['max_uses'] or 0)
+                    used = int(pr['uses_count'] or 0)
+                    fb = db.execute('SELECT active,max_uses,uses_count FROM freebets WHERE code=?', (code,)).fetchone()
+                    if fb:
+                        if not fb['active']:
+                            continue
+                        left_total, used = int(fb['max_uses'] or 0), int(fb['uses_count'] or 0)
+                    if left_total <= 0:
+                        continue
+                    au = db.execute('SELECT name,username,photo_url FROM users WHERE id=?', (author,)).fetchone()
+                    releases.append(dict(medal=c['medal'], medal_name=names[c['medal']], rarity=rar.get(c['medal'], 'common'),
+                                         author=(('@' + au['username']) if au and au['username'] else (au['name'] if au else 'Автор')),
+                                         total=left_total, used=used, left=max(0, left_total - used), at=c.get('at') or ''))
+            releases = sorted(releases, key=lambda x: x['at'], reverse=True)[:6]
+        return jsonify(ok=True, top=top, total_medals=total_medals, releases=releases,
+                       me=dict(place=mine[0] if mine else None, count=mine[1] if mine else 0, score=mine[2] if mine else 0))
+
     # ---------------------------------------------------------------- admin
     @app.get('/api/admin/leaderboard')
     @admin

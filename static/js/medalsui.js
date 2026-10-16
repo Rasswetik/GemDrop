@@ -189,13 +189,18 @@
     h = h.replace(/width="\d+" height="\d+"/, 'width="' + W * 3 + '" height="' + H * 3 + '"');
     return '<img alt="" draggable="false" style="width:100%;height:100%;display:block;pointer-events:none" src="data:image/svg+xml;charset=utf-8,' + encodeURIComponent(h) + '">';
   }
-  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1, kess: 1, nickolay: 1, kuzmatagin: 1, hw1: 1, hw2: 1, hw3: 1, hw4: 1, hw5: 1}, DECO = {jealous: 'spikes', kashtan: 'cap'}, MUS3 = {jealous: 1, warhol: 1, poets: 1, kashtan: 1}, EMB3 = {hw1: 'pumpkin', hw2: 'ghost', hw3: 'bat', hw4: 'hat', hw5: 'skull'};   // medals that have a real 3D model (static/models/medal.glb)
+  var GL3D = {goshan: 1, jealous: 1, poets: 1, warhol: 1, kashtan: 1, kess: 1, nickolay: 1, kuzmatagin: 1, vip: 1, gem: 1, champ: 1, pioneer: 1, insider: 1, friend: 1, guard: 1, collector: 1, hw1: 1, hw2: 1, hw3: 1, hw4: 1, hw5: 1}, DECO = {jealous: 'spikes', kashtan: 'cap'}, MUS3 = {jealous: 1, warhol: 1, poets: 1, kashtan: 1};   // medals that have a real 3D model (static/models/medal.glb)
+  function artOf(m) { // medals without a photo: their flat 2D emblem is baked into the medal face
+    var e = m && m.emb && GDMedals.EMB && GDMedals.EMB[m.emb]; if (!e) return {};
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30 -30 60 60" width="600" height="600">' + e + '</svg>';
+    return {img: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), emb: m.emb};
+  }
   function spin3d(host, d) {
     var m = GDMedals.by(d.key) || {};
-    if (GL3D[d.key] && window.GDMedal3D && (m.img || EMB3[d.key])) {
+    if (GL3D[d.key] && window.GDMedal3D && (m.img || artOf(m).img)) {
       var h = null;
       try {
-        h = GDMedal3D.mount(host, {img: m.img, emb: EMB3[d.key], fx: MUS3[d.key] ? 'music' : '', badge: d.key === 'goshan', deco: DECO[d.key], pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], back: {pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
+        h = GDMedal3D.mount(host, {img: m.img || artOf(m).img, emb: artOf(m).emb, fx: MUS3[d.key] ? 'music' : '', badge: d.key === 'goshan', deco: DECO[d.key], pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], back: {pal: d.key === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold'], name: d.name, collection: d.collection, rarity: GDMedals.RAR && GDMedals.RAR[d.rarity], percent: d.percent, status: d.status, mine: d.mine}, onfail: function () { spin3dDom(host, d); }});
       } catch (e) { h = null; }
       if (h) return;
     }
@@ -250,7 +255,7 @@
     if (!window.GDMedal3D || !GDMedals.ready) return;
     GDMedals.ready.then(function () {
       Object.keys(GL3D).forEach(function (k) {
-        var m = GDMedals.by(k); if (!m || !(m.img || EMB3[k]) || GDMedals.T3[k]) return;
+        var m = GDMedals.by(k); if (!m || !(m.img || artOf(m).img) || GDMedals.T3[k]) return;
         try {
           GDMedal3D.mount(document.createElement('div'), {snap: function (url) {
             GDMedals.T3[k] = url;
@@ -258,7 +263,7 @@
               if (el.closest('.mdi-3d')) return;
               var w = el.getAttribute('width'), t = document.createElement('div'); t.innerHTML = GDMedals.svg(k, +w, true); var n = t.firstChild; if (n && el.parentNode) el.parentNode.replaceChild(n, el);
             });
-          }, w: 270, h: 310, img: m.img, emb: EMB3[k], fx: MUS3[k] ? 'music' : '', badge: k === 'goshan', deco: DECO[k], pal: k === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold']});
+          }, w: 270, h: 310, img: m.img || artOf(m).img, emb: artOf(m).emb, fx: MUS3[k] ? 'music' : '', badge: k === 'goshan', deco: DECO[k], pal: k === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold']});
         } catch (e) {}
       });
     });

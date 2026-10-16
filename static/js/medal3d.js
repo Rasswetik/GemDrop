@@ -124,8 +124,9 @@
   function ell(geo, o, col, mf, rf) { // ellipsoid; o = {c, r:[a,b,c], pit, rol}
     var A = 14, B = 20, i, j, base = geo.v.length / 14, r = o.r;
     for (i = 0; i <= A; i++) for (j = 0; j <= B; j++) {
-      var th = i / A * Math.PI, ph = j / B * Math.PI * 2, ux = Math.sin(th) * Math.cos(ph), uy = Math.sin(th) * Math.sin(ph), uz = Math.cos(th);
-      var n = nrm([ux / r[0], uy / r[1], uz / r[2]]), nn = xf(n, {pit: o.pit, rol: o.rol, c: [0, 0, 0]});
+      var th = i / A * Math.PI, ph = j / B * Math.PI * 2, ux = Math.sin(th) * Math.cos(ph), uy = Math.sin(th) * Math.sin(ph), uz = Math.cos(th), pw = o.pw || 1;
+      if (pw !== 1) { var sg = function (v) { return v < 0 ? -1 : 1; }; ux = sg(ux) * Math.pow(Math.abs(ux), pw); uy = sg(uy) * Math.pow(Math.abs(uy), pw); uz = sg(uz) * Math.pow(Math.abs(uz), pw); }
+      var n = nrm(pw !== 1 ? [sg(ux) * Math.pow(Math.abs(ux), 2 - 1 / pw * 1) / r[0], sg(uy) * Math.pow(Math.abs(uy), 2 - 1 / pw) / r[1], sg(uz) * Math.pow(Math.abs(uz), 2 - 1 / pw) / r[2]] : [ux / r[0], uy / r[1], uz / r[2]]), nn = xf(n, {pit: o.pit, rol: o.rol, c: [0, 0, 0]});
       geo.add(xf([ux * r[0], uy * r[1], uz * r[2]], o), nn, [0, 0], col, [mf, rf, 0]);
     }
     for (i = 0; i < A; i++) for (j = 0; j < B; j++) { var a = base + i * (B + 1) + j, b = a + B + 1; geo.i.push(a, b, a + 1, b, b + 1, a + 1); }
@@ -225,14 +226,80 @@
   }
 
 
+
+  function emblem2(geo, kind, z0, ox, oy, sc) {
+    var K = 1.4 * sc, mp = function (p) { return [p[0] * K + ox, p[1] * K + oy, z0 + (p[2] || .008)]; };
+    var e = function (c, r, col, mf, rf, rol, pit, pw) { ell(geo, {c: [c[0] * K + ox, c[1] * K + oy, z0 + c[2]], r: [r[0] * K, r[1] * K, r[2] * 1.15], rol: rol || 0, pit: pit || 0, pw: pw}, col, mf, rf); };
+    var tb = function (pts, rad, col, mf, rf) { tube(geo, pts.map(mp), function (t) { return rad(t) * K; }, col, mf, rf); };
+    var cn = function (c, d, r, h, col, mf, rf) { var q = mp(c); cone(geo, q, d, r * K, h * K, col, mf, rf); };
+    var G = [1, .8, .22], i;
+    if (kind === 'crown') {
+      e([0, -.008, .007], [.0175, .0062, .0062], G, .95, .16);
+      for (i = -2; i <= 2; i++) { var hh = i % 2 ? .0125 : .0165; cn([i * .0072, -.006, .007], [i * .06, 1, 0], .0036, hh, G, .95, .16); e([i * .0072 + i * .0009, -.006 + hh, .007], [.0027, .0027, .0027], [1, .95, .7], .9, .15); }
+      e([0, -.008, .0128], [.0032, .0032, .002], [.9, .1, .25], .3, .1); e([-.0085, -.008, .0124], [.0024, .0024, .0017], [.2, .6, 1], .3, .1); e([.0085, -.008, .0124], [.0024, .0024, .0017], [.2, 1, .5], .3, .1);
+    }
+    if (kind === 'diamond') {
+      e([0, .003, .008], [.0188, .0024, .0098], [.8, .96, 1], .5, .08, 0, 0, .6); cn([0, .003, .008], [0, 1, 0], .0185, .0105, [.6, .9, 1], .4, .08); cn([0, .003, .008], [0, -1, 0], .0185, .0235, [.45, .8, 1], .4, .08);
+      e([-.0055, .0055, .0145], [.0042, .0018, .0014], [1, 1, 1], 0, .1, .4); e([.002, -.0075, .0098], [.0022, .006, .0012], [.9, 1, 1], 0, .1, -.3);
+    }
+    if (kind === 'trophy') {
+      e([0, .006, .008], [.0125, .0145, .0095], G, .95, .14); e([0, .016, .008], [.0132, .0015, .0098], [1, .9, .5], .95, .12);
+      tb([[0, -.002, .008], [0, -.009, .008], [0, -.0125, .008]], function () { return .0021; }, G, .95, .14); e([0, -.0155, .008], [.0092, .0028, .0068], [.55, .3, .12], .5, .3);
+      [-1, 1].forEach(function (sd) { tb([[sd * .0115, .012, .007], [sd * .0215, .012, .007], [sd * .0205, .0035, .007], [sd * .0125, .0, .007]], function () { return .0016; }, G, .95, .14); });
+      e([0, .005, .0175], [.0038, .0038, .0012], [1, 1, .9], .6, .2);
+    }
+    if (kind === 'flag') {
+      tb([[-.0105, -.0195, .008], [-.0105, 0, .008], [-.0105, .0225, .008]], function () { return .0011; }, [.85, .85, .9], .9, .2); e([-.0105, .0235, .008], [.0028, .0028, .0028], G, .95, .15);
+      e([.0055, .0125, .0085], [.0165, .0095, .0015], [1, .45, .12], 0, .5, 0, 0, .45);
+      e([-.0105, -.021, .008], [.0092, .0028, .0042], [.5, .5, .58], .5, .3);
+    }
+    if (kind === 'key') {
+      torus(geo, -.0098 * K + ox, .0108 * K + oy, z0 + .008, .0075 * K, .0027 * K, [.4, .85, 1], .9, .15);
+      tb([[-.004, .0055, .008], [.006, -.004, .008], [.0145, -.0125, .008]], function () { return .0022; }, [.45, .88, 1], .9, .15);
+      e([.0098, -.0075, .008], [.0048, .0022, .0035], [.45, .88, 1], .9, .15, .8); e([.0132, -.0105, .008], [.0048, .0022, .0035], [.45, .88, 1], .9, .15, .8);
+    }
+    if (kind === 'heart') {
+      var H = [1, .22, .42];
+      e([-.0068, .0055, .008], [.0095, .0115, .0095], H, .15, .2, .5); e([.0068, .0055, .008], [.0095, .0115, .0095], H, .15, .2, -.5); cn([0, .0035, .008], [0, -1, 0], .0145, .0225, H, .15, .2);
+      e([-.0088, .0092, .0155], [.0028, .0018, .0012], [1, .85, .9], 0, .2, .6);
+    }
+    if (kind === 'shield') {
+      var Sv = [.8, .84, .92]; e([0, .0045, .007], [.0158, .0145, .0062], Sv, .9, .18); cn([0, .002, .007], [0, -1, 0], .0158, .0225, Sv, .9, .18);
+      e([0, .0045, .0125], [.0108, .0105, .0028], [.2, .45, .95], .3, .25); e([0, .0045, .0145], [.0072, .0016, .0012], [1, 1, 1], .2, .3); e([0, .0045, .0145], [.0016, .0072, .0012], [1, 1, 1], .2, .3);
+    }
+    if (kind === 'gift') {
+      var R = [.9, .1, .18]; e([0, -.003, .008], [.0135, .0105, .0092], R, .1, .35, 0, 0, .5); e([0, .0085, .0085], [.0147, .0036, .0098], [.95, .14, .22], .1, .35, 0, 0, .5);
+      e([0, -.002, .0168], [.0022, .0112, .0012], G, .9, .2, 0, 0, .5); e([0, .0085, .0178], [.0147, .0022, .0012], G, .9, .2, 0, 0, .5);
+      e([-.0052, .0135, .0098], [.0058, .0028, .0030], G, .9, .2, .5); e([.0052, .0135, .0098], [.0058, .0028, .0030], G, .9, .2, -.5);
+    }
+    if (kind === 'cup') {
+      e([0, -.002, .008], [.0105, .0115, .0092], [.96, .92, .86], 0, .35); e([0, .0085, .008], [.0092, .0022, .0082], [.35, .2, .1], 0, .4);
+      torus(geo, .0105 * K + ox, -.002 * K + oy, z0 + .008, .0058 * K, .0018 * K, [.96, .92, .86], 0, .35);
+      [-.0042, .0042].forEach(function (x) { tb([[x, .012, .008], [x + .002, .017, .008], [x - .002, .021, .008], [x + .001, .026, .008]], function (t) { return .0012 * (1 - t * .6); }, [1, 1, 1], 0, .8); });
+    }
+    if (kind === 'star') {
+      e([0, 0, .008], [.0068, .0068, .0055], G, .95, .15);
+      for (i = 0; i < 5; i++) { var a = i / 5 * Math.PI * 2 + Math.PI / 2; e([Math.cos(a) * .0085, Math.sin(a) * .0085, .008], [.0046, .0118, .0035], G, .95, .15, a - Math.PI / 2); }
+    }
+  }
+
   /* ---------- 2D face textures (themed artwork baked into the medal) ---------- */
   var HW = {pumpkin: ['#ff8a1f', '#ffd9a0'], ghost: ['#5fe0d0', '#d6fff8'], bat: ['#ff4a4a', '#ffd0a0'], hat: ['#b46bff', '#f0d6ff'], skull: ['#5dff9a', '#eaffd0']};
   function rnd(seed) { var a = seed; return function () { a = (a * 16807) % 2147483647; return (a - 1) / 2147483646; }; }
   function star4(x, c, px, py, r) { x.beginPath(); x.moveTo(px, py - r); x.quadraticCurveTo(px, py, px + r, py); x.quadraticCurveTo(px, py, px, py + r); x.quadraticCurveTo(px, py, px - r, py); x.quadraticCurveTo(px, py, px, py - r); x.fillStyle = c; x.fill(); }
   function batShape(x, px, py, s) { x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px - s * .5, py - s * .55, px - s, py - s * .1); x.quadraticCurveTo(px - s * .7, py + s * .1, px - s * .5, py + s * .2); x.quadraticCurveTo(px - s * .3, py + s * .05, px, py + s * .3); x.quadraticCurveTo(px + s * .3, py + s * .05, px + s * .5, py + s * .2); x.quadraticCurveTo(px + s * .7, py + s * .1, px + s, py - s * .1); x.quadraticCurveTo(px + s * .5, py - s * .55, px, py); x.fill(); }
+  function artDraw(x, im, S) { if (!im) return; x.save(); x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 40; x.shadowOffsetY = 18; x.drawImage(im, S * .17, S * .15, S * .66, S * .66); x.restore(); }
   function faceCanvas(o, im) {
     var S = 1024, c = document.createElement('canvas'); c.width = c.height = S; var x = c.getContext('2d'), i, pal = o.pal || null, cx = S / 2;
     x.imageSmoothingQuality = 'high';
+    if (o.emb && !HW[o.emb]) { // generic themed scene (rays + glow) in the palette colours
+      var q = (o.pal || ['#fff', '#fc3', '#a60', '#fe8']), R3 = rnd(11);
+      var gg = x.createRadialGradient(cx, cx, 30, cx, cx, 720); gg.addColorStop(0, q[0]); gg.addColorStop(.35, q[1]); gg.addColorStop(1, q[2]); x.fillStyle = gg; x.fillRect(0, 0, S, S);
+      x.save(); x.translate(cx, cx); x.fillStyle = 'rgba(255,255,255,.13)'; for (i = 0; i < 14; i++) { x.rotate(Math.PI * 2 / 14); x.beginPath(); x.moveTo(0, 0); x.lineTo(900, -70); x.lineTo(900, 70); x.fill(); } x.restore();
+      var vg2 = x.createRadialGradient(cx, cx, 300, cx, cx, 720); vg2.addColorStop(0, 'transparent'); vg2.addColorStop(1, 'rgba(0,0,0,.5)'); x.fillStyle = vg2; x.fillRect(0, 0, S, S);
+      for (i = 0; i < 26; i++) star4(x, 'rgba(255,255,255,' + (.3 + R3() * .6) + ')', R3() * S, R3() * S, 4 + R3() * 11);
+      artDraw(x, im, S); return c;
+    }
     if (o.emb) { // Halloween scene
       var th = HW[o.emb] || HW.pumpkin, R = rnd(7 + o.emb.length * 13);
       var g = x.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#12061f'); g.addColorStop(.55, '#2d0f45'); g.addColorStop(1, '#4a1a33'); x.fillStyle = g; x.fillRect(0, 0, S, S);
@@ -246,7 +313,7 @@
       [[860, 790], [920, 810]].forEach(function (p) { x.fillStyle = '#0c0416'; x.beginPath(); x.moveTo(p[0] - 28, p[1] + 60); x.lineTo(p[0] - 28, p[1]); x.arc(p[0], p[1], 28, Math.PI, 0); x.lineTo(p[0] + 28, p[1] + 60); x.fill(); });
       var fg = x.createLinearGradient(0, 700, 0, S); fg.addColorStop(0, 'transparent'); fg.addColorStop(1, th[0] + '66'); x.fillStyle = fg; x.fillRect(0, 700, S, 324);
       x.strokeStyle = 'rgba(255,255,255,.22)'; x.lineWidth = 3; x.beginPath(); for (i = 0; i < 6; i++) { x.moveTo(0, 0); x.lineTo(Math.cos(i * .3) * 330, Math.sin(i * .3) * 330); } x.stroke(); for (var rr = 80; rr < 330; rr += 70) { x.beginPath(); for (i = 0; i <= 5; i++) { var a = i * .3 + .0, px = Math.cos(a) * rr, py = Math.sin(a) * rr; i ? x.quadraticCurveTo(Math.cos(a - .15) * rr * .86, Math.sin(a - .15) * rr * .86, px, py) : x.moveTo(px, py); } x.stroke(); }
-      return c;
+      artDraw(x, im, S); return c;
     }
     if (im) x.drawImage(im, 0, 0, S, S);
     var p = pal ? pal.map(hx).map(function (v) { return 'rgb(' + v.map(function (q) { return Math.round(q * 255); }).join(',') + ')'; }) : ['#fff', '#fc3', '#a60', '#fe8'];
@@ -315,7 +382,6 @@
       var pr0 = .0373 * 1, seg = 96, EC = null, c0 = geo.add([0, 0, .0043], [0, 0, 1], [.5, .5], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]), i;
       for (i = 0; i <= seg; i++) { var a = i / seg * Math.PI * 2, x = Math.cos(a) * pr0, y = Math.sin(a) * pr0; geo.add([x, y, .0043], [0, 0, 1], [.5 + x / (2 * pr0), .5 - y / (2 * pr0)], EC || [1, 1, 1], EC ? [.45, .3, 0] : [0, .5, 1]); }
       for (i = 0; i < seg; i++) geo.i.push(c0, c0 + 1 + i, c0 + 2 + i);
-      if (o.emb) { emblem(geo, o.emb, .0043); gl.useProgram(pr); up(gl, tf, 0, faceCanvas(o)); gl.uniform1f(U('uHas'), 1); }
       disc(geo, .0455, -.0042, -1, 2, 2, 96);
       torus(geo, 0, 0, -.0043, .0462, .0007, [1, .7, .71], .65, .22);
       torus(geo, 0, RC, 0, RR, Rr, [.93, .86, .88], .95, .16);

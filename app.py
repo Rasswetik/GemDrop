@@ -13507,6 +13507,13 @@ def game_modes():
         stored = {}
     if not isinstance(stored, dict):
         stored = {}
+    try:
+        if not read_document('migr_hide_limbo_plinko'):
+            stored = dict(stored, limbo='off', plinko='off')
+            save_document('game_modes', stored)
+            save_document('migr_hide_limbo_plinko', {'done': True})
+    except Exception:
+        app.logger.warning('hide limbo/plinko migration failed', exc_info=True)
     return {key: (stored.get(key) if stored.get(key) in ('on', 'off', 'admin') else default)
             for key, default in GAME_MODE_DEFAULTS.items()}
 

@@ -150,5 +150,5 @@
   }
   if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
   setTimeout(mountRow, 800); setTimeout(mountRow, 2500);
-  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
+  window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
 })();

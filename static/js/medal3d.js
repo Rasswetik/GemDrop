@@ -4,8 +4,8 @@
   'use strict';
   var VS = 'attribute vec3 aP;attribute vec3 aN;attribute vec2 aUV;attribute vec3 aC;attribute vec3 aK;' +
     'uniform mat4 uMVP;uniform float uT;varying vec3 vN;varying vec3 vP;varying vec2 vUV;varying vec3 vC;varying vec3 vK;' +
-    'void main(){vec3 p=aP;if(aK.z>2.5&&aK.z<3.5){float s=smoothstep(.052,.08,p.y);p.x+=sin(uT*1.5+p.y*90.0)*.0011*s;p.z+=cos(uT*1.2+p.y*70.0)*.0008*s;}' +
-    'vN=aN;vP=aP;vUV=aUV;vC=aC;vK=aK;gl_Position=uMVP*vec4(p,1.0);}';
+    'uniform float uTw;void main(){vec3 p=aP;vec3 nn=aN;if(aK.z>2.5&&aK.z<3.5){float w=smoothstep(.0784,.0585,p.y);float a=uTw*w;float c=cos(a),s=sin(a);p.xz=vec2(c*p.x+s*p.z,-s*p.x+c*p.z);nn.xz=vec2(c*nn.x+s*nn.z,-s*nn.x+c*nn.z);}' +
+    'vN=nn;vP=aP;vUV=aUV;vC=aC;vK=aK;gl_Position=uMVP*vec4(p,1.0);}';
   var FS = 'precision highp float;varying vec3 vN;varying vec3 vP;varying vec2 vUV;varying vec3 vC;varying vec3 vK;' +
     'uniform mat3 uR;uniform sampler2D uFront;uniform sampler2D uBack;uniform float uT;uniform float uHas;' +
     'vec3 env(vec3 r,float rough){float h=r.y*.5+.5;vec3 c=mix(vec3(.04,.04,.07),vec3(.55,.6,.78),pow(h,1.3));' +
@@ -25,7 +25,7 @@
     'vec3 base=mix(vec3(.02,.024,.036),vec3(.075,.082,.1),stripe);base*=.85+.3*wv;' +
     'float st=step(.5,fract(l*70.0))*(smoothstep(.055,.07,u)*smoothstep(.1,.085,u)+smoothstep(.9,.915,u)*smoothstep(.945,.93,u));base=mix(base,vec3(.48,.5,.54),st*.8);' +
     'float sat=pow(clamp(dot(N,H),0.0,1.0),10.0)*.55+pow(1.0-nv,2.0)*.18;col=base*(.45+.75*dif)+vec3(.6,.65,.8)*sat*(.5+.5*stripe)+env(R,.7)*.05;}' +
-    'gl_FragColor=vec4(col,1.0);}';
+    'float al=(kind>2.5&&kind<3.5)?smoothstep(.12,.093,vP.y):1.0;gl_FragColor=vec4(col,al);}';
 
   function mul(a, b) { var o = new Float32Array(16), i, j, k; for (i = 0; i < 4; i++) for (j = 0; j < 4; j++) { var s = 0; for (k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; }
   function persp(f, a, n, fa) { var t = 1 / Math.tan(f / 2), o = new Float32Array(16); o[0] = t / a; o[5] = t; o[10] = (fa + n) / (n - fa); o[11] = -1; o[14] = 2 * fa * n / (n - fa); return o; }
@@ -94,8 +94,8 @@
   function crs(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
   // one satin band: comes down behind the ring, passes THROUGH its hole and goes back up in front (gathered narrow at the hole)
   function ribbonLoop(geo, hy) {
-    var P = [[-.0347, .0784, -.0046], [-.0170, .0690, -.0044], [-.0058, .0625, -.0041], [-.0019, hy + .0017, -.0033], [0, hy, -.0011], [0, hy, .0011], [.0019, hy + .0017, .0033], [.0058, .0625, .0041], [.0170, .0690, .0044], [.0347, .0784, .0046]];
-    var N = 72, Wd = 12, i, j, base = geo.v.length / 14, pts = [], T = [], Wv = [], prev = null, w0 = null;
+    var P = [[-.075, .122, -.0050], [-.0347, .0784, -.0046], [-.0170, .0690, -.0044], [-.0058, .0625, -.0041], [-.0019, hy + .0017, -.0033], [0, hy, -.0011], [0, hy, .0011], [.0019, hy + .0017, .0033], [.0058, .0625, .0041], [.0170, .0690, .0044], [.0347, .0784, .0046], [.075, .122, .0050]];
+    var N = 150, Wd = 12, i, j, base = geo.v.length / 14, pts = [], T = [], Wv = [], prev = null, w0 = null;
     for (i = 0; i <= N; i++) pts.push(crom(P, i / N * (P.length - 1)));
     for (i = 0; i <= N; i++) { var q = pts[Math.min(N, i + 1)], o = pts[Math.max(0, i - 1)]; T.push(nrm([q[0] - o[0], q[1] - o[1], q[2] - o[2]])); }
     var w = nrm(crs(T[0], [0, 0, 1]));
@@ -220,7 +220,7 @@
       rot: function (a, b, c) { ry = a; rx = b; if (c != null) { sz = c; vsz = 0; } auto = false; }
     };
     if (o.img) { var im = new Image(); im.onload = function () { var c = document.createElement('canvas'); c.width = c.height = 1024; var x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, 1024, 1024); up(gl, tf, 0, c); gl.useProgram(pr); gl.uniform1f(U('uHas'), 1); }; im.src = o.img; }
-    gl.enable(gl.DEPTH_TEST); gl.clearColor(0, 0, 0, 0);
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
     loadModel().then(function (g) {
       var geo = new Geo(); addGlb(geo, g, o);
       // portrait disc (our own artwork, uv from position so the whole picture fills the circle)
@@ -240,7 +240,7 @@
       count = geo.i.length; start();
     }).catch(function () { alive = false; if (o.onfail) o.onfail(); });
 
-    var P = persp(30 * Math.PI / 180, W / H, .5, 30), ry = -.55, rx = .08, vy = 0, vx = 0, down = false, lx = 0, ly = 0, t0 = performance.now(), tp = t0;
+    var P = persp(30 * Math.PI / 180, W / H, .5, 30), lt = 0, ry = -.55, rx = .08, vy = 0, vx = 0, down = false, lx = 0, ly = 0, t0 = performance.now(), tp = t0;
     var sz = 0, vsz = 1.7, sx = 0, vsx = .5;       // pendulum swing around the ring (z = side to side, x = front/back)
     var auto = !(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches);
     function rotZ(a) { var c = Math.cos(a), s2 = Math.sin(a); return new Float32Array([c, s2, 0, 0, -s2, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
@@ -248,14 +248,16 @@
       function frame(now) {
         if (!alive || !host.isConnected) return;
         var T = (now - t0) / 1000, dt = Math.min(.04, (now - tp) / 1000); tp = now;
-        if (!down) { if (Math.abs(vy) > .0003) { ry += vy; vy *= .95; } else if (auto) { ry += .0065; } rx += (.08 + (auto ? .02 * Math.sin(T * .8) : 0) - rx) * .05; }
+        // twist spring: the ribbon winds up as the medal turns, so it gets harder to turn and unwinds back (with overshoot)
+        if (!down) { var tgt = auto ? .55 * Math.sin(T * .55) : 0; vy += (-7 * (ry - tgt) - 2.0 * vy) * dt; ry += vy * dt; rx += (.08 + (auto ? .02 * Math.sin(T * .8) : 0) - rx) * .05; if (Math.abs(vy) > 2) vsx += Math.sin(T * 40) * Math.abs(vy) * dt * .05; }
+        ry = Math.max(-9.4, Math.min(9.4, ry));
         // damped pendulum: ring hangs on the ribbon; spinning and dragging kick it
         vsz += (-11 * sz - 1.1 * vsz + (auto ? .5 * Math.sin(T * 1.25) : 0)) * dt; sz += vsz * dt;
         vsx += (-11 * sx - 1.3 * vsx + (auto ? .25 * Math.sin(T * .9 + 1) : 0)) * dt; sx += vsx * dt;
         sz = Math.max(-.7, Math.min(.7, sz)); sx = Math.max(-.5, Math.min(.5, sx));
         var Rm = mul(rotZ(sz), mul(rotX(sx), rotY(ry))), Mm = mul(trans(PV[0], PV[1], PV[2]), mul(Rm, trans(-PV[0], -PV[1], -PV[2])));
         var W0 = mul(trans(0, -.2, -5.9), mul(rotX(rx), scl(20)));
-        gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T);
+        gl.viewport(0, 0, cv.width, cv.height); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.uniform1f(U('uT'), T); gl.uniform1f(U('uTw'), ry);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, mul(W0, Mm))); gl.uniformMatrix3fv(U('uR'), false, m3(mul(rotX(rx), Rm)));
         gl.drawElements(gl.TRIANGLES, medalCount, gl.UNSIGNED_SHORT, 0);
         gl.uniformMatrix4fv(U('uMVP'), false, mul(P, W0)); gl.uniformMatrix3fv(U('uR'), false, m3(rotX(rx)));
@@ -265,9 +267,9 @@
       requestAnimationFrame(frame);
     }
     cv.addEventListener('pointerdown', function (e) { down = true; auto = false; lx = e.clientX; ly = e.clientY; vy = vx = 0; cv.style.cursor = 'grabbing'; try { cv.setPointerCapture(e.pointerId); } catch (x) {} });
-    cv.addEventListener('pointermove', function (e) { if (!down) return; var dx = e.clientX - lx, dy = e.clientY - ly; vy = dx * .0095; ry += vy; vsz += dx * .035; vsx += dy * .02; rx = Math.max(-.35, Math.min(.35, rx + dy * .003)); lx = e.clientX; ly = e.clientY; });
-    function upf() { down = false; cv.style.cursor = 'grab'; } cv.addEventListener('pointerup', upf); cv.addEventListener('pointercancel', upf);
-    cv.addEventListener('dblclick', function () { vy = .26; vsz += 1.6; });
+    cv.addEventListener('pointermove', function (e) { if (!down) return; var dx = e.clientX - lx, dy = e.clientY - ly, res = 1 / (1 + Math.pow(ry / 4.2, 2)), d = dx * .0095 * res; ry += d; vy = d / Math.max(.008, (e.timeStamp - lt) / 1000); lt = e.timeStamp; vsz += dx * .03; vsx += dy * .02; rx = Math.max(-.35, Math.min(.35, rx + dy * .003)); lx = e.clientX; ly = e.clientY; });
+    function upf() { down = false; cv.style.cursor = 'grab'; vy = Math.max(-14, Math.min(14, vy)); } cv.addEventListener('pointerup', upf); cv.addEventListener('pointercancel', upf); cv.addEventListener('lostpointercapture', upf); window.addEventListener('blur', upf);
+    cv.addEventListener('dblclick', function () { vy = 9; vsz += 1.6; });
     return handle;
   }
   window.GDMedal3D = {mount: mount};

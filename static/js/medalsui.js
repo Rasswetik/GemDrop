@@ -254,18 +254,26 @@
   function snapIcons() {
     if (!window.GDMedal3D || !GDMedals.ready) return;
     GDMedals.ready.then(function () {
-      Object.keys(GL3D).forEach(function (k) {
-        var m = GDMedals.by(k); if (!m || !(m.img || artOf(m).img) || GDMedals.T3[k]) return;
+      var keys = Object.keys(GL3D).filter(function (k) { var m = GDMedals.by(k); return m && (m.img || artOf(m).img) && !GDMedals.T3[k]; }), i = 0;
+      function next() {          // one WebGL context at a time (browsers allow only ~16 alive)
+        if (i >= keys.length) return;
+        var k = keys[i++], m = GDMedals.by(k), done = false, tm;
+        function fin() { if (done) return; done = true; clearTimeout(tm); setTimeout(next, 30); }
         try {
           GDMedal3D.mount(document.createElement('div'), {snap: function (url) {
-            GDMedals.T3[k] = url;
-            Array.prototype.forEach.call(document.querySelectorAll('svg.gdm[data-mk="' + k + '"]'), function (el) {
-              if (el.closest('.mdi-3d')) return;
-              var w = el.getAttribute('width'), t = document.createElement('div'); t.innerHTML = GDMedals.svg(k, +w, true); var n = t.firstChild; if (n && el.parentNode) el.parentNode.replaceChild(n, el);
-            });
-          }, w: 270, h: 310, img: m.img || artOf(m).img, emb: artOf(m).emb, fx: MUS3[k] ? 'music' : '', badge: k === 'goshan', deco: DECO[k], pal: k === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold']});
-        } catch (e) {}
-      });
+            if (url && url.length > 4000) {
+              GDMedals.T3[k] = url;
+              Array.prototype.forEach.call(document.querySelectorAll('svg.gdm[data-mk="' + k + '"]'), function (el) {
+                if (el.closest('.mdi-3d')) return;
+                var w = el.getAttribute('width'), t = document.createElement('div'); t.innerHTML = GDMedals.svg(k, +w, true); var n = t.firstChild; if (n && el.parentNode) el.parentNode.replaceChild(n, el);
+              });
+            }
+            fin();
+          }, onfail: fin, w: 270, h: 310, img: m.img || artOf(m).img, emb: artOf(m).emb, fx: MUS3[k] ? 'music' : '', badge: k === 'goshan', deco: DECO[k], pal: k === 'goshan' ? null : GDMedals.PAL[m.pal || 'gold']});
+          tm = setTimeout(fin, 8000);
+        } catch (e) { fin(); }
+      }
+      next();
     });
   }
   snapIcons();

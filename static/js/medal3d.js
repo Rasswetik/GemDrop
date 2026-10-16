@@ -421,7 +421,7 @@
         if (!force) requestAnimationFrame(frame);
       }
       if (o.manual) { handle.draw = function (st) { man = st; frame(t0 + 16, true); }; if (o.ready) o.ready(handle); return; }
-      if (o.snap) { ry = 0; rx = .08; sz = sx = 0; auto = false; var go = function () { if (!imgDone || shot) return; shot = true; frame(t0 + 16, true); o.snap(cv.toDataURL('image/png')); }; snapGo = go; go(); return; }
+      if (o.snap) { ry = 0; rx = .08; sz = sx = 0; auto = false; var go = function () { if (!imgDone || shot) return; shot = true; frame(t0 + 16, true); var du = cv.toDataURL('image/png'); try { var le = gl.getExtension('WEBGL_lose_context'); if (le) le.loseContext(); } catch (e) {} alive = false; o.snap(du); }; snapGo = go; go(); return; }
       requestAnimationFrame(frame);
     }
     cv.addEventListener('pointerdown', function (e) { down = true; auto = false; lx = e.clientX; ly = e.clientY; vy = vx = 0; cv.style.cursor = 'grabbing'; try { cv.setPointerCapture(e.pointerId); } catch (x) {} });

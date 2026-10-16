@@ -10291,6 +10291,10 @@ def public_user_profile(user_id):
             medals_info = leaderboard.shown_medals(vdb, user_id)
         except Exception:
             medals_info = []
+        try:
+            frame_info = leaderboard.frame_of(vdb, user_id)
+        except Exception:
+            frame_info = ''
     return jsonify(user=dict(id=int(user_row['id']), name=user_row['name'], username=user_row['username'],
                              photo_url=user_row['photo_url'], created_at=user_row['created_at']),
                    level=dict(level=current_level, max_level=len(level_rows), turnover=turnover/100,
@@ -10305,7 +10309,7 @@ def public_user_profile(user_id):
                               limbo_count=limbo_count, limbo_wins=limbo_wins, max_limbo_x=round(max_limbo_x, 4),
                               road_count=road_count, road_wins=road_wins, max_road_x=round(max_road_x, 4),
                               plinko_count=plinko_count, plinko_wins=plinko_wins, max_plinko_x=round(max_plinko_x, 4)),
-                   vip=vip_info, medals=medals_info,
+                   vip=vip_info, medals=medals_info, frame=frame_info,
                    leaderboard=dict(place=lb_place, turnover=lb_cents/100),
                    drops=dict(mines=(mines_drop['price_cents']/100 if mines_drop else None),
                               upgrade=(upgrade_drop['price_cents']/100 if upgrade_drop else None),

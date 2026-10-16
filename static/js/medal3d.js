@@ -370,7 +370,7 @@
     var tf = mkTex(gl, 0, null), tb = mkTex(gl, 1, backCanvas(o.back));
     var count = 0, medalCount = 0, alive = true, RC = .0545, RR = .0075, Rr = .0026, HY = RC + RR - Rr - .0004, PV = [0, HY, 0], handle = {
       setBack: function (b) { try { up(gl, tb, 1, backCanvas(b)); } catch (e) {} },
-      destroy: function () { alive = false; },
+      destroy: function () { alive = false; try { var le = gl.getExtension('WEBGL_lose_context'); if (le) le.loseContext(); } catch (e) {} },
       rot: function (a, b, c) { ry = a; rx = b; if (c != null) { sz = c; vsz = 0; } auto = false; }
     };
     var man = null, imgDone = !o.img, snapGo = null, shot = false;

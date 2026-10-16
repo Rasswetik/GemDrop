@@ -1040,6 +1040,29 @@ def register(app, ns):
         return jsonify(ok=True, key=key, name=names[key], rarity=rarity_map().get(key, 'common'), collection=ev or ('Коллекция медалей'),
                        status=status, how=how, owners=owners, percent=round(pct, 2) if pct >= 0.01 or not owners else 0.01, mine=mine)
 
+    @app.get('/api/frames')
+    @login
+    def my_frames():
+        uid = int(session['uid'])
+        with connect() as db:
+            owned = owned_frames(db, uid)
+            cur = frame_of(db, uid)
+        return jsonify(ok=True, selected=cur, owned=owned,
+                       frames=[dict(key=k, name=mname(k), owned=k in owned) for k in FRAME_KEYS if k not in medal_settings()['hidden'] or k in owned])
+
+    @app.post('/api/frames/select')
+    @login
+    def select_frame():
+        key = str((request.get_json(silent=True) or {}).get('key') or '')
+        uid = int(session['uid'])
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            _frame_table(db)
+            if key and key not in owned_frames(db, uid):
+                return error('Эта рамка ещё не получена.', 409)
+            db.execute('INSERT INTO user_frame(user_id,frame) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET frame=excluded.frame', (uid, key))
+        return jsonify(ok=True, selected=key)
+
     @app.get('/api/medals')
     @login
     def my_medals():
@@ -1359,6 +1382,29 @@ def main_medals(db, user_ids):
     for r in rows:   # ascending: the last row written wins -> main=1 first, otherwise the newest
         out[int(r['user_id'])] = r['medal_key']
     return out
+
+
+FRAME_KEYS = ('kashtan', 'jealous', 'warhol', 'poets', 'vklube')   # music medals give a profile frame (same key as the medal)
+
+
+def _frame_table(db):
+    db.execute('CREATE TABLE IF NOT EXISTS user_frame (user_id INTEGER PRIMARY KEY, frame TEXT NOT NULL DEFAULT \'\')')
+
+
+def owned_frames(db, user_id):
+    have = {r['medal_key'] for r in db.execute('SELECT DISTINCT medal_key FROM user_medals WHERE user_id=?', (int(user_id),)).fetchall()}
+    return [k for k in FRAME_KEYS if k in have]
+
+
+def frame_of(db, user_id):
+    """The frame the player chose (only if they still own the medal that gives it)."""
+    try:
+        _frame_table(db)
+        row = db.execute('SELECT frame FROM user_frame WHERE user_id=?', (int(user_id),)).fetchone()
+        k = (row['frame'] if row else '') or ''
+        return k if k in owned_frames(db, user_id) else ''
+    except Exception:
+        return ''
 
 
 def shown_medals(db, user_id):

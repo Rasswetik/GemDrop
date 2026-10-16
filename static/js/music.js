@@ -31,6 +31,19 @@
       return a.play().then(function () { return true; }).catch(function () { return false; });
     });
   }
+  // preview "radio echo": the short track keeps looping until the preview is closed (fadeOut stops it)
+  function playLoop(k, vol) {
+    if (!enabled()) return Promise.resolve(false);
+    return pick(k, true).then(function (pk) {
+      if (!pk) return false;
+      stop(); stopProfile(); var a = new Audio(pk.url), t0 = 0, SEC = 14; a.volume = vol == null ? .7 : vol; cur = a;
+      if (pk.cut) {
+        a.addEventListener('loadedmetadata', function () { var d = a.duration || 0; t0 = d > SEC + 4 ? Math.max(0, Math.min(d * .3, d - SEC - 2)) : 0; try { a.currentTime = t0; } catch (e) {} });
+        a.addEventListener('timeupdate', function () { if (a.duration && (a.currentTime - t0 > SEC || a.currentTime > a.duration - .4)) { var v = a.volume; a.volume = Math.max(.05, v * .6); try { a.currentTime = t0; } catch (e) {} a.volume = v; } });
+      } else a.loop = true;
+      return a.play().then(function () { return true; }).catch(function () { return false; });
+    });
+  }
   function myMusic() {
     if (mineP) return mineP;
     return mineP = fetch('/api/medals', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
@@ -326,5 +339,5 @@
     var bar = el2.querySelector('.gdi-bar i'); if (bar && sr.a.duration) bar.style.width = (sr.a.currentTime / sr.a.duration * 100).toFixed(1) + '%';
   }
   setInterval(function () { try { islandTick(); } catch (e) {} }, 300);
-  window.GDMusic = {dbg: function () { return {I: I, PL: PL}; }, island: islandTick, fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
+  window.GDMusic = {dbg: function () { return {I: I, PL: PL}; }, island: islandTick, fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, playLoop: playLoop, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
 })();

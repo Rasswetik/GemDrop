@@ -137,8 +137,8 @@
     if ($('pfMedals')) return true;
     var anchor = $('pfSettingsRow'); if (!anchor) return false;
     var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedals';
-    row.innerHTML = '<span class="pf-row-t"><b>Коллекция медалей</b><small>Собирайте и надевайте до 3</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg(GDMedals.by('kashtan') ? 'kashtan' : 'hw1', 46, true) + '</button>';
-    row.querySelector('button').onclick = open; row.onclick = function (e) { if (e.target.closest('button')) return; open(); };
+    row.innerHTML = '<span class="pf-row-t"><b>Кастомизация</b><small>Медали и рамки профиля</small></span><button type="button" class="profile-settings pf-open" aria-label="Мои медали" style="display:grid;place-items:center">' + GDMedals.svg(GDMedals.by('kashtan') ? 'kashtan' : 'hw1', 46, true) + '</button>';
+    var openC = function () { if (window.GDFrames) GDFrames.open(); else open(); }; row.querySelector('button').onclick = openC; row.onclick = function (e) { if (e.target.closest('button')) return; openC(); };
     anchor.parentNode.insertBefore(row, anchor); return true;
   }
 
@@ -246,7 +246,7 @@
       function close() { if (el._mus && window.GDMusic) GDMusic.fadeOut(600); el.remove(); if (!document.querySelector('.mdl-modal:not(.hidden)')) document.documentElement.classList.remove('mdl-ns'); }
       el.addEventListener('click', function (e) { if (e.target === el || e.target.classList.contains('mdi-x')) close(); });
       document.body.appendChild(el); spin3d(el.querySelector('.mdi-3d'), d);
-      if (window.GDMusic && GDMusic.KEYS[d.key]) { GDMusic.playShort(d.key); el._mus = 1; }
+      if (window.GDMusic && GDMusic.KEYS[d.key]) { (GDMusic.playLoop || GDMusic.playShort)(d.key); el._mus = 1; }
     }).catch(function (e) { if (window.toast) toast(e.message); });
   }
 
@@ -277,7 +277,7 @@
     });
   }
   snapIcons();
-  window.GDMedalInfo = info;
+  window.GDMedalInfo = info; window.GDMedalsOpen = open;
   document.addEventListener('click', function (e) {
     var sp = e.target.closest('.pp-medals span[data-k]'); if (sp) { info(sp.dataset.k); return; }
     var g = e.target.closest('.mdl-c .gdm, .mdl-c .mdl-lock'); if (g) { var c = g.closest('.mdl-c'); info(c.dataset.k, c.classList.contains('lk')); }
@@ -307,7 +307,7 @@
       el.innerHTML = '<div class="mgt-card"><span class="mgt-k">Вам выдана медаль</span><div>' + GDMedals.svg(m.key, 170) + '</div><h3>' + esc(m.name) + '</h3>' + rarTag(m.rarity) + '<p>' + esc(m.title || 'Особая награда') + (m.place ? ' · ' + m.place + ' место' : '') + '</p><button type="button" class="mgt-btn">Получить</button></div>';
       el.querySelector('button').onclick = function () {
         var b = this; b.disabled = true;
-        api('/api/medals/' + m.id + '/claim', {}).catch(function () {}).then(function () { el.remove(); showing = false; setTimeout(pending, 300); });
+        api('/api/medals/' + m.id + '/claim', {}).catch(function () {}).then(function () { el.remove(); showing = false; if (window.GDFrames && GDFrames.has(m.key)) setTimeout(function () { GDFrames.gained(m.key); }, 350); setTimeout(pending, 300); });
       };
       document.body.appendChild(el);
     }).catch(function () {});

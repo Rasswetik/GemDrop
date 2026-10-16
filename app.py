@@ -14731,7 +14731,11 @@ def arena_bot_topup(db, row, uid, now, d, mine):
         return False
     gift = None
     if (d[4] // 100) % 100 < ARENA_BOT_GIFT_CHANCE:
-        gift = arena_bot_random_gift(d[2], lo=max(ARENA_BOT_MIN_CENTS, int(gap * 0.6)), hi=gap)
+        try:
+            gift = arena_bot_random_gift(d[2], lo=max(ARENA_BOT_MIN_CENTS, int(gap * 0.6)), hi=gap)
+        except Exception:
+            app.logger.exception('Arena bot: top-up gift pick failed, adding TON instead')
+            gift = None
     gifts = arena_gift_list(mine['gifts'])
     gift_amount = int(mine['gift_amount'] or 0)
     if gift:
@@ -14752,6 +14756,9 @@ def arena_bot_tick(db, now):
         return False
     uid = arena_bot_uid(db)
     if not uid:
+        if time.time() - _arena_bot.get('warned', 0) > 600:
+            _arena_bot['warned'] = time.time()
+            app.logger.warning('Arena bot: no house account found (username %s) - it will not bet', ARENA_BOT_USERNAME)
         return False
     started = int(row['close_at'] or 0) > 0
     d = arena_bot_dice(row['id'], started)
@@ -14772,7 +14779,11 @@ def arena_bot_tick(db, now):
         return False
     if db.execute('SELECT 1 FROM arena_bets WHERE round_id=? AND user_id=?', (row['id'], uid)).fetchone():
         return False
-    gift = arena_bot_random_gift(d[2]) if d[3] % 100 < ARENA_BOT_GIFT_CHANCE else None
+    try:
+        gift = arena_bot_random_gift(d[2]) if d[3] % 100 < ARENA_BOT_GIFT_CHANCE else None
+    except Exception:
+        app.logger.exception('Arena bot: gift pick failed, betting TON instead')
+        gift = None
     if gift:
         amount, gift_amount, gifts = int(gift['price']), int(gift['price']), [gift]
     else:

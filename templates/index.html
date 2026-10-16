@@ -18754,6 +18754,29 @@ setTimeout(()=>scan(document),1500);
 .lbi-go{display:grid;gap:2px;justify-items:center;margin-top:6px;padding:12px;border:0;border-radius:22px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font:inherit;font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(31,143,224,.32)}
 .lbi-go small{font-size:12px;font-weight:600;color:rgba(255,255,255,.8);font-variant-numeric:tabular-nums}
 @media(max-width:380px){.lb-pc-av{width:58px;height:58px}.lb-pc.p1 .lb-pc-av{width:80px;height:80px}.lb-row{grid-template-columns:26px 36px minmax(0,1fr) auto;gap:8px;padding:8px 10px}.lb-ava{width:36px;height:36px}}
+/* phones: sharper, tighter, no overflow */
+@media(max-width:520px){
+#leadersPage .lb-wrap{padding:6px 10px calc(env(safe-area-inset-bottom,0px) + 130px)}
+.lb-pill{margin:2px auto 10px;padding:8px 16px;border-radius:18px}
+.lb-title{font-size:25px;margin:2px 0 4px}.lb-sub{font-size:12px;margin-bottom:2px}
+.lb-podium{gap:6px;margin:16px 0 16px}
+.lb-pc{gap:5px}.lb-pc-av{width:60px;height:60px;border-width:2px;font-size:20px}.lb-pc.p1 .lb-pc-av{width:82px;height:82px;font-size:28px}
+.lb-pc-who{font-size:11.5px;justify-content:center}
+.lb-ped{padding:8px 4px;border-radius:16px 16px 6px 6px;gap:3px}
+.lb-pc.p1 .lb-ped{min-height:128px}.lb-pc.p2 .lb-ped{min-height:106px}.lb-pc.p3 .lb-ped{min-height:94px}
+.lb-ped:before{font-size:48px}.lb-ped .lb-gift{width:46px;height:46px;border-radius:12px}.lb-pc.p1 .lb-ped .lb-gift{width:58px;height:58px}
+.lb-ped-amt{font-size:11px}
+.lb-head{padding:0 10px 6px;font-size:11px}
+.lb-list{gap:5px}
+.lb-row{grid-template-columns:24px 36px minmax(0,1fr) auto;gap:8px;padding:7px 10px;border-radius:15px;min-height:52px}
+.lb-rank{font-size:13px}.lb-ava{width:36px;height:36px;font-size:14px}
+.lb-name{font-size:13.5px}.lb-name small{font-size:11.5px}
+.lb-end{gap:4px}.lb-end .lb-gift{width:32px;height:32px;border-radius:9px}.lb-end .lb-gift.lb-medal{width:30px;height:34px}
+.lb-me{bottom:calc(env(safe-area-inset-bottom,0px) + 78px);margin-top:8px}
+.lbi-card{padding:18px 12px calc(env(safe-area-inset-bottom,0px) + 14px);max-height:94dvh}.lbi-card h2{font-size:24px}
+.lbi-c{flex-basis:92px}.lbi-c .lb-gift{width:92px;height:92px}
+}
+@media(max-width:340px){.lb-podium{grid-template-columns:1fr 1.1fr 1fr}.lb-pc-av{width:52px;height:52px}.lb-pc.p1 .lb-pc-av{width:70px;height:70px}.lb-name{font-size:13px}}
 </style>
 <script id="leaders-v1-js">
 var LBD={timer:0,tick:0,data:null,busy:false,end:0};

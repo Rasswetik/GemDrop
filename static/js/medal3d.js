@@ -21,11 +21,9 @@
     'if(kind>4.5){float ang=atan(vP.y,vP.x);col+=vec3(1.0,.85,.8)*.18*(.5+.5*sin(ang*3.0-uT*2.2));}}' +
     'else if(kind<1.5){vec3 t=uHas>.5?texture2D(uFront,vUV).rgb:vec3(.2);col=t*(.62+.42*dif)+env(R,.25)*.1*(.3+fr*2.0)+vec3(1.0)*sp*.22;}' +
     'else if(kind<2.5){vec3 t=texture2D(uBack,vUV).rgb;col=t*(.7+.35*dif)+env(R,.3)*.07*(.3+fr*2.0)+vec3(1.0)*sp*.14;}' +
-    'else{float u=vUV.x,l=vUV.y;float stripe=smoothstep(.27,.3,u)*smoothstep(.73,.7,u);float wv=.5+.5*sin(l*340.0)*sin(u*120.0);' +
-    'vec3 base=mix(vec3(.02,.024,.036),vec3(.075,.082,.1),stripe);base*=.85+.3*wv;' +
-    'float st=step(.5,fract(l*70.0))*(smoothstep(.055,.07,u)*smoothstep(.1,.085,u)+smoothstep(.9,.915,u)*smoothstep(.945,.93,u));base=mix(base,vec3(.48,.5,.54),st*.8);' +
-    'float sat=pow(clamp(dot(N,H),0.0,1.0),10.0)*.55+pow(1.0-nv,2.0)*.18;col=base*(.45+.75*dif)+vec3(.6,.65,.8)*sat*(.5+.5*stripe)+env(R,.7)*.05;}' +
-    'float al=(kind>2.5&&kind<3.5)?smoothstep(.12,.093,vP.y):1.0;gl_FragColor=vec4(col,al);}';
+    'else{float u=vUV.x;float edge=smoothstep(.0,.1,u)*smoothstep(1.0,.9,u);float pipe=smoothstep(.1,.13,u)*smoothstep(.2,.17,u)+smoothstep(.9,.87,u)*smoothstep(.8,.83,u);' +
+    'vec3 base=vC*(.55+.45*edge)+vec3(1.0,.9,.8)*pipe*.12;float sat=pow(clamp(dot(N,H),0.0,1.0),14.0)*.22+pow(1.0-nv,3.0)*.1;col=base*(.5+.7*dif)+vec3(1.0,.93,.85)*sat+env(R,.8)*.04;}' +
+    'float al=(kind>2.5&&kind<3.5)?smoothstep(.135,.104,vP.y):1.0;gl_FragColor=vec4(col,al);}';
 
   function mul(a, b) { var o = new Float32Array(16), i, j, k; for (i = 0; i < 4; i++) for (j = 0; j < 4; j++) { var s = 0; for (k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = s; } return o; }
   function persp(f, a, n, fa) { var t = 1 / Math.tan(f / 2), o = new Float32Array(16); o[0] = t / a; o[5] = t; o[10] = (fa + n) / (n - fa); o[11] = -1; o[14] = 2 * fa * n / (n - fa); return o; }
@@ -93,13 +91,16 @@
   function nrm(v) { var l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
   function crs(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
   // one satin band: comes down behind the ring, passes THROUGH its hole and goes back up in front (gathered narrow at the hole)
-  function ribbonLoop(geo, hy) {
-    var P = [[-.075, .122, -.0050], [-.0347, .0784, -.0046], [-.0170, .0690, -.0044], [-.0058, .0625, -.0041], [-.0019, hy + .0017, -.0033], [0, hy, -.0011], [0, hy, .0011], [.0019, hy + .0017, .0033], [.0058, .0625, .0041], [.0170, .0690, .0044], [.0347, .0784, .0046], [.075, .122, .0050]];
+  function ribbonLoop(geo, hy, rc) {
+    var P = [[-.088, .140, -.0050], [-.0347, .0784, -.0046], [-.0170, .0690, -.0044], [-.0058, .0625, -.0041], [-.0019, hy + .0017, -.0033], [0, hy, -.0011], [0, hy, .0011], [.0019, hy + .0017, .0033], [.0058, .0625, .0041], [.0170, .0690, .0044], [.0347, .0784, .0046], [.088, .140, .0050]];
     var N = 150, Wd = 12, i, j, base = geo.v.length / 14, pts = [], T = [], Wv = [], prev = null, w0 = null;
     for (i = 0; i <= N; i++) pts.push(crom(P, i / N * (P.length - 1)));
     for (i = 0; i <= N; i++) { var q = pts[Math.min(N, i + 1)], o = pts[Math.max(0, i - 1)]; T.push(nrm([q[0] - o[0], q[1] - o[1], q[2] - o[2]])); }
-    var w = nrm(crs(T[0], [0, 0, 1]));
-    for (i = 0; i <= N; i++) { var d = w[0] * T[i][0] + w[1] * T[i][1] + w[2] * T[i][2]; w = nrm([w[0] - T[i][0] * d, w[1] - T[i][1] * d, w[2] - T[i][2] * d]); Wv.push(w); }
+    for (i = 0; i <= N; i++) {
+      var tt = T[i], m = Math.abs(i / N - .5) * 2, sm = Math.min(1, Math.max(0, (m - .12) / .3)); sm = sm * sm * (3 - 2 * sm);
+      var wf = nrm([-tt[1], tt[0], 0.0001]), wv = [1 + (wf[0] - 1) * sm, wf[1] * sm, wf[2] * sm], d = wv[0] * tt[0] + wv[1] * tt[1] + wv[2] * tt[2];
+      Wv.push(nrm([wv[0] - tt[0] * d, wv[1] - tt[1] * d, wv[2] - tt[2] * d]));
+    }
     var len = 0;
     for (i = 0; i <= N; i++) {
       if (i) { var dx = pts[i][0] - pts[i - 1][0], dy = pts[i][1] - pts[i - 1][1], dz = pts[i][2] - pts[i - 1][2]; len += Math.sqrt(dx * dx + dy * dy + dz * dz); }
@@ -108,7 +109,7 @@
         var u = j / Wd, off = (u - .5) * wd, cr = Math.cos((u - .5) * Math.PI), sl = Math.sin((u - .5) * 1.1);
         var px = pts[i][0] + Wv[i][0] * off + nn[0] * cr * .0006, py = pts[i][1] + Wv[i][1] * off + nn[1] * cr * .0006, pz = pts[i][2] + Wv[i][2] * off + nn[2] * cr * .0006;
         var nx = nn[0] * Math.cos((u - .5) * 1.1) + Wv[i][0] * sl, ny = nn[1] * Math.cos((u - .5) * 1.1) + Wv[i][1] * sl, nz = nn[2] * Math.cos((u - .5) * 1.1) + Wv[i][2] * sl;
-        geo.add([px, py, pz], [nx, ny, nz], [u, len / .02], [1, 1, 1], [0, .8, 3]);
+        geo.add([px, py, pz], [nx, ny, nz], [u, len / .02], rc, [0, .8, 3]);
       }
     }
     for (i = 0; i < N; i++) for (j = 0; j < Wd; j++) { var a0 = base + i * (Wd + 1) + j, b0 = base + (i + 1) * (Wd + 1) + j; geo.i.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
@@ -236,7 +237,7 @@
       torus(geo, 0, RC, 0, RR, Rr, [.93, .86, .88], .95, .16);
       if (o.deco) decorate(geo, o.deco, o.pal);
       medalCount = geo.i.length;
-      ribbonLoop(geo, HY);
+      ribbonLoop(geo, HY, o.pal ? hx(o.pal[1]).map(function (v) { return v * .62; }) : [.62, .05, .09]);
       var vb = gl.createBuffer(), ib = gl.createBuffer();
       gl.useProgram(pr); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geo.v), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(geo.i), gl.STATIC_DRAW);

@@ -75,8 +75,9 @@
     function fin(u) { if (done) return; done = true; BUSY = false; job[1](u || ''); if (!u) delete CACHE[job[0]]; setTimeout(pump, 20); }
     try {
       if (!window.GDMedal3D) return fin('');
+      var SH = {warhol: {t: 'bead', n: 18, cols: [[1, .1, .55], [1, .86, .05], [.05, .8, .95], [1, .45, .05]]}, poets: {t: 'scallop', n: 14}, vklube: {t: 'double'}, goshan: {t: 'rope'}, kess: {t: 'facet', n: 8}, nickolay: {t: 'scallop', n: 10}, kuzmatagin: {t: 'wave', n: 16}, hw1: {t: 'scallop', n: 8}, hw2: {t: 'wave', n: 12}, hw3: {t: 'points', n: 12}, hw4: {t: 'bead', n: 16}, hw5: {t: 'gear', n: 16}, vip: {t: 'points', n: 9, h: .011}, gem: {t: 'facet', n: 8}, champ: {t: 'rope'}, pioneer: {t: 'gear', n: 12}, insider: {t: 'facet', n: 6}, friend: {t: 'scallop', n: 10}, guard: {t: 'gear', n: 20}, collector: {t: 'bead', n: 20}, c1: {t: 'double'}, c2: {t: 'rope'}, c3: {t: 'wave', n: 14}, ton: {t: 'facet', n: 10}, lucky: {t: 'scallop', n: 4}, fire: {t: 'points', n: 14, h: .012}, bolt: {t: 'points', n: 6, h: .012}, rocket: {t: 'gear', n: 8}, gambler: {t: 'bead', n: 12}, miner: {t: 'gear', n: 10}, cards: {t: 'facet', n: 4}, night: {t: 'double'}};
       var mm = window.GDMedals && GDMedals.by && GDMedals.by(job[0]) || {}, dc = window.GDMedalDeco || {};
-      GDMedal3D.mount(document.createElement('div'), {frame: 1, hollow: 1, deco: dc[job[0]], pal: job[0] === 'goshan' ? null : ((window.GDMedals && GDMedals.PAL && GDMedals.PAL[mm.pal || 'gold']) || null), w: 512, h: 512, snap: function (u) { fin(u && u.length > 3000 ? u : ''); }, onfail: function () { fin(''); }});
+      GDMedal3D.mount(document.createElement('div'), {frame: 1, hollow: 1, deco: dc[job[0]], shape: SH[job[0]], pal: job[0] === 'goshan' ? null : ((window.GDMedals && GDMedals.PAL && GDMedals.PAL[mm.pal || 'gold']) || null), w: 512, h: 512, snap: function (u) { fin(u && u.length > 3000 ? u : ''); }, onfail: function () { fin(''); }});
       setTimeout(function () { fin(''); }, 9000);
     } catch (e) { fin(''); }
   }

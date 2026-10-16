@@ -285,6 +285,18 @@
 
 
   /* ---------- 3D profile frames (ring + ornaments), rendered to a transparent PNG ---------- */
+  function rimShape(geo, sh, pal) {   // changes the silhouette of the medal rim itself (no props stuck on)
+    var p = (pal || ['#ff8a8a', '#e61a24', '#7a0710', '#ffb0b0']).map(hx), cl = p[0], cw = p[1], ca = p[3], Ro = .0478, PI = Math.PI, cs = Math.cos, sn = Math.sin, i, n = sh.n || 10, t = sh.t;
+    var E = function (c, r, col, rol, pw) { ell(geo, {c: c, r: r, rol: rol || 0, pit: 0, pw: pw}, col, .9, .18); };
+    if (t === 'scallop') { var rl = Math.min(.012, Ro * sn(PI / n) * 1.6); for (i = 0; i < n; i++) { var a = i / n * PI * 2 + (sh.o || 0); E([cs(a) * (Ro - rl * .2), sn(a) * (Ro - rl * .2), .0012], [rl, rl, .0036], i % 2 ? cl : cw); } }
+    if (t === 'gear') for (i = 0; i < n; i++) { var a1 = i / n * PI * 2; E([cs(a1) * (Ro + .0026), sn(a1) * (Ro + .0026), .0012], [.0064, Math.min(.0074, Ro * PI / n * .6), .0044], i % 2 ? cl : cw, a1, .5); }
+    if (t === 'points') for (i = 0; i < n; i++) { var a2 = i / n * PI * 2 + .1; cone(geo, [cs(a2) * (Ro - .0022), sn(a2) * (Ro - .0022), .0008], [cs(a2), sn(a2), 0], Math.min(.0058, Ro * PI / n * .8), sh.h || .0125, i % 2 ? cl : cw, .9, .18); }
+    if (t === 'facet') for (i = 0; i < n; i++) { var a3 = i / n * PI * 2 + PI / n, Rc = Ro * cs(PI / n) * 1.03 + .001; E([cs(a3) * Rc, sn(a3) * Rc, .0012], [Ro * sn(PI / n) * 1.12, .0036, .0034], i % 2 ? cl : cw, a3 + PI / 2, .6); }
+    if (t === 'bead') for (i = 0; i < n; i++) { var a4 = i / n * PI * 2; E([cs(a4) * (Ro + .0012), sn(a4) * (Ro + .0012), .0016], [.0058, .0058, .0044], sh.cols ? sh.cols[i % sh.cols.length] : (i % 2 ? ca : cl)); }
+    if (t === 'rope') for (i = 0; i < 44; i++) { var a5 = i / 44 * PI * 2; E([cs(a5) * (Ro + .0004), sn(a5) * (Ro + .0004), .0018], [.0074, .0027, .0036], i % 2 ? cl : cw, a5 + PI / 2 + .7); }
+    if (t === 'wave') for (i = 0; i < n; i++) { var a6 = i / n * PI * 2, rr = Ro + (i % 2 ? .0034 : -.0008); E([cs(a6) * rr, sn(a6) * rr, .0012], [.0058, .0058, .0034], i % 2 ? cl : cw); }
+    if (t === 'double') { torus(geo, 0, 0, .0004, .0528, .0019, cl, .9, .16); torus(geo, 0, 0, .0008, .0386, .0011, ca, .8, .2); }
+  }
   function buildFrame(geo, f) {
     var p = (f.pal || ['#fff3b0', '#ffc933', '#a86a05', '#ffe58a']).map(hx), cl = p[0], cw = p[1], cd = p[2], ca = p[3], PI = Math.PI, cs = Math.cos, sn = Math.sin, R = .0415;
     var ringCol = f.ring ? hx(f.ring) : cw, i, k;
@@ -456,7 +468,7 @@
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.clearColor(0, 0, 0, 0);
     ((o.frame && !o.hollow) ? Promise.resolve(null) : loadModel()).then(function (g) {
       var geo = new Geo(); if (o.hollow) {
-        addGlb(geo, g, {pal: o.pal}); if (o.deco) decorate(geo, o.deco, o.pal); medalCount = geo.i.length;
+        addGlb(geo, g, {pal: o.pal}); if (o.deco) decorate(geo, o.deco, o.pal); if (o.shape) rimShape(geo, o.shape, o.pal); medalCount = geo.i.length;
         var hc = geo.add([0, 0, .0046], [0, 0, 1], [.5, .5], [0, 0, 0], [0, .5, 0]), hi, hr = o.holeR || .0373;
         for (hi = 0; hi <= 96; hi++) { var ha = hi / 96 * Math.PI * 2; geo.add([Math.cos(ha) * hr, Math.sin(ha) * hr, .0046], [0, 0, 1], [.5, .5], [0, 0, 0], [0, .5, 0]); }
         for (hi = 0; hi < 96; hi++) geo.i.push(hc, hc + 1 + hi, hc + 2 + hi);

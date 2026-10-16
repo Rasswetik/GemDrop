@@ -21,7 +21,7 @@
     a.addEventListener('loadedmetadata', function () { var d = a.duration || 0; t0 = d > secs + 4 ? Math.max(0, Math.min(d * .3, d - secs - 2)) : 0; try { a.currentTime = t0; } catch (e) {} });
     a.addEventListener('timeupdate', function () { if (!out && a.currentTime - t0 > secs - 1.6) { out = true; ramp(a, 0, 1500, function () { try { a.pause(); } catch (e) {} }); } });
   }
-  function stop() { if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
+  function stop() { try { pausePL(); } catch (e) {} if (cur) { try { cur.pause(); } catch (e) {} cur.onended = null; cur = null; } }
   function playShort(k, vol) {
     if (!enabled()) return Promise.resolve(false);
     return pick(k, true).then(function (pk) {
@@ -150,5 +150,107 @@
   }
   if (!mountRow()) document.addEventListener('DOMContentLoaded', mountRow);
   setTimeout(mountRow, 800); setTimeout(mountRow, 2500);
+  /* ---- medal player: own medals as a background playlist (sheet from the profile) ---- */
+  var PL = {a: null, list: [], i: 0, vol: .7, open: false, loaded: false};
+  try { var sv = parseFloat(localStorage.getItem('gd_pl_vol')); if (sv >= 0 && sv <= 1) PL.vol = sv; } catch (e) {}
+  function pausePL() { if (PL.a && !PL.a.paused) { try { PL.a.pause(); } catch (e) {} } plUi(); }
+  function plCss() {
+    if (document.getElementById('plCss')) return;
+    var c = document.createElement('style'); c.id = 'plCss';
+    c.textContent = '.pls{position:fixed;inset:0;z-index:2147483200;display:flex;align-items:flex-end;justify-content:center;background:rgba(5,8,16,.62);backdrop-filter:blur(4px)}.pls.hidden{display:none}' +
+      '.pls-c{width:min(100%,520px);max-height:88dvh;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 18px);border-radius:26px 26px 0 0;background:linear-gradient(180deg,#1b2036,#10142a);border:1px solid rgba(255,255,255,.1);box-shadow:0 -12px 40px rgba(0,0,0,.5);animation:plUp .3s cubic-bezier(.2,.9,.3,1)}@keyframes plUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}' +
+      '.pls-grab{width:42px;height:4px;border-radius:4px;background:rgba(255,255,255,.2);margin:0 auto 12px}.pls-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.pls-h b{font-size:17px}.pls-x{width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.08);color:#fff;font-size:20px;cursor:pointer}' +
+      '.pls-now{display:grid;justify-items:center;gap:6px;padding:8px 0 4px}.pls-art{width:132px;height:132px;display:grid;place-items:center;position:relative}.pls-art:before{content:"";position:absolute;inset:-14px;border-radius:50%;background:radial-gradient(circle,rgba(71,176,245,.5),transparent 70%);opacity:.45;transition:opacity .4s}.pls.on .pls-art:before{opacity:1}.pls-art .gdm{width:132px;height:auto;position:relative}' +
+      '.pls-t{font-size:19px;font-weight:700;text-align:center}.pls-s{font-size:12px;color:#96a0a8}' +
+      '.pls-bar{display:flex;align-items:center;gap:10px;margin:12px 0 4px;font-size:11px;font-variant-numeric:tabular-nums;color:#96a0a8}.pls-bar span{min-width:32px}.pls-bar span:last-child{text-align:right}' +
+      '.pls input[type=range]{--p:0%;flex:1;min-width:0;height:5px;border-radius:5px;-webkit-appearance:none;appearance:none;outline:0;cursor:pointer;background:linear-gradient(90deg,#9ae9e3,#47b0f5) 0/var(--p) 100% no-repeat,rgba(255,255,255,.14)}.pls input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(71,176,245,.4)}.pls input[type=range]::-moz-range-thumb{width:15px;height:15px;border:0;border-radius:50%;background:#fff}' +
+      '.pls-ctl{display:flex;align-items:center;justify-content:center;gap:16px;margin:8px 0}.pls-ctl button{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);cursor:pointer;display:grid;place-items:center;padding:0}.pls-ctl button svg{width:19px;height:19px;fill:#e6edf5}.pls-ctl .pls-pp{width:64px;height:64px;border:0;background:linear-gradient(135deg,#9ae9e3,#47b0f5);box-shadow:0 8px 22px rgba(71,176,245,.45)}.pls-ctl .pls-pp svg{width:26px;height:26px;fill:#0f1326}.pls-ctl button.act{border-color:#47b0f5;background:rgba(71,176,245,.2)}' +
+      '.pls-vol{display:flex;align-items:center;gap:10px;margin:6px 4px 12px;color:#96a0a8}.pls-vol svg{width:18px;height:18px;fill:#96a0a8;flex:none}' +
+      '.pls-list{display:grid;gap:6px}.pls-it{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid transparent;cursor:pointer;text-align:left;color:inherit;font:inherit;width:100%}.pls-it.cur{border-color:rgba(71,176,245,.6);background:rgba(71,176,245,.12)}.pls-it .gdm{width:38px;height:auto}.pls-it span{flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pls-it i{font-style:normal;font-size:11px;color:#47b0f5}' +
+      '.pls-empty{padding:26px 10px;text-align:center;color:#96a0a8;font-size:13px;line-height:1.5}';
+    document.head.appendChild(c);
+  }
+  var SPK = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>', SHUF = '<svg viewBox="0 0 24 24"><path d="M10.6 9.2 5.4 4 4 5.4l5.2 5.2zM14.5 4l2.05 2.05L4 18.6 5.4 20 17.95 7.45 20 9.5V4zm.35 10.8-1.4 1.4 3.1 3.1L14.5 20H20v-5.5l-2.05 2.05z"/></svg>';
+  function plUi() {
+    var m = document.getElementById('plSheet'); if (!m) return;
+    var pl = !!(PL.a && !PL.a.paused); m.classList.toggle('on', pl);
+    var pp = m.querySelector('.pls-pp'); if (pp) pp.innerHTML = pl ? PAUSE : PLAY;
+  }
+  function plRender() {
+    var m = document.getElementById('plSheet'); if (!m) return;
+    var body = m.querySelector('.pls-body');
+    if (!PL.list.length) { body.innerHTML = '<div class="pls-empty">У вас пока нет медалей с музыкой.<br>Музыкальные медали появятся здесь, и вы сможете слушать их на фоне.</div>'; return; }
+    var k = PL.list[PL.i], esc = function (t) { return String(t).replace(/</g, '&lt;'); };
+    body.innerHTML = '<div class="pls-now"><div class="pls-art">' + (window.GDMedals ? GDMedals.svg(k, 132, true) : '') + '</div><div class="pls-t">' + esc(KEYS[k]) + '</div><div class="pls-s">' + (PL.i + 1) + ' из ' + PL.list.length + ' · трек медали</div></div>' +
+      '<div class="pls-bar"><span class="pls-c">0:00</span><input class="pls-seek" type="range" min="0" max="1000" value="0" aria-label="Перемотка"><span class="pls-d">0:00</span></div>' +
+      '<div class="pls-ctl"><button type="button" class="pls-sh' + (PL.shuffle ? ' act' : '') + '" aria-label="Перемешать">' + SHUF + '</button><button type="button" class="pls-pv" aria-label="Назад">' + PREV + '</button><button type="button" class="pls-pp" aria-label="Играть">' + PLAY + '</button><button type="button" class="pls-nx" aria-label="Дальше">' + NEXT + '</button><span style="width:46px"></span></div>' +
+      '<div class="pls-vol">' + SPK + '<input class="pls-vl" type="range" min="0" max="100" value="' + Math.round(PL.vol * 100) + '" aria-label="Громкость"></div>' +
+      '<div class="pls-list">' + PL.list.map(function (x, j) { return '<button type="button" class="pls-it' + (j === PL.i ? ' cur' : '') + '" data-j="' + j + '">' + (window.GDMedals ? GDMedals.svg(x, 38, true) : '') + '<span>' + esc(KEYS[x]) + '</span>' + (j === PL.i ? '<i>играет</i>' : '') + '</button>'; }).join('') + '</div>';
+    var seek = body.querySelector('.pls-seek'), vl = body.querySelector('.pls-vl');
+    vl.style.setProperty('--p', vl.value + '%');
+    vl.oninput = function () { PL.vol = vl.value / 100; vl.style.setProperty('--p', vl.value + '%'); if (PL.a) PL.a.volume = PL.vol; try { localStorage.setItem('gd_pl_vol', String(PL.vol)); } catch (e) {} };
+    body.querySelector('.pls-pp').onclick = function () { if (PL.a && !PL.a.paused) PL.a.pause(); else plPlay(PL.i); };
+    body.querySelector('.pls-nx').onclick = function () { plStep(1); };
+    body.querySelector('.pls-pv').onclick = function () { plStep(-1); };
+    body.querySelector('.pls-sh').onclick = function () { PL.shuffle = !PL.shuffle; this.classList.toggle('act', PL.shuffle); };
+    body.querySelectorAll('.pls-it').forEach(function (b) { b.onclick = function () { plPlay(Number(b.dataset.j)); }; });
+    var a = PL.a;
+    if (a) { seek.value = a.duration ? a.currentTime / a.duration * 1000 : 0; seek.style.setProperty('--p', seek.value / 10 + '%'); body.querySelector('.pls-c').textContent = fmt(a.currentTime); body.querySelector('.pls-d').textContent = fmt(a.duration); }
+    seek.oninput = function () { if (PL.a && PL.a.duration) { PL.a.currentTime = seek.value / 1000 * PL.a.duration; seek.style.setProperty('--p', seek.value / 10 + '%'); } };
+    plUi();
+  }
+  function plStep(d) {
+    var n = PL.list.length; if (!n) return;
+    var j = PL.shuffle && n > 1 ? (PL.i + 1 + Math.floor(Math.random() * (n - 1))) % n : ((PL.i + d) % n + n) % n;
+    plPlay(j);
+  }
+  function plPlay(j) {
+    var k = PL.list[j]; if (!k) return;
+    pick(k, false).then(function (pk) {
+      if (!pk) return;
+      stop(); stopProfile(); H.a && hypeEnd(300);
+      if (PL.a) { try { PL.a.pause(); } catch (e) {} PL.a = null; }
+      PL.i = j; var a = new Audio(pk.url); a.volume = PL.vol; a.loop = false; PL.a = a;
+      a.addEventListener('play', plUi); a.addEventListener('pause', plUi);
+      a.addEventListener('ended', function () { if (PL.a === a) plStep(1); });
+      a.addEventListener('timeupdate', function () {
+        var m = document.getElementById('plSheet'); if (!m || !PL.open || PL.a !== a) return;
+        var seek = m.querySelector('.pls-seek'); if (!seek || !a.duration) return;
+        seek.value = a.currentTime / a.duration * 1000; seek.style.setProperty('--p', seek.value / 10 + '%');
+        m.querySelector('.pls-c').textContent = fmt(a.currentTime); m.querySelector('.pls-d').textContent = fmt(a.duration);
+      });
+      a.play().catch(function () {});
+      plRender();
+    });
+  }
+  function plLoad() {
+    return fetch('/api/medals', {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) {
+      var seen = {}, list = [];
+      (d.medals || []).forEach(function (m) { if (KEYS[m.key] && !seen[m.key]) { seen[m.key] = 1; list.push(m.key); } });
+      var cur = PL.list[PL.i]; PL.list = list; var ix = list.indexOf(cur); PL.i = ix >= 0 ? ix : 0;
+    }).catch(function () {});
+  }
+  function plOpen() {
+    plCss();
+    var m = document.getElementById('plSheet');
+    if (!m) {
+      m = document.createElement('div'); m.id = 'plSheet'; m.className = 'pls hidden';
+      m.innerHTML = '<div class="pls-c"><div class="pls-grab"></div><div class="pls-h"><b>Плеер медалей</b><button type="button" class="pls-x" aria-label="Закрыть">×</button></div><div class="pls-body"></div></div>';
+      m.addEventListener('click', function (e) { if (e.target === m || e.target.classList.contains('pls-x')) { PL.open = false; m.classList.add('hidden'); } });
+      document.body.appendChild(m);
+    }
+    m.classList.remove('hidden'); PL.open = true;
+    READY.then(plLoad).then(plRender);
+  }
+  function mountPlayerRow() {
+    if (document.getElementById('pfMedalPlayer')) return true;
+    var anchor = document.getElementById('pfSettingsRow'); if (!anchor) return false;
+    var row = document.createElement('div'); row.className = 'pf-row pf-row-btn'; row.id = 'pfMedalPlayer';
+    row.innerHTML = '<span class="pf-row-t"><b>Плеер медалей</b><small>Слушайте треки своих медалей на фоне</small></span><button type="button" class="profile-settings pf-open" aria-label="Открыть плеер медалей" style="display:grid;place-items:center"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:22px;height:22px"><path d="M8 5v14l11-7z"/></svg></button>';
+    row.querySelector('button').onclick = plOpen; row.onclick = function (e) { if (!e.target.closest('button')) plOpen(); };
+    anchor.parentNode.insertBefore(row, anchor); return true;
+  }
+  if (!mountPlayerRow()) document.addEventListener('DOMContentLoaded', mountPlayerRow);
+  setTimeout(mountPlayerRow, 900); setTimeout(mountPlayerRow, 2600);
   window.GDMusic = {fadeOut: fadeOut, enabled: enabled, setEnabled: setEnabled, KEYS: KEYS, exists: exists, playShort: playShort, stop: stop, win: win, winKey: function (k) { READY.then(function () { if (KEYS[k]) winFaded(k); }); }, hypeStart: hypeStart, hypeWin: hypeWin, hypeEnd: hypeEnd};
 })();

@@ -134,7 +134,6 @@
       el.querySelectorAll('.mpl-nx').forEach(function (nb) {
         nb.onclick = function () { var was = !a.paused; buildProfile(d, tk, idx + Number(nb.dataset.d), was); };
       });
-      if (multi) { var cnt = el.querySelector('.mpl-t small'); cnt.insertAdjacentHTML('beforeend', '<span style="margin-left:8px;opacity:.75">' + (idx + 1) + ' / ' + keys.length + '</span>'); }
       a.volume = .8; if (auto === undefined ? enabled() : auto) { stop(); a.play().catch(function () {}); }       // starts by itself; the browser may need a tap
     });
   }

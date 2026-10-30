@@ -1082,7 +1082,7 @@ def register(app, ns):
                        title=r['title'], place=int(r['place']), shown=bool(r['shown']), created_at=str(r['created_at'] or '')) for r in rows])
 
     BADGE_PATHS = ('/api/game/recent-wins', '/api/upgrade/recent-wins', '/api/hilo/recent-wins', '/api/craft/recent-wins', '/api/leaderboard/', '/api/arena/state',
-                   '/api/crash/state', '/api/xhunt/', '/api/transfers/recipient', '/api/rolls', '/api/giveaways', '/api/wheel', '/api/users/')
+                   '/api/crash/state', '/api/xhunt/', '/api/transfers/recipient', '/api/rolls', '/api/giveaways', '/api/wheel', '/api/users/', '/api/me')
 
     @app.after_request
     def attach_main_medals(resp):

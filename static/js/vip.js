@@ -2,13 +2,13 @@
 (function(){
   var PAL={
     jade:['#e2fbe9','#79cf9b','#2c7650','#b4f0cb'],
-    iron:['#f1f4f8','#a3acb7','#5a626d','#d5dbe3'],
+    iron:['#f5f5f4','#b1aea9','#5a626d','#deddda'],
     bronze:['#ffd2a8','#c47a42','#6d3b1c','#f0a36b'],
-    silver:['#ffffff','#cfd5de','#7d8795','#eef1f6'],
+    silver:['#ffffff','#d9d7d4','#8f8b83','#f3f2f1'],
     gold:['#fff4b8','#eab43c','#8c5f10','#ffd75e'],
-    platinum:['#f1feff','#93d8ee','#3a7f9b','#c9f1fb'],
-    diamond:['#d9bfff','#8147e6','#2b1069','#b189ff'],
-    obsidian:['#6a6d78','#1d1e23','#050506','#9aa0ad']
+    platinum:['#f3efe6','#f3efe6','#d6d0c4','#f3efe6'],
+    diamond:['#d9bfff','#f3efe6','#2e2c29','#f3efe6'],
+    obsidian:['#6a6d78','#1d1e23','#050506','#a8a59f']
   };
   var KEYS=['jade','iron','bronze','silver','gold','platinum','diamond','obsidian'],uid=0,state=null,loadedAt=0,loading=null;
   function $(id){return document.getElementById(id)}
@@ -26,7 +26,7 @@
   function gem(i,size){
     i=Math.max(0,Math.min(7,i));
     var k=KEYS[i],p=PAL[k],sp=SPEC[i],n=++uid,g='vg'+n,s=size||40,dark=k==='obsidian';
-    var edge=dark?'#e8ebf2':'#ffffff',eo=dark?.8:.6,ink=dark?'#f2f4f8':p[0],ink2=dark?'#aeb4c2':p[3];
+    var edge=dark?'#eeedec':'#ffffff',eo=dark?.8:.6,ink=dark?'#f5f5f4':p[0],ink2=dark?'#bcb9b4':p[3];
     var SH='M32 11 52 17V33C52 46 43 54 32 60 21 54 12 46 12 33V17Z';
     var o='<svg class="vip-gem" viewBox="-4 -2 72 68" width="'+s+'" height="'+s+'" aria-hidden="true"><defs>'+
       '<linearGradient id="'+g+'a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="'+p[0]+'"/><stop offset=".5" stop-color="'+p[1]+'"/><stop offset="1" stop-color="'+p[2]+'"/></linearGradient>'+
@@ -36,14 +36,14 @@
     if(sp.wings){var w='<g fill="url(#'+g+'b)" stroke="'+edge+'" stroke-opacity="'+eo+'" stroke-width=".8" stroke-linejoin="round"><path d="M13 22Q5 20 0 9Q10 10 15 19Z"/><path d="M13 29Q4 29 -2 19Q9 19 15 26Z"/><path d="M13 36Q5 38 -1 30Q8 28 15 33Z"/></g>';
       o+=w+'<g transform="translate(64 0) scale(-1 1)">'+w+'</g>'}
     o+='<g stroke="'+edge+'" stroke-opacity="'+eo+'" stroke-width="1" stroke-linejoin="round"><path d="'+SH+'" fill="url(#'+g+'a)"/>'+
-      '<path d="M32 16 47 21V33C47 43 40 49 32 54 24 49 17 43 17 33V21Z" fill="'+(dark?'#0b0b0e':p[2])+'" fill-opacity="'+(dark?'.85':'.5')+'" stroke="'+edge+'" stroke-opacity=".28"/></g>'+
+      '<path d="M32 16 47 21V33C47 43 40 49 32 54 24 49 17 43 17 33V21Z" fill="'+(dark?'#090909':p[2])+'" fill-opacity="'+(dark?'.85':'.5')+'" stroke="'+edge+'" stroke-opacity=".28"/></g>'+
       '<path d="M32 11V60" stroke="#fff" stroke-opacity=".1"/><path d="M14 18 32 12.5V30Z" fill="#fff" fill-opacity=".16"/>';
     var ch=function(y,wd){return '<path d="M'+(32-wd)+' '+(y+wd*.8)+'L32 '+y+' '+(32+wd)+' '+(y+wd*.8)+'" fill="none" stroke="'+ink+'" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>'};
     if(sp.star){o+='<path transform="translate(0 -7)" d="M32 21.5l3.100 6.300 6.900 1-5 4.900 1.200 6.900L32 37.300l-6.200 3.300 1.200-6.900-5-4.900 6.900-1z" fill="'+ink+'" stroke="'+ink2+'" stroke-width=".7" stroke-linejoin="round"/>';
       if(sp.chev>=1)o+=ch(sp.chev>=2?37:42,8);if(sp.chev>=2)o+=ch(44,8)}
     else if(sp.chev===1)o+=ch(32,10);
     else if(sp.chev===2)o+=ch(27,10)+ch(37,10);
-    if(sp.crown!==undefined&&sp.crown)o+='<path d="M19 12 22 3 27.500 8.500 32 1 36.500 8.500 42 3 45 12Z" fill="'+(dark?'#d7dbe5':p[3])+'" stroke="'+edge+'" stroke-opacity=".7" stroke-width=".8" stroke-linejoin="round"/><circle cx="32" cy="5" r="1.4" fill="'+p[2]+'"/>';
+    if(sp.crown!==undefined&&sp.crown)o+='<path d="M19 12 22 3 27.500 8.500 32 1 36.500 8.500 42 3 45 12Z" fill="'+(dark?'#e0dfdc':p[3])+'" stroke="'+edge+'" stroke-opacity=".7" stroke-width=".8" stroke-linejoin="round"/><circle cx="32" cy="5" r="1.4" fill="'+p[2]+'"/>';
     if(sp.spark)o+='<path d="M55 8v8M51 12h8" stroke="'+p[3]+'" stroke-width="2" stroke-linecap="round"><animate attributeName="opacity" values="1;.2;1" dur="2.6s" repeatCount="indefinite"/></path><circle cx="8" cy="12" r="1.8" fill="'+p[3]+'"><animate attributeName="opacity" values=".2;1;.2" dur="2.1s" repeatCount="indefinite"/></circle>';
     return o+'</svg>';
   }

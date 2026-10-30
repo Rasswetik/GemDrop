@@ -1,0 +1,71 @@
+/* GemDrop brand layer: black field, cream line-art, wide-tracked geometric type (matches the channel logo).
+   Loaded last; the cool-blue palette in the inline styles is already re-coloured to black/cream, this file sets the shapes and type. */
+:root{
+  --gd-ink:#000;--gd-ink-2:#070707;--gd-ink-3:#0d0d0d;--gd-ink-4:#141414;
+  --gd-cream:#f3efe6;--gd-cream-2:#d6d0c4;--gd-cream-dim:#8f8b82;
+  --gd-hair:rgba(243,239,230,.16);--gd-hair-strong:rgba(243,239,230,.34);
+  --bg:var(--gd-ink);--surface:var(--gd-ink-3);--surface2:var(--gd-ink-4);--line:var(--gd-hair);--text:var(--gd-cream);--muted:var(--gd-cream-dim);
+  --accent:var(--gd-cream);--blue:var(--gd-cream);--gd-bg:var(--gd-ink);--gd-text:var(--gd-cream);--gd-muted:var(--gd-cream-dim);--gd-line:var(--gd-hair);--gd-line-strong:var(--gd-hair-strong);--gd-blue:var(--gd-cream);--gd-glow:var(--gd-cream);
+  --gd-panel:var(--gd-ink-3);--gd-panel-2:var(--gd-ink-4);--gd-border:var(--gd-hair);--gd-glass:var(--gd-ink-3);
+  --glass-bg:rgba(8,8,8,.86);--glass-bg-strong:rgba(5,5,5,.94);--glass-line:var(--gd-hair);--glass-line-soft:rgba(243,239,230,.09);--glass-highlight:rgba(243,239,230,.12);--glass-shadow:none;--glass-blue:var(--gd-cream);--glass-blue-strong:var(--gd-cream)
+}
+html,html body,body.studio{background:#000!important;color:var(--gd-cream)}
+html body{background-image:none!important;font-family:'Montserrat',system-ui,-apple-system,'Segoe UI',sans-serif}
+html body::before,html body::after{background-image:none!important;box-shadow:none!important}
+html body.studio .app,html body .app{background:transparent!important}
+
+/* type: the logo's wide tracking on titles and small caps on labels */
+html body h1,html body h2,html body .studio-eyebrow{text-transform:uppercase;letter-spacing:.14em;font-weight:700}
+html body h1{font-size:clamp(20px,6vw,26px);line-height:1.25}
+html body h2{font-size:clamp(15px,4.4vw,18px);line-height:1.3}
+html body h3{letter-spacing:.06em;font-weight:700}
+html body .studio-eyebrow,html body .brand-name,html body small.eyebrow{letter-spacing:.3em;color:var(--gd-cream-dim)}
+html body .gradient-text{background:none!important;-webkit-text-fill-color:var(--gd-cream)!important;color:var(--gd-cream)!important}
+
+/* header + wordmark */
+html body .studio-header{background:linear-gradient(#000,rgba(0,0,0,0))!important;border:0!important}
+html body .studio-brand{gap:10px;color:var(--gd-cream)}
+html body .studio-brand svg{stroke:var(--gd-cream)!important;fill:none!important}
+html body .studio-brand .brand-name{font-size:12px;font-weight:700;letter-spacing:.34em;text-transform:uppercase;color:var(--gd-cream)}
+
+/* buttons: cream fill with black type, or a thin cream outline */
+html body button.primary,html body .primary,html body .btn-primary{background:var(--gd-cream)!important;background-image:none!important;color:#0a0a0a!important;border:1px solid var(--gd-cream)!important;border-radius:12px!important;box-shadow:none!important;text-transform:uppercase;letter-spacing:.12em;font-weight:700;font-size:13px}
+html body button.primary:active,html body .primary:active{background:var(--gd-cream-2)!important}
+html body button.secondary,html body .secondary{background:transparent!important;color:var(--gd-cream)!important;border:1px solid var(--gd-hair-strong)!important;border-radius:12px!important;box-shadow:none!important;text-transform:uppercase;letter-spacing:.12em;font-weight:600;font-size:12px}
+html body .deposit-mini,html body .deposit-mini.header-deposit{background:var(--gd-cream)!important;background-image:none!important;border:1px solid var(--gd-cream)!important;box-shadow:none!important;border-radius:12px!important}
+html body .deposit-mini svg{stroke:#0a0a0a!important;color:#0a0a0a!important}
+
+/* surfaces */
+html body .balance,html body .balance-popover,html body nav,html body .modal-card,html body .modal>div,html body .card,html body .game-card{background:var(--gd-ink-2)!important;border:1px solid var(--gd-hair)!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+html body nav{border-radius:18px}
+html body nav button{color:var(--gd-cream-dim);text-transform:uppercase;letter-spacing:.08em;font-size:9.5px}
+html body nav button.active{background:transparent!important;color:var(--gd-cream)!important;box-shadow:inset 0 0 0 1px var(--gd-cream)!important}
+html body nav button svg{stroke:currentColor}
+html body input,html body select,html body textarea{background:#000!important;color:var(--gd-cream)!important;border:1px solid var(--gd-hair-strong)!important;border-radius:12px!important}
+html body input:focus,html body select:focus,html body textarea:focus{outline:none;border-color:var(--gd-cream)!important;box-shadow:none!important}
+html body ::selection{background:var(--gd-cream);color:#000}
+
+/* loading screen: the logo's crystal cluster draws itself in cream line art on black.
+   The finished drawing is the base state, so reduced-motion / lite mode just shows it. */
+html body .loader{background:#000!important}
+html body .loader-inner{width:min(280px,72vw)}
+html body .loader-inner .ld-art{width:150px;height:150px;margin:0 auto 14px;color:var(--gd-cream)}
+html body .ld-art .ld-gem path,html body .ld-art .ld-gem circle{stroke-dasharray:1;stroke-dashoffset:0;animation:ldDraw 3.2s cubic-bezier(.45,.05,.25,1) infinite;animation-delay:calc(var(--ld-i,0)*.28s)}
+html body .ld-art .ld-s1{--ld-i:0}html body .ld-art .ld-s2{--ld-i:1}html body .ld-art .ld-s3{--ld-i:2}html body .ld-art .ld-s4{--ld-i:3}
+html body .ld-art .ld-gem{animation:ldFloatBrand 4.2s ease-in-out infinite}
+@keyframes ldDraw{0%{stroke-dashoffset:1;opacity:1}46%,80%{stroke-dashoffset:0;opacity:1}96%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes ldFloatBrand{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){html body .ld-art .ld-gem,html body .ld-art .ld-gem *{animation:none!important}}
+html.perf-lite body .ld-art .ld-gem,html.perf-lite body .ld-art .ld-gem *{animation:none!important}
+html body .ld-word{display:flex;align-items:center;gap:12px;justify-content:center;color:var(--gd-cream)}
+html body .ld-word b{font-size:15px;font-weight:700;letter-spacing:.42em;margin-right:-.42em}
+html body .ld-word::before,html body .ld-word::after{content:'';height:1px;flex:1;background:var(--gd-hair-strong)}
+html body .progress{height:2px!important;margin-top:16px;border-radius:0!important;background:var(--gd-hair)!important}
+html body .progress i,html body.studio #loaderBar{background:var(--gd-cream)!important;border-radius:0}
+html body .loader-text{margin-top:12px;color:var(--gd-cream-dim);font-size:10px;letter-spacing:.32em;text-transform:uppercase}
+
+/* leaderboard rows with a frame need a little more air so the ring does not sit on its neighbours */
+html body .lb-row:has(.gdfr){min-height:80px}
+html body .lb-tabs button.active,html body .lb-tabs .active{background:var(--gd-cream)!important;background-image:none!important;color:#0a0a0a!important;box-shadow:none!important}
+html body .lb-me .lb-row{background:var(--gd-cream)!important;border-color:var(--gd-cream)!important;color:#0a0a0a!important}
+html body .lb-me .lb-row *{color:#0a0a0a!important}

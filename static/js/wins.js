@@ -1,6 +1,6 @@
 /* «Недавние выигрыши» strip on the games page */
 (function(){
-  var GAME_COL={'Mines':'#4fd1b0','Hi-Lo':'#4fd18b','Crash':'#62b8ff','Limbo':'#7cf6cd','Hamster Road':'#f0a35a','Plinko':'#47b0f5','Арена':'#f0a35a'};
+  var GAME_COL={'Mines':'#4fd1b0','Hi-Lo':'#4fd18b','Crash':'#f3efe6','Limbo':'#7cf6cd','Hamster Road':'#f0a35a','Plinko':'#f3efe6','Арена':'#f0a35a'};
   var seen='',timer=0;
   function $(id){return document.getElementById(id)}
   function fmt(n){return Number(n).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2}).replace(/ /g,' ')}

@@ -30,6 +30,7 @@ html body .studio-brand .brand-name{font-size:12px;font-weight:700;letter-spacin
 
 /* buttons: cream fill with black type, or a thin cream outline */
 html body button.primary,html body .primary,html body .btn-primary{background:var(--gd-cream)!important;background-image:none!important;color:#0a0a0a!important;border:1px solid var(--gd-cream)!important;border-radius:12px!important;box-shadow:none!important;text-transform:uppercase;letter-spacing:.12em;font-weight:700;font-size:13px}
+html body button.primary *,html body #perfPromptContinue{color:#0a0a0a!important;-webkit-text-fill-color:#0a0a0a!important}
 html body button.primary:active,html body .primary:active{background:var(--gd-cream-2)!important}
 html body button.secondary,html body .secondary{background:transparent!important;color:var(--gd-cream)!important;border:1px solid var(--gd-hair-strong)!important;border-radius:12px!important;box-shadow:none!important;text-transform:uppercase;letter-spacing:.12em;font-weight:600;font-size:12px}
 html body .deposit-mini,html body .deposit-mini.header-deposit{background:var(--gd-cream)!important;background-image:none!important;border:1px solid var(--gd-cream)!important;box-shadow:none!important;border-radius:12px!important}
@@ -66,6 +67,7 @@ html body .loader-text{margin-top:12px;color:var(--gd-cream-dim);font-size:10px;
 
 /* leaderboard rows with a frame need a little more air so the ring does not sit on its neighbours */
 html body .lb-row:has(.gdfr){min-height:80px}
+html body .mdl-filt button.on,html body .gdc-tabs button.on{background:var(--gd-cream)!important;background-image:none!important;color:#0a0a0a!important;box-shadow:none!important}
 html body .lb-tabs button.active,html body .lb-tabs .active{background:var(--gd-cream)!important;background-image:none!important;color:#0a0a0a!important;box-shadow:none!important}
 html body .lb-me .lb-row{background:var(--gd-cream)!important;border-color:var(--gd-cream)!important;color:#0a0a0a!important}
 html body .lb-me .lb-row *{color:#0a0a0a!important}

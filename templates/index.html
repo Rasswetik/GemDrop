@@ -18,35 +18,36 @@ html.gd-banned #loader,html.gd-banned #loader.hidden{display:none!important}
 #banScreen .bn-btn{width:100%;min-height:56px;display:grid;place-items:center;border-radius:18px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font-size:16px;font-weight:800;text-decoration:none;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.3)}
 #banScreen .bn-foot{margin:0;color:#6c7586;font-size:12px}
 html.gd-maint body>*:not(#maintScreen){display:none!important}
-#maintScreen{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:max(20px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));color:#f5f7fb;font:500 15px/1.5 'Montserrat',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;overflow:auto;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:radial-gradient(90% 60% at 50% 0%,rgba(71,176,245,.16),transparent 62%),radial-gradient(70% 50% at 50% 100%,rgba(124,92,255,.10),transparent 65%),#090b1a}
-#maintScreen:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);mask-image:radial-gradient(70% 55% at 50% 40%,#000,transparent);pointer-events:none}
-#maintScreen .mt-card{position:relative;width:min(100%,440px);display:grid;gap:18px;justify-items:center;text-align:center;animation:mtIn .55s cubic-bezier(.2,.9,.25,1) both}
+#maintScreen{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;box-sizing:border-box;padding:max(24px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(24px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px));color:#f3efe6;font:500 15px/1.5 'Montserrat',system-ui,-apple-system,'Segoe UI',sans-serif;overflow:auto;overscroll-behavior:contain;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;background:radial-gradient(ellipse at 50% 35%,#191713 0,#070707 48%,#000 78%)}
+#maintScreen:before{display:none}
+#maintScreen .mt-card{position:relative;flex:none;box-sizing:border-box;width:min(100%,440px);margin:auto 0;display:grid;gap:18px;justify-items:center;padding:32px;border:1px solid #f3efe61c;border-radius:24px;background:#0d0d0c;text-align:center;animation:mtIn .25s ease-out both}
 @keyframes mtIn{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
-#maintScreen .mt-badge{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;border:1px solid rgba(71,176,245,.35);background:rgba(71,176,245,.1);color:#7cc8fa;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
-#maintScreen .mt-badge i{width:7px;height:7px;border-radius:50%;background:#47b0f5;box-shadow:0 0 0 0 rgba(71,176,245,.6);animation:mtPulse 1.8s ease-out infinite}
-@keyframes mtPulse{70%{box-shadow:0 0 0 9px rgba(71,176,245,0)}100%{box-shadow:0 0 0 0 rgba(71,176,245,0)}}
-#maintScreen .mt-icon{position:relative;width:112px;height:112px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 50% 35%,#171a33,#0d0f22);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px rgba(255,255,255,.08)}
-#maintScreen .mt-icon:before{content:"";position:absolute;inset:-9px;border-radius:50%;border:2px dashed rgba(71,176,245,.3);animation:mtSpin 24s linear infinite reverse}
-#maintScreen .mt-icon svg{width:50px;height:50px;fill:none;stroke:url(#mtGrad);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;animation:mtSpin 9s linear infinite;shape-rendering:geometricPrecision}
-@keyframes mtSpin{to{transform:rotate(360deg)}}
-#maintScreen h1{margin:2px 0 0;font-size:clamp(26px,8vw,34px);line-height:1.12;font-weight:800;letter-spacing:-.025em}
-#maintScreen .mt-msg{margin:0;max-width:34ch;color:#aab3c2;font-size:15px;line-height:1.6;white-space:pre-line}
-#maintScreen .mt-eta{width:100%;box-sizing:border-box;display:grid;gap:6px;justify-items:center;padding:18px 16px 16px;border:1px solid rgba(255,255,255,.07);border-radius:22px;background:#10132a;box-shadow:inset 0 1px rgba(255,255,255,.06)}
-#maintScreen .mt-eta.hidden{display:none}
-#maintScreen .mt-eta-k{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8d98aa}
-#maintScreen .mt-clock{order:2;font-size:clamp(38px,12vw,48px);line-height:1.05;font-weight:800;letter-spacing:.02em;color:#fff;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-#maintScreen .mt-clock.done{font-size:16px;line-height:1.4;letter-spacing:0;color:#7cc8fa;font-weight:700}
-#maintScreen .mt-eta-v{order:3;font-size:13px;font-weight:600;color:#7cc8fa}
-#maintScreen .mt-bar{order:4;position:relative;width:100%;height:4px;margin-top:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden}
-#maintScreen .mt-bar:after{content:"";position:absolute;top:0;bottom:0;width:38%;border-radius:4px;background:linear-gradient(90deg,transparent,#47b0f5,transparent);animation:mtBar 1.9s ease-in-out infinite}
-@keyframes mtBar{from{left:-40%}to{left:102%}}
-#maintScreen .mt-retry{width:100%;min-height:56px;border:0;border-radius:18px;background:linear-gradient(180deg,#3db3fa,#1f8fe0);color:#fff;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(31,143,224,.35),inset 0 1px rgba(255,255,255,.3);transition:transform .12s,filter .2s;-webkit-tap-highlight-color:transparent}
-#maintScreen .mt-retry:hover{filter:brightness(1.06)}
-#maintScreen .mt-retry:active{transform:scale(.98)}
-#maintScreen .mt-retry:disabled{opacity:.6}
-#maintScreen .mt-foot{margin:0;color:#6c7586;font-size:12px}
-@media(max-height:620px){#maintScreen .mt-card{gap:12px}#maintScreen .mt-icon{width:84px;height:84px}#maintScreen .mt-icon svg{width:38px;height:38px}}
-@media(prefers-reduced-motion:reduce){#maintScreen *,#maintScreen .mt-card{animation:none!important}}
+#maintScreen .mt-brand{font-size:11px;font-weight:700;letter-spacing:.3em;color:#9c978c;line-height:1.5}
+#maintScreen .mt-badge{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid #f3efe621;border-radius:7px;background:#f3efe607;color:#c9c2b3;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+#maintScreen .mt-badge i{width:5px;height:5px;flex:none;border-radius:50%;background:#d6d0c4}
+#maintScreen .mt-icon{display:grid;place-items:center;width:76px;height:76px;margin:2px 0;border-radius:20px;border:1px solid #f3efe621;background:#191814;color:#f3efe6}
+#maintScreen .mt-icon:before{display:none}
+#maintScreen .mt-icon svg{display:block;width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#maintScreen h1{position:static;margin:0!important;padding:0!important;max-width:100%;font-size:clamp(27px,7vw,34px)!important;line-height:1.2;font-weight:700;letter-spacing:-.035em;text-transform:none!important;color:#f3efe6!important;background:none!important;-webkit-text-fill-color:#f3efe6;overflow-wrap:anywhere}
+#maintScreen h1:before,#maintScreen h1:after{display:none}
+#maintScreen .mt-msg{margin:0;max-width:34ch;color:#aaa59a;font-size:13px;line-height:1.7;white-space:pre-line;overflow-wrap:anywhere}
+#maintScreen .mt-eta{box-sizing:border-box;width:100%;display:grid;gap:8px;justify-items:center;padding:18px 14px;border:1px solid #f3efe618;border-radius:14px;background:#151410}
+#maintScreen .mt-eta.hidden{display:none!important}
+#maintScreen .mt-eta-k{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:#aaa59a}
+#maintScreen .mt-clock{order:2;font-size:clamp(32px,10vw,42px);line-height:1.15;font-weight:600;letter-spacing:-.02em;color:#f3efe6;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+#maintScreen .mt-clock.done{font-size:14px;line-height:1.5;letter-spacing:0;color:#d6d0c4}
+#maintScreen .mt-eta-v{order:3;font-size:12px;font-weight:500;color:#9c978c}
+#maintScreen .mt-bar{order:4;width:100%;height:3px;margin-top:4px;border-radius:4px;background:#f3efe610;overflow:hidden}
+#maintScreen .mt-bar:after{content:"";display:block;width:100%;height:100%;border-radius:inherit;background:linear-gradient(90deg,transparent,#d6d0c4,transparent)}
+#maintScreen .mt-retry{box-sizing:border-box;display:block;width:100%;min-height:48px;padding:12px 16px;border:1px solid #f3efe6;border-radius:12px;background:#f3efe6;color:#151410;font:inherit;font-size:13px;font-weight:600;line-height:1.5;letter-spacing:0;cursor:pointer;box-shadow:none;transition:background .15s;-webkit-tap-highlight-color:transparent}
+#maintScreen .mt-retry:hover{background:#ded7c8;border-color:#ded7c8}
+#maintScreen .mt-retry:focus-visible{outline:2px solid #f3efe6;outline-offset:4px}
+#maintScreen .mt-retry:disabled{opacity:.6;cursor:wait}
+#maintScreen .mt-foot{margin:0;max-width:35ch;color:#8f8b82;font-size:11px;line-height:1.7;overflow-wrap:anywhere}
+@media(max-width:380px){#maintScreen .mt-card{padding:24px 20px;gap:16px}}
+@media(max-height:620px){#maintScreen .mt-card{gap:12px;padding-block:22px}#maintScreen .mt-icon{width:60px;height:60px;border-radius:16px}#maintScreen .mt-icon svg{width:28px;height:28px}}
+@media(prefers-reduced-motion:reduce){#maintScreen *,#maintScreen .mt-card{animation:none!important;transition:none!important}}
+html.perf-lite #maintScreen .mt-card{animation:none!important}
 `;
   const style=document.createElement('style');style.id='gd-gate-css';style.textContent=css;(document.head||root).appendChild(style);
   const ready=fn=>document.readyState==='loading'?document.addEventListener('DOMContentLoaded',fn):fn();
@@ -68,7 +69,7 @@ html.gd-maint body>*:not(#maintScreen){display:none!important}
       let el=document.getElementById('maintScreen');
       if(!el){
         el=document.createElement('div');el.id='maintScreen';el.setAttribute('role','alert');
-        el.innerHTML='<div class="mt-card"><span class="mt-badge"><i></i>Обновление</span><div class="mt-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="mtGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7cc8fa"/><stop offset="1" stop-color="#2a7be0"/></linearGradient></defs><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div><h1>Технические работы</h1><p class="mt-msg"></p><div class="mt-eta hidden"><span class="mt-eta-k">Осталось примерно</span><b class="mt-eta-v"></b><span class="mt-clock"></span><div class="mt-bar" aria-hidden="true"></div></div><button class="mt-retry" type="button">Попробовать снова</button><p class="mt-foot">Мы уже работаем над этим. Спасибо, что остаётесь с нами.</p></div>';
+        el.innerHTML='<div class="mt-card"><span class="mt-brand">GEMDROP</span><span class="mt-badge"><i></i>Обновление</span><div class="mt-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div><h1>Технические работы</h1><p class="mt-msg"></p><div class="mt-eta hidden"><span class="mt-eta-k">Осталось примерно</span><b class="mt-eta-v"></b><span class="mt-clock"></span><div class="mt-bar" aria-hidden="true"></div></div><button class="mt-retry" type="button">Попробовать снова</button><p class="mt-foot">Мы уже работаем над этим. Спасибо, что остаётесь с нами.</p></div>';
         document.body.appendChild(el);
         el.querySelector('.mt-retry').onclick=function(){this.disabled=true;this.textContent='Загружаем…';location.reload()}}
       el.querySelector('.mt-msg').textContent=d.message||d.error||'На сайте проводятся технические работы.';

@@ -100,3 +100,12 @@ html body.studio #giveawayPage :is(button,a):focus-visible,html body #upgradeLis
 @media(max-height:640px){html body #upgradeListModal .ugm-sheet{overflow-y:auto!important;overscroll-behavior:contain}html body #upgradeListModal #upgradeList.ugm-grid{flex:none;overflow:visible}}
 @media(prefers-reduced-motion:reduce){html body #loader .ld-art .ld-gem,html body #upgradeListModal .ugm-sheet{animation:none!important}html body #loader .progress i{transition:none}}
 html.perf-lite body #loader .ld-art .ld-gem{animation:none!important}
+
+/* Mines action panel from the screenshot: readable label, no glow or shimmer. */
+html body.studio #minesPage #activeActions{box-sizing:border-box;grid-template-columns:minmax(0,1fr) 44px;gap:9px;margin:14px 0;padding:12px!important;border:1px solid #f3efe61c!important;border-radius:16px!important;background:#10100e!important;box-shadow:none!important}
+html body.studio #minesPage #cashout,html body.studio #minesPage #start{min-height:48px;border:0!important;border-radius:11px!important;background:#f3efe6!important;color:#151410!important;-webkit-text-fill-color:#151410!important;font-size:13px!important;font-weight:600!important;line-height:1.5;letter-spacing:0!important;text-transform:none!important;box-shadow:none!important;filter:none!important;animation:none!important}
+html body.studio #minesPage #cashout:after,html body.studio #minesPage #start:after{display:none!important}
+html body.studio #minesPage #randomCell{min-width:0;min-height:44px;padding:10px;border:1px solid #f3efe626!important;border-radius:11px!important;background:#1b1914!important;color:#c7beac!important;box-shadow:none!important}
+html body.studio #minesPage #randomCell svg{width:20px;height:20px}
+
+@media(prefers-reduced-motion:reduce){html body.studio #minesPage #activeActions *{animation:none!important;transition:none!important}}

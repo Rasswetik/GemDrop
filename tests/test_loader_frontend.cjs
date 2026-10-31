@@ -35,18 +35,40 @@ test('all seven uploaded artworks can be selected and their files exist', () => 
   assert.deepEqual([...picked].sort(), ['calendar.png', 'crown.png', 'cup.png', 'fire.png', 'gift.png', 'logo.gif', 'wallet.webp']);
 });
 
-test('the inline fallback stays visible until the image loads; settings do not reroll or restart it', () => {
+test('loading uses a neutral placeholder until the image is ready; settings do not restart it', () => {
   const {root, img, pending, loader} = setup();
   assert.equal(img.hidden, true);
   assert.equal(root.classList.contains('custom-img'), false);
+  assert.equal(root.classList.contains('is-loading'), true);
   loader.set('builtin');
   assert.equal(pending.length, 1);
   pending[0].onload();
   assert.equal(img.hidden, false);
   assert.equal(root.classList.contains('custom-img'), true);
+  assert.equal(root.classList.contains('is-loading'), false);
   assert.equal(root.dataset.loaderArt, 'calendar');
   loader.set('builtin');
   assert.equal(pending.length, 1);
+});
+
+test('the placeholder remains until image decoding completes', async () => {
+  const {root, img, pending} = setup();
+  let finish;
+  pending[0].decode = () => new Promise(resolve => { finish = resolve; });
+  pending[0].onload();
+  assert.equal(root.classList.contains('is-loading'), true);
+  assert.equal(img.hidden, true);
+  finish();
+  await Promise.resolve();
+  assert.equal(img.hidden, false);
+  assert.equal(root.classList.contains('is-loading'), false);
+});
+
+test('the HTML hides the SVG before loader JavaScript can execute', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../templates/index.html'), 'utf8');
+  assert.match(html, /id="loader" class="loader is-loading"/);
+  const hidden = html.indexOf('#loader.is-loading .ld-art{visibility:hidden!important}');
+  assert(hidden > 0 && hidden < html.indexOf('id="loader"'));
 });
 
 test('a slow earlier artwork cannot overwrite a newer admin selection', () => {

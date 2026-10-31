@@ -1,19 +1,61 @@
-body.studio #auth.auth{max-width:500px!important;padding:28px 24px 24px!important;margin:20px auto 40px!important;background:radial-gradient(ellipse at 50% 0,rgba(243,239,230,.13),transparent 58%),#131311!important;border:1px solid rgba(243,239,230,.16)!important;border-radius:28px!important;box-shadow:0 24px 70px rgba(0,0,0,.25)!important}
-body.studio #auth.auth .auth-art{height:88px;margin-bottom:16px;background:none}body.studio #auth.auth .auth-art svg{width:88px;height:88px}
-body.studio #auth.auth .studio-eyebrow{display:block;font-size:10px;letter-spacing:2px;color:#aaa7a2;margin:0 0 14px}
-body.studio #auth.auth h1{font-size:clamp(28px,6vw,40px)!important;letter-spacing:-1.3px;margin:0 0 12px!important}
-body.studio #auth.auth .auth-intro{font-size:13px!important;line-height:1.6;margin:0 auto 20px;max-width:300px}
-body.studio #auth.auth #authText{font-size:12px;margin:0;color:#f3efe6!important}
-body.studio #auth.auth .web-auth-panel{background:transparent!important;border:0!important;padding:24px 0 0!important;margin:0!important;gap:16px}
-.auth-step{display:flex;align-items:flex-start;gap:12px;text-align:left}.auth-step>span{flex:0 0 26px;height:26px;display:grid;place-items:center;border:1px solid #f3efe64d;border-radius:8px;background:#f3efe60d;font-size:12px;font-weight:700;color:#0a0a0a}.auth-step b{display:block;font-size:13px;font-weight:650;color:#f3efe6}.auth-step p{font-size:11px!important;line-height:1.6;margin:4px 0 0!important;color:#a7a49e!important}
-body.studio #auth.auth .auth-step p{padding:0!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important}
-body.studio #auth.auth #webAuthStatus{padding:0!important;border:0!important;border-radius:0!important;background:none!important;white-space:normal!important;text-overflow:clip!important;overflow:visible!important;text-align:center;min-width:0;line-height:1.6}
-body.studio[data-page="gamesPage"] #hwPet{z-index:12000}
-body.studio #auth.auth .web-auth-command{padding:12px 13px!important;background:#0f0e0d!important;border:1px solid #f3efe62e!important;border-radius:12px!important}.web-auth-command code{font-size:clamp(13px,3.6vw,17px)!important;letter-spacing:.02em!important;color:#f3efe6!important;white-space:nowrap}
-body.studio #auth.auth .web-auth-command button{min-height:34px;padding:8px 10px;border:1px solid #f3efe626;border-radius:8px;background:#2b2927!important;color:#f3efe6!important}
-body.studio #auth.auth .web-bot-link{display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:12px;background:linear-gradient(115deg,#f3efe6,#f3efe6)!important;color:#242220!important;font-size:13px;font-weight:700;text-decoration:none;border:1px solid #f3efe680!important}
-.auth-status{display:flex;align-items:center;justify-content:center;gap:8px}.auth-status i{width:6px;height:6px;border-radius:50%;background:#f3efe6;box-shadow:0 0 9px #f3efe666}.auth-status small{font-size:11px;color:#b8b5b0!important}#webAuthExpiry{display:block;text-align:center;font-size:10px;color:#95918a;line-height:1.3}
-body.studio #auth.auth #webAuthRenew{min-height:35px;margin:0!important;border:0!important;background:transparent!important;color:#b2afa9!important;font-size:11px!important}.auth-session-note{text-align:center;font-size:10px;line-height:1.6;color:#8c8880}
-body.miniapp-session #profilePage .pf-actions{display:none!important}
+/* Browser sign-in, scoped after the brand layer. */
 body.auth-session .studio-header{display:none!important}
-@media(max-width:520px){body.studio #auth.auth{margin:8px auto 24px!important;padding:23px 18px!important;border-radius:22px!important}body.studio #auth.auth .auth-art{height:70px}body.studio #auth.auth .auth-art svg{width:70px;height:70px}body.studio #auth.auth .web-auth-panel{gap:14px}}
+body.miniapp-session #profilePage .pf-actions{display:none!important}
+body.studio[data-page="gamesPage"] #hwPet{z-index:12000}
+html body.studio #auth.auth{box-sizing:border-box;width:100%;max-width:480px!important;margin:28px auto 48px!important;padding:32px!important;border:1px solid #f3efe61c!important;border-radius:24px!important;background:radial-gradient(ellipse at 50% 0,#23201755,transparent 45%),#0d0d0c!important;box-shadow:0 24px 80px #0003!important;text-align:center;animation:authArrive .35s ease-out both}
+html body.studio #auth.auth .auth-art{display:grid;place-items:center;height:108px;margin:0 0 20px;background:none}
+html body.studio #auth.auth .auth-art img{display:block;width:108px;height:108px;object-fit:contain;filter:none}
+html body.studio #auth.auth .studio-eyebrow{display:block;margin:0 0 10px;font-size:9px;line-height:1.5;letter-spacing:.18em;color:#969185}
+html body.studio #auth.auth h1{position:static;margin:0 0 10px!important;padding:0!important;font-size:28px!important;font-weight:650;line-height:1.2;letter-spacing:-.035em;text-transform:none;text-align:center;color:#f3efe6!important;background:none!important;-webkit-text-fill-color:#f3efe6}
+html body.studio #auth.auth h1:before,html body.studio #auth.auth h1:after{display:none}
+html body.studio #auth.auth .auth-intro{max-width:32ch;margin:0 auto!important;padding:0!important;border:0!important;border-radius:0!important;background:none!important;color:#a9a397!important;font-size:13px!important;line-height:1.65!important}
+html body.studio #auth.auth #authText{margin:18px 0 0;padding:0;border:0;background:none;color:#bfb8a8!important;font-size:12px;line-height:1.6}
+html body.studio #auth.auth:has(#webAuthPanel:not(.hidden)) #authText{display:none}
+html body.studio #auth.auth .web-auth-panel{display:grid;gap:16px;max-width:none;margin:22px 0 0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;text-align:left}
+html body.studio #auth.auth .web-auth-panel.hidden{display:none!important}
+html body.studio #auth.auth .auth-connection{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 0 20px;border-bottom:1px solid #f3efe612}
+html body.studio #auth.auth .auth-connection>span{display:grid;place-items:center;width:36px;height:36px;border:1px solid #f3efe626;border-radius:11px;background:#1b1914;color:#d6d0c4}
+html body.studio #auth.auth .auth-connection svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+html body.studio #auth.auth .auth-connection>i{position:relative;width:74px;height:1px;background:#f3efe61a;overflow:visible}
+html body.studio #auth.auth .auth-connection b{position:absolute;top:-2px;left:0;width:5px;height:5px;border-radius:50%;background:#d6d0c4;animation:authConnect 2.6s ease-in-out infinite}
+html body.studio #auth.auth .auth-step{display:flex;align-items:flex-start;gap:11px;min-width:0;margin:0;text-align:left}
+html body.studio #auth.auth .auth-step>span{display:grid;place-items:center;flex:0 0 27px;height:27px;border:1px solid #f3efe621;border-radius:8px;background:#1b1914;color:#d6d0c4;font-size:11px;font-weight:600;line-height:1}
+html body.studio #auth.auth .auth-step>div{min-width:0;flex:1}
+html body.studio #auth.auth .auth-step b{display:block;font-size:13px;font-weight:600;line-height:1.5;color:#f3efe6}
+html body.studio #auth.auth .auth-step p{margin:4px 0 0!important;padding:0!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:#969185!important;font-size:11px!important;line-height:1.6!important}
+html body.studio #auth.auth .auth-code-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:-9px;flex-wrap:wrap}
+html body.studio #auth.auth .auth-code-meta>span{font-size:9px;letter-spacing:.1em;color:#969185}
+html body.studio #auth.auth #webAuthExpiry{display:block;margin:0;color:#969185;font-size:10px;line-height:1.5;font-variant-numeric:tabular-nums}
+html body.studio #auth.auth .web-auth-command{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:8px 8px 8px 13px!important;border:1px solid #f3efe628!important;border-radius:12px!important;background:#080808!important;box-shadow:none}
+html body.studio #auth.auth .web-auth-command code{display:block;flex:1 1 140px;min-width:0;padding:4px 0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:14px!important;font-weight:500;line-height:1.6;letter-spacing:0!important;white-space:normal;overflow-wrap:anywhere;color:#f3efe6!important;user-select:all}
+html body.studio #auth.auth .web-auth-command button{flex:none;min-height:40px;margin:0;padding:9px 11px;border:1px solid #f3efe624;border-radius:8px;background:#24211b!important;color:#f3efe6!important;font-size:11px;line-height:1.4;font-weight:600;cursor:pointer;transition:background .18s}
+html body.studio #auth.auth .web-auth-command button:disabled{opacity:.45;cursor:wait}
+html body.studio #auth.auth .web-bot-link{display:flex!important;flex-direction:row!important;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;width:100%;min-height:48px;margin:0;padding:12px 16px;border:1px solid #f3efe6!important;border-radius:12px;background:#f3efe6!important;color:#151410!important;font-size:13px;font-weight:600;line-height:1.5;text-decoration:none;box-shadow:none!important;transition:background .18s,transform .18s}
+html body.studio #auth.auth .web-bot-link svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+html body.studio #auth.auth .web-bot-link span:last-child{margin-left:auto;font-size:17px;line-height:1}
+html body.studio #auth.auth .web-bot-link span#webBotLabel{flex:1;min-width:0;overflow-wrap:anywhere}
+html body.studio #auth.auth .web-bot-link.hidden{display:none!important}
+html body.studio #auth.auth .auth-status{display:flex;align-items:center;justify-content:center;gap:8px;min-height:22px;text-align:center}
+html body.studio #auth.auth .auth-status i{display:block;flex:none;width:6px;height:6px;border-radius:50%;background:#c3b99f;animation:authWait 1.8s ease-in-out infinite}
+html body.studio #auth.auth #webAuthStatus{display:block;min-width:0;margin:0;padding:0!important;border:0!important;border-radius:0!important;background:none!important;color:#aaa394!important;font-size:11px!important;line-height:1.65;text-align:center;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
+html body.studio #auth.auth #webAuthRenew{display:block;width:auto;min-height:36px;margin:-8px auto 0!important;padding:8px 10px!important;border:0!important;border-radius:8px!important;background:transparent!important;color:#b6af9f!important;box-shadow:none!important;font-size:11px!important;font-weight:500;text-transform:none;letter-spacing:0}
+html body.studio #auth.auth .auth-session-note{display:flex;align-items:flex-start;justify-content:center;gap:6px;padding-top:16px;border-top:1px solid #f3efe612;color:#8f897c;font-size:10px!important;line-height:1.7;text-align:center}
+html body.studio #auth.auth .auth-session-note svg{flex:none;width:13px;height:13px;margin-top:1px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+html body.studio #auth.auth #retry{min-height:46px;width:100%;margin-top:20px;text-transform:none;letter-spacing:0}
+html body.studio #auth.auth :is(button,a):focus-visible{outline:2px solid #f3efe6!important;outline-offset:4px}
+html body.studio #auth.auth[data-auth-state="loading"] .web-auth-command{background:linear-gradient(110deg,#080808 30%,#27231a 50%,#080808 70%)!important;background-size:250% 100%!important;animation:authSkeleton 2s linear infinite}
+html body.studio #auth.auth[data-auth-state="copied"] [data-auth-step="1"]>span{background:#f3efe6;color:#151410}
+html body.studio #auth.auth[data-auth-state="copied"] [data-auth-step="2"]>span{border-color:#d6d0c4;color:#f3efe6}
+html body.studio #auth.auth[data-auth-state="approved"] .auth-status i{animation:none;background:#99c8ab}
+html body.studio #auth.auth[data-auth-state="expired"] :is(.auth-status i,.auth-connection b),html body.studio #auth.auth[data-auth-state="error"] :is(.auth-status i,.auth-connection b){animation:none;background:#bba27e}
+html body.studio #auth.auth[data-auth-state="expired"] .web-auth-command{opacity:.55}
+html body.studio #auth.auth[data-auth-state="error"] #webAuthStatus{color:#c9b294!important}
+@media(hover:hover){html body.studio #auth.auth .web-bot-link:hover{background:#ded7c8!important;transform:translateY(-1px)}html body.studio #auth.auth .web-auth-command button:hover{background:#312c23!important}}
+@media(max-width:520px){html body.studio #auth.auth{margin:10px auto 24px!important;padding:26px 20px!important;border-radius:22px!important}html body.studio #auth.auth .auth-art{height:88px;margin-bottom:18px}html body.studio #auth.auth .auth-art img{width:88px;height:88px}html body.studio #auth.auth h1{font-size:26px!important}}
+@media(max-height:700px){html body.studio #auth.auth .auth-art{height:70px;margin-bottom:14px}html body.studio #auth.auth .auth-art img{width:70px;height:70px}}
+@keyframes authArrive{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes authConnect{0%{transform:translateX(0);opacity:0}20%{opacity:1}80%{opacity:1}100%{transform:translateX(69px);opacity:0}}
+@keyframes authWait{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes authSkeleton{to{background-position:-250% 0}}
+@media(prefers-reduced-motion:reduce){html body.studio #auth.auth,html body.studio #auth.auth *,html body.studio #auth.auth[data-auth-state="loading"] .web-auth-command{animation:none!important;transition:none!important}}
+html.perf-lite body.studio #auth.auth,html.perf-lite body.studio #auth.auth *,html.perf-lite body.studio #auth.auth[data-auth-state="loading"] .web-auth-command{animation:none!important;transition:none!important}

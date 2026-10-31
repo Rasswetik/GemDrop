@@ -1,4 +1,4 @@
-/* One bundled artwork per page load. Keep the inline crystal until it is ready. */
+/* One bundled artwork per page load. Show a neutral placeholder until decoded. */
 (function () {
   'use strict';
   var root = document.getElementById('loader');
@@ -27,15 +27,24 @@
     // Settings can refresh during boot; do not restart the selected animation.
     if (src === current) return;
     current = src;
+    root.classList.add('is-loading');
+    root.classList.remove('custom-img');
+    img.hidden = true;
+    delete root.dataset.loaderArt;
     var id = ++request, next = new Image();
     next.decoding = 'async';
     next.onload = function () {
-      if (id !== request) return;
-      img.src = src;
-      img.hidden = false;
-      img.classList.toggle('ld-drift', !!art.still && !lite);
-      root.dataset.loaderArt = art.name;
-      root.classList.add('custom-img');
+      function reveal() {
+        if (id !== request) return;
+        img.src = src;
+        img.hidden = false;
+        img.classList.toggle('ld-drift', !!art.still && !lite);
+        root.dataset.loaderArt = art.name;
+        root.classList.add('custom-img');
+        root.classList.remove('is-loading');
+      }
+      if (typeof next.decode === 'function') next.decode().then(reveal, reveal);
+      else reveal();
     };
     next.onerror = function () {
       if (id !== request) return;
@@ -43,6 +52,7 @@
       img.hidden = true;
       img.classList.remove('ld-drift');
       root.classList.remove('custom-img');
+      root.classList.remove('is-loading');
       delete root.dataset.loaderArt;
     };
     next.src = src;
